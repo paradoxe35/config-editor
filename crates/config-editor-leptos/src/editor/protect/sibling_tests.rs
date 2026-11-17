@@ -5,18 +5,21 @@
 //! is locked (a read-only path, the schema's `readOnly`, a host range over
 //! the value or its line). The locked field still reads as before, and
 //! still refuses typing; a second key of the locked field typed there is
-//! still refused.
+//! taken, and the save waits while it is there.
 //!
 //! The first characters of a new line leave the text unparseable; they
 //! used to be refused as if they joined the locked field.
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::codec;
 use super::super::edit::Edit;
+use super::super::language::Repetition;
 use super::super::state::EditorState;
-use super::taken_tests::{KINDS_OF_LEAF, Sample, mount, sample, typed_into, units};
+use super::taken_tests::{KINDS_OF_LEAF, Kind, Sample, mount, sample, typed_into, units};
 
 /// Per language: the indent of the block's entries, a new entry, one with
 /// a flow (or nested) value, the leaf's key written as a new entry, and
@@ -92,7 +95,7 @@ fn insert(state: EditorState, at: usize, with: &str) -> bool {
         "insertText"
     };
     let start = units(&before, at);
-    let edit = Edit::input(
+    let edit = Edit::input_units(
         before,
         (start, start),
         after,
@@ -108,7 +111,7 @@ fn backspace(state: EditorState, at: usize) -> bool {
     let before = state.doc().text.get_untracked();
     let after = format!("{}{}", &before[..at - 1], &before[at..]);
     let start = units(&before, at - 1);
-    let edit = Edit::input(
+    let edit = Edit::input_units(
         before,
         (start + 1, start + 1),
         after,
@@ -200,14 +203,19 @@ fn a_sibling_of_a_locked_field_is_typed_freely() {
             } else if let Some(why) = lock_holds(state, language, &sample) {
                 fail(format!("separator: {why}"));
             }
-            // The locked key typed again beside it stays refused.
+            // The locked key typed again beside it is taken (no locked text
+            // changes), and the save waits while it is there.
             let (_owner, state) = mount(language, kind);
             let at = line_end(sample.text, anchors(&sample)[1]);
             insert(state, at, &format!("\n{}", writing.indent));
             type_at(state, at + 1 + writing.indent.len(), writing.duplicate);
             let now = state.doc().text.get_untracked();
-            if now.contains(writing.duplicate) {
-                fail(format!("a second locked key let through: {now:?}"));
+            // A host range keeps its text: where the language repeats an
+            // element for a list (XML), a second copy is a new item.
+            let range = matches!(kind, Kind::RangeOverValue | Kind::RangeOverLine);
+            let repeats = language.behavior().repetition() != Repetition::None;
+            if now.contains(writing.duplicate) && state.save() && !(range && repeats) {
+                fail(format!("a second locked key saved: {now:?}"));
             }
         }
     }

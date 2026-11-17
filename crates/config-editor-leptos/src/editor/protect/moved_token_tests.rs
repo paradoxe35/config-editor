@@ -3,6 +3,8 @@
 //! and flagged (it must never stand for another field's secret); cut and
 //! pasted back into its own field, it is real again.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
@@ -25,18 +27,16 @@ fn replace(state: EditorState, range: std::ops::Range<usize>, with: &str) -> boo
     let after = format!("{}{with}{}", &before[..range.start], &before[range.end..]);
     let (start, end) = (utf16(&before, range.start), utf16(&before, range.end));
     let caret = start + with.encode_utf16().count();
-    state.commit(Edit::new(before, (start, end), after, caret))
+    state.commit(Edit::new_units(before, (start, end), after, caret))
 }
 
 /// Whether the token written at byte `at` of the shown text is real.
 fn real_at(state: EditorState, at: usize) -> bool {
-    let text = state.doc().text.get_untracked();
-    let at = utf16(&text, at);
     state
         .protect()
         .secrets
         .tokens
-        .with_untracked(|tokens| tokens.iter().any(|token| token.start == at))
+        .with_untracked(|tokens| tokens.iter().any(|token| usize::from(token.start()) == at))
 }
 
 /// The warnings on placeholders of the shown text.

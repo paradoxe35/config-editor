@@ -9,7 +9,8 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use crate::editor::diagnostics::{MAX_DIAGNOSTICS, Schema};
+use crate::editor::diagnostics::MAX_DIAGNOSTICS;
+use crate::editor::schema::Schema;
 use crate::editor::work_count::{Work, counted};
 use crate::editor::{
     CheckProblem, CheckedDocument, CompiledSchema, Language, SchemaCheck, SchemaCompiler,

@@ -1,5 +1,7 @@
 //! The tolerant token scan the rest of the language reads.
 
+use crate::editor::text::{TextRange, byte_range, slice};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
     /// `<name ...`, `</name`, or `<>`: `name` is empty for a bare `<`.
@@ -23,44 +25,30 @@ pub(super) struct Token {
     pub(super) kind: Kind,
 }
 
+impl Token {
+    /// The bytes it covers in the text it was read from.
+    pub(super) fn range(&self) -> TextRange {
+        byte_range(self.start..self.end)
+    }
+
+    /// Whether the tag closes itself (`<a/>`) in `source`.
+    pub(super) fn closes_itself(&self, source: &str) -> bool {
+        slice::before(source, self.range().end()).is_some_and(|head| head.ends_with("/>"))
+    }
+}
+
+/// [`tokenize_text`] of `source`, shared through the parse cache: one
+/// keystroke's completion, hover and spans each tokenize the same document.
+/// For a whole text: a line alone is read by [`tokenize_text`], so it does
+/// not push the document's tokens out.
+pub(super) fn tokenize(source: &str) -> Vec<Token> {
+    crate::editor::parse_cache::reading(source, (), || tokenize_text(source)).to_vec()
+}
+
 /// Splits `source` into XML tokens. Never fails: an unclosed tag, quote, or
 /// comment ends at the input end. Comments stay whole so `<!-- <a> -->` never
 /// feeds markup to the scan; other `<!...>`/`<?...?>` markup is a `Special`
 /// the scan ignores.
-/// A text's hash and length with its tokens.
-type Remembered = (u64, usize, std::rc::Rc<Vec<Token>>);
-
-thread_local! {
-    static LAST: std::cell::RefCell<Option<Remembered>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Forgets the last text's tokens.
-pub(super) fn forget_tokens() {
-    let _ = LAST.try_with(|last| last.borrow_mut().take());
-}
-
-#[cfg(test)]
-pub(super) fn tokens_kept() -> bool {
-    LAST.with(|last| last.borrow().is_some())
-}
-
-/// [`tokenize_text`] of `source`, remembered for the last text: one
-/// keystroke's completion, hover and spans each tokenize the same document.
-pub(super) fn tokenize(source: &str) -> Vec<Token> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let key = (hasher.finish(), source.len());
-    if let Some(tokens) = LAST.with(|last| {
-        last.borrow().as_ref().filter(|(hash, len, _)| (*hash, *len) == key).map(|(_, _, tokens)| tokens.clone())
-    }) {
-        return tokens.to_vec();
-    }
-    let tokens = std::rc::Rc::new(tokenize_text(source));
-    LAST.with(|last| *last.borrow_mut() = Some((key.0, key.1, tokens.clone())));
-    tokens.to_vec()
-}
-
 pub(super) fn tokenize_text(source: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let bytes = source.as_bytes();

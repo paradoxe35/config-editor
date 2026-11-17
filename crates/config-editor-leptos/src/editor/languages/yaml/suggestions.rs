@@ -2,17 +2,6 @@
 
 use super::*;
 
-/// The default a suggestion writes for `property`: one YAML reads back as
-/// it is, else none (the caret stays where the value goes).
-fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_default(&YamlBehavior, property, root)
-}
-
-/// The `const` a suggestion writes for `property`, as [`written_default`].
-fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_const(&YamlBehavior, property, root)
-}
-
 /// Values left empty at line ends (`key: `, `key:`), not a key whose
 /// value is the block below it (`limits:` over more indented lines, or a
 /// list at its own indent).
@@ -216,185 +205,92 @@ fn write_flow(children: &[RequiredChild<'_>], insert: &mut String, cursor: &mut 
     insert.push('}');
 }
 
-/// Insert text for a property inside a flow mapping (`key: { a: 1, | }`):
-/// everything stays in flow style on one line, since a block mapping is
-/// invalid there. Nested objects open `{ child: | }`, arrays open `[|]`.
-pub(super) fn flow_property_insert(key: &str, property: &Value, root: &Value) -> Option<(String, usize)> {
-    let yaml_key = yaml_key(key);
-    let flow = |value: &Value| match value {
-        Value::Array(_) | Value::Object(_) => serde_json::to_string(value).unwrap_or_default(),
-        _ => yaml_value(value),
-    };
-    let mut insert = format!("{yaml_key}: ");
-    let mut cursor = None;
-    if let Some(value) = written_const(property, root) {
-        insert.push_str(&flow(value));
-    } else if let Some(default) = written_default(property, root).filter(|value| {
-        !value.as_array().is_some_and(Vec::is_empty)
-            && !value.as_object().is_some_and(serde_json::Map::is_empty)
-    }) {
-        insert.push_str(&flow(default));
-    } else if array_branch(property, root).is_some() {
-        insert.push('[');
-        cursor = Some(insert.len());
-        insert.push(']');
-    } else if object_branch(property, root).is_some() {
-        write_flow(&required_children(&YamlBehavior, property, root), &mut insert, &mut cursor);
-        // Past the children: the caret before the closing brace.
-        cursor.get_or_insert(insert.len() - 1);
-    }
-    let cursor = insert[..cursor.unwrap_or(insert.len())]
-        .encode_utf16()
-        .count();
-    Some((insert, cursor))
-}
-
-pub(super) fn property_completion_insert(
-    key: &str,
-    property: &Value,
-    root: &Value,
-    base_indent: &str,
-    unit: &str,
-) -> Option<(String, usize)> {
-    let yaml_key = yaml_key(key);
+/// The text a suggestion of `key` inserts for `plan` in a block mapping,
+/// with the caret where the user types the value: a list opens its first
+/// item below the key, an object its required children (or a line for
+/// its entries).
+pub(super) fn block_insert(key: &str, plan: &InsertPlan<'_>, base_indent: &str, unit: &str) -> (String, usize) {
     let child_indent = format!("{base_indent}{unit}");
-    let mut insert = format!("{yaml_key}:");
-    if let Some(value) = written_const(property, root) {
-        insert.push(' ');
-        insert.push_str(&yaml_value(value));
-    } else if array_branch(property, root).is_some() {
-        let default = written_default(property, root);
-        if default.is_some_and(|value| value.as_array().is_some_and(Vec::is_empty)) {
-            // An empty list default stays one, the caret inside it: an item
-            // left empty (`- `) reads as `[null]`.
-            insert.push_str(" []");
-            let cursor = insert.encode_utf16().count() - 1;
-            return Some((insert, cursor));
-        }
-        if let Some(default) = default {
+    let mut insert = format!("{}:", yaml_key(key));
+    let mut caret = None;
+    match plan.value {
+        Planned::Value(value) => {
             insert.push(' ');
-            insert.push_str(&yaml_value(default));
-        } else {
+            insert.push_str(&yaml_value(value));
+        }
+        // An empty list default stays one, the caret inside it: an item
+        // left empty (`- `) reads as `[null]`.
+        Planned::List { empty_default: true, .. } => {
+            insert.push_str(" []");
+            caret = Some(insert.encode_utf16().count() - 1);
+        }
+        Planned::List { .. } => {
             insert.push('\n');
             insert.push_str(&child_indent);
             insert.push_str("- ");
         }
-    } else if let Some(branch) = object_branch(property, root) {
-        let default = written_default(property, root);
-        if let Some(default) =
-            default.filter(|value| !value.as_object().is_some_and(serde_json::Map::is_empty))
-        {
-            insert.push(' ');
-            insert.push_str(&yaml_value(default));
-            let cursor = insert.encode_utf16().count();
-            return Some((insert, cursor));
-        }
-        let mut cursor_offset = None;
-        let children = required_children(&YamlBehavior, property, root);
-        if !children.is_empty() {
+        Planned::Object { .. } if !plan.children.is_empty() => {
             insert.push('\n');
             let base_offset = insert.encode_utf16().count();
             let mut written = String::new();
-            write_children(&children, &child_indent, unit, base_offset, &mut written, &mut cursor_offset);
+            write_children(&plan.children, &child_indent, unit, base_offset, &mut written, &mut caret);
             insert.push_str(&written);
-        } else if branch.get("properties").is_some()
-            || branch.get("patternProperties").is_some()
-            || branch.get("additionalProperties").is_some()
-        {
+        }
+        Planned::Object { named: true } => {
             insert.push('\n');
             insert.push_str(&child_indent);
-        } else {
-            insert.push_str(" {}");
         }
-        let cursor = cursor_offset.unwrap_or_else(|| insert.encode_utf16().count());
-        return Some((insert, cursor));
-    } else if let Some(default) = written_default(property, root) {
-        insert.push(' ');
-        insert.push_str(&yaml_value(default));
-    } else {
-        insert.push(' ');
+        Planned::Object { named: false } => insert.push_str(" {}"),
+        Planned::Empty { .. } => insert.push(' '),
     }
-    let cursor = insert.encode_utf16().count();
-    Some((insert, cursor))
+    let caret = caret.unwrap_or_else(|| insert.encode_utf16().count());
+    (insert, caret)
+}
+
+/// The text a suggestion of `key` inserts for `plan` inside a flow
+/// mapping (`key: { a: 1, | }`): everything stays in flow style on one
+/// line, since a block mapping is invalid there. Nested objects open
+/// `{ child: | }`, lists open `[|]`.
+pub(super) fn flow_insert(key: &str, plan: &InsertPlan<'_>) -> (String, usize) {
+    let flow = |value: &Value| match value {
+        Value::Array(_) | Value::Object(_) => serde_json::to_string(value).unwrap_or_default(),
+        _ => yaml_value(value),
+    };
+    let mut insert = format!("{}: ", yaml_key(key));
+    let mut cursor = None;
+    match plan.value {
+        Planned::Value(value) => insert.push_str(&flow(value)),
+        Planned::List { .. } => {
+            insert.push('[');
+            cursor = Some(insert.len());
+            insert.push(']');
+        }
+        Planned::Object { .. } => {
+            write_flow(&plan.children, &mut insert, &mut cursor);
+            // Past the children: the caret before the closing brace.
+            cursor.get_or_insert(insert.len() - 1);
+        }
+        Planned::Empty { .. } => {}
+    }
+    let cursor = insert[..cursor.unwrap_or(insert.len())].encode_utf16().count();
+    (insert, cursor)
 }
 
 /// Finds the mapping colon on a single line, ignoring colons inside quoted
 /// scalars and comments.
 pub(super) fn mapping_colon(line: &str) -> Option<usize> {
-    let mut quote = None;
-    let mut escaped = false;
-    for (index, character) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if quote.is_none() && character == '#' {
-            let starts_comment = index == 0
-                || line[..index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace);
-            if starts_comment {
-                return None;
-            }
-        }
-        match (quote, character) {
-            (Some('"'), '\\') => escaped = true,
-            (Some(active), character) if active == character => quote = None,
-            (None, '"' | '\'') => quote = Some(character),
-            (None, ':')
-                if line[index + 1..]
-                    .chars()
-                    .next()
-                    .is_none_or(char::is_whitespace) =>
-            {
-                return Some(index);
-            }
-            _ => {}
-        }
-    }
-    None
+    super::lexical::key_colon(line, super::lexical::Comments::End)
 }
 
 /// Comment-blind variant of [`mapping_colon`], used when scanning value
 /// context: a `#` never ends the scan, so colons after it still count.
 pub(super) fn mapping_colon_anywhere(line: &str) -> Option<usize> {
-    let mut quote = None;
-    let mut escaped = false;
-    for (index, character) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match (quote, character) {
-            (Some('"'), '\\') => escaped = true,
-            (Some(active), character) if active == character => quote = None,
-            (None, '"' | '\'') => quote = Some(character),
-            (None, ':')
-                if line[index + 1..]
-                    .chars()
-                    .next()
-                    .is_none_or(char::is_whitespace) =>
-            {
-                return Some(index);
-            }
-            _ => {}
-        }
-    }
-    None
+    super::lexical::key_colon(line, super::lexical::Comments::AsCode)
 }
 
 /// Length of the scalar at the start of `text`, stopping before an inline comment.
 pub(super) fn value_token_len(text: &str) -> usize {
-    let mut end = text.len();
-    for (index, character) in text.char_indices() {
-        let comment_start =
-            character == '#' && (index == 0 || text[..index].ends_with([' ', '\t']));
-        if comment_start {
-            end = index;
-            break;
-        }
-    }
+    let end = line_comment_start(text).unwrap_or(text.len());
     text[..end].trim_end().len()
 }
 
@@ -629,7 +525,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             if source[content..].starts_with("- ") {
                 content += 2;
             }
-            let base = completion_context(source, crate::editor::paths::units_at(source, content)).path;
+            let base = completion_context(source, crate::editor::paths::api_units(source, content)).path;
             Some((base, content))
         }
         Some(_) => Some((path.clone(), current_line_start + content_start)),
@@ -646,8 +542,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         let context = |path, typed, start: usize, end: usize| CompletionContext {
             path,
             typed,
-            replace_start: crate::editor::paths::units_at(source, content_byte + start),
-            replace_end: crate::editor::paths::units_at(source, end),
+            replace_start: crate::editor::paths::api_units(source, content_byte + start),
+            replace_end: crate::editor::paths::api_units(source, end),
             base_indent: base_indent.clone(),
             position: EntryPosition::Inline,
             ..Default::default()
@@ -690,7 +586,10 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         .chars()
         .take_while(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
         .collect();
-    let replace_end_byte = if splits { cursor } else { replace_end_byte };
+    // The caret as the content sees it: at the content's start when it is in
+    // the dashes or indentation before it (`-‸ key: 1`).
+    let caret_byte = current_line_start + content_start + cursor_in_content;
+    let replace_end_byte = if splits { caret_byte } else { replace_end_byte };
     // A key typed in the indentation, between its parent's column and its
     // siblings' (`websocket:\n  path: /x\n ke|`): it is written at the
     // siblings' column, and an entry after it on the line goes to its own.
@@ -698,7 +597,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         && !current_is_array_item
         && content_offset == 0
         && let Some(parent) = parent_level
-        && let Some(column) = sibling_column(source, current_line_start, current_line_end, parent)
+        && let Some(column) = sibling_column(source, current_line_start, current_line_end, parent, candidate_colon.is_some().then_some(indent))
         && column != indent
         && parent.is_none_or(|parent| indent > parent)
     {
@@ -708,10 +607,10 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         return CompletionContext {
             path,
             typed,
-            replace_start: crate::editor::paths::units_at(source, current_line_start),
-            // A lookup while a batch asks many places (a count of the text
-            // before it for each was quadratic, QA 36).
-            replace_end: crate::editor::paths::units_at(source, if splits || entry_after_space { cursor + gap } else { replace_end_byte.min(source.len()) }),
+            replace_start: crate::editor::paths::api_units(source, current_line_start),
+            // A lookup while a batch asks many places (counting
+            // the text before each place again would be quadratic).
+            replace_end: crate::editor::paths::api_units(source, if splits || entry_after_space { caret_byte + gap } else { replace_end_byte.min(source.len()) }),
             entry_prefix: siblings.clone(),
             entry_suffix: if splits || entry_after_space { format!("\n{siblings}") } else { String::new() },
             entry_after: (splits && gap == 0).then_some(word_after),
@@ -729,8 +628,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     CompletionContext {
         path,
         typed,
-        replace_start: crate::editor::paths::units_at(source, typed_start_byte),
-        replace_end: crate::editor::paths::units_at(source, replace_end_byte.min(source.len())),
+        replace_start: crate::editor::paths::api_units(source, typed_start_byte),
+        replace_end: crate::editor::paths::api_units(source, replace_end_byte.min(source.len())),
         root_item,
         root_value: root_item.map(|_| ("- ", "")),
         value_key,
@@ -745,8 +644,10 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
 
 /// The column the entries of a mapping write their keys at, found from the
 /// lines around the caret's (`start..end`) that sit deeper than the
-/// mapping's key at `parent` (any line for the top level).
-fn sibling_column(source: &str, start: usize, end: usize, parent: Option<usize>) -> Option<usize> {
+/// mapping's key at `parent` (any line for the top level). When the
+/// caret's line holds a key at column `key` (`hea|tcp:`), the lines right
+/// below it that sit deeper are that key's value, not its siblings.
+fn sibling_column(source: &str, start: usize, end: usize, parent: Option<usize>, key: Option<usize>) -> Option<usize> {
     let indent_of = |line: &str| {
         let trimmed = line.trim_start_matches([' ', '\t']);
         (!trimmed.is_empty() && !trimmed.starts_with('#')).then(|| line.len() - trimmed.len())
@@ -760,123 +661,9 @@ fn sibling_column(source: &str, start: usize, end: usize, parent: Option<usize>)
     let after = source[(end + 1).min(source.len())..]
         .lines()
         .filter_map(indent_of)
+        .skip_while(|column| key.is_some_and(|key| *column > key))
         .take_while(|column| inside(*column));
     before.chain(after).min()
-}
-
-pub(super) fn existing_mapping_keys(
-    source: &str,
-    cursor_byte: usize,
-    path: &[SchemaPathSegment],
-) -> Option<HashSet<String>> {
-    // A half-typed key makes the document unparsable, so parse without the
-    // caret's line; the other keys in this mapping still get filtered.
-    let line_start = source[..cursor_byte]
-        .rfind('\n')
-        .map_or(0, |newline| newline + 1);
-    let line_end = source[line_start..]
-        .find('\n')
-        .map_or(source.len(), |newline| line_start + newline);
-    if let Some(statement) = statement_start_at(source, cursor_byte)
-        && let Some(keys) = inline_sibling_keys(&source[statement..], b':', cursor_byte - statement)
-    {
-        return Some(keys.into_iter().collect());
-    }
-    let sanitized = caret_line_left_out(source, line_start, line_end);
-    let Ok(parser_config) = super::limits::parser_config(&sanitized) else {
-        return Some(sibling_block_keys(source, line_start, line_end));
-    };
-    let parser_config = parser_config.duplicate_key_policy(DuplicateKeyPolicy::Error);
-    let Ok(document) = noyalib::from_str_with_config::<Value>(&sanitized, &parser_config) else {
-        return Some(sibling_block_keys(source, line_start, line_end));
-    };
-    let mapping = path
-        .iter()
-        .try_fold(&document, |value, segment| match segment {
-            SchemaPathSegment::Key(key) => value.get(key),
-            SchemaPathSegment::ArrayItem(index) => value.get(index),
-        })?
-        .as_object()?;
-    let current_line = source[..cursor_byte]
-        .rsplit('\n')
-        .next()
-        .unwrap_or_default();
-    let current_line = current_line.trim_start().trim_start_matches("- ");
-    let current_key = mapping_colon_anywhere(current_line).map(|colon| {
-        without_node_properties(current_line[..colon].trim())
-            .trim_matches(['\'', '"'])
-            .to_string()
-    });
-    Some(
-        mapping
-            .keys()
-            .filter(|key| current_key.as_deref() != Some(key.as_str()))
-            .cloned()
-            .collect(),
-    )
-}
-
-/// The text with the caret's line left out, but for the list items it
-/// starts (`- na|` keeps `-`): the item stays where it is, holding what is
-/// written below it, so the items after it keep their places.
-pub(super) fn caret_line_left_out(source: &str, line_start: usize, line_end: usize) -> String {
-    let line = &source[line_start..line_end];
-    let mut content = line.trim_start_matches([' ', '\t']);
-    while let Some(after_dash) = dash_item(content) {
-        content = after_dash;
-    }
-    let dashes = line[..line.len() - content.len()].trim_end();
-    format!("{}{dashes}{}", &source[..line_start], &source[line_end..])
-}
-
-/// Keys of the block mapping holding the caret's line, by indentation: the
-/// lines whose keys sit at the caret's key column, bounded by shallower
-/// lines and by the list item holding the mapping (its dash line starts
-/// it: the keys of the items before and after are not its own). Used when
-/// the rest of the document does not parse.
-pub(super) fn sibling_block_keys(source: &str, line_start: usize, line_end: usize) -> HashSet<String> {
-    let key_of = |content: &str| -> Option<String> {
-        let colon = mapping_colon_anywhere(content)?;
-        Some(without_node_properties(content[..colon].trim()).trim_matches(['\'', '"']).to_string())
-    };
-    let written = |line: &&str| !line.trim().is_empty() && !line.trim_start().starts_with('#');
-    let (indent, column, _) = columns(&source[line_start..line_end]);
-    let mut keys = HashSet::new();
-    // Above, unless the caret's line starts the item: up to the item's dash
-    // line or a shallower one.
-    if column == indent {
-        for line in source[..line_start.saturating_sub(1)].lines().rev().filter(written) {
-            let (line_indent, line_column, content) = columns(line);
-            if line_column == column {
-                keys.extend(key_of(content));
-            }
-            if line_indent < column {
-                break;
-            }
-        }
-    }
-    // Below: while the lines sit at least as deep as the keys.
-    for line in source[line_end..].lines().skip(1).filter(written) {
-        let (line_indent, line_column, content) = columns(line);
-        if line_indent < column {
-            break;
-        }
-        if line_column == column {
-            keys.extend(key_of(content));
-        }
-    }
-    keys
-}
-
-/// A line's indentation, the column its key sits at (past its dashes),
-/// and its text from there.
-fn columns(line: &str) -> (usize, usize, &str) {
-    let mut content = line.trim_start_matches(' ');
-    let indent = line.len() - content.len();
-    while let Some(after_dash) = dash_item(content) {
-        content = after_dash;
-    }
-    (indent, line.len() - content.len(), content)
 }
 
 /// The text after a leading `- ` (a block sequence item), or `None`.

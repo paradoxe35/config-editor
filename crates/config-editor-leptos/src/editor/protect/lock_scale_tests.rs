@@ -11,7 +11,7 @@ use super::super::Language;
 use super::super::codec;
 use super::super::paths::FieldPath;
 use super::super::work_count::{Work, counted};
-use super::locate::{Extent, LineIndex, extent, lookup};
+use super::locate::{Extent, LineIndex, extent};
 use super::locks::{Protected, Sources, protect};
 use super::save::range_pointers;
 
@@ -21,14 +21,12 @@ fn covered(language: Language, blocks: usize) -> (Vec<String>, usize) {
     let text = text(language, blocks);
     let behavior = language.behavior();
     let document = codec::read(behavior, &text, None).expect("parses");
-    let ranges: Vec<std::ops::Range<usize>> = [1, 3]
+    let ranges: Vec<super::super::text::TextRange> = [1, 3]
         .iter()
         .map(|index| {
             let host = format!("h{index}.example.com");
-            let at = text[..text.find(&host).expect("written")]
-                .encode_utf16()
-                .count();
-            at + 1..at + 2
+            let at = super::super::text::text_size(text.find(&host).expect("written"));
+            super::super::text::TextRange::at(at + super::super::text::TextSize::from(1), 1.into())
         })
         .collect();
     counted(Work::DocumentRead, || {
@@ -188,15 +186,13 @@ fn locks_placed_together_are_where_each_one_alone_is() {
     for &language in Language::ALL {
         let text = text(language, 30);
         let behavior = language.behavior();
-        let document = codec::read(behavior, &text, None).expect("parses");
         let lines = LineIndex::new(&text);
         for kind in KINDS {
             let together = locked(language, &text, 30, kind).locks;
             assert_eq!(together.len(), 30, "{language} ({kind:?})");
             for lock in together {
                 let pointer = lock.pointer.clone().expect("a field");
-                let value = lookup(&document, &pointer);
-                let alone = extent(behavior, &text, &lines, value, None, &pointer);
+                let alone = extent(behavior, &text, &lines, &pointer);
                 assert_eq!(
                     alone,
                     Some(Extent {

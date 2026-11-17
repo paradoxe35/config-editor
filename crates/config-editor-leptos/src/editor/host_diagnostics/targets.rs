@@ -163,7 +163,7 @@ fn resolve(
             .iter()
             .flatten()
             .filter(|start| start.written.is_none())
-            .map(|start| offset_of(text, start.position, line_breaks_only))
+            .map(|start| usize::from(offset_of(text, start.position, line_breaks_only)))
             .collect();
         let mut read = paths_at(host, text, &unwritten).into_iter();
         problems

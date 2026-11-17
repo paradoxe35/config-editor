@@ -26,6 +26,8 @@ pub(in crate::editor) mod fold_scale_tests;
     feature = "xml"
 ))]
 mod fold_unit_tests;
+#[cfg(all(test, feature = "yaml", feature = "json", feature = "folding"))]
+mod kept_positions_tests;
 pub(super) mod line_edit;
 #[cfg(test)]
 mod line_edit_tests;
@@ -38,6 +40,8 @@ mod page_ruler;
 mod suggestions;
 mod tab;
 mod typing;
+#[cfg(all(test, feature = "protect"))]
+pub(in crate::editor) use navigation::check_before_walk;
 pub(in crate::editor) use typing::WRAP;
 
 use leptos::prelude::*;
@@ -74,25 +78,6 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         "PageUp" | "PageDown" | "Shift" | "Control" | "Alt" | "Meta"
     ) {
         state.view().page_goal.set_value(None);
-    }
-    // Typing refused at a read-only field ends with any key that is not
-    // more of it (see `note_refused`).
-    if matches!(
-        event.key().as_str(),
-        "ArrowLeft"
-            | "ArrowRight"
-            | "ArrowUp"
-            | "ArrowDown"
-            | "Home"
-            | "End"
-            | "PageUp"
-            | "PageDown"
-            | "Backspace"
-            | "Delete"
-            | "Escape"
-            | "Tab"
-    ) {
-        state.forget_refusal();
     }
     if !matches!(
         event.key().as_str(),
@@ -197,7 +182,6 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
         // back itself): the text takes the focus back, not the page.
         let from_tip = from_problem_tip(event);
         state.close_suggestions();
-        state.completion().explicit.set(false);
         super::changes::close_preview(state);
         state.hide_hover();
         state.hide_shown_problem();

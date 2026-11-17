@@ -1,8 +1,10 @@
 //! One host range locks a field in a long text, in every language: a line
 //! typed far from it finds the fields the range covers in work linear in
 //! the text, the text walked from the top a fixed number of times, never
-//! once per value written inline (QA 31: HCL walked the text from the top
+//! once per value written inline (HCL walked the text from the top
 //! for each statement holding a key, 6.6 s per key at 15,000 lines).
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use leptos::prelude::*;
 
@@ -87,7 +89,7 @@ fn typing_work(language: Language, text: &str, locked: &str) -> Vec<usize> {
         let at = before[..byte].encode_utf16().count();
         let after = format!("{}{typed}{}", &before[..byte], &before[byte..]);
         let caret = at + typed.len();
-        let key = Edit::input(
+        let key = Edit::input_units(
             before,
             (at, at),
             after,

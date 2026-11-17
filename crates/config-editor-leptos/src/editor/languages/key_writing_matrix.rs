@@ -9,8 +9,10 @@
 //! `|` marks the caret.
 
 use super::super::completion::{apply_completion, completions};
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
+use super::harness::{At, completing, report, write};
+use crate::editor::language::pointer_key;
 use serde_json::{Value, json};
 
 const KEYS: &[&str] = &[
@@ -30,16 +32,10 @@ const KEYS: &[&str] = &[
 ];
 
 /// Where each language takes a new key, after an entry (`a`).
-fn marked(language: Language) -> &'static str {
-    if language == Language::JSON {
-        "{\n  \"a\": 1,\n  |\n}"
-    } else if language == Language::XML {
-        "<a>1</a>\n|"
-    } else if language == Language::TOML || language == Language::HCL {
-        "a = 1\n|"
-    } else {
-        "a: 1\n|"
-    }
+fn marked(language: Language) -> String {
+    write(language, &json!({"a": 1}), &[], At::NewLine { object: "" })
+        .map(|written| written.marked())
+        .unwrap_or_else(|error| panic!("{error}"))
 }
 
 /// The text after accepting `label` at the caret of `marked`, or `None`
@@ -84,19 +80,13 @@ fn read(language: Language, text: &str, schema: &Value, pointer: &str) -> Option
 }
 
 fn pointer_of(key: &str) -> String {
-    format!("/{}", key.replace('~', "~0").replace('/', "~1"))
+    format!("/{}", pointer_key(key))
 }
 
 #[test]
 fn awkward_keys_read_back_as_written_in_every_language() {
     let mut failures = Vec::new();
-    for language in [
-        Language::YAML,
-        Language::JSON,
-        Language::TOML,
-        Language::HCL,
-        Language::XML,
-    ] {
+    for language in completing() {
         for key in KEYS {
             // Where the writer writes it: at the top, and in an object.
             let at_top = writes(language, &json!({ "a": 1, *key: 1 }), &pointer_of(key));
@@ -147,5 +137,5 @@ fn awkward_keys_read_back_as_written_in_every_language() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }

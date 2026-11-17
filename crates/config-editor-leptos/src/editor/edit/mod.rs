@@ -40,7 +40,10 @@
 //!    shows at the caret. Before anything is written, so a refusal has
 //!    nothing to undo.
 //! 3. **Apply** — what is kept by position follows the edit (secret
-//!    placeholders, the host's ranges; folds inside `write_text`), the text
+//!    placeholders and the host's ranges; and mapped through
+//!    [`Edit::mapping`], with no rule of their own: typed closers, the Tab
+//!    stops an accept left, the current match, and folds inside
+//!    `write_text`), the text
 //!    is written, what is found by reading the text is found again (the
 //!    indent unit, placeholders and ranges after a host text), and the
 //!    selection is placed. Positions follow before the text changes, since
@@ -60,34 +63,56 @@
 //! What a caller does around an edit (closing suggestions, typing aids) is
 //! its own; [`EditorState::commit`] returns whether the edit was made.
 
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
+mod browser;
+mod change;
+#[cfg(test)]
+mod change_tests;
 mod origin;
 mod pipeline;
 #[cfg(all(test, feature = "yaml"))]
 mod tests;
 
+pub(super) use change::{Assoc, Change, Moved};
 pub(super) use origin::Origin;
 #[cfg(all(test, feature = "yaml"))]
 pub(super) use pipeline::{Stage, take_trace};
 
 use leptos::prelude::*;
 
+#[cfg(test)]
+use super::bridge::links::Splice;
 use super::fold_ranges::FoldRange;
-use super::history::{Selection, Snapshot};
-use super::input::{UNKNOWN_SELECTION, edit_range};
+use super::history::Selection;
+use super::input::UNKNOWN_SELECTION;
 use super::languages::Language;
-use super::state::{EditorState, textarea_selection};
+use super::state::{EditorState, directed_selection};
+#[cfg(test)]
+use super::text::byte_of;
+use super::text::{TextRange, TextSize};
 
-/// A change to the document: the text before and after, the selection it
-/// was made on, where the selection goes, and what made it.
+/// A change to the document: the text before, what the edit did to it
+/// (the text after is made from that), the selection it was made on,
+/// where the selection goes, and what made it.
 pub(super) struct Edit {
     /// The document before.
     pub(super) before: String,
-    /// The selection the edit replaced, in `before`;
-    /// [`UNKNOWN_SELECTION`] when the browser did not say (read off the
-    /// change instead).
-    pub(super) selection: Selection,
-    /// The document after.
+    /// What the edit does to `before`.
+    made: Change,
+    /// Whether the code making the edit said `made` (a command, browser
+    /// input whose facts the texts confirm, an undo of such edits); else it
+    /// was read off the two texts (see [`Self::change`]).
+    told: bool,
+    /// The document after: `made` made of `before`.
     pub(super) text: String,
+    /// The selection the edit was made on, as (anchor, caret) bytes of
+    /// `before`: undo and a refusal put it back.
+    pub(super) restore: Selection,
     pub(super) after: After,
     pub(super) origin: Origin,
     /// The language `text` is in, when the edit changes the language on
@@ -104,8 +129,8 @@ pub(super) enum After {
     /// `anchor..caret` selected, the caret scrolled into view with
     /// `reveal`.
     Select {
-        anchor: usize,
-        caret: usize,
+        anchor: TextSize,
+        caret: TextSize,
         reveal: bool,
     },
     /// Where the browser left it after its own edit; set again only when
@@ -119,23 +144,75 @@ pub(super) enum After {
     Kept,
 }
 
+/// What an undo or redo does, as its step recorded it (see
+/// `history::Next`), made on the text as it is.
+pub(super) struct Stepped {
+    pub(super) change: Change,
+    pub(super) told: bool,
+    /// The selection it puts back, (anchor, caret) bytes of the text after.
+    pub(super) selection: Selection,
+    pub(super) language: Option<Language>,
+    pub(super) folds: Option<Vec<FoldRange>>,
+}
+
 impl Edit {
-    /// A command replacing `selection` of `before` with `text`, the caret
-    /// left at `caret`, in view.
-    pub(super) fn new(before: String, selection: Selection, text: String, caret: usize) -> Self {
+    /// `made` of `before`, as a command makes it (`origin` set after).
+    fn making(before: String, made: Change, told: bool, restore: Selection, after: After) -> Self {
+        let (made, text) = match made.apply(&before) {
+            Some(text) => (made, text),
+            // Made on another text: a bug in the code making it, which
+            // changes nothing rather than something else.
+            None => {
+                debug_assert!(false, "a change made on another text");
+                (Change::unchanged(&before), before.clone())
+            }
+        };
         Self {
             before,
-            selection,
+            made,
+            told,
             text,
-            after: After::Select {
-                anchor: caret,
-                caret,
-                reveal: true,
-            },
+            restore,
+            after,
             origin: Origin::Command,
             language: None,
             folds: None,
         }
+    }
+
+    /// A command making `change` of `before` from the selection `restore`
+    /// ((anchor, caret), bytes, where undo puts it back), the caret left
+    /// where the text it wrote ends, in view.
+    pub(super) fn command(before: String, change: Change, restore: Selection) -> Self {
+        let mut edit = Self::making(before, change, true, restore, After::Kept);
+        let caret = edit.written_to();
+        edit.after = After::Select {
+            anchor: caret,
+            caret,
+            reveal: true,
+        };
+        edit
+    }
+
+    /// A command giving `text` from `before`, whose change is the
+    /// `selection` replaced when the texts agree it is, else read off the
+    /// texts by the caret `caret` (a byte of `text`) it leaves: the host's
+    /// text a reload writes, and the tests'.
+    pub(super) fn new(before: String, selection: Selection, text: String, caret: TextSize) -> Self {
+        let (start, end) = (selection.0.min(selection.1), selection.0.max(selection.1));
+        let said = (selection != UNKNOWN_SELECTION)
+            .then(|| Change::replacing_selection(&before, &text, TextRange::new(start, end)))
+            .flatten();
+        let (made, told) = match said {
+            Some(change) => (change, true),
+            None => (Change::diffed_at(&before, &text, caret), false),
+        };
+        let after = After::Select {
+            anchor: caret,
+            caret,
+            reveal: true,
+        };
+        Self::making(before, made, told, selection, after)
     }
 
     /// A key typed that the editor applies itself where the browser would
@@ -151,12 +228,118 @@ impl Edit {
         self
     }
 
-    /// Leaves `anchor..caret` selected.
+    /// Leaves `anchor..caret` selected (bytes of the text after).
+    pub(super) fn selecting(mut self, anchor: TextSize, caret: TextSize) -> Self {
+        if let After::Select {
+            anchor: at,
+            caret: to,
+            ..
+        } = &mut self.after
+        {
+            (*at, *to) = (anchor, caret);
+        }
+        self
+    }
+
+    /// [`Self::selecting`] at UTF-16 offsets of the text after, as the tests
+    /// write them.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of some builds only")]
+    pub(super) fn selecting_units(self, anchor: usize, caret: usize) -> Self {
+        let (anchor, caret) = (byte_of(&self.text, anchor), byte_of(&self.text, caret));
+        self.selecting(anchor, caret)
+    }
+
+    /// [`Self::command`] from the UTF-16 selection `restore` of `before`, as
+    /// the tests write it.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of some builds only")]
+    pub(super) fn command_units(before: String, change: Change, restore: (usize, usize)) -> Self {
+        let restore = (byte_of(&before, restore.0), byte_of(&before, restore.1));
+        Self::command(before, change, restore)
+    }
+
+    /// [`Self::new`] from UTF-16 offsets, as the tests write them: the
+    /// selection of `before`, the caret of `text`.
+    #[cfg(test)]
+    #[cfg_attr(
+        not(all(feature = "yaml", feature = "json")),
+        allow(dead_code, reason = "only the tests over several languages use it")
+    )]
+    pub(super) fn new_units(
+        before: String,
+        selection: (usize, usize),
+        text: String,
+        caret: usize,
+    ) -> Self {
+        let selection = units_selection(&before, selection);
+        let caret = byte_of(&text, caret);
+        Self::new(before, selection, text, caret)
+    }
+
+    /// [`Self::input`] from UTF-16 offsets, as the tests write them: the
+    /// selection of `before`, the one left in `text`.
+    #[cfg(test)]
+    pub(super) fn input_units(
+        before: String,
+        selection: (usize, usize),
+        text: String,
+        typed: (usize, usize),
+        kind: String,
+        time: f64,
+    ) -> Self {
+        let selection = units_selection(&before, selection);
+        let typed = (byte_of(&text, typed.0), byte_of(&text, typed.1));
+        Self::input(before, selection, text, typed, kind, time)
+    }
+
+    /// The caret the edit leaves, as a UTF-16 offset of the text after.
+    #[cfg(test)]
+    #[cfg_attr(
+        not(all(feature = "yaml", feature = "json")),
+        allow(dead_code, reason = "only the tests over several languages use it")
+    )]
+    pub(super) fn caret_units(&self) -> usize {
+        super::text::utf16_of(&self.text, self.caret())
+    }
+
+    /// Leaves the caret at byte `caret` of the text after.
+    pub(super) fn caret_at(self, caret: TextSize) -> Self {
+        self.selecting(caret, caret)
+    }
+
+    /// Leaves `from..caret` selected, the caret where it was to go.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of some builds only")]
     pub(super) fn selecting_from(mut self, from: usize) -> Self {
+        // The tests write it as a UTF-16 offset of the text after.
+        let from = byte_of(&self.text, from);
         if let After::Select { anchor, .. } = &mut self.after {
             *anchor = from;
         }
         self
+    }
+
+    /// Leaves the caret where the change takes byte `at` of the text
+    /// before, keeping to `assoc`'s side of text written right there.
+    pub(super) fn keeping_caret(self, at: TextSize, assoc: Assoc) -> Self {
+        let caret = self.map(at, assoc);
+        self.caret_at(caret)
+    }
+
+    /// Where the change takes byte `at` of the text before, in the text
+    /// after.
+    pub(super) fn map(&self, at: TextSize, assoc: Assoc) -> TextSize {
+        self.made.map_pos(at, assoc).pos
+    }
+
+    /// Where the text the change wrote ends (in the text after); with
+    /// nothing written, the caret it was made at.
+    fn written_to(&self) -> TextSize {
+        match self.made.hull() {
+            Some((_, written)) => written.end(),
+            None => self.restore.1,
+        }
     }
 
     /// Leaves exactly `folds` closed after it (those still folding in the
@@ -164,6 +347,75 @@ impl Edit {
     pub(super) fn folding(mut self, folds: Vec<FoldRange>) -> Self {
         self.folds = Some(folds);
         self
+    }
+
+    /// The edit `splices` (bytes of the text before, sorted and apart) make,
+    /// when they fit it.
+    #[cfg(test)]
+    #[allow(dead_code, reason = "used by the tests of some builds only")]
+    pub(super) fn splicing(mut self, splices: Option<Vec<Splice>>) -> Self {
+        if let Some(change) = splices.and_then(|splices| change_of_splices(&self.before, &splices))
+            && let Some(text) = change.apply(&self.before)
+        {
+            self.made = change;
+            self.told = true;
+            self.text = text;
+        }
+        self
+    }
+
+    /// What the edit did, exactly, as the code making it said: a command's
+    /// change (a line command's lines moved with them), browser input's
+    /// from what the browser said of it, an undo or redo's as its step
+    /// recorded it; each replacement without the text it writes back as it
+    /// was at its ends.
+    /// `None` for an edit whose change was read off the two texts, whose
+    /// followers read it so too: input the browser did not say enough of
+    /// (no `beforeinput`, a spelling fix: see `browser`), an undo or redo
+    /// of a step such input made, and the host's own texts (a value, a
+    /// reload, an Edit-as switch), which no check or follower judges.
+    #[cfg(feature = "protect")]
+    pub(super) fn change(&self) -> Option<Change> {
+        let judged = matches!(
+            self.origin,
+            Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo
+        );
+        (self.told && judged).then(|| self.mapping())
+    }
+
+    /// The change every position kept across the edit is mapped through
+    /// (folds, typed closers, Tab stops, the current match): what the edit
+    /// did, as said, or for an edit that did not say, as read off the
+    /// texts ([`Change::diffed_at`] for browser input, [`Change::diffed`]
+    /// for the host's texts); each replacement without the text it writes
+    /// back as it was at its ends.
+    pub(super) fn mapping(&self) -> Change {
+        self.made
+            .clone()
+            .narrowed(&self.before)
+            .unwrap_or_else(|| self.made.clone())
+    }
+
+    /// What the edit does to the text before, said or read off the texts.
+    pub(super) fn made(&self) -> &Change {
+        &self.made
+    }
+
+    /// Whether the code making the edit said its change (see
+    /// [`Self::change`]).
+    pub(super) fn told(&self) -> bool {
+        self.told
+    }
+
+    /// Makes the edit `change` instead, as said (an edit widened over a
+    /// placeholder it cut).
+    #[cfg(feature = "protect")]
+    pub(super) fn rewrite(&mut self, change: Change) {
+        if let Some(text) = change.apply(&self.before) {
+            self.made = change;
+            self.told = true;
+            self.text = text;
+        }
     }
 
     /// Leaves the scroll position alone (an edit made with the mouse, where
@@ -175,15 +427,10 @@ impl Edit {
         self
     }
 
-    /// Makes it the host's text `host` the user chose to reload (see
-    /// [`Origin::Reload`]).
-    pub(super) fn reloading(mut self, host: String) -> Self {
-        self.origin = Origin::Reload { host };
-        self
-    }
-
-    /// Input the browser applied: `before` became `text`, the selection
-    /// left at `typed`.
+    /// Input the browser applied: `before` became `text`, made on
+    /// `selection` ((anchor, caret), or [`UNKNOWN_SELECTION`] when the
+    /// browser did not say), the selection left at `typed`. Its change is
+    /// what the browser said, else read off the texts by the caret.
     pub(super) fn input(
         before: String,
         selection: Selection,
@@ -192,28 +439,73 @@ impl Edit {
         kind: String,
         time: f64,
     ) -> Self {
-        Self {
-            before,
-            selection,
-            text,
-            after: After::Typed {
-                selection: typed,
-                forced: false,
-            },
-            origin: Origin::Input { kind, time },
-            language: None,
-            folds: None,
-        }
+        let said = browser::said(&before, &text, selection, typed, &kind);
+        let (made, told) = match said {
+            Some(change) => (change, true),
+            None => (Change::diffed_at(&before, &text, typed.0), false),
+        };
+        // Not said: undo puts back the selection over what it replaced.
+        let restore = if told {
+            selection
+        } else {
+            made.hull().map_or((typed.0, typed.0), |(range, _)| {
+                (range.start(), range.end())
+            })
+        };
+        let after = After::Typed {
+            selection: typed,
+            forced: false,
+        };
+        let mut edit = Self::making(before, made, told, restore, after);
+        edit.origin = Origin::Input { kind, time };
+        edit
     }
 
-    /// Undo (or redo, with `redo`) from `current` (`selection` selected)
-    /// back to `snapshot`.
-    pub(super) fn step(redo: bool, current: String, selection: Selection, to: Snapshot) -> Self {
+    /// Input the browser applied to a document the host replaced meanwhile,
+    /// made on that document instead (`change`, rebased over the host's;
+    /// `told` when the browser said the input's own change): the caret
+    /// after what it wrote, undo putting back the selection over what it
+    /// replaced.
+    pub(super) fn replayed(
+        before: String,
+        change: Change,
+        told: bool,
+        kind: String,
+        time: f64,
+    ) -> Self {
+        let hull = change.hull();
+        let restore = hull
+            .as_ref()
+            .map_or((TextSize::default(), TextSize::default()), |(range, _)| {
+                (range.start(), range.end())
+            });
+        let mut edit = Self::making(before, change, told, restore, After::Kept);
+        let caret = hull.map_or(restore.1, |(_, written)| written.end());
+        edit.after = After::Typed {
+            selection: (caret, caret),
+            forced: false,
+        };
+        edit.origin = Origin::Input { kind, time };
+        edit
+    }
+
+    /// Undo (or redo, with `redo`) from `current`, made with `selection`
+    /// selected, as its step recorded it; `None` when the step's change
+    /// is not of this text.
+    pub(super) fn step(
+        redo: bool,
+        current: String,
+        selection: Selection,
+        to: Stepped,
+    ) -> Option<Self> {
+        let text = to.change.apply(&current)?;
         let (anchor, caret) = to.selection;
-        Self {
+        Some(Self {
             before: current,
-            selection,
-            text: to.value,
+            made: to.change,
+            told: to.told,
+            text,
+            restore: selection,
             after: After::Select {
                 anchor,
                 caret,
@@ -222,22 +514,49 @@ impl Edit {
             origin: if redo { Origin::Redo } else { Origin::Undo },
             language: to.language,
             folds: to.folds,
+        })
+    }
+
+    /// The host's text `host`, shown as `text`, that the user chose to
+    /// reload over `before` (see [`Origin::Reload`]), with `restore`
+    /// selected (where undo puts it back). Its change is read off the
+    /// texts line by line, since the host says only what the text is and
+    /// it differs from `before` both where the host changed it and where
+    /// the user did; the selection stays on the same text, mapped through
+    /// it, and the view where it was.
+    pub(super) fn reload(before: String, restore: Selection, text: String, host: String) -> Self {
+        let made = Change::diffed_by_lines(&before, &text);
+        Self {
+            before,
+            made,
+            told: false,
+            text,
+            restore,
+            after: After::Mapped,
+            origin: Origin::Reload { host },
+            language: None,
+            folds: None,
         }
     }
 
     /// A text the host replaced the document with: a controlled `value`
     /// (`Origin::HostValue`) or the document converted by an Edit-as switch
-    /// (`Origin::Switch`).
+    /// (`Origin::Switch`). Its change is read off the texts: the host says
+    /// only what the text is.
     pub(super) fn replacing(before: String, text: String, origin: Origin) -> Self {
         let after = if origin == Origin::Switch {
             After::Kept
         } else {
             After::Mapped
         };
+        let made = Change::diffed(&before, &text);
         Self {
             before,
-            selection: UNKNOWN_SELECTION,
+            made,
+            told: false,
             text,
+            // Not checked, and no step of its own.
+            restore: (TextSize::default(), TextSize::default()),
             after,
             origin,
             language: None,
@@ -253,11 +572,11 @@ impl Edit {
         text: String,
         language: Language,
         selection: Selection,
-        caret: Option<usize>,
+        caret: Option<TextSize>,
     ) -> Self {
         let mut edit = Self::replacing(before, text, Origin::Switch);
         edit.language = Some(language);
-        edit.selection = selection;
+        edit.restore = selection;
         if let Some(caret) = caret {
             edit.after = After::Select {
                 anchor: caret,
@@ -268,19 +587,39 @@ impl Edit {
         edit
     }
 
+    /// The selection the edit leaves, as (start, end) bytes of the text
+    /// after; a caret at the start for one the textarea keeps.
+    pub(super) fn selected(&self) -> Selection {
+        match self.after {
+            After::Select { anchor, caret, .. } => (anchor.min(caret), anchor.max(caret)),
+            After::Typed { selection, .. } => selection,
+            After::Mapped | After::Kept => (TextSize::default(), TextSize::default()),
+        }
+    }
+
     /// The caret the edit leaves (where the browser or the command put it).
-    pub(super) fn caret(&self) -> usize {
+    #[cfg(any(test, feature = "protect"))]
+    pub(super) fn caret(&self) -> TextSize {
         match self.after {
             After::Select { caret, .. } => caret,
             After::Typed { selection, .. } => selection.0,
-            After::Mapped | After::Kept => 0,
+            After::Mapped | After::Kept => TextSize::default(),
         }
+    }
+
+    /// Where the text the edit wrote ends, which places the region it
+    /// replaced among alike text when the change is read off the texts:
+    /// the caret it leaves, but for an undo or redo, whose caret is the
+    /// selection it puts back.
+    #[cfg(feature = "protect")]
+    pub(super) fn written_end(&self) -> Option<TextSize> {
+        (!matches!(self.origin, Origin::Undo | Origin::Redo)).then(|| self.caret())
     }
 
     /// Puts the caret at `caret` with nothing selected (an edit widened
     /// over a placeholder).
     #[cfg(feature = "protect")]
-    pub(super) fn collapse_to(&mut self, caret: usize) {
+    pub(super) fn collapse_to(&mut self, caret: TextSize) {
         match &mut self.after {
             After::Select {
                 anchor, caret: at, ..
@@ -295,40 +634,70 @@ impl Edit {
             After::Mapped | After::Kept => {}
         }
     }
+}
 
-    /// The selection the edit replaced, given the caret it left.
-    pub(in crate::editor) fn replaced(&self, caret: usize) -> Selection {
-        if self.selection == UNKNOWN_SELECTION {
-            edit_range(&self.before, &self.text, caret)
-        } else {
-            self.selection
-        }
+/// The UTF-16 `selection` of `text` in bytes; [`UNKNOWN_UNITS`] is
+/// [`UNKNOWN_SELECTION`] (the tests' forms).
+#[cfg(test)]
+fn units_selection(text: &str, selection: (usize, usize)) -> Selection {
+    if selection == UNKNOWN_UNITS {
+        return UNKNOWN_SELECTION;
     }
+    (byte_of(text, selection.0), byte_of(text, selection.1))
+}
+
+/// [`UNKNOWN_SELECTION`] as the tests write a selection, in UTF-16 units.
+#[cfg(test)]
+pub(super) const UNKNOWN_UNITS: (usize, usize) = (usize::MAX, usize::MAX);
+
+/// The change `splices` (sorted, apart) make of `before`, each one's
+/// moved stretches carried to where its inserted text writes them.
+pub(super) fn change_of_splices(
+    before: &str,
+    splices: &[super::bridge::links::Splice],
+) -> Option<Change> {
+    // Where each splice's text lands in the text after: what the ones
+    // before it wrote, less what they removed (kept as two sums, so no
+    // step goes below zero).
+    let (mut grown, mut shrunk) = (TextSize::default(), TextSize::default());
+    let mut moved = Vec::new();
+    for splice in splices {
+        let at = (splice.range.start() + grown).checked_sub(shrunk)?;
+        moved.extend(splice.moved.iter().map(|piece| Moved {
+            to: at + piece.to,
+            ..*piece
+        }));
+        grown += TextSize::of(splice.inserted.as_str());
+        shrunk += splice.range.len();
+    }
+    let edits = splices
+        .iter()
+        .map(|splice| (splice.range, splice.inserted.clone()));
+    Some(Change::of_ranges(TextSize::of(before), edits)?.with_moved(moved))
 }
 
 impl EditorState {
     /// Undo (or redo, with `redo`) as an edit from the document as it is;
     /// `None` with nothing to undo (redo).
     pub(super) fn history_edit(&self, redo: bool) -> Option<Edit> {
-        let to = self.doc().history.with_untracked(|history| {
-            if redo {
-                history.next_redo().cloned()
-            } else {
-                history.next_undo().cloned()
-            }
-        })?;
+        let next = self
+            .doc()
+            .history
+            .with_untracked(|history| history.next(redo))?;
         let selection = self.textarea().map_or_else(
             || {
                 let at = self.doc().caret.get_untracked();
                 (at, at)
             },
-            |area| textarea_selection(&area),
+            |area| directed_selection(&area),
         );
-        Some(Edit::step(
-            redo,
-            self.doc().text.get_untracked(),
-            selection,
-            to,
-        ))
+        let stepped = Stepped {
+            change: next.change,
+            told: next.told,
+            selection: next.to.selection,
+            language: next.to.language,
+            folds: next.to.folds,
+        };
+        Edit::step(redo, self.doc().text.get_untracked(), selection, stepped)
     }
 }

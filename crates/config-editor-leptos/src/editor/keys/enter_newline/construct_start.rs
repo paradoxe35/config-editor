@@ -1,6 +1,6 @@
 //! Where a construct written over lines starts when the caret's line ends
 //! it before the caret: a bracket (`2]`), a string (`"""`, a heredoc's
-//! `EOT`) or a block comment (`b */`) begun on a line above (QA `E35-2`).
+//! `EOT`) or a block comment (`b */`) begun on a line above.
 
 use super::super::super::comment_scope::over_balanced_lines;
 use super::super::super::keyboard::utf16_to_byte_index;

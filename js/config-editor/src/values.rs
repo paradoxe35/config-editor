@@ -473,18 +473,40 @@ pub(crate) fn to_js<T: Serialize>(value: &T) -> JsValue {
 /// with infinities and NaN as `Infinity`, `-Infinity` and `NaN`, and an
 /// integer past 2^53 (TOML and YAML hold 64-bit ones) as a `bigint`, exact.
 pub(crate) fn json_to_js(value: &Value) -> JsValue {
-    // The noncharacter that starts a non-finite number, or a large integer
-    // (rare: walk only then).
-    if needs_walk(value) {
-        return data_to_js(value);
-    }
-    js_sys::JSON::parse(&value.to_string()).unwrap_or(JsValue::NULL)
+    data_to_js(value, Form::Model)
+}
+
+/// Plain data, as the editor's writer door gives it to a language's writer
+/// (each string the text to write, no mark of the data model), as
+/// JavaScript data: [`json_to_js`] with every string taken as it is.
+pub(crate) fn written_to_js(value: &Value) -> JsValue {
+    data_to_js(value, Form::Plain)
+}
+
+/// What a value's strings are.
+#[derive(Clone, Copy)]
+enum Form {
+    /// The data model's: a string starting with U+FDD0 may stand for an
+    /// infinity or NaN, or hold an extra mark.
+    Model,
+    /// Plain text, each string as it is.
+    Plain,
 }
 
 /// The largest integer a JavaScript number holds exactly (2^53 - 1).
 const SAFE_INTEGER: u64 = (1 << 53) - 1;
 
-/// Whether `value` holds a large integer or a non-finite number.
+fn data_to_js(value: &Value, form: Form) -> JsValue {
+    // A string starting with the noncharacter, or a large integer (rare:
+    // walk only then).
+    if needs_walk(value) {
+        walk(value, form)
+    } else {
+        js_sys::JSON::parse(&value.to_string()).unwrap_or(JsValue::NULL)
+    }
+}
+
+/// Whether `value` holds a large integer or a string starting with U+FDD0.
 fn needs_walk(value: &Value) -> bool {
     match value {
         Value::Number(number) => large_integer(number).is_some(),
@@ -506,31 +528,31 @@ fn large_integer(number: &serde_json::Number) -> Option<JsValue> {
     (integer > SAFE_INTEGER).then(|| js_sys::BigInt::from(integer).into())
 }
 
-fn data_to_js(value: &Value) -> JsValue {
-    if let Value::Number(number) = value
-        && let Some(big) = large_integer(number)
-    {
-        return big;
-    }
-    if let Some(number) = config_editor_leptos::float_of(value) {
-        return JsValue::from_f64(number);
-    }
+fn walk(value: &Value, form: Form) -> JsValue {
     match value {
         Value::Null => JsValue::NULL,
         Value::Bool(flag) => JsValue::from_bool(*flag),
-        Value::String(text) => {
-            JsValue::from_str(config_editor_leptos::string_of(value).unwrap_or(text))
-        }
-        Value::Array(items) => items.iter().map(data_to_js).collect::<Array>().into(),
+        Value::Number(number) => large_integer(number)
+            .unwrap_or_else(|| JsValue::from_f64(number.as_f64().unwrap_or_default())),
+        Value::String(text) => match form {
+            Form::Model => config_editor_leptos::float_of(value).map_or_else(
+                || JsValue::from_str(config_editor_leptos::string_of(value).unwrap_or(text)),
+                JsValue::from_f64,
+            ),
+            Form::Plain => JsValue::from_str(text),
+        },
+        Value::Array(items) => items
+            .iter()
+            .map(|item| walk(item, form))
+            .collect::<Array>()
+            .into(),
         Value::Object(map) => {
             let object = Object::new();
             for (key, item) in map {
-                let _ = Reflect::set(&object, &JsValue::from_str(key), &data_to_js(item));
+                let _ = Reflect::set(&object, &JsValue::from_str(key), &walk(item, form));
             }
             object.into()
         }
-        // Numbers are taken by `float_of` above.
-        Value::Number(_) => JsValue::NULL,
     }
 }
 

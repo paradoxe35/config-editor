@@ -3,7 +3,7 @@
 //! text never holds it), so the gate answers alike with or without one, in
 //! every language and whatever characters the document holds, and never
 //! panics; `save_all` sends every document the gate lets through, whatever
-//! another one in the list holds (QA 32, FW32-1 and FW32-2).
+//! another one in the list holds.
 
 use std::sync::{Arc, Mutex};
 

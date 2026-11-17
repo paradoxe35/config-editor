@@ -6,9 +6,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // A call about one thing changes only it, and a call the host makes from
 // `onChange` is newer than the call whose input flush ran that `onChange`.
 // Before, `replaceValue` on one document gave every other document its
-// listed text again, reverting their edits (round 11's `D11.host-1`), and
+// listed text again, reverting their edits, and
 // an `update()` applied the options it read before the flush over what a
-// reentrant `update`/`replaceValue` had just set (round 17's `D17.host-1`).
+// reentrant `update`/`replaceValue` had just set.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');

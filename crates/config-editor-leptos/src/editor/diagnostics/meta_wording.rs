@@ -94,7 +94,7 @@ pub(super) fn message(error: &ValidationError<'_>) -> String {
         }
         ValidationErrorKind::Type { .. } => {
             let message = error.to_string();
-            let shown = super::wording::cut(&value.to_string());
+            let shown = super::cut::cut(&value.to_string(), &super::cut::Tokens::default());
             let types = super::wording::listed_types(&message).unwrap_or_default();
             let types: Vec<&str> = types.iter().map(|name| name.trim_matches('"')).collect();
             if types == ["boolean", "object"] || types == ["object", "boolean"] {

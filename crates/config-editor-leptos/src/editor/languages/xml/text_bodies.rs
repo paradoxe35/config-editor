@@ -94,7 +94,7 @@ mod tests {
         "<c><a>x\n",
     ];
 
-    /// QA 22: XML found these lines with a full scan of every key's and
+    /// XML found these lines with a full scan of every key's and
     /// value's path on each edit (long tasks at 6000 lines). The tokens
     /// alone find the same lines, with no scan.
     #[test]

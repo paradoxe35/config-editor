@@ -18,6 +18,7 @@ mod tokens;
 mod scan;
 mod plan;
 mod parse;
+mod words;
 mod suggestions;
 mod hover;
 mod editing;
@@ -36,7 +37,6 @@ mod prefixed;
 mod attribute_order;
 mod markup;
 mod declarations;
-mod hints;
 mod attribute_layout;
 mod identity;
 mod kept_markup;
@@ -49,6 +49,8 @@ mod namespace_scopes;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::{line_column, span_between, utf16_len, FieldPath};
+use crate::editor::text::{TextRange, TextSize, byte_range, slice, text_size};
 use tokens::*;
 use scan::*;
 use plan::*;
@@ -60,11 +62,13 @@ use convert::*;
 use text_bodies::*;
 
 use super::super::commands::indent_unit;
-use super::super::completion::{kept_const, kept_default, array_branch, object_branch, required_children, Fill, RequiredChild, writes_key};
+use super::super::completion::{Fill, InsertPlan, Planned, RequiredChild, writes_key};
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{Scalars, OneLine, CompletionContext, Newline, Repetition, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
+use super::super::item_sources::SaveTold;
+use super::super::language::{Text, Typing, Hover, SaveLayout, Markup, Repeats, Repeated, Toggled};
+use super::super::language::{OneLine, CompletionContext, Newline, EntryPosition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment, inline_block,
 };
 use quick_xml::XmlVersion;
@@ -72,7 +76,7 @@ use quick_xml::events::attributes::AttrError;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 use serde_json::{Map, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub(super) struct XmlBehavior;
 
@@ -90,12 +94,11 @@ fn has_prefixed_key(value: &Value) -> bool {
 fn top_attribute_message(key: &str) -> String {
     format!(
         "XML keeps {key} only as an attribute, and the top of the document has no element to hold it: put it inside an element, or name it without the prefix (at /{})",
-        key.replace('~', "~0").replace('/', "~1")
+        crate::editor::language::pointer_key(key)
     )
 }
 
-
-/// An XML scalar edit (see `ConfigLanguage::edits_one_scalar`): an
+/// An XML scalar edit (see `SaveLayout::edits_one_scalar`): an
 /// `<name>text</name>` line read as a document of its own; the edit adds
 /// and removes no markup or reference, and no `--`, `]]>` or `?>` (which
 /// would end or break a comment, a CDATA section or an instruction over
@@ -107,35 +110,165 @@ const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRul
 };
 
 impl ConfigLanguage for XmlBehavior {
-    fn forget_kept(&self) {
-        forget_scan();
-        forget_spans();
-        forget_tokens();
-        forget_plan();
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "XML",
+            icon: "X",
+            extensions: &["xml"],
+        }
     }
 
-    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
-        super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
+    fn parse(&self, source: &str) -> Result<Value, ParseError> {
+        xml_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
-    fn repetition(&self) -> Repetition {
-        Repetition::Elements
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        xml_name_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn key_half_typed(&self, line: &str) -> bool {
-        // A start tag's name with nothing after it yet: no `>`, `/` or
-        // space ends it.
-        let Some(tag) = line.strip_prefix('<') else {
-            return false;
-        };
-        let name_end = tag
-            .find(|character: char| {
-                !(character.is_alphanumeric() || matches!(character, '_' | '-' | '.' | ':'))
-            })
-            .unwrap_or(tag.len());
-        name_end > 0 && name_end == tag.len()
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        xml_value_span(source, &path.to_pointer()).map(Span::from)
     }
 
+    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
+        completion_context(source, cursor)
+    }
+
+    fn write_insert(
+        &self,
+        key: &str,
+        plan: &InsertPlan<'_>,
+        context: &InsertContext<'_>,
+    ) -> Option<(String, usize)> {
+        write_insert(key, plan, context)
+    }
+
+    fn format_value(&self, value: &Value) -> String {
+        xml_text(value)
+    }
+
+    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
+        hover_name(line, column)
+    }
+
+    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
+        highlight(line)
+    }
+
+    /// Object keys become elements and arrays repeated siblings. The output is
+    /// rootless unless `previous` had a config root, which is kept along with
+    /// its declaration.
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        self.written(value, previous, SaveTold::default())
+    }
+
+    // TODO(merge-test): v0.2.0's xml.attribute writes (hints.rs), x-true/x-false/x-whitespace
+    // reading in data_reading, text-scalar custom languages and xml.attribute suggestions are
+    // not ported; hints.rs is a private walker to rewrite on applies/.
+    /// An end tag, `</name>`.
+    /// Attribute values are quoted; a backslash in them is text.
+    fn config(&self) -> super::super::language::LanguageConfig {
+        super::super::language::LanguageConfig {
+            quotes: &["\"", "'"],
+            literal_quotes: &["\"", "'"],
+            // Numbers are text: an integer of any length reads as written.
+            traits: super::super::language::LanguageTraits {
+                scalars_are_text: true,
+                ..super::super::language::LanguageTraits::NONE
+            },
+            ..Default::default()
+        }
+    }
+
+    fn text(&self) -> &dyn Text {
+        self
+    }
+
+    fn typing(&self) -> &dyn Typing {
+        self
+    }
+
+    fn hover(&self) -> &dyn Hover {
+        self
+    }
+
+    fn layout(&self) -> &dyn SaveLayout {
+        self
+    }
+
+    fn markup(&self) -> Option<&dyn Markup> {
+        Some(self)
+    }
+
+    fn repeats(&self) -> Option<&dyn Repeats> {
+        Some(self)
+    }
+}
+
+impl Text for XmlBehavior {
+    #[cfg(feature = "folding")]
+    fn fold_ranges(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<super::super::language::FoldRange> {
+        folding::xml_fold_ranges(source)
+    }
+
+    /// Lines inside element text written over several lines.
+    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        text_body_lines(source)
+    }
+
+    fn comments(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<std::ops::Range<usize>> {
+        comments(source)
+    }
+
+    /// Start tags with attributes over lines, attribute values and CDATA
+    /// text over lines.
+    fn multiline_constructs(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<MultilineConstruct> {
+        multiline_constructs(source)
+    }
+
+    /// The inside of a start tag: its attributes.
+    fn highlight_continued(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<HighlightToken> {
+        highlight_continued(text)
+    }
+
+    fn first_span(&self, source: &str) -> Option<Span> {
+        first_content_span(source).map(Span::from)
+    }
+
+    /// Comments, and processing instructions (`<?pi …?>`, not the XML
+    /// declaration), which no other language shows either: a save keeps
+    /// both.
+    fn has_comments(&self, _language: &dyn ConfigLanguage, source: &str) -> bool {
+        source.contains("<!--") || self.has_processing_instructions(source)
+    }
+
+    fn lexical_state(&self, _language: &dyn ConfigLanguage, source: &str, cursor: usize) -> Lexical {
+        let (quote, in_comment) = xml_lexical_state(source, cursor);
+        Lexical { quote, in_comment }
+    }
+
+    fn comment_start(&self, _language: &dyn ConfigLanguage, line: &str) -> Option<usize> {
+        line.find("<!--")
+    }
+
+    fn unclosed_containers(&self, _language: &dyn ConfigLanguage, text: &str) -> usize {
+        markup::open_elements(text)
+    }
+
+    fn container_closers(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<String> {
+        markup::open_element_names(text)
+            .into_iter()
+            .rev()
+            .map(|name| format!("</{name}>"))
+            .collect()
+    }
+
+    fn container_closer_len(&self, _language: &dyn ConfigLanguage, text: &str) -> Option<usize> {
+        markup::closer_len(text)
+    }
+}
+
+impl Typing for XmlBehavior {
     fn reindent_on_type(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
         // `</name` alone on its line, finished by `>`: it closes the element
         // one level out.
@@ -173,144 +306,71 @@ impl ConfigLanguage for XmlBehavior {
         (typed == '/').then(|| typed::end_tag_after_slash(source, cursor)).flatten()
     }
 
-    fn info(&self) -> LanguageInfo {
-        LanguageInfo {
-            label: "XML",
-            icon: "X",
-            extensions: &["xml"],
-        }
+    fn newline(&self, _language: &dyn ConfigLanguage, source: &str, cursor: usize) -> Newline {
+        let (text, caret) = newline_insertion(source, cursor);
+        Newline::with_caret(text, caret)
     }
 
-    fn parse(&self, source: &str) -> Result<Value, ParseError> {
-        xml_parse(source).map(super::super::codec::non_finite::escape_strings)
+    fn toggle_comments(
+        &self, _language: &dyn ConfigLanguage,
+        source: &str,
+        selection_start: usize,
+        selection_end: usize,
+    ) -> Option<Toggled> {
+        toggle_xml_comments(source, selection_start, selection_end)
     }
 
-    /// An attribute read `a` (no child of its name now) where the value
-    /// written spells it `@a`.
-    fn spelled_like(&self, source: &str, read: Value, like: &Value) -> Value {
-        spelling::spelled_like(source, read, like)
+    fn whole_constructs(&self, _language: &dyn ConfigLanguage, source: &str, start: usize, end: usize) -> (usize, usize) {
+        editing::over_balanced_xml_lines(source, start, end)
     }
 
-    /// An element written once, at any depth (several top-level elements
-    /// are a list too): never an attribute, its text or an item of
-    /// repeated elements.
-    fn lone_item(&self, source: &str, pointer: &str) -> bool {
-        xml_lone_element(source, pointer)
+    fn entry_started(&self, source: &str, cursor: usize) -> bool {
+        completion_context(source, cursor).explicit_entry_start
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        xml_name_span(source, pointer).map(Span::from)
+    /// An attribute name followed by its `="…"`.
+    fn value_follows_key(&self, _language: &dyn ConfigLanguage, rest: &str) -> bool {
+        rest.trim_start().starts_with('=')
+    }
+
+    /// Inside empty elements (`<k>|</k>`).
+    fn empty_value_slots(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<usize> {
+        text.match_indices("></").map(|(at, _)| at + 1).collect()
+    }
+}
+
+impl Hover for XmlBehavior {
+    fn hover_path(&self, source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+        element_hover_path(source, line_index, column)
+    }
+
+    fn hover_cursor(&self, line: &str, column: usize) -> usize {
+        // A line can hold a whole subtree; resolve just past the hovered name.
+        hover_context_end(line, column)
+    }
+}
+
+impl SaveLayout for XmlBehavior {
+    fn serialize_over(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Option<Result<String, String>> {
+        Some(self.written(value, previous, told))
+    }
+
+    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
+        super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }
 
     /// Element text ending in a line break before its end tag
     /// (`k2\n</secret>`) runs through the break.
     fn kept_value_end(&self, source: &str, end: usize) -> usize {
-        let rest = &source[end..];
-        if rest.trim_start().starts_with("</") { end + rest.len() - rest.trim_start().len() } else { end }
-    }
-
-    #[cfg(feature = "folding")]
-    fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
-        folding::xml_fold_ranges(source)
-    }
-
-    /// Lines inside element text written over several lines.
-    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        text_body_lines(source)
-    }
-
-    fn comments(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        comments(source)
-    }
-
-    /// Start tags with attributes over lines, attribute values and CDATA
-    /// text over lines.
-    fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
-        multiline_constructs(source)
-    }
-
-    /// The inside of a start tag: its attributes.
-    fn highlight_continued(&self, text: &str) -> Vec<HighlightToken> {
-        highlight_continued(text)
-    }
-
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        xml_value_span(source, pointer).map(Span::from)
-    }
-
-    fn first_span(&self, source: &str) -> Option<Span> {
-        first_content_span(source).map(Span::from)
-    }
-
-    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
-        completion_context(source, cursor)
-    }
-
-    fn existing_keys(
-        &self,
-        source: &str,
-        cursor_byte: usize,
-        _path: &[SchemaPathSegment],
-    ) -> Option<HashSet<String>> {
-        existing_elements(source, cursor_byte)
-    }
-
-    fn property_insert(
-        &self,
-        key: &str,
-        property: &Value,
-        root: &Value,
-        context: &InsertContext<'_>,
-    ) -> Option<(String, usize)> {
-        property_insert(key, property, root, context)
-    }
-
-    /// Comments, and processing instructions (`<?pi …?>`, not the XML
-    /// declaration), which no other language shows either: a save keeps
-    /// both.
-    fn has_comments(&self, source: &str) -> bool {
-        source.contains("<!--") || self.has_processing_instructions(source)
-    }
-
-    fn has_processing_instructions(&self, source: &str) -> bool {
-        source
-            .match_indices("<?")
-            .any(|(at, _)| !source[at..].starts_with("<?xml ") && !source[at..].starts_with("<?xml?"))
-    }
-
-    fn mixed_content(&self, source: &str) -> Option<String> {
-        parse::mixed_content(source)
-    }
-
-    fn scalars(&self) -> Scalars {
-        Scalars::Text
-    }
-
-    /// Every attribute value and element text exactly as written.
-    fn parse_text(&self, source: &str) -> Result<Value, ParseError> {
-        xml_parse_as(source, Reading::Text).map(super::super::codec::non_finite::escape_strings)
-    }
-
-    /// Numbers that write back unchanged, `true`, `false` and `null`.
-    fn guess_scalar(&self, text: &str) -> Value {
-        typed_scalar(text)
-    }
-
-    fn unconvertible(&self, source: &str) -> Option<String> {
-        namespace_clash(source).or_else(|| entities::declared_entity(source))
-    }
-
-    fn merged_keys(&self, source: &str) -> Option<String> {
-        namespace_clash(source)
-    }
-
-    fn format_value(&self, value: &Value) -> String {
-        xml_text(value)
+        let at = text_size(end);
+        let rest = slice::after(source, at).unwrap_or("");
+        let kept = rest.trim_start();
+        if kept.starts_with("</") { usize::from(at + TextSize::of(rest) - TextSize::of(kept)) } else { end }
     }
 
     /// Escaped for where it goes: a quoted attribute value keeps its quotes,
     /// element text escapes `&` and `<`.
-    fn format_value_like(&self, value: &Value, written: &str) -> String {
+    fn format_value_like(&self, _language: &dyn ConfigLanguage, value: &Value, written: &str) -> String {
         let text = xml_text(value);
         match written.chars().next() {
             Some(quote @ ('"' | '\'')) if written.len() >= 2 && written.ends_with(quote) => {
@@ -332,64 +392,184 @@ impl ConfigLanguage for XmlBehavior {
     }
 
     fn written_value_range(&self, source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
-        text::written_text_range(source, range)
+        text::written_text_range(source, byte_range(range)).into()
     }
 
-    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
-        hover_name(line, column)
+    /// An element holding other markup (`xsi:type`, a namespace
+    /// declaration) than the host element it is: it reads the same, yet
+    /// XML readers read it otherwise.
+    fn changed_form(&self, previous: &str, patched: &str, told: SaveTold<'_>) -> Option<String> {
+        kept_markup::changed_markup(self, previous, patched, told)
     }
 
-    fn hover_path(&self, source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-        element_hover_path(source, line_index, column)
+    fn key_renames(&self, source: &str, path: &FieldPath, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+        element_renames(source, &path.to_pointer(), new_key)
     }
 
-    fn hover_cursor(&self, line: &str, column: usize) -> usize {
-        // A line can hold a whole subtree; resolve just past the hovered name.
-        hover_context_end(line, column)
+    /// An XML name (`a.b`, `café`): a letter or `_` first, then letters,
+    /// digits, `_`, `-` and `.`; for an attribute, one with a prefix too
+    /// (`x:attr`; the model keys elements by their local name, so an
+    /// element's is never renamed to one).
+    fn written_key(&self, _language: &dyn ConfigLanguage, source: &str, path: &FieldPath, key: &str) -> Option<String> {
+        let name = |part: &str| {
+            let mut characters = part.chars();
+            characters.next().is_some_and(|first| first.is_alphabetic() || first == '_')
+                && characters.all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.'))
+        };
+        let written = match key.split_once(':') {
+            Some((prefix, local)) => name(prefix) && name(local) && is_attribute(source, &path.to_pointer()),
+            None => name(key),
+        };
+        written.then(|| key.to_string())
     }
 
-    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
-        highlight(line)
+    fn members_in_order(&self, source: &str, path: &FieldPath, order: &[String]) -> Option<String> {
+        attribute_order::in_order(source, &path.to_pointer(), order)
     }
 
-    fn newline(&self, source: &str, cursor: usize) -> Newline {
-        let (text, caret) = newline_insertion(source, cursor);
-        Newline::with_caret(text, caret)
+    fn entries_apart(&self, source: &str) -> Option<String> {
+        one_line::children_apart(source)
     }
 
-    fn toggle_comments(
-        &self,
-        source: &str,
-        selection_start: usize,
-        selection_end: usize,
-    ) -> Option<(String, usize, usize)> {
-        toggle_xml_comments(source, selection_start, selection_end)
+    fn entries_together(&self, patched: &str, previous: &str) -> String {
+        one_line::with_one_line_elements_of(patched, previous)
     }
 
-    fn whole_constructs(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
-        editing::over_balanced_xml_lines(source, start, end)
+    /// A start tag's attribute lines, aligned as the host aligns them.
+    fn aligned_lines(&self, text: &str) -> Vec<usize> {
+        attribute_layout::attribute_lines(text)
     }
 
-    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
-        let (quote, in_comment) = xml_lexical_state(source, cursor);
-        Lexical { quote, in_comment }
+    fn one_line_body(&self, value: &Value, _indent: &str, _unit: &str) -> Option<String> {
+        one_line_children(value)
     }
 
-    fn entry_started(&self, source: &str, cursor: usize) -> bool {
-        completion_context(source, cursor).explicit_entry_start
+    fn one_line_container(&self, source: &str, path: &FieldPath) -> Option<OneLine> {
+        one_line_element(source, &path.to_pointer()).map(|range| OneLine { range: range.clone(), written: String::new(), value: range })
     }
 
+    fn opens_list_item(&self, language: &dyn ConfigLanguage, lines: &[&str], index: usize) -> bool {
+        let comment_start = |line: &str| language.comment_start(line).unwrap_or(line.len());
+        markup::opens_repeated_element(&comment_start, lines, index)
+    }
+}
 
-    /// Object keys become elements and arrays repeated siblings. The output is
-    /// rootless unless `previous` had a config root, which is kept along with
-    /// its declaration.
-    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
-        self.serialize_with(value, previous, None)
+impl Markup for XmlBehavior {
+    /// An attribute read `a` (no child of its name now) where the value
+    /// written spells it `@a`.
+    fn spelled_like(&self, source: &str, read: Value, like: &Value) -> Value {
+        spelling::spelled_like(source, read, like)
     }
 
-    /// A new scalar the schema marks `"xml": {"attribute": true}` is
-    /// written as an attribute (one the previous text writes keeps its form).
-    fn serialize_with(&self, value: &Value, previous: Option<&str>, schema: Option<&Value>) -> Result<String, String> {
+    fn has_processing_instructions(&self, source: &str) -> bool {
+        source
+            .match_indices("<?")
+            .any(|(at, _)| !source[at..].starts_with("<?xml ") && !source[at..].starts_with("<?xml?"))
+    }
+
+    fn mixed_content(&self, source: &str) -> Option<String> {
+        parse::mixed_content(source)
+    }
+
+    fn unconvertible(&self, source: &str) -> Option<String> {
+        namespace_clash(source).or_else(|| entities::declared_entity(source))
+    }
+
+    fn merged_keys(&self, source: &str) -> Option<String> {
+        namespace_clash(source)
+    }
+
+    /// Markup no view shows (`xsi:type`, namespace declarations) or a
+    /// prefixed name on an element.
+    fn items_hold_unshown(&self, source: &str) -> bool {
+        kept_markup::holds_markup(source)
+    }
+
+    /// A required attribute is listed `@a`.
+    fn required_property<'a>(&self, name: &'a str) -> &'a str {
+        name.strip_prefix('@').unwrap_or(name)
+    }
+
+    fn text_key(&self) -> Option<&'static str> {
+        Some("#text")
+    }
+
+    fn delimiters(&self) -> (char, char) {
+        ('<', '>')
+    }
+
+    fn closing_markup_len(&self, text: &str) -> Option<usize> {
+        markup::end_tag_len(text)
+    }
+
+    fn key_markup_len(&self, text: &str) -> Option<usize> {
+        markup::name_markup_len(text)
+    }
+
+    fn element_end(&self, text: &str, open: usize) -> Option<usize> {
+        markup::element_end(text, open)
+    }
+
+    fn content_texts(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        markup::element_texts(text)
+    }
+
+    fn space_is_content(&self, before: &str, after: &str) -> bool {
+        markup::space_is_content(before, after)
+    }
+
+    fn writes_container_on_line(&self, line: &str) -> bool {
+        line.matches('<').count() >= 4
+    }
+}
+
+impl Repeats for XmlBehavior {
+    fn repeated(&self) -> Repeated {
+        Repeated::Elements
+    }
+
+    /// An element written once, at any depth (several top-level elements
+    /// are a list too): never an attribute, its text or an item of
+    /// repeated elements.
+    fn lone_item(&self, source: &str, path: &FieldPath) -> bool {
+        xml_lone_element(source, &path.to_pointer())
+    }
+}
+
+/// The pointer of the first object holding an empty key, if any.
+fn empty_key(value: &Value, pointer: String) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            if map.contains_key("") {
+                return Some(if pointer.is_empty() { "/".to_string() } else { pointer });
+            }
+            map.iter()
+                .find_map(|(key, child)| empty_key(child, format!("{pointer}/{key}")))
+        }
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .find_map(|(index, item)| empty_key(item, format!("{pointer}/{index}"))),
+        _ => None,
+    }
+}
+
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod completion_tests;
+#[cfg(test)]
+mod tests;
+
+impl XmlBehavior {
+    /// [`ConfigLanguage::serialize`], told which host item each item of
+    /// `value` is by an Edit-as save (see `SaveTold`).
+    fn written(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Result<String, String> {
         if let Some(pointer) = empty_key(value, String::new()) {
             return Err(format!("an empty key cannot be an XML element name (at {pointer})"));
         }
@@ -406,21 +586,10 @@ impl ConfigLanguage for XmlBehavior {
             return Err(reason);
         }
         let framing = previous.map(xml_framing).unwrap_or_default();
-        let mut attributes = previous
-            .map(|previous| pasted_attributes::with_pasted_back(attribute_paths(previous), previous, value))
+        let attributes = previous
+            .map(|previous| pasted_attributes::with_pasted_back(attribute_paths(previous), previous, told.sources()))
             .unwrap_or_default();
         let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
-        if let Some(schema) = schema {
-            // What the text writes keeps its form: elements of the
-            // previous text stay elements. Only its keys matter: the
-            // reading the schema's own read of it left (text scalars), not
-            // another parse.
-            let written = match (&old, previous) {
-                (Some(_), _) | (_, None) => None,
-                (None, Some(previous)) => super::super::parse_cache::parse_text(self, previous).ok(),
-            };
-            attributes.extend(hints::schema_attribute_paths(value, schema, old.as_ref().or(written.as_ref())));
-        }
         if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
             return Err(reason);
         }
@@ -471,11 +640,11 @@ impl ConfigLanguage for XmlBehavior {
         Ok(match previous {
             Some(previous) => {
                 let host = crate::editor::parse_cache::parsed(self, previous);
-                let sources = crate::editor::item_sources::told(previous, |held| held == value);
+                let sources = told.over_last();
                 let origin = sources.as_ref().filter(|sources| sources.holds_origin_items()).map(|sources| sources.origin.as_str());
                 let first = origin.map(|origin| crate::editor::parse_cache::parsed(self, origin));
                 let identity = identity::Identity::of(host.as_ref().as_ref().ok(), value)
-                    .told(sources.as_deref(), first.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
+                    .told(sources, first.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
                 let laid_out = kept_elements::with_layout_of(
                     &tag_spelling::with_tag_spelling_of(
                         &one_line::with_one_line_elements_of(&with_end_tags_of(&out, previous), previous),
@@ -491,176 +660,4 @@ impl ConfigLanguage for XmlBehavior {
             None => out,
         })
     }
-
-    fn comment_start(&self, line: &str) -> Option<usize> {
-        line.find("<!--")
-    }
-
-    /// An attribute name followed by its `="…"`.
-    fn value_follows_key(&self, rest: &str) -> bool {
-        rest.trim_start().starts_with('=')
-    }
-
-    /// Inside empty elements (`<k>|</k>`).
-    fn empty_value_slots(&self, text: &str) -> Vec<usize> {
-        text.match_indices("></").map(|(at, _)| at + 1).collect()
-    }
-
-    /// An element holding other markup (`xsi:type`, a namespace
-    /// declaration) than the host element it is: it reads the same, yet
-    /// XML readers read it otherwise.
-    fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
-        kept_markup::changed_markup(self, previous, patched)
-    }
-
-    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
-        element_renames(source, pointer, new_key)
-    }
-
-    /// An XML name (`a.b`, `café`): a letter or `_` first, then letters,
-    /// digits, `_`, `-` and `.`; for an attribute, one with a prefix too
-    /// (`x:attr`; the model keys elements by their local name, so an
-    /// element's is never renamed to one).
-    fn written_key(&self, source: &str, pointer: &str, key: &str) -> Option<String> {
-        let name = |part: &str| {
-            let mut characters = part.chars();
-            characters.next().is_some_and(|first| first.is_alphabetic() || first == '_')
-                && characters.all(|character| character.is_alphanumeric() || matches!(character, '_' | '-' | '.'))
-        };
-        let written = match key.split_once(':') {
-            Some((prefix, local)) => name(prefix) && name(local) && is_attribute(source, pointer),
-            None => name(key),
-        };
-        written.then(|| key.to_string())
-    }
-
-    fn members_in_order(&self, source: &str, pointer: &str, order: &[String]) -> Option<String> {
-        attribute_order::in_order(source, pointer, order)
-    }
-
-    fn entries_apart(&self, source: &str) -> Option<String> {
-        one_line::children_apart(source)
-    }
-
-    fn entries_together(&self, patched: &str, previous: &str) -> String {
-        one_line::with_one_line_elements_of(patched, previous)
-    }
-
-    /// A start tag's attribute lines, aligned as the host aligns them.
-    fn aligned_lines(&self, text: &str) -> Vec<usize> {
-        attribute_layout::attribute_lines(text)
-    }
-
-    /// Markup no view shows (`xsi:type`, namespace declarations) or a
-    /// prefixed name on an element.
-    fn items_hold_unshown(&self, source: &str) -> bool {
-        kept_markup::holds_markup(source)
-    }
-
-    /// Numbers are text: an integer of any length reads as written.
-    fn holds_wide_integers(&self) -> bool {
-        true
-    }
-
-    fn one_line_body(&self, value: &Value, _indent: &str, _unit: &str) -> Option<String> {
-        one_line_children(value)
-    }
-
-    fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
-        one_line_element(source, pointer).map(|range| OneLine { range: range.clone(), written: String::new(), value: range })
-    }
-
-    /// An end tag, `</name>`.
-    /// Attribute values are quoted; a backslash in them is text.
-    fn config(&self) -> super::super::language::LanguageConfig {
-        super::super::language::LanguageConfig {
-            quotes: &["\"", "'"],
-            literal_quotes: &["\"", "'"],
-            ..Default::default()
-        }
-    }
-
-    /// A required attribute is listed `@a`.
-    fn required_property<'a>(&self, name: &'a str) -> &'a str {
-        name.strip_prefix('@').unwrap_or(name)
-    }
-
-    fn text_key(&self) -> Option<&'static str> {
-        Some(super::XML_TEXT_KEY)
-    }
-
-    fn markup_delimiters(&self) -> Option<(char, char)> {
-        Some(('<', '>'))
-    }
-
-    fn closing_markup_len(&self, text: &str) -> Option<usize> {
-        markup::end_tag_len(text)
-    }
-
-    fn key_markup_len(&self, text: &str) -> Option<usize> {
-        markup::name_markup_len(text)
-    }
-
-    fn element_end(&self, text: &str, open: usize) -> Option<usize> {
-        markup::element_end(text, open)
-    }
-
-    fn unclosed_containers(&self, text: &str) -> usize {
-        markup::open_elements(text)
-    }
-
-    fn container_closers(&self, text: &str) -> Vec<String> {
-        markup::open_element_names(text)
-            .into_iter()
-            .rev()
-            .map(|name| format!("</{name}>"))
-            .collect()
-    }
-
-    fn container_closer_len(&self, text: &str) -> Option<usize> {
-        markup::closer_len(text)
-    }
-
-    fn content_texts(&self, text: &str) -> Vec<std::ops::Range<usize>> {
-        markup::element_texts(text)
-    }
-
-    fn space_is_content(&self, before: &str, after: &str) -> bool {
-        markup::space_is_content(before, after)
-    }
-
-    fn writes_container_on_line(&self, line: &str) -> bool {
-        line.matches('<').count() >= 4
-    }
-
-    fn opens_list_item(&self, lines: &[&str], index: usize) -> bool {
-        let comment_start = |line: &str| self.comment_start(line).unwrap_or(line.len());
-        markup::opens_repeated_element(&comment_start, lines, index)
-    }
 }
-
-/// The pointer of the first object holding an empty key, if any.
-fn empty_key(value: &Value, pointer: String) -> Option<String> {
-    match value {
-        Value::Object(map) => {
-            if map.contains_key("") {
-                return Some(if pointer.is_empty() { "/".to_string() } else { pointer });
-            }
-            map.iter()
-                .find_map(|(key, child)| empty_key(child, format!("{pointer}/{key}")))
-        }
-        Value::Array(items) => items
-            .iter()
-            .enumerate()
-            .find_map(|(index, item)| empty_key(item, format!("{pointer}/{index}"))),
-        _ => None,
-    }
-}
-
-
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod existing_tests;
-#[cfg(all(test, feature = "yaml", feature = "json", feature = "toml", feature = "hcl"))]
-mod hints_tests;

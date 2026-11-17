@@ -3,13 +3,17 @@
 //! schema check accepting an untouched placeholder, unknown ones flagged,
 //! and reference completions in a secret field.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use serde_json::Value;
 
 use super::super::Language;
 use super::super::bridge::Bridge;
 use super::super::codec;
-use super::super::diagnostics::build_schema;
+use super::super::keyboard::utf16_to_byte_index;
+use super::super::schema::build_schema;
 use super::super::secret_options::SecretOptions;
+use super::super::text::{TextRange, text_size};
 use super::locks::{Sources, protect};
 use super::problems::unknown_placeholders;
 use super::suggest::{Around, adjust};
@@ -27,7 +31,7 @@ const SCHEMA: &str = r#"{
 
 pub(super) const SECRET: &str = "«secret 3f2a»";
 pub(super) const PIN: &str = "«secret 0b1c»";
-const ID: &str = "«secret 9d»";
+pub(super) const ID: &str = "«secret 9d»";
 
 /// The same document in every language, holding three placeholders.
 pub(super) fn documents() -> Vec<(Language, String)> {
@@ -144,7 +148,7 @@ impl Random {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
         self.0 ^= self.0 << 17;
-        (self.0 % bound.max(1) as u64) as usize
+        usize::try_from(self.0 % bound.max(1) as u64).expect("below a usize bound")
     }
 }
 
@@ -156,22 +160,14 @@ const PIECES: &[&str] = &[
 /// it touches as the editor does: no real placeholder is ever cut in the
 /// text on screen, and a save cuts none.
 /// Whether the edit from `before` to `after` takes part of one of `tokens`
-/// (UTF-16 ranges in `before`) and not all of it.
-fn cuts_a_token(tokens: &[std::ops::Range<usize>], before: &str, after: &str) -> bool {
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let suffix = old[prefix..]
-        .iter()
-        .rev()
-        .zip(new[prefix.min(new.len())..].iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
-    let region = prefix..old.len() - suffix;
+/// (ranges of `before`) and not all of it.
+fn cuts_a_token(tokens: &[TextRange], before: &str, after: &str) -> bool {
+    let (start, end, _) = super::super::text_change::changed_bytes(before, after);
+    let region = text_size(start)..text_size(end);
     tokens.iter().any(|token| {
-        let inside = token.start < region.start && region.start < token.end;
-        let overlaps = region.start < token.end && token.start < region.end;
-        let covers = region.start <= token.start && token.end <= region.end;
+        let inside = token.start() < region.start && region.start < token.end();
+        let overlaps = region.start < token.end() && token.start() < region.end;
+        let covers = region.start <= token.start() && token.end() <= region.end;
         if region.is_empty() {
             inside
         } else {
@@ -197,14 +193,17 @@ fn random_edits_never_cut_a_placeholder() {
             let mut saved_host = host_text.clone();
             let mut tokens = matcher().locate(edit.behavior(), &shown, &known);
             for step in 0..120 {
-                let units: Vec<u16> = shown.encode_utf16().collect();
-                let start = random.below(units.len() + 1);
-                let end = (start + random.below(5)).min(units.len());
+                // Drawn in UTF-16 units, as the browser counts, then the
+                // characters there.
+                let units = shown.encode_utf16().count();
+                let start = random.below(units + 1);
+                let end = (start + random.below(5)).min(units);
                 let piece = PIECES[random.below(PIECES.len())];
-                let mut edited = String::from_utf16_lossy(&units[..start]);
-                edited.push_str(piece);
-                edited.push_str(&String::from_utf16_lossy(&units[end..]));
-                let edited = match widen(&tokens, &shown, &edited, start..end) {
+                let byte = |at: usize| utf16_to_byte_index(&shown, at);
+                let (from, to) = (byte(start), byte(end));
+                let edited = format!("{}{piece}{}", &shown[..from], &shown[to..]);
+                let region = TextRange::new(text_size(from), text_size(to));
+                let edited = match widen(&tokens, &shown, &edited, region) {
                     Some((widened, _, _)) => widened,
                     None => edited,
                 };
@@ -383,9 +382,7 @@ fn a_secret_field_offers_reference_forms_in_every_language() {
             continue;
         }
         let variable = &options[0];
-        let caret: String = String::from_utf16_lossy(
-            &variable.insert.encode_utf16().collect::<Vec<_>>()[..variable.cursor_offset],
-        );
+        let caret = variable.insert[..usize::from(variable.cursor_offset)].to_string();
         if !caret.ends_with("${") {
             failures.push(format!(
                 "{language}: caret after {caret:?} in {:?}",

@@ -35,11 +35,14 @@ fn theme_names_and_layout_families_are_stable() {
 
 #[test]
 fn closing_pair_typing_moves_over_the_existing_character() {
-    assert_eq!(skip_closing_pair("text)", 4, ')'), Some(5));
-    assert_eq!(skip_closing_pair("text]", 4, ')'), None);
+    assert_eq!(skip_closing_pair("text)", 4.into(), ')'), Some(5.into()));
+    assert_eq!(skip_closing_pair("text]", 4.into(), ')'), None);
     // An escaped quote is text, not the string's end.
-    assert_eq!(skip_closing_pair("\"a\\\"", 3, '"'), None);
-    assert_eq!(skip_closing_pair("\"a\\\\\"", 4, '"'), Some(5));
+    assert_eq!(skip_closing_pair("\"a\\\"", 3.into(), '"'), None);
+    assert_eq!(
+        skip_closing_pair("\"a\\\\\"", 4.into(), '"'),
+        Some(5.into())
+    );
 }
 
 #[cfg(feature = "schema-validation")]
@@ -187,8 +190,8 @@ fn a_selection_starting_inside_the_indentation_keeps_its_column_through_tab_and_
     assert_eq!(back_start, start);
 }
 
-/// The value of the `""` key is that key's field, `/` (round 6's
-/// `D6.docs-2`: `pathAt` named the document root there), in every
+/// The value of the `""` key is that key's field, `/` (`pathAt` once named the
+/// document root there), in every
 /// language that can write it.
 #[cfg(all(feature = "yaml", feature = "json", feature = "toml", feature = "hcl"))]
 #[test]

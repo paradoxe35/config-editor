@@ -4,9 +4,12 @@
 //! language writes a value over lines, the text broken from the start (the
 //! host gave it so) and broken by an edit after it parsed.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::codec;
 use super::super::paths::FieldPath;
+use super::super::text::text_size;
 use super::guard::check;
 use super::locks::{Protected, Sources, protect};
 
@@ -182,13 +185,9 @@ fn a_locked_multiline_value_is_locked_on_every_line_while_broken() {
         for (how, broken, protected) in broken(language, text, junk) {
             let covered: Vec<usize> = (0..lines)
                 .filter(|line| {
-                    let start: usize = broken
-                        .split_inclusive('\n')
-                        .take(*line)
-                        .map(|line| line.encode_utf16().count())
-                        .sum();
-                    let width = broken.lines().nth(*line).unwrap().encode_utf16().count();
-                    (start..start + width).any(|at| protected.lock_at(at).is_some())
+                    let start: usize = broken.split_inclusive('\n').take(*line).map(str::len).sum();
+                    let width = broken.lines().nth(*line).unwrap().len();
+                    (start..start + width).any(|at| protected.lock_at(text_size(at)).is_some())
                 })
                 .collect();
             // Every line of the value: from its key's to the last one

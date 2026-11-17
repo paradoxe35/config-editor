@@ -2,97 +2,137 @@
 //! (kept by a memo), the check every edit passes, and the tooltip saying
 //! why one was refused.
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use leptos::prelude::*;
 
 use super::super::codec;
-use super::super::diagnostics::SchemaBundle;
-use super::super::edit::{Edit, Origin};
+use super::super::edit::{Assoc, Change, Edit, Origin};
 use super::super::edit_as::SaveError;
-use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
-use super::super::paths::{FieldPath, TextRange};
+use super::super::paths::{self, FieldPath};
+use super::super::popups::PopupState;
+use super::super::schema::SchemaBundle;
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
+use super::carry::Moves;
 use super::follow::follow_ranges;
-use super::glued::{first_glued, glued_in_save, glued_message};
-use super::guard::{Blocked, check_at};
-use super::host_ranges::{HostRanges, offsets};
+use super::foreign::DocumentPlaceholders;
+use super::glued::{first_glued, glued_elsewhere, glued_in_save, glued_message};
+use super::guard::{Blocked, Carets, judge};
+use super::host_ranges::{HostRanges, followed_to, offsets};
 use super::locate::LineIndex;
-use super::locks::{Protected, Sources, protect};
+use super::locks::{HoldCause, Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
-use super::texts::save_waits;
+use super::texts::{Reason, save_held, save_held_placeholder, save_waits};
 use super::whole_guard::Placeholders;
-use crate::reactive::later::{self, Timeout};
-
-/// How long a refused edit's tooltip stays, in milliseconds.
-const TIP_MS: i32 = 2500;
-
-/// A short message at a place in the text: why an edit was refused, or
-/// what the hovered protected text is.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Tip {
-    pub(crate) message: String,
-    /// UTF-16 offset it points at.
-    pub(crate) offset: usize,
-    /// Shown for the pointer (it goes when the pointer leaves).
-    pub(crate) hover: bool,
-}
+use crate::EditorStrings;
+use crate::editor::text::{self, TextRange, TextSize, utf16_of};
 
 /// The host's side of protection (the component's props, when given).
 pub(crate) struct ProtectInit {
     pub(crate) paths: Option<Signal<Vec<FieldPath>>>,
-    pub(crate) ranges: Option<Signal<Vec<TextRange>>>,
+    pub(crate) ranges: Option<Signal<Vec<paths::TextRange>>>,
     pub(crate) secrets: Option<SecretOptions>,
+    /// The placeholders of the other editors of a documents view (see
+    /// `foreign`).
+    pub(crate) foreign: Option<Signal<Arc<Vec<DocumentPlaceholders>>>>,
 }
 
 /// The bookkeeping of one editor's protection.
 #[derive(Clone, Default)]
 pub(crate) struct Marks {
-    /// The timer hiding the refusal tooltip: one per editor, which a new
-    /// refusal replaces.
-    tip_timer: Timeout,
     /// Counts the texts the host gave (see [`ProtectState::trust_text`]).
     epoch: u64,
     /// The placeholder a mouse press landed inside, until it is released.
-    pub(crate) pressed: Option<Range<usize>>,
-    /// Where typing was refused at a read-only field, and why: the rest of
-    /// what is typed there is refused too (see [`EditorState::check_edit`]),
-    /// until the caret moves or another edit is made.
-    refused: Option<(usize, String)>,
-    /// The stretch typing just wrote, one character after another (UTF-16
-    /// offsets): a refusal takes back the word it was writing.
-    typed: Option<(usize, usize)>,
+    pub(crate) pressed: Option<TextRange>,
+    /// The last change event was held back (see
+    /// [`EditorState::note_held_back`]): new locks from the host that release
+    /// it send the text on screen then.
+    held_back: bool,
+    /// The last edit followed, so the locks follow it as the guard judged
+    /// it (see `locks::Sources::caret` and `change`).
+    followed: Option<Followed>,
+    /// The locks the guard found for the text of the edit it took (see
+    /// `guard::judge`): the memo of locks takes them for that text instead
+    /// of finding them again, so the editor holds the spans as judged.
+    foreseen: Option<(String, Protected)>,
+    /// Every token the host gave since the editor was made (see
+    /// `own_placeholders`).
+    pub(crate) given: std::collections::HashSet<String>,
+    /// What the edits since the host's last text made of it (see
+    /// [`SinceHost`]).
+    since_host: Option<SinceHost>,
+}
+
+/// The change the edits on screen made of the host's last text (`from`)
+/// to give the text on screen (`to`), recorded edit by edit while the host
+/// has not heard them (a save held): the host's ranges name places in its
+/// text, and are mapped through it to the text on screen, never guessed
+/// from the two texts.
+#[derive(Clone)]
+struct SinceHost {
+    from: Arc<str>,
+    to: Arc<str>,
+    change: Change,
+}
+
+/// An edit the locks follow: the text it was made on and the text it made,
+/// the caret it left there (none for an undo or redo) and what it
+/// recorded it did (`Edit::change`). It moves only the locks of
+/// its text before into its text after: locks found again on the text
+/// after (new paths or ranges from the host) are already where they are.
+#[derive(Clone)]
+struct Followed {
+    before: Arc<str>,
+    after: Arc<str>,
+    caret: Option<TextSize>,
+    change: Option<Arc<Change>>,
+}
+
+impl Followed {
+    /// Whether this edit made `text` from the text `previous` was found in.
+    fn made(&self, previous: Option<&Protected>, text: &str) -> bool {
+        *self.after == *text && previous.is_some_and(|previous| *self.before == *previous.text)
+    }
 }
 
 /// The protection signals of one editor.
 #[derive(Clone, Copy)]
 pub(crate) struct ProtectState {
     pub(crate) host_paths: Signal<Vec<FieldPath>>,
-    pub(crate) host_ranges: Signal<Vec<TextRange>>,
-    /// The host's ranges as UTF-16 offsets of the text on screen, followed
+    pub(crate) host_ranges: Signal<Vec<paths::TextRange>>,
+    /// The host's ranges as ranges of the text on screen, followed
     /// through edits; empty while editing as another language (there the
     /// fields they cover are locked by path).
-    pub(crate) ranges: RwSignal<Vec<Range<usize>>>,
+    pub(crate) ranges: RwSignal<Vec<TextRange>>,
     /// The host's ranges in its own text while editing as another
     /// language, followed through each conversion back.
-    pub(super) in_host: HostRanges,
+    in_host: HostRanges,
+    /// The text of a host range that the text on screen does not hold
+    /// where the range is placed, and the range's index: the edits the
+    /// host has not heard changed it before the host locked it. The range
+    /// locks nothing on screen meanwhile; a save, a change event and the
+    /// value wait (P1) until the text holds it again.
+    pub(super) ranges_changed: RwSignal<Option<(String, usize)>>,
     /// The host's ranges `ranges` was first placed from, until the effect
     /// placing them again first runs: ranges the host changed before then
     /// (an update in the task that mounts the editor) are placed then.
-    placed_at_mount: StoredValue<Option<Vec<TextRange>>>,
+    placed_at_mount: StoredValue<Option<Vec<paths::TextRange>>>,
     /// The locks of the text on screen.
     pub(crate) protected: Memo<Arc<Protected>>,
-    pub(crate) tip: RwSignal<Option<Tip>>,
+    /// The popups, where the lock tip shows.
+    popups: PopupState,
     /// Small bookkeeping, in one slot: every editor keeps its handles.
     pub(crate) marks: StoredValue<Marks>,
     /// Secret placeholders (see `secrets`).
     pub(crate) secrets: SecretState,
+    /// The placeholders of the other editors of a documents view, this
+    /// one's own among them (see `foreign`).
+    pub(crate) foreign: Signal<Arc<Vec<DocumentPlaceholders>>>,
 }
 
 /// What the memo of locks reads.
@@ -101,7 +141,8 @@ pub(crate) struct Inputs {
     pub(crate) edit_language: RwSignal<Language>,
     pub(crate) host_language: Language,
     pub(crate) schema: Option<Arc<SchemaBundle>>,
-    pub(crate) host_text: StoredValue<String>,
+    pub(crate) host_text: super::super::sync::HostTextReader,
+    pub(crate) popups: PopupState,
 }
 
 impl ProtectState {
@@ -109,6 +150,7 @@ impl ProtectState {
         let paths = init.paths.unwrap_or_default();
         let ranges = init.ranges.unwrap_or_default();
         let secrets = init.secrets.unwrap_or_default();
+        let foreign = init.foreign.unwrap_or_default();
         if let Err(error) = secrets.check_placeholder() {
             // Also a document problem: no token is a placeholder meanwhile.
             leptos::logging::error!("config-editor: secrets.placeholder: {error}");
@@ -119,6 +161,7 @@ impl ProtectState {
             host_language,
             schema,
             host_text,
+            popups: inputs_popups,
         } = inputs;
         let secrets = host_text.with_value(|host| {
             source.with_untracked(|shown| {
@@ -153,20 +196,51 @@ impl ProtectState {
                     .as_deref()
                     .filter(|bundle| bundle.has_marks)
                     .map(|bundle| &bundle.schema);
-                let mut fields = paths.get();
+                let fields = paths.get();
+                let mut range_fields = Vec::new();
                 let local_ranges = if edit == host_language {
                     local.get()
                 } else {
                     // Edit-as: the host's ranges lock the fields they cover.
                     if !ranges.with(Vec::is_empty) {
                         host_text.with_value(|host| {
-                            let placed = in_host.in_text(host);
-                            fields.extend(covered.found(host_language, host, &placed, reading));
+                            let placed = in_host.in_text(host_language.behavior(), host, reading);
+                            range_fields = covered.found(host_language, host, &placed, reading);
                         });
                     }
                     Vec::new()
                 };
                 source.with(|text| {
+                    let followed = marks
+                        .with_value(|marks| marks.followed.clone())
+                        .filter(|followed| followed.made(previous, text));
+                    let caret = followed.as_ref().and_then(|followed| followed.caret);
+                    let change = followed
+                        .as_ref()
+                        .and_then(|followed| followed.change.clone());
+                    // Taken only for the text it was found for: the memo may
+                    // run between the check and the write (the host's
+                    // ranges followed first), on the text before.
+                    let fits = |(before, foreseen): &(String, Protected)| {
+                        previous.is_some_and(|previous| previous.text == *before)
+                            && foreseen_fits(foreseen, previous, text, &fields, &local_ranges)
+                            && foreseen.range_fields == range_fields
+                            && foreseen.marking == marking.is_some()
+                    };
+                    let foreseen = marks
+                        .try_update_value(|marks| {
+                            marks
+                                .foreseen
+                                .as_ref()
+                                .is_some_and(fits)
+                                .then(|| marks.foreseen.take())
+                        })
+                        .flatten()
+                        .flatten();
+                    if let Some((_, mut protected)) = foreseen {
+                        protected.epoch = epoch;
+                        return Arc::new(protected);
+                    }
                     let mut protected = protect(
                         edit.behavior(),
                         text,
@@ -175,7 +249,10 @@ impl ProtectState {
                             reading_schema: reading,
                             paths: &fields,
                             ranges: &local_ranges,
+                            range_fields: &range_fields,
                             previous,
+                            caret,
+                            change: change.as_deref(),
                         },
                     );
                     protected.epoch = epoch;
@@ -189,56 +266,120 @@ impl ProtectState {
             host_ranges: ranges,
             ranges: local,
             in_host,
+            ranges_changed: RwSignal::new(None),
             placed_at_mount: StoredValue::new(Some(mounted_with)),
             protected,
-            tip: RwSignal::new(None),
+            popups: inputs_popups,
             marks,
             secrets,
+            foreign,
         }
+    }
+
+    /// The field the parse reads a placeholder given whole in with text
+    /// beside it, after an edit taken for leaving the placeholder and its
+    /// edges alone (see `whole_guard::Held`), while `text` (written in
+    /// `behavior`) does not read it as the host's text does. The hold is
+    /// kept until the host gives a text: an undo may bring such a text
+    /// back.
+    pub(crate) fn placeholder_held(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        text: &str,
+    ) -> Option<String> {
+        let held = self.secrets.held.get_value()?;
+        let origin = self
+            .protected
+            .with_untracked(|protected| protected.origin.clone());
+        let still = self
+            .secrets
+            .known
+            .with_untracked(|known| held.still(behavior, known, text, origin.as_deref()));
+        still.then_some(held.field)
+    }
+
+    /// The field of a placeholder given whole that `text` (written in
+    /// `behavior`), which parses, reads with other text beside it in a
+    /// value out of its field (see `glued::glued_elsewhere`). Read only
+    /// while some placeholder is out of its field (fewer real ones on
+    /// screen than the host wrote in fields) or a copy of one is written
+    /// (more on screen than are real): one in its field is judged at each
+    /// keystroke, and a parse per change would cost a key a read of the
+    /// document. A copy is judged here, by the parse, wherever the edits
+    /// that glued it were made (text typed beside it while the text did not
+    /// parse, a repair far from it, its key renamed off a field that held
+    /// it).
+    pub(crate) fn glued_away(&self, behavior: &dyn ConfigLanguage, text: &str) -> Option<String> {
+        let secrets = self.secrets;
+        let real = secrets.tokens.with_untracked(Vec::len);
+        let away = secrets.known.with_untracked(|known| {
+            let written: usize = known
+                .iter()
+                .filter(|known| known.whole.is_some() && known.field.is_some())
+                .map(|known| known.count)
+                .sum();
+            written > 0 && real < written
+        });
+        if !away && !self.copies_written(text, real) {
+            return None;
+        }
+        let parsed = parse_cache::parsed(behavior, text);
+        let document = parsed.as_ref().as_ref().ok()?;
+        secrets
+            .known
+            .with_untracked(|known| glued_elsewhere(document, known)?.field.clone())
+    }
+
+    /// Whether `text` writes more of the host's tokens given whole than the
+    /// `real` ones: a copy is written (one pass of the pattern).
+    fn copies_written(&self, text: &str, real: usize) -> bool {
+        let secrets = self.secrets;
+        secrets.known.with_untracked(|known| {
+            if !known.iter().any(|known| known.whole.is_some()) {
+                return false;
+            }
+            secrets.matcher.with_value(|matcher| {
+                matcher
+                    .find(text)
+                    .into_iter()
+                    .filter(|range| {
+                        known.iter().any(|known| {
+                            known.whole.is_some()
+                                && known.token == text.get(range.clone()).unwrap_or_default()
+                        })
+                    })
+                    .count()
+                    > real
+            })
+        })
     }
 
     /// Takes the next text as the host's own (a controlled value, a reload,
     /// an Edit-as switch): the locked values are read from it afresh, never
     /// carried from the text it replaces.
     pub(crate) fn trust_text(&self) {
-        self.marks.update_value(|marks| marks.epoch += 1);
+        self.marks.update_value(|marks| {
+            marks.epoch += 1;
+            marks.followed = None;
+        });
     }
 
-    /// Shows `message` at `offset` for a moment.
-    pub(crate) fn flash(&self, message: String, offset: usize) {
-        self.tip.set(Some(Tip {
-            message,
-            offset,
-            hover: false,
-        }));
-        // Native unit tests have no clock: there it stays (unless a test
-        // holds the timers).
-        if later::defers() {
-            self.cancel_tip_timer();
-            let timer = later::after(self.tip, TIP_MS, |tip| tip.set(None));
-            self.marks.update_value(|marks| marks.tip_timer = timer);
-        }
+    /// Shows `message` at byte `offset` of `text` for a moment: why an
+    /// edit was refused.
+    pub(crate) fn flash(&self, message: String, text: &str, offset: TextSize) {
+        // Placed on screen, in UTF-16 units of the text.
+        self.popups.flash_lock(message, utf16_of(text, offset));
     }
 
-    /// Drops the pending timer that would hide the tooltip.
-    fn cancel_tip_timer(&self) {
-        let timer = self
-            .marks
-            .try_update_value(|marks| std::mem::take(&mut marks.tip_timer));
-        if let Some(timer) = timer {
-            timer.cancel();
-        }
-    }
-
-    /// Hides the tooltip (only a hover one with `hover_only`).
+    /// Hides the lock tip (only a hover one with `hover_only`).
     pub(crate) fn hide_tip(&self, hover_only: bool) {
-        let shown = self
-            .tip
-            .with_untracked(|tip| tip.as_ref().map(|tip| tip.hover));
-        if shown.is_some_and(|hover| hover || !hover_only) {
-            self.tip.set(None);
-            self.cancel_tip_timer();
-        }
+        self.popups.hide_lock(hover_only);
+    }
+
+    /// The lock tip, while one shows.
+    #[cfg(test)]
+    pub(crate) fn tip(&self) -> Option<super::super::popups::LockTip> {
+        self.popups.lock_tip_untracked()
     }
 }
 
@@ -248,9 +389,9 @@ impl ProtectState {
 #[derive(Clone, Copy)]
 struct Covered(StoredValue<Option<CoveredFields>>);
 
-/// A host text, its read-only ranges (UTF-16 offsets) and the fields they
+/// A host text, its read-only ranges and the fields they
 /// cover.
-type CoveredFields = (String, Vec<Range<usize>>, Vec<FieldPath>);
+type CoveredFields = (String, Vec<TextRange>, Vec<FieldPath>);
 
 impl Covered {
     /// [`covered_fields`], from the last ones found when they were of the
@@ -259,7 +400,7 @@ impl Covered {
         self,
         language: Language,
         host: &str,
-        ranges: &[Range<usize>],
+        ranges: &[TextRange],
         reading: Option<&serde_json::Value>,
     ) -> Vec<FieldPath> {
         let kept = self.0.with_value(|kept| {
@@ -276,13 +417,32 @@ impl Covered {
     }
 }
 
-/// The fields the host's `ranges` (UTF-16 offsets) cover in its own `host`
+/// Whether a locked field's own key is written at the start of another
+/// line too, after its indent (a second `limits:` or `id =`).
+fn locked_key_again(protected: &Protected) -> bool {
+    let starts: Vec<&str> = protected.text.lines().map(str::trim_start).collect();
+    protected.locks.iter().any(|lock| {
+        let Some(key) = lock
+            .key
+            .and_then(|key| text::slice::slice(&protected.text, key))
+        else {
+            return false;
+        };
+        let written = |line: &&str| {
+            line.strip_prefix(key)
+                .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+        };
+        !key.trim().is_empty() && starts.iter().filter(|line| written(line)).count() > 1
+    })
+}
+
+/// The fields the host's `ranges` cover in its own `host`
 /// text, written in `language` (none when it does not parse): what they
 /// lock while editing as another language.
 fn covered_fields(
     language: Language,
     host: &str,
-    ranges: &[Range<usize>],
+    ranges: &[TextRange],
     reading: Option<&serde_json::Value>,
 ) -> Vec<FieldPath> {
     let behavior = language.behavior();
@@ -295,6 +455,129 @@ fn covered_fields(
         .collect()
 }
 
+/// The host's ranges (of its text `old`) keep their text in
+/// its next text `new`: an Edit-as view locks the fields a range covers by
+/// their values, and has nothing to lock of the range's other text (a
+/// comment, the line break before a key), so the save back holds the
+/// range's text as written (at least as often as before; a range of only
+/// whitespace, which formatting writes everywhere, at least once).
+fn text_ranges_kept(old: &str, new: &str, ranges: &[TextRange]) -> Result<(), ReadOnlyChange> {
+    if ranges.is_empty() {
+        return Ok(());
+    }
+    // Most ranges keep their text where the conversion kept their lines;
+    // only the others are looked for.
+    let moves = Moves::new(old, new);
+    for range in ranges {
+        let Some(text) = text::slice::slice(old, *range) else {
+            continue;
+        };
+        let kept = moves
+            .range(range)
+            .is_some_and(|to| text::slice::slice(new, to) == Some(text));
+        if kept || text.is_empty() {
+            continue;
+        }
+        let wanted = if text.trim().is_empty() {
+            1
+        } else {
+            old.matches(text).count()
+        };
+        if new.matches(text).count() < wanted {
+            return Err(ReadOnlyChange {
+                pointer: String::new(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The host's `given` ranges (of `host`) as `placed` in `text`
+/// (in the same order). One whose text `text` does not hold there takes
+/// its place in `others` (the same ranges placed another way, made only
+/// then) when that holds it; else it is made empty where it starts: an
+/// edit the host has not heard changed it before the host locked it, so
+/// it locks nothing on screen, and the first such range's text and index
+/// say why the save waits. Edits that write the text back (an undo) place
+/// it again (see `follow_edit`).
+fn keeping_their_text(
+    host: &str,
+    given: &[TextRange],
+    text: &str,
+    mut placed: Vec<TextRange>,
+    others: impl FnOnce() -> Vec<TextRange>,
+) -> (Vec<TextRange>, Option<(String, usize)>) {
+    // A range past the text's end holds what the text has of it.
+    fn slice<'t>(of: &'t str, range: &TextRange) -> Option<&'t str> {
+        let end = range.end().min(TextSize::of(of));
+        text::slice::slice(of, TextRange::new(range.start().min(end), end))
+    }
+    let mut others = Some(others);
+    let mut other: Vec<TextRange> = Vec::new();
+    let mut changed = None;
+    for (index, (given, placed)) in given.iter().zip(placed.iter_mut()).enumerate() {
+        let Some(locked) = slice(host, given) else {
+            continue;
+        };
+        if slice(text, placed) == Some(locked) {
+            continue;
+        }
+        if let Some(others) = others.take() {
+            other = others();
+        }
+        match other.get(index) {
+            Some(found) if slice(text, found) == Some(locked) => *placed = *found,
+            _ => {
+                *placed = TextRange::empty(placed.start());
+                changed.get_or_insert_with(|| (locked.to_string(), index));
+            }
+        }
+    }
+    (placed, changed)
+}
+
+/// Why a save waits on a host range whose text `locked` was changed before
+/// the host locked it.
+pub(super) fn range_changed_message(strings: &EditorStrings, locked: &str) -> String {
+    let quoted = format!("\"{locked}\"");
+    save_held(
+        strings,
+        &quoted,
+        &Reason::Range,
+        HoldCause::ChangedBeforeLock,
+    )
+}
+
+/// Whether the locks the guard found (`foreseen`) are those the memo would
+/// find for `text`: from the same locks before, paths and host ranges.
+fn foreseen_fits(
+    foreseen: &Protected,
+    previous: Option<&Protected>,
+    text: &str,
+    paths: &[FieldPath],
+    ranges: &[TextRange],
+) -> bool {
+    let Some(previous) = previous else {
+        return false;
+    };
+    let placed: Vec<TextRange> = foreseen
+        .locks
+        .iter()
+        .filter(|lock| lock.pointer.is_none())
+        .flat_map(|lock| lock.ranges.iter().copied())
+        .collect();
+    let wanted: Vec<&TextRange> = ranges.iter().filter(|range| !range.is_empty()).collect();
+    foreseen.text == text
+        && foreseen.origin == previous.origin
+        && foreseen.paths.len() == paths.len()
+        && foreseen
+            .paths
+            .iter()
+            .zip(paths)
+            .all(|(pointer, path)| *pointer == path.to_pointer())
+        && placed.iter().eq(wanted)
+}
+
 /// Whether the locks memo has news for its readers: the text it was read
 /// from and the documents alone do not count.
 fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> bool {
@@ -305,6 +588,7 @@ fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> 
                 || old.pins != new.pins
                 || old.marked != new.marked
                 || old.unplaced != new.unplaced
+                || old.held != new.held
                 || old.epoch != new.epoch
         }
         _ => true,
@@ -348,49 +632,62 @@ impl EditorState {
         });
     }
 
-    /// The host changed its locks: a refusal of the old ones holds no more.
-    fn locks_changed_by_host(&self) {
-        self.forget_refusal();
+    /// The host changed its locks: a refusal of the old ones holds no more,
+    /// and a change event they held back is sent now that they release it
+    /// (P4: the host has the text on screen without waiting for a key).
+    pub(super) fn locks_changed_by_host(&self) {
         let text = self.doc().text.get_untracked();
         let edit = self.sync().edit_language.get_untracked();
-        if edit != self.config().host_language && text != self.sync().synced_edit.get_value() {
-            super::super::sync::convert_now(*self, text, edit);
+        if edit != self.config().host_language {
+            if !self.sync().is_synced(&text) {
+                super::super::sync::convert_now(*self, text, edit);
+            }
+            return;
         }
+        if self.protect().marks.with_value(|marks| marks.held_back) {
+            self.notify_change();
+        }
+    }
+
+    /// Notes whether the host's gate (see `sync::gate`) held the last text
+    /// back, for [`Self::locks_changed_by_host`].
+    pub(crate) fn note_held_back(&self, held: bool) {
+        self.protect()
+            .marks
+            .update_value(|marks| marks.held_back = held);
     }
 
     /// The edit pipeline's check stage: whether `edit` keeps every lock;
     /// when not, why the field is locked.
     pub(crate) fn check_edit(&self, edit: &Edit) -> Result<(), String> {
-        // Typing on where a key was refused: the rest of the word, or the
-        // spaces after it, would only be left there half-written.
-        if let Some(at) = inserted_at(edit)
-            && holds_back(edit, at, &comment_markers(self.behavior()))
-            && let Some(message) = self.protect().marks.with_value(|marks| {
-                marks
-                    .refused
-                    .as_ref()
-                    .filter(|(refused_at, _)| *refused_at == at)
-                    .map(|(_, message)| message.clone())
-            })
-        {
-            return Err(message);
-        }
-        self.protect()
+        let change = edit.change();
+        let carets = Carets {
+            caret: Some(edit.caret()),
+            written: edit.written_end(),
+            change: change.as_ref(),
+        };
+        let followed = self
+            .protect()
             .protected
             .with_untracked(|protected| {
                 self.config().schema.with_value(|schema| {
-                    check_at(
+                    judge(
                         self.behavior(),
                         schema.as_deref().map(|bundle| &bundle.schema),
                         protected,
                         (&edit.before, &edit.text),
-                        Some(edit.caret()),
+                        carets,
                     )
                 })
             })
             .map_err(|blocked: Blocked| {
                 self.strings_untracked(|strings| blocked.message(strings))
             })?;
+        let foreseen = followed.map(|followed| (edit.before.clone(), followed));
+        self.protect()
+            .marks
+            .update_value(|marks| marks.foreseen = foreseen);
+
         match self.glued_by(&edit.before, &edit.text) {
             Some(pointer) => {
                 Err(self.strings_untracked(|strings| glued_message(strings, &pointer)))
@@ -410,21 +707,24 @@ impl EditorState {
             .parsing
             .with_value(|known| known.as_deref() == Some(before))
             || parse_cache::known_to_parse(behavior, before) == Some(true);
-        let verdict = self.config().schema.with_value(|schema| {
-            let index = secrets.whole.get_untracked();
-            secrets.known.with_untracked(|known| {
-                secrets.tokens.with_untracked(|tokens| {
-                    secrets.matcher.with_value(|matcher| {
-                        Placeholders {
-                            behavior,
-                            reading_schema: schema.as_deref().map(|bundle| &bundle.schema),
-                            known,
-                            index: &index,
-                            tokens,
-                            matcher,
-                        }
-                        .check(before, after, before_parses)
-                    })
+        let index = secrets.whole.get_untracked();
+        let origin = self
+            .protect()
+            .protected
+            .with_untracked(|p| p.origin.clone());
+        let verdict = secrets.known.with_untracked(|known| {
+            secrets.tokens.with_untracked(|tokens| {
+                secrets.matcher.with_value(|matcher| {
+                    Placeholders {
+                        behavior,
+                        known,
+                        index: &index,
+                        tokens,
+                        matcher,
+                        origin: origin.as_deref(),
+                        holding: secrets.held.with_value(Option::is_some),
+                    }
+                    .check(before, after, before_parses)
                 })
             })
         });
@@ -433,120 +733,34 @@ impl EditorState {
                 .parsing
                 .set_value((verdict.parses == Some(true)).then(|| after.to_string()));
         }
-        verdict.glued
-    }
-
-    /// After typing was refused at a read-only field with `message`: what
-    /// is typed there next is refused too, and what typing wrote on that
-    /// line up to there is taken back (`<i` of a refused `<id`, `id ` of a
-    /// refused `id =`), the edit returned to make it. Nothing half-written
-    /// stays.
-    pub(crate) fn note_refused(&self, edit: &Edit, message: String) -> Option<Edit> {
-        let at = inserted_at(edit)?;
-        let typed = self.protect().marks.with_value(|marks| marks.typed);
-        let word_start = typed
-            .filter(|(start, end)| *end == at && start < end)
-            .map(|(start, _)| {
-                let units: Vec<u16> = edit.before.encode_utf16().collect();
-                let typed = String::from_utf16_lossy(&units[start..at]);
-                // The entry typed on this line, past its indentation.
-                let line = typed.rsplit('\n').next().unwrap_or_default();
-                at - line.trim_start().encode_utf16().count()
-            })
-            .filter(|start| *start < at)
-            // Taken back only when it is what the refusal is about: the
-            // input refused without it would be let through. A word the
-            // refused input does not need (typed before a quote that
-            // closes a string over a locked field) is the user's and stays.
-            .filter(|start| self.refused_for(edit, *start, at));
-        let refused_at = word_start.unwrap_or(at);
-        self.protect().marks.update_value(|marks| {
-            marks.refused = Some((refused_at, message));
-            marks.typed = None;
-        });
-        let start = word_start?;
-        let before = edit.before.clone();
-        let (from, to) = (
-            utf16_to_byte_index(&before, start),
-            utf16_to_byte_index(&before, at),
-        );
-        let text = format!("{}{}", &before[..from], &before[to..]);
-        Some(Edit::new(before, (start, at), text, start))
-    }
-
-    /// Whether the refused `edit` is let through without what typing wrote
-    /// from UTF-16 `start` to `at`, where the edit inserts.
-    fn refused_for(&self, edit: &Edit, start: usize, at: usize) -> bool {
-        let (from, to) = (
-            utf16_to_byte_index(&edit.text, start),
-            utf16_to_byte_index(&edit.text, at),
-        );
-        let without = format!("{}{}", &edit.text[..from], &edit.text[to..]);
-        self.protect().protected.with_untracked(|protected| {
-            self.config().schema.with_value(|schema| {
-                check_at(
-                    self.behavior(),
-                    schema.as_deref().map(|bundle| &bundle.schema),
-                    protected,
-                    (&edit.before, &without),
-                    Some(start),
-                )
-                .is_ok()
-            })
-        }) && self.glued_by(&edit.before, &without).is_none()
-    }
-
-    /// After an edit was made: typing goes on from where it ended, and a
-    /// refusal stays only where typing was refused (see
-    /// [`Self::note_refused`]).
-    pub(crate) fn note_applied(&self, edit: &Edit) {
-        // Typing goes on at the caret the insertion left (its end), read
-        // without measuring the document on every key.
-        let inserted = inserted_at(edit).map(|at| (at, edit.caret().max(at)));
-        self.protect().marks.update_value(|marks| {
-            let at_refusal = marks.refused.as_ref().is_some_and(|(refused_at, _)| {
-                edit.replaced(edit.caret()).1 == *refused_at || edit.caret() == *refused_at
+        // An Edit-as view's text reaches the host converted, checked there
+        // (`check_host_save`), not through the hold: refused as before.
+        if self.config().host_language != self.sync().edit_language.get_untracked() {
+            return verdict.glued.or(verdict.held.map(|held| held.field));
+        }
+        if let Some(held) = verdict.held {
+            secrets.held.update_value(|now| match now {
+                Some(now) => {
+                    now.field = held.field;
+                    now.tokens.extend(held.tokens);
+                    now.tokens.sort();
+                    now.tokens.dedup();
+                }
+                None => *now = Some(held),
             });
-            if !at_refusal {
-                marks.refused = None;
-            }
-            marks.typed = match (marks.typed, inserted) {
-                (Some((start, end)), Some((at, to))) if end == at => Some((start, to)),
-                (_, inserted) => inserted,
-            };
-        });
-    }
-
-    /// A closer the editor wrote was typed over, the caret stepping from
-    /// UTF-16 `from` to `to`: typing goes on past it, so an entry refused
-    /// right after it (the `:` after `"password"`) is taken back whole, as
-    /// without auto-closing.
-    pub(crate) fn note_stepped_over(&self, from: usize, to: usize) {
-        self.protect().marks.update_value(|marks| {
-            if let Some((start, end)) = marks.typed
-                && end == from
-            {
-                marks.typed = Some((start, to));
-            }
-        });
-    }
-
-    /// The caret moved, or another kind of key was pressed: typing starts
-    /// afresh.
-    pub(crate) fn forget_refusal(&self) {
-        self.protect().marks.update_value(|marks| {
-            marks.refused = None;
-            marks.typed = None;
-        });
+        }
+        verdict.glued
     }
 
     /// Finds again what is kept by position in a text replaced whole (see
     /// `edit::Origin`): the host's ranges after a host text, and the secret
     /// placeholders, the host's own after a text from the host.
     pub(crate) fn find_protected_again(&self, origin: &Origin) {
+        // A text from the host is its own: nothing typed is held in it.
+        if matches!(origin, Origin::Reload { .. } | Origin::HostValue) {
+            self.protect().secrets.held.set_value(None);
+        }
         match origin {
-            // A placeholder an undo brings back is the host's again.
-            Origin::Undo | Origin::Redo => self.rescan_tokens(false),
             Origin::Reload { host } => self.adopt_host_tokens(host),
             // A new text from the host: its ranges and placeholders anew. Not
             // on an echo of the editor's own edit, where they are followed
@@ -559,38 +773,162 @@ impl EditorState {
                 self.follow_ranges_across_switch();
                 self.rescan_tokens(false);
             }
-            Origin::Command | Origin::Input { .. } => {}
+            // An undo or redo is followed as any edit (`follow_tokens`): a
+            // placeholder it writes back is found by its path or, in a text
+            // that does not parse, as often as the host gave it, the ones
+            // it kept first. Found again by their text, a copy written
+            // before the real one would take its place.
+            Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo => {}
         }
     }
 
     /// Follows an applied edit with what is kept by position (the host's
     /// ranges, the secret placeholders).
-    pub(crate) fn follow_edit(&self, before: &str, after: &str, caret: usize) {
-        self.follow_tokens(before, after, caret);
+    pub(crate) fn follow_edit(&self, edit: &Edit) {
+        let (before, after) = (edit.before.as_str(), edit.text.as_str());
+        let caret = edit.caret();
+        let change = edit.change().map(Arc::new);
+        let (shared_before, shared_after) = (Arc::<str>::from(before), Arc::<str>::from(after));
+        let since = self.since_host(edit, &shared_before, &shared_after);
+        self.protect().marks.update_value(|marks| {
+            marks.followed = Some(Followed {
+                before: shared_before,
+                after: shared_after,
+                caret: edit.written_end(),
+                change: change.clone(),
+            });
+            marks.since_host = since;
+        });
+        self.follow_tokens(before, after, caret, change.as_deref());
         if self.protect().ranges.with_untracked(Vec::is_empty) {
             return;
         }
+        // A range whose text the text on screen does not hold is placed
+        // from the host's text again after each edit: the edit writing its
+        // text back releases the save.
+        if self
+            .protect()
+            .ranges_changed
+            .with_untracked(Option::is_some)
+        {
+            self.place_ranges_in(after);
+            return;
+        }
         self.protect().ranges.update(|ranges| {
-            *ranges = follow_ranges(ranges, before, after, caret);
+            *ranges = follow_ranges(ranges, before, after, caret, change.as_deref());
         });
+    }
+
+    /// What the edits since the host's last text made of it, with `edit`
+    /// (made on `before`, making `after`) added: begun anew by an edit of
+    /// the host's own text, else `edit` composed onto the record of the
+    /// edits before it. `None` in another language than the host's, or
+    /// after a text no recorded edit made.
+    fn since_host(&self, edit: &Edit, before: &Arc<str>, after: &Arc<str>) -> Option<SinceHost> {
+        if self.config().host_language != self.sync().edit_language.get_untracked() {
+            return None;
+        }
+        let change = edit.mapping();
+        if self.sync().host_text.with_value(|host| *host == **before) {
+            return Some(SinceHost {
+                from: before.clone(),
+                to: after.clone(),
+                change,
+            });
+        }
+        let since = self
+            .protect()
+            .marks
+            .with_value(|marks| marks.since_host.clone())
+            .filter(|since| *since.to == **before)?;
+        let composed = since.change.compose(&change)?.narrowed(&since.from)?;
+        Some(SinceHost {
+            from: since.from,
+            to: after.clone(),
+            change: composed,
+        })
     }
 
     /// Places the host's ranges again (they changed, or the host replaced
     /// the text): on the text on screen in the host's language, else in the
     /// host's text, where each conversion back follows them.
     pub(crate) fn place_ranges(&self) {
-        let host = self.config().host_language == self.sync().edit_language.get_untracked();
-        let placed = self.protect().host_ranges.with_untracked(|ranges| {
-            if host {
-                self.doc().text.with_untracked(|text| offsets(text, ranges))
-            } else {
-                self.sync()
-                    .host_text
-                    .with_value(|text| self.protect().in_host.place(text, ranges));
-                Vec::new()
-            }
+        if self.config().host_language == self.sync().edit_language.get_untracked() {
+            let text = self.doc().text.get_untracked();
+            self.place_ranges_in(&text);
+            return;
+        }
+        self.protect().host_ranges.with_untracked(|ranges| {
+            self.sync()
+                .host_text
+                .with_value(|text| self.protect().in_host.place(text, ranges));
         });
+        self.protect().ranges_changed.set(None);
+        self.protect().ranges.set(Vec::new());
+    }
+
+    /// Places the host's ranges in `text`, the text on screen in the
+    /// host's language. They name places in the host's text: `text` when
+    /// every edit reached the host, else an older one (an edit held), from
+    /// which they are mapped through what the edits since recorded they
+    /// did; followed by reading the two texts only when no record reaches
+    /// back to it. A range whose text `text` does not hold where it lands
+    /// locks nothing there and holds the save (see
+    /// [`ProtectState::ranges_changed`]).
+    fn place_ranges_in(&self, text: &str) {
+        let host_text = self.sync().host_text.get_value();
+        let given = self
+            .protect()
+            .host_ranges
+            .with_untracked(|ranges| offsets(&host_text, ranges));
+        if *text == host_text || given.is_empty() {
+            self.protect().ranges_changed.set(None);
+            self.protect().ranges.set(given);
+            return;
+        }
+        let followed = || {
+            self.config().schema.with_value(|schema| {
+                let reading = schema.as_deref().map(|bundle| &bundle.schema);
+                followed_to(self.behavior(), &host_text, text, &given, reading)
+            })
+        };
+        let (placed, changed) = match self.mapped_since_host(&host_text, text, &given) {
+            Some(mapped) => keeping_their_text(&host_text, &given, text, mapped, followed),
+            None => keeping_their_text(&host_text, &given, text, followed(), Vec::new),
+        };
+        self.protect().ranges_changed.set(changed);
         self.protect().ranges.set(placed);
+    }
+
+    /// `ranges` (of `host`, the host's text) in `text`, mapped
+    /// through the record of the edits that made `text` of `host`; `None`
+    /// when the record does not reach from one to the other. A range an
+    /// edit wrote inside lands where its ends went (see
+    /// [`keeping_their_text`]).
+    fn mapped_since_host(
+        &self,
+        host: &str,
+        text: &str,
+        ranges: &[TextRange],
+    ) -> Option<Vec<TextRange>> {
+        let since = self
+            .protect()
+            .marks
+            .with_value(|marks| marks.since_host.clone())
+            .filter(|since| *since.from == *host && *since.to == *text)?;
+        let change = &since.change;
+        Some(
+            ranges
+                .iter()
+                .map(|range| {
+                    change.map_range(range).unwrap_or_else(|| {
+                        let start = change.map_pos(range.start(), Assoc::After).pos;
+                        let end = change.map_pos(range.end(), Assoc::Before).pos;
+                        TextRange::new(start, end.max(start))
+                    })
+                })
+                .collect(),
+        )
     }
 
     /// Before a switch away from the host's language, whose text was
@@ -607,13 +945,42 @@ impl EditorState {
     fn follow_ranges_across_switch(&self) {
         let host = self.config().host_language == self.sync().edit_language.get_untracked();
         let placed = if host {
-            self.doc()
-                .text
-                .with_untracked(|text| self.protect().in_host.in_text(text))
+            self.config().schema.with_value(|schema| {
+                let reading = schema.as_deref().map(|bundle| &bundle.schema);
+                self.doc().text.with_untracked(|text| {
+                    self.protect()
+                        .in_host
+                        .in_text(self.behavior(), text, reading)
+                })
+            })
         } else {
             Vec::new()
         };
         self.protect().ranges.set(placed);
+    }
+
+    /// Whether the text on screen may not reach the host, by any route
+    /// (change events, the value, a save): a locked field reads otherwise
+    /// than pinned (see `locks::Protected::held`), the text does not parse
+    /// and holds locks, or it reads a placeholder given whole with text
+    /// beside it (refused at the keystroke where it can be told; a parse
+    /// reading one glued after edits made while the text did not parse,
+    /// its key renamed, waits here).
+    pub(crate) fn changes_held(&self) -> bool {
+        // A text that does not parse writing a locked key again (a YAML key
+        // written twice does not parse, and a reader taking the last would
+        // read another value); one leaving its locked text alone is the
+        // user's half-typed text.
+        self.protect().protected.with_untracked(|protected| {
+            !protected.held.is_empty()
+                || (protected.document.is_none() && locked_key_again(protected))
+        }) || self.unplaced_waits().is_some()
+            || self
+                .protect()
+                .ranges_changed
+                .with_untracked(Option::is_some)
+            || self.placeholder_held().is_some()
+            || self.glued_away().is_some()
     }
 
     /// Why a save of the text on screen waits, when it does: it holds text
@@ -621,11 +988,46 @@ impl EditorState {
     /// does not parse and holds a read-only field the language cannot
     /// locate (it gives no spans), so nothing shows that its value is kept.
     pub(crate) fn save_waits(&self) -> Option<String> {
-        self.glued_waits().or_else(|| self.unplaced_waits())
+        self.glued_waits()
+            .or_else(|| self.held_waits())
+            .or_else(|| self.range_changed_waits())
+            .or_else(|| self.unplaced_waits())
+            .or_else(|| {
+                let field = self.placeholder_held()?;
+                Some(self.strings_untracked(|strings| save_held_placeholder(strings, &field)))
+            })
+    }
+
+    /// [`ProtectState::placeholder_held`] for the text on screen.
+    fn placeholder_held(&self) -> Option<String> {
+        self.doc()
+            .text
+            .with_untracked(|text| self.protect().placeholder_held(self.behavior(), text))
+    }
+
+    /// The locked field a save of the text on screen waits on because it
+    /// reads otherwise than pinned (see `locks::Protected::held`), with
+    /// the cause recorded for it.
+    fn held_waits(&self) -> Option<String> {
+        self.protect().protected.with_untracked(|protected| {
+            let (pointer, cause) = protected.held.causes().next()?;
+            let reason = protected.held_reason(pointer);
+            Some(self.strings_untracked(|strings| save_held(strings, pointer, &reason, cause)))
+        })
+    }
+
+    /// Why a save waits on a host range whose text the text on screen does
+    /// not hold (see [`ProtectState::ranges_changed`]).
+    fn range_changed_waits(&self) -> Option<String> {
+        let (locked, _) = self.protect().ranges_changed.get_untracked()?;
+        Some(self.strings_untracked(|strings| range_changed_message(strings, &locked)))
     }
 
     /// The glued placeholder a save of the text on screen waits on.
     fn glued_waits(&self) -> Option<String> {
+        if let Some(field) = self.glued_away() {
+            return Some(self.strings_untracked(|strings| glued_message(strings, &field)));
+        }
         let secrets = self.protect().secrets;
         if !secrets
             .known
@@ -642,6 +1044,13 @@ impl EditorState {
             first_glued(self.behavior(), document, known).and_then(|known| known.field.clone())
         })?;
         Some(self.strings_untracked(|strings| glued_message(strings, &pointer)))
+    }
+
+    /// [`ProtectState::glued_away`] for the text on screen.
+    fn glued_away(&self) -> Option<String> {
+        self.doc()
+            .text
+            .with_untracked(|text| self.protect().glued_away(self.behavior(), text))
     }
 
     /// The read-only field the language cannot locate in the text on
@@ -704,7 +1113,7 @@ impl EditorState {
             let ranges = if self.protect().host_ranges.with_untracked(Vec::is_empty) {
                 Vec::new()
             } else {
-                self.protect().in_host.in_text(old)
+                self.protect().in_host.in_text(behavior, old, reading)
             };
             if marking.is_none() && paths.is_empty() && ranges.is_empty() {
                 return Ok(());
@@ -717,50 +1126,40 @@ impl EditorState {
                     reading_schema: reading,
                     paths: &paths,
                     ranges: &ranges,
+                    range_fields: &[],
                     previous: None,
+                    caret: None,
+                    change: None,
                 },
             );
-            check_save(behavior, reading, old, new, &pointers)
+            check_save(behavior, reading, old, new, &pointers)?;
+            text_ranges_kept(old, new, &ranges)
         })
     }
 
     /// Byte ranges of `text` (the text on screen) no replace may touch
-    /// (find and replace's Replace All). Each offset is read off the
-    /// text's lines, split once, never by a pass from the top (one per
-    /// lock and placeholder: quadratic with a lock on every line).
+    /// (find and replace's Replace All).
     #[cfg(feature = "search")]
-    pub(crate) fn protected_bytes(&self, text: &str) -> Vec<Range<usize>> {
-        let byte = |at: usize| super::super::keyboard::utf16_to_byte_index(text, at);
-        let behavior = self.behavior();
-        super::super::paths::with_spans(behavior, text, &[], || self.protected_bytes_in(&byte))
-    }
-
-    /// [`Self::protected_bytes`], with `byte` the byte at a UTF-16 offset.
-    #[cfg(feature = "search")]
-    fn protected_bytes_in(&self, byte: &dyn Fn(usize) -> usize) -> Vec<Range<usize>> {
+    pub(crate) fn protected_bytes(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        let tokens = self.solid_tokens(text);
         self.protect().protected.with_untracked(|protected| {
             protected
                 .locks
                 .iter()
                 .flat_map(|lock| lock.ranges.iter().chain(&lock.guards))
-                .map(|range| byte(range.start)..byte(range.end))
-                .chain(self.protect().secrets.tokens.with_untracked(|tokens| {
-                    tokens
-                        .iter()
-                        .map(|range| byte(range.start)..byte(range.end))
-                        .collect::<Vec<_>>()
-                }))
+                .chain(&tokens)
+                .map(|range| std::ops::Range::<usize>::from(*range))
                 .collect()
         })
     }
 
-    /// What the protected text at UTF-16 `offset` is, with its label: a
+    /// What the protected text at byte `offset` is, with its label: a
     /// secret placeholder's hint, or why a read-only field is read-only.
     /// With `ends`, an offset just at either end of it counts (the caret
     /// beside it).
-    pub(crate) fn protected_note(&self, offset: usize, ends: bool) -> Option<(String, String)> {
-        let covers = |range: &Range<usize>| {
-            range.start <= offset && (offset < range.end || (ends && offset == range.end))
+    pub(crate) fn protected_note(&self, offset: TextSize, ends: bool) -> Option<(String, String)> {
+        let covers = |range: &TextRange| {
+            range.start() <= offset && (offset < range.end() || (ends && offset == range.end()))
         };
         let secrets = self.protect().secrets;
         if secrets
@@ -803,81 +1202,15 @@ impl EditorState {
         }
         let found = self.doc().text.with_untracked(|text| {
             let offset = LineIndex::new(text).offset(line + 1, column + 1);
+            // The tip is placed on screen, in UTF-16 units of the text.
             self.protected_note(offset, false)
-                .map(|(_, message)| (message, offset))
+                .map(|(_, message)| (message, utf16_of(text, offset)))
         });
         let Some((message, offset)) = found else {
             self.protect().hide_tip(true);
             return None;
         };
-        let same = self.protect().tip.with_untracked(|tip| {
-            tip.as_ref()
-                .is_some_and(|tip| tip.hover && tip.message == message)
-        });
-        if !same {
-            self.protect().tip.set(Some(Tip {
-                message: message.clone(),
-                offset,
-                hover: true,
-            }));
-        }
+        self.protect().popups.hover_lock(message.clone(), offset);
         Some(message)
     }
-}
-
-/// Where `edit` inserts what typing writes (characters, a line break, a
-/// command's text such as an accepted suggestion), replacing nothing; `None`
-/// for any other edit (a paste, a deletion, a replacement).
-fn inserted_at(edit: &Edit) -> Option<usize> {
-    let typed = match &edit.origin {
-        Origin::Command => true,
-        Origin::Input { kind, .. } => matches!(
-            kind.as_str(),
-            "insertText" | "insertCompositionText" | "insertLineBreak" | "insertParagraph"
-        ),
-        _ => false,
-    };
-    let (start, end) = edit.replaced(edit.caret());
-    (typed && start == end && edit.text.len() > edit.before.len()).then_some(start)
-}
-
-/// Whether a refusal at UTF-16 `at` refuses `edit` inserting there too: the
-/// rest of an entry refused where a line starts (its key, the spaces and
-/// value after it), or more text glued on after a field. A line break ends
-/// what was refused, and whitespace after a field is free, like a comment
-/// after it (`#`, or the `/` starting a `//`, glued on or not): those are
-/// checked like any other edit.
-fn holds_back(edit: &Edit, at: usize, comment_markers: &[&str]) -> bool {
-    let added = edit.text.encode_utf16().count() - edit.before.encode_utf16().count();
-    let (from, to) = (
-        utf16_to_byte_index(&edit.text, at),
-        utf16_to_byte_index(&edit.text, at + added),
-    );
-    let inserted = &edit.text[from..to];
-    if inserted.contains(['\n', '\r']) {
-        return false;
-    }
-    let at = utf16_to_byte_index(&edit.before, at);
-    let line = edit.before[..at]
-        .rsplit(['\n', '\r'])
-        .next()
-        .unwrap_or_default();
-    let typed = inserted.trim();
-    let starts_comment = !typed.is_empty()
-        && comment_markers
-            .iter()
-            .any(|marker| typed.starts_with(marker) || marker.starts_with(typed));
-    (line.trim().is_empty() || !typed.is_empty()) && !starts_comment
-}
-
-/// The markers that start a comment in `behavior`'s language: its line
-/// comments and the opener of its block comment.
-fn comment_markers(behavior: &dyn ConfigLanguage) -> Vec<&'static str> {
-    let config = behavior.config();
-    config
-        .line_comments
-        .iter()
-        .copied()
-        .chain(config.block_comment.map(|(open, _)| open))
-        .collect()
 }

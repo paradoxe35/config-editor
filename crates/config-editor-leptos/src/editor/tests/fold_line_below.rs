@@ -1,4 +1,4 @@
-//! QA 34, UX34-4: Ctrl+Enter on a folded line opens the new line after the
+//! Ctrl+Enter on a folded line opens the new line after the
 //! whole folded block (its hidden lines and the closing line a fold leaves
 //! shown), at the folded line's indentation, and the fold stays closed, as
 //! the other line commands take a fold as one unit. In every language.
@@ -6,7 +6,7 @@
 use leptos::prelude::*;
 
 use crate::editor::fold_ranges::FoldRange;
-use crate::editor::keys::enter::{Pressed, enter_at};
+use crate::editor::keys::enter::{Pressed, enter_units};
 use crate::editor::languages::Language;
 use crate::editor::test_state::TestEditor;
 
@@ -61,7 +61,7 @@ fn ctrl_enter_on_a_folded_line_opens_after_the_block_and_keeps_the_fold() {
         assert!(state.fold_line(header), "{language:?}: folds line {header}");
         let folded = state.fold().folded.get_untracked();
         let caret = end_of_line(text, header);
-        enter_at(state, (caret, caret), Pressed::LineBelow, None);
+        enter_units(state, (caret, caret), Pressed::LineBelow, None);
         assert_eq!(state.doc().text.get_untracked(), expected, "{language:?}");
         assert_eq!(
             state.fold().folded.get_untracked(),
@@ -79,11 +79,7 @@ fn ctrl_enter_on_a_folded_line_opens_after_the_block_and_keeps_the_fold() {
             .unwrap();
         let indent = expected.split('\n').nth(new_line).unwrap().len();
         let caret = end_of_line(expected, new_line - 1) + 1 + indent;
-        assert_eq!(
-            state.doc().caret.get_untracked(),
-            caret,
-            "{language:?}: caret"
-        );
+        assert_eq!(state.caret_units(), caret, "{language:?}: caret");
     }
 }
 
@@ -94,7 +90,7 @@ fn ctrl_enter_on_a_line_not_folded_opens_right_below_it() {
     let text = "metadata:\n  name: web\n";
     let (_owner, state) = TestEditor::new(Language::YAML, text).mount();
     let caret = end_of_line(text, 0);
-    enter_at(state, (caret, caret), Pressed::LineBelow, None);
+    enter_units(state, (caret, caret), Pressed::LineBelow, None);
     assert_eq!(
         state.doc().text.get_untracked(),
         "metadata:\n  \n  name: web\n"

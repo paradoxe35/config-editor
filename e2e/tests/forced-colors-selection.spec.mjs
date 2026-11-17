@@ -2,9 +2,8 @@ import { expect, test } from '@playwright/test';
 import { editor, setupEditor } from './helpers.mjs';
 
 // Under forced colours the editor's selection and find field stay usable in
-// both system schemes: the selected code keeps 4.5:1 (hard-bar `D3.a11y-1`:
-// the overlay's CanvasText over the system Highlight was 2.07:1 light,
-// 2.62:1 dark) and the find field's focus shows (`D18.a11y-2`: its border was
+// both system schemes: the selected code keeps 4.5:1 (the overlay's CanvasText over the system Highlight was 2.07:1 light,
+// 2.62:1 dark) and the find field's focus shows (its border was
 // CanvasText focused and not).
 
 test.use({ forcedColors: 'active' });
@@ -43,7 +42,7 @@ for (const scheme of ['light', 'dark']) {
     test.use({ colorScheme: scheme });
     setupEditor(test, '?sample=large');
 
-    test(`selected code keeps 4.5:1 (D3.a11y-1, ${scheme})`, async ({ page }) => {
+    test(`selected code keeps 4.5:1 (${scheme})`, async ({ page }) => {
       const e = editor(page);
       await e.input.click();
       await page.keyboard.press('Control+Home');
@@ -64,7 +63,7 @@ for (const scheme of ['light', 'dark']) {
       expect(ratio(text, await paintedBackground(page, crop))).toBeGreaterThanOrEqual(4.5);
     });
 
-    test(`the focused find field differs from the blurred one (D18.a11y-2, ${scheme})`, async ({ page }) => {
+    test(`the focused find field differs from the blurred one (${scheme})`, async ({ page }) => {
       const e = editor(page);
       await e.input.click();
       await page.keyboard.press('Control+f');

@@ -4,7 +4,7 @@
 use serde_json::Value;
 
 use super::{CompiledSchema, SchemaCompiler, SchemaFormatInfo, SchemaInput};
-use crate::editor::diagnostics::SchemaError;
+use crate::editor::schema::SchemaError;
 
 /// The identity format.
 pub(super) struct JsonSchema;

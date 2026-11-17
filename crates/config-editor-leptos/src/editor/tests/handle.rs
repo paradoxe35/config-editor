@@ -41,7 +41,7 @@ fn editor(
 fn replace(state: crate::editor::state::EditorState, text: &str) {
     let before = state.doc().text.get_untracked();
     let end = before.encode_utf16().count();
-    assert!(state.commit(Edit::new(before, (0, end), text.to_string(), 0)));
+    assert!(state.commit(Edit::new_units(before, (0, end), text.to_string(), 0)));
 }
 
 #[test]

@@ -177,7 +177,18 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
     };
     let entries = entry_keys(content, &tokens);
     let mut after_punctuation = false;
+    let mut signed_number = None;
     for (index, token) in tokens.iter().enumerate() {
+        if signed_number.take() == Some(index) {
+            continue;
+        }
+        if is_number_sign(content, &tokens, index) {
+            // `-7` is one literal, as JSON and YAML colour it.
+            out.push(indent + token.start, indent + tokens[index + 1].end, TokenKind::Literal);
+            signed_number = Some(index + 1);
+            after_punctuation = true;
+            continue;
+        }
         let kind = if entries.contains(&index) {
             TokenKind::Key
         } else {
@@ -196,6 +207,26 @@ pub(super) fn highlight(line: &str) -> Vec<HighlightToken> {
         out.push(indent + token.start, indent + token.end, kind);
     }
     out.finish()
+}
+
+/// Whether the token at `index` is a minus that starts a number: right
+/// before a number, where a value starts (first, or after punctuation that
+/// is not a closing bracket), not a subtraction (`a -1`, `f(x) -1`).
+fn is_number_sign(content: &str, tokens: &[Token], index: usize) -> bool {
+    let token = &tokens[index];
+    let Some(next) = tokens.get(index + 1) else {
+        return false;
+    };
+    let starts_value = index == 0
+        || matches!(
+            tokens[index - 1].kind,
+            Kind::Punct(character) if !matches!(character, ')' | ']' | '}')
+        );
+    token.kind == Kind::Punct('-')
+        && next.start == token.end
+        && next.kind == Kind::Ident
+        && content[next.start..].starts_with(|character: char| character.is_ascii_digit())
+        && starts_value
 }
 
 /// The tokens naming an attribute or an object's entry: a name or string
@@ -297,8 +328,8 @@ pub(super) fn token_kind(
     }
 }
 
-/// Lines inside heredocs' bodies: between `<<MARKER` / `<<-MARKER` and the
-/// line holding only the marker.
+/// Lines inside heredocs' bodies: between `<<MARKER` / `<<-MARKER` and its
+/// terminator line (see `super::heredoc::terminator_end`).
 pub(super) fn heredoc_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
     let lines: Vec<&str> = source.split('\n').collect();
     let mut bodies = Vec::new();
@@ -307,7 +338,7 @@ pub(super) fn heredoc_bodies(source: &str) -> Vec<std::ops::Range<usize>> {
         if let Some(marker) = heredoc_marker(lines[index]) {
             let first = index + 1;
             let mut end = first;
-            while end < lines.len() && lines[end].trim() != marker {
+            while end < lines.len() && super::heredoc::terminator_end(lines[end], marker).is_none() {
                 end += 1;
             }
             if end > first {
@@ -329,7 +360,7 @@ fn heredoc_marker(line: &str) -> Option<&str> {
         return None;
     }
     let rest = code[at + 2..].strip_prefix('-').unwrap_or(&code[at + 2..]).trim();
-    (!rest.is_empty() && rest.chars().all(|character| character.is_ascii_alphanumeric() || character == '_'))
+    (!rest.is_empty() && rest.chars().all(super::heredoc::continues_name))
         .then_some(rest)
 }
 

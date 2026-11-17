@@ -253,7 +253,7 @@ fn every_edit_of_attributes_and_children_sharing_names_keeps_them_apart() {
     report(failures);
 }
 
-/// L24-1: the caret on an attribute's name is on the attribute's path,
+/// The caret on an attribute's name is on the attribute's path,
 /// `@a` where a child has its name.
 #[test]
 fn the_caret_on_an_attribute_is_on_its_path() {
@@ -266,7 +266,7 @@ fn the_caret_on_an_attribute_is_on_its_path() {
     let found = [
         at(" a=", 1),
         at(" a=", 2),
-        // In its value, and right after `=` (L24-1, round 25).
+        // In its value, and right after `=`.
         at("\"1\"", 1),
         at("\"1\"", 2),
         at(" a=", 3),
@@ -282,7 +282,7 @@ fn the_caret_on_an_attribute_is_on_its_path() {
     assert_eq!(found, expected);
 }
 
-/// L24-3: a field whose value runs over lines (XML element text, a YAML
+/// A field whose value runs over lines (XML element text, a YAML
 /// block scalar, an HCL heredoc) is ranged from its key through the end of
 /// its value, an XML element from its `<` through its end tag.
 #[test]
@@ -333,9 +333,9 @@ fn a_value_over_lines_is_ranged_through_its_last_line() {
     report(failures);
 }
 
-/// L24-2: an element added beside prefixed siblings (`<k:a>`, read `a`)
+/// An element added beside prefixed siblings (`<k:a>`, read `a`)
 /// goes where the view puts it, as beside unprefixed ones, in their
-/// namespace (QA `E33-3`).
+/// namespace.
 #[test]
 fn an_element_added_beside_prefixed_siblings_keeps_the_views_order() {
     let mut failures = Vec::new();
@@ -370,7 +370,7 @@ fn an_element_added_beside_prefixed_siblings_keeps_the_views_order() {
     report(failures);
 }
 
-/// H25-E1: a child sharing its name with an attribute, removed in one save
+/// A child sharing its name with an attribute, removed in one save
 /// and added back in a later one of the same session (the view still
 /// spells the attribute `@a`), is a child again: the attribute keeps its
 /// value, and the child goes where the view puts it.

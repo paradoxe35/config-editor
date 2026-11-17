@@ -11,7 +11,7 @@ use std::collections::HashSet;
 
 use serde_json::{Map, Value};
 
-use super::super::diagnostics::SchemaError;
+use super::super::schema::SchemaError;
 use super::{SchemaInput, SchemaResources};
 
 /// Keywords whose value is data, not schemas.

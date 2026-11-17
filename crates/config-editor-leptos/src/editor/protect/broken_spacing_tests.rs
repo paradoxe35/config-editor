@@ -5,6 +5,8 @@
 //! inside a string or a YAML plain value, and a YAML locked line's indent,
 //! stay refused; repairing the break afterwards goes through.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use serde_json::Value;
 
 use super::super::Language;
@@ -241,7 +243,8 @@ fn reformat_back(text: &str, broken: &str, edited: &str) -> Option<String> {
 
 /// A space, a tab or a line break put at every place of the text, or a
 /// space taken out at every place: whenever the broken text takes it, and
-/// then the repair of its break, every locked value reads as before.
+/// then the repair of its break, every locked value reads as before, or is
+/// held (the save waits: a line indented into a locked YAML block).
 #[test]
 fn whitespace_allowed_while_broken_never_changes_a_locked_value() {
     let schema = schema();
@@ -282,8 +285,12 @@ fn whitespace_allowed_while_broken_never_changes_a_locked_value() {
                         if !allowed(language, &edited, &repaired, &after) {
                             continue;
                         }
+                        // A field reading otherwise is held: never saved so.
+                        let held = locks(language, &repaired, from, Some(&after)).held;
                         for pointer in ["/id", "/meta"] {
-                            if read.pointer(pointer) != original.pointer(pointer) {
+                            if read.pointer(pointer) != original.pointer(pointer)
+                                && !held.iter().any(|known| known == pointer)
+                            {
                                 failures.push(format!(
                                     "{language} ({from:?}): {pointer} changed by\n{edited}"
                                 ));

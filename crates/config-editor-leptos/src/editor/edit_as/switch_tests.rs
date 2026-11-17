@@ -10,6 +10,7 @@ use super::super::languages::Language;
 use super::super::paths::TextPosition;
 use super::super::sync::switch_to;
 use super::super::test_state::TestEditor;
+use crate::editor::text::{byte_of, utf16_of};
 
 /// The same document in `language`, the caret's field `/web/http` in it.
 fn sample(language: Language) -> &'static str {
@@ -42,11 +43,11 @@ fn a_switch_is_undone_and_redone_with_the_caret_on_its_field() {
                 .expect("the field")
                 .start
                 .to_offset(text);
-            state.doc().caret.set(field);
+            state.set_caret_units(field);
             switch_to(state, edit);
             let case = format!("{host} host, switched to {edit}");
             let shown = state.doc().text.get_untracked();
-            let caret = state.doc().caret.get_untracked();
+            let caret = state.caret_units();
             let on_field = edit
                 .path_at(&shown, TextPosition::from_offset(&shown, caret))
                 .map(|path| path.to_pointer());
@@ -94,7 +95,7 @@ fn in_key(text: &str) -> usize {
     text[..at].encode_utf16().count() + 2
 }
 
-/// Undoing a switch leaves a caret where it was, nothing selected (round 16
+/// Undoing a switch leaves a caret where it was, nothing selected (it once
 /// selected the whole document, so the next key replaced it); the switch
 /// and its redo keep the caret's column in the key.
 #[test]
@@ -105,21 +106,21 @@ fn undoing_a_switch_restores_the_caret_and_redo_keeps_its_column() {
             let text = sample(host);
             let (_owner, state) = TestEditor::new(host, text).mount();
             let caret = in_key(text);
-            state.doc().caret.set(caret);
+            state.set_caret_units(caret);
             switch_to(state, edit);
             let case = format!("{host} host, switched to {edit}");
             let shown = state.doc().text.get_untracked();
-            if state.doc().caret.get_untracked() != in_key(&shown) {
+            if state.caret_units() != in_key(&shown) {
                 failures.push(format!(
                     "{case}: the caret is at {} of {shown:?}",
-                    state.doc().caret.get_untracked()
+                    state.caret_units()
                 ));
             }
             let undo = state.history_edit(false).expect("the switch is a step");
             match undo.after {
                 After::Select {
                     anchor, caret: at, ..
-                } if anchor == caret && at == caret => {}
+                } if anchor == byte_of(text, caret) && at == anchor => {}
                 other => failures.push(format!("{case}: undo leaves {other:?}, not {caret}")),
             }
             state.commit(undo);
@@ -128,7 +129,7 @@ fn undoing_a_switch_restores_the_caret_and_redo_keeps_its_column() {
             match redo.after {
                 After::Select {
                     anchor, caret: at, ..
-                } if anchor == column && at == column => {}
+                } if utf16_of(&shown, anchor) == column && at == anchor => {}
                 other => failures.push(format!("{case}: redo leaves {other:?}, not {column}")),
             }
         }
@@ -192,7 +193,7 @@ fn a_switch_from_or_into_a_language_that_cannot_write_is_refused_at_once() {
 }
 
 /// Undoing a switch back to the host's own text tells the host nothing
-/// (round 26 sent the unchanged value again); after an edit the host
+/// after an edit the host
 /// heard, undoing back to its first text does tell it. Every pair.
 #[test]
 fn undoing_a_switch_back_to_the_hosts_text_sends_nothing() {
@@ -238,7 +239,7 @@ fn undoing_a_heard_edit_and_the_switch_sends_the_hosts_first_text() {
     switch_to(state, Language::TOML);
     let before = state.doc().text.get_untracked();
     let end = before.encode_utf16().count();
-    state.commit(super::super::edit::Edit::new(
+    state.commit(super::super::edit::Edit::new_units(
         before,
         (0, end),
         "a = 2\n".to_string(),

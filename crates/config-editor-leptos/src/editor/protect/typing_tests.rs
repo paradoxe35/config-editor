@@ -1,20 +1,25 @@
-//! Typing refused at a read-only field leaves nothing half-written: the
-//! keys typed after the refused one are refused too (no stray spaces or
-//! letters), and the word typing was writing when it was refused is taken
-//! back (`<i` of a refused `<id>`); the refusal shows. In every language.
+//! Typing at a read-only field is judged key by key, by the spans alone:
+//! a key typed inside a locked block's text is refused (the refusal
+//! shows), one typed past its end changes no span and is taken, the save
+//! then waiting while the block reads otherwise; a second locked key typed
+//! at the end is taken the same way. Nothing is taken back: typing
+//! elsewhere afterwards is never held. In every language.
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::edit::Edit;
+use super::super::host_editing::SaveRequest;
 use super::super::paths::FieldPath;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
-use super::spanless_tests::{ENV, TEXT as ENV_TEXT};
 use super::tests::documents;
 
 /// Types `typed` one character at a time at the caret `at` (UTF-16, ASCII
-/// text here), as the browser's input events do.
+/// text here), as the browser's input events do; a refused key leaves the
+/// caret where it was.
 fn type_at(state: EditorState, mut at: usize, typed: &str) {
     for character in typed.chars() {
         let before = state.doc().text.get_untracked();
@@ -24,84 +29,95 @@ fn type_at(state: EditorState, mut at: usize, typed: &str) {
         } else {
             "insertText"
         };
-        let edit = Edit::input(before, (at, at), text, (at + 1, at + 1), kind.into(), 0.0);
+        let edit = Edit::input_units(before, (at, at), text, (at + 1, at + 1), kind.into(), 0.0);
         if state.commit(edit) {
             at += 1;
-        } else {
-            // A take-back moves the caret to where the word started.
-            at = state.doc().caret.get_untracked();
         }
     }
 }
 
-fn without_whitespace(text: &str) -> String {
-    text.chars()
-        .filter(|character| !character.is_whitespace())
-        .collect()
+fn mount(language: Language, text: &str, paths: &[&str]) -> (Owner, EditorState) {
+    let mut editor = TestEditor::new(language, text);
+    editor.read_only_paths = paths.iter().map(|path| FieldPath::from(*path)).collect();
+    editor.on_save = Some(Callback::new(|_: SaveRequest| {}));
+    editor.mount()
+}
+
+fn document(language: Language) -> &'static str {
+    documents()
+        .into_iter()
+        .find(|(known, _)| *known == language)
+        .unwrap()
+        .1
 }
 
 #[test]
-fn refused_typing_leaves_nothing_half_written() {
-    // Per language: where a key is typed inside the locked `/meta` block,
-    // the line opened first, and the entry typed.
+fn typing_at_a_locked_block_is_refused_in_it_and_holds_the_save_past_it() {
+    // Per language: where a key is typed at the locked `/meta` block, the
+    // line opened first, the entry typed, and whether that is inside the
+    // block's text (refused) or past its end (taken, the save waiting).
     let cases = [
-        (Language::YAML, "  b: 2", "\n  ", "extra: 5"),
-        (Language::JSON, "\"meta\": {", "\n    ", "\"extra\": 5,"),
-        (Language::TOML, "b = 2", "\n", "extra = 5"),
-        (Language::HCL, "  b = 2", "\n  ", "extra = 5"),
-        (Language::XML, "<b>2</b>", "\n  ", "<extra>5</extra>"),
+        (Language::YAML, "  b: 2", "\n  ", "extra: 5", false),
+        (
+            Language::JSON,
+            "\"meta\": {",
+            "\n    ",
+            "\"extra\": 5,",
+            true,
+        ),
+        (Language::TOML, "b = 2", "\n", "extra = 5", false),
+        (Language::HCL, "  b = 2", "\n  ", "extra = 5", true),
+        (Language::XML, "<b>2</b>", "\n  ", "<extra>5</extra>", true),
     ];
     let mut failures = Vec::new();
-    for (language, after, opened, typed) in cases {
-        let text = documents()
-            .into_iter()
-            .find(|(known, _)| *known == language)
-            .unwrap()
-            .1;
-        let mut editor = TestEditor::new(language, text);
-        editor.read_only_paths = vec![FieldPath::from("/meta")];
-        let (_owner, state) = editor.mount();
+    for (language, after, opened, typed, inside) in cases {
+        let text = document(language);
+        let (_owner, state) = mount(language, text, &["/meta"]);
         let at = text.find(after).unwrap() + after.len();
         type_at(state, at, &format!("{opened}{typed}"));
-        // Only the line opened stays: no letter, and no space typed after
-        // the refused one.
         let now = state.doc().text.get_untracked();
-        if now != format!("{}{opened}{}", &text[..at], &text[at..]) {
-            failures.push(format!("{language}: left {now:?}"));
-        }
-        if state.protect().tip.get_untracked().is_none() {
-            failures.push(format!("{language}: no refusal shown"));
+        let refused = format!("{}{opened}{}", &text[..at], &text[at..]);
+        let taken = format!("{}{opened}{typed}{}", &text[..at], &text[at..]);
+        if inside {
+            // Whitespace between its tokens is free inside the block.
+            let flat = |text: &str| text.split_whitespace().collect::<String>();
+            if flat(&now) != flat(&refused) {
+                failures.push(format!("{language}: inside the block, left {now:?}"));
+            }
+            if state.protect().tip().is_none() {
+                failures.push(format!("{language}: no refusal shown"));
+            }
+        } else {
+            if now != taken {
+                failures.push(format!("{language}: past the block, left {now:?}"));
+            }
+            if state.save() {
+                failures.push(format!("{language}: saved with the block extended"));
+            }
         }
     }
-    // A second locked `id` typed at the end: refused part-way, the part
-    // typed before the refusal goes too.
+    // A second locked `id` typed at the end: taken, the save waiting.
     for (language, typed) in [
         (Language::YAML, "id: other\n"),
         (Language::HCL, "id = \"other\"\n"),
         (Language::XML, "<id>other</id>\n"),
     ] {
-        let text = documents()
-            .into_iter()
-            .find(|(known, _)| *known == language)
-            .unwrap()
-            .1;
-        let mut editor = TestEditor::new(language, text);
-        editor.read_only_paths = vec![FieldPath::from("/id")];
-        let (_owner, state) = editor.mount();
+        let text = document(language);
+        let (_owner, state) = mount(language, text, &["/id"]);
         type_at(state, text.len(), typed);
         let now = state.doc().text.get_untracked();
-        if without_whitespace(&now) != without_whitespace(text) {
+        if now != format!("{text}{typed}") {
             failures.push(format!("{language} second id: left {now:?}"));
         }
+        if state.save() {
+            failures.push(format!("{language} second id: saved"));
+        }
     }
-    // Typing elsewhere afterwards, or after moving, is not held back.
-    let text = documents()[0].1;
-    let mut editor = TestEditor::new(Language::YAML, text);
-    editor.read_only_paths = vec![FieldPath::from("/meta")];
-    let (_owner, state) = editor.mount();
+    // Typing elsewhere afterwards is not held back.
+    let text = document(Language::YAML);
+    let (_owner, state) = mount(Language::YAML, text, &["/meta"]);
     let at = text.find("  b: 2").unwrap() + 6;
     type_at(state, at, "\n  x");
-    state.forget_refusal();
     let name = state.doc().text.get_untracked().find("name: x").unwrap() + 7;
     type_at(state, name, "yz");
     if !state.doc().text.get_untracked().contains("name: xyz") {
@@ -130,12 +146,11 @@ fn a_refused_key_does_not_hold_back_what_is_free_after_the_field() {
         ("id = \"abc\"", " # c", &["#c", "//c", "/*c*/"]),
         ("<id", " ", &[]),
     ];
-    let mut cases: Vec<(Language, &str, &str, &str, &[&str])> = documents()
+    let cases: Vec<(Language, &str, &str, &str, &[&str])> = documents()
         .into_iter()
         .zip(lines)
         .map(|((language, text), (line, comment, glued))| (language, text, line, comment, glued))
         .collect();
-    cases.push((Language::new(&ENV), ENV_TEXT, "ID=srv-1", " ", &[]));
     let mut failures = Vec::new();
     for (language, text, line, comment, glued) in cases {
         let breaks: &[&str] = if line == "<id" { &[] } else { &["\n", " \n"] };

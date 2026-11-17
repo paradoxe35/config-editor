@@ -6,11 +6,14 @@
 //! none but the declaration of its name; an element given content is no
 //! longer `xsi:nil`. Each element keeps its name's prefix, and one added
 //! takes its siblings' (`written_names`). A key the host element writes
-//! as an attribute stays one, and a child element stays a child (QA
-//! `E35-1`: views show both alike).
+//! as an attribute stays one, and a child element stays a child (views
+//! show both alike).
+
+#![deny(clippy::string_slice)]
 
 use super::attribute_layout::{Tag, filled, markup_attributes};
-use super::identity::{self, Host, Identity};
+use super::identity::{Host, Identity};
+use crate::editor::item_sources::SaveTold;
 use super::namespace_scopes::{Binding, InScope, binding, declared};
 use super::*;
 
@@ -96,7 +99,7 @@ impl HostElements {
             let tag = Tag::of(text, token, &read.markup);
             scope.push(declared(text, &tag));
             let namespaces = scope.names_bound(text, token, &tag);
-            if text[..token.end].ends_with("/>") {
+            if token.closes_itself(text) {
                 scope.pop();
             }
             let Some(path) = plan.path_of(token.start) else { continue };
@@ -104,7 +107,7 @@ impl HostElements {
                 .attributes
                 .iter()
                 .filter(|attribute| !attribute.markup)
-                .map(|attribute| local(&text[attribute.name.clone()]))
+                .map(|attribute| local(slice::slice(text, byte_range(attribute.name.clone())).unwrap_or_default()))
                 .collect();
             let element = HostElement {
                 markup: markup_attributes(text, token, &read.markup),
@@ -159,7 +162,7 @@ pub(super) fn holds_markup(text: &str) -> bool {
 /// Which host element each is, the check reads from the edit
 /// (`item_sources`) and the saved text, not from what the writer chose:
 /// a writer pairing items otherwise is caught.
-pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &str) -> Option<String> {
+pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &str, told: SaveTold<'_>) -> Option<String> {
     let host = HostElements::of(previous);
     // A view writes no markup (`declarations::first_markup_key`), no
     // prefix and no attribute, but what a save pastes back from the
@@ -167,7 +170,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     // Its attributes are then all a save can change: only an attribute
     // or a child taking the other form (no parse, no element compared
     // while none does).
-    let pasted_back = || crate::editor::item_sources::told(previous, |_| true).is_some_and(|sources| sources.holds_origin_items());
+    let pasted_back = || told.over_last().is_some_and(|sources| sources.holds_origin_items());
     let attributes_only = !host.marked && !pasted_back();
     if attributes_only && !host.attributed {
         return None;
@@ -181,12 +184,12 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
     let (Ok(old), Ok(new)) = (old.as_ref(), new.as_ref()) else {
         return None;
     };
-    let sources = crate::editor::item_sources::told(previous, |held| identity::alike(held, new));
+    let sources = told.over_last();
     let origin = sources.as_ref().filter(|sources| sources.holds_origin_items()).map(|sources| sources.origin.clone());
     let first_value = origin.as_deref().map(|origin| crate::editor::parse_cache::parsed(language, origin));
     let first = origin.as_deref().map(HostElements::of);
     let identity = Identity::of(Some(old), new)
-        .told(sources.as_deref(), first_value.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
+        .told(sources, first_value.as_ref().and_then(|first| first.as_ref().as_ref().ok()));
     let saved_markup = declarations::Markup::of(patched);
     let tokens = tokenize(patched);
     let plan = plan_paths(patched, &tokens);
@@ -220,7 +223,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
         // A declaration the save gave an element the edit added, of a
         // prefix nothing around it binds (`moved_declarations`), is a
         // host's binding.
-        let opened = !patched[..token.end].ends_with("/>");
+        let opened = !token.closes_itself(patched);
         let added: Vec<(String, String)> = saved
             .iter()
             .filter(|declaration| declaration.0.strip_prefix("xmlns:").is_some_and(|prefix| scope.bound(Some(prefix)).is_none()))
@@ -253,7 +256,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
                 let form_kept = written.is_none_or(|saved| !own.form_changed(saved));
                 // Besides its own markup, only declarations binding its
                 // names as the host did (`moved_declarations`), and its
-                // names in the namespaces they were in (QA `E37-6`).
+                // names in the namespaces they were in.
                 let restores = |(name, value): &(String, String)| binding(name, value).is_some_and(|binding| own.namespaces.contains(&binding));
                 let own_markup = wanted.iter().all(|declaration| saved.contains(declaration))
                     && saved.iter().all(|declaration| wanted.contains(declaration) || restores(declaration));
@@ -280,7 +283,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
             }
         };
         if !kept {
-            let segments: Vec<String> = strings(path).iter().map(|segment| segment.replace('~', "~0").replace('/', "~1")).collect();
+            let segments: Vec<String> = strings(path).iter().map(|segment| crate::editor::language::pointer_key(segment)).collect();
             return Some(segments.iter().map(|segment| format!("/{segment}")).collect());
         }
     }
@@ -290,6 +293,7 @@ pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &s
 #[cfg(test)]
 mod tests {
     use super::{XmlBehavior, changed_markup};
+    use crate::editor::item_sources::SaveTold;
 
     const XSI: &str = "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"";
 
@@ -305,7 +309,7 @@ mod tests {
     #[test]
     fn markup_left_on_another_item_than_its_own_is_caught() {
         let host = shapes(&[("xsi:type=\"A\"", "1"), ("xsi:type=\"B\"", "2"), ("xsi:type=\"C\"", "3")]);
-        let check = |saved: &str| changed_markup(&XmlBehavior, &host, saved);
+        let check = |saved: &str| changed_markup(&XmlBehavior, &host, saved, SaveTold::default());
         // The middle item removed: the third keeps its own type.
         assert_eq!(check(&shapes(&[("xsi:type=\"A\"", "1"), ("xsi:type=\"C\"", "3")])), None);
         assert_eq!(check(&shapes(&[("xsi:type=\"A\"", "1"), ("xsi:type=\"B\"", "3")])), Some("/l/s/1".into()));
@@ -322,13 +326,13 @@ mod tests {
     #[test]
     fn namespaces_and_nil_follow_their_items() {
         let host = "<r>\n  <i xmlns=\"urn:a\"><v>1</v></i>\n  <i xmlns=\"urn:b\"><v>2</v></i>\n</r>\n";
-        let check = |saved: &str| changed_markup(&XmlBehavior, host, saved);
+        let check = |saved: &str| changed_markup(&XmlBehavior, host, saved, SaveTold::default());
         assert_eq!(check("<r>\n  <i xmlns=\"urn:b\"><v>2</v></i>\n</r>\n"), None);
         assert_eq!(check("<r>\n  <i xmlns=\"urn:a\"><v>2</v></i>\n</r>\n"), Some("/r/i".into()));
         // A renamed element keeps its own.
         assert_eq!(check("<r>\n  <j xmlns=\"urn:a\"><v>1</v></j>\n  <j xmlns=\"urn:b\"><v>2</v></j>\n</r>\n"), None);
         let nil = format!("<r {XSI}>\n  <e xsi:nil=\"true\"/>\n  <e><v>2</v></e>\n</r>\n");
-        let check = |saved: &str| changed_markup(&XmlBehavior, &nil, saved);
+        let check = |saved: &str| changed_markup(&XmlBehavior, &nil, saved, SaveTold::default());
         // Given content, an element is no longer nil.
         assert_eq!(check(&format!("<r {XSI}>\n  <e><v>1</v></e>\n  <e><v>2</v></e>\n</r>\n")), None);
         let filled_nil = format!("<r {XSI}>\n  <e xsi:nil=\"true\"><v>1</v></e>\n  <e><v>2</v></e>\n</r>\n");
@@ -340,7 +344,7 @@ mod tests {
 
     /// A key the host writes as an attribute saved as a child element (or
     /// the other way) reads back the same in every view, yet is another
-    /// document: caught, on any element, in any namespace (QA `E35-1`).
+    /// document: caught, on any element, in any namespace.
     #[test]
     fn an_attribute_written_as_a_child_or_a_child_as_an_attribute_is_caught() {
         for (host, saved, caught) in [
@@ -355,7 +359,7 @@ mod tests {
             ("<r>\n  <s pkg=\"x\"/>\n</r>\n", "<r>\n  <s pkg=\"y\" q=\"1\"/>\n</r>\n", None),
             ("<r>\n  <s pkg=\"x\"/>\n</r>\n", "<r>\n  <s><q>1</q></s>\n</r>\n", None),
         ] {
-            assert_eq!(changed_markup(&XmlBehavior, host, saved).as_deref(), caught, "{host} -> {saved}");
+            assert_eq!(changed_markup(&XmlBehavior, host, saved, SaveTold::default()).as_deref(), caught, "{host} -> {saved}");
         }
     }
 
@@ -376,12 +380,12 @@ mod tests {
         let edited = sample.replacen("0.0.0.0:7835", "0.0.0.0:7836", 1);
         assert_ne!(sample, edited);
         for (previous, patched) in [(host(10, 0), host(10, 1)), (host(2000, 0), host(2000, 1)), (sample.to_string(), edited)] {
-            let (changed, parsed) = counted(Work::ParsedBytes, || changed_markup(&XmlBehavior, &previous, &patched));
+            let (changed, parsed) = counted(Work::ParsedBytes, || changed_markup(&XmlBehavior, &previous, &patched, SaveTold::default()));
             assert_eq!(changed, None);
             assert_eq!(parsed, 0, "{} bytes", previous.len());
         }
         // A key that did change form is still caught.
         let moved = host(10, 0).replacen("<s name=\"s3\"><port>3</port></s>", "<s><name>s3</name><port>3</port></s>", 1);
-        assert_eq!(changed_markup(&XmlBehavior, &host(10, 0), &moved).as_deref(), Some("/r/s/3"));
+        assert_eq!(changed_markup(&XmlBehavior, &host(10, 0), &moved, SaveTold::default()).as_deref(), Some("/r/s/3"));
     }
 }

@@ -57,6 +57,61 @@ A test or helper that needs a built-in language is gated by it
 (`#[cfg(all(test, feature = "yaml"))]`, or `any(feature = "yaml", …)`):
 `scripts/ci.sh languages` builds and tests each language alone.
 
+### Running CI on a branch
+
+CI runs on every push to `main` and every pull request, into any branch (a
+draft pull request into another branch runs the whole CI on its branch).
+It can also be dispatched on any branch (`part`: `all`, `rust` or
+`browser`, the packages and the end-to-end tests only); a newer run of the
+same branch and part cancels the older one:
+
+```sh
+gh workflow run ci.yml --ref my-branch -f part=all
+```
+
+### Random suites at release size
+
+The random suites are seeded and shrink their failures; CI runs each at a
+modest case count. Before a release they run at 20 times that count from
+fresh seeds. `scripts/sweep.sh` holds the one list of every random property
+(`--list` prints it with its release-size cases) and runs them from prebuilt
+test binaries; `scripts/ci.sh docs` fails when a seeded test is missing from
+the list. Locally:
+
+```sh
+scripts/sweep.sh --build                                # the test binaries, into target/sweep
+scripts/sweep.sh --seed 15485863 --only edit,SCHEMA_FUZZ # names, groups or env prefixes
+scripts/sweep.sh --browser vue --seed 15485863          # the browser fuzz on one page
+scripts/sweep.sh --summary target/sweep/out             # the results as a Markdown table
+```
+
+The `Random suite sweep` workflow (`.github/workflows/sweep.yml`) runs a
+whole sweep on many machines: it builds the test binaries and the npm
+packages once, then runs one job per group of properties and seed and one
+per browser fuzz page and seed, and writes a table of suite and seed (with
+each failure's shrunk case) to the run's summary and the `sweep-summary`
+artifact; each job's log is the `sweep-out-…` artifact. Its inputs: `seeds`
+(a comma list; keep them far apart, as most suites run the seeds after the
+one given), `scale` (default 20), `suites` (default `all`; `none` runs only
+the browser part), `browser_runs` (default 100; 0 skips the browser part)
+and `browser_pages` (default all):
+
+```sh
+gh workflow run sweep.yml --ref main -f seeds=15485863,32452843
+```
+
+A push to a branch named `sweep/<name>` runs a sweep too, with the settings
+in that branch's `.github/sweep-request.env`: `KEY=value` lines `SEEDS`
+(required), `SCALE`, `SUITES`, `BROWSER_RUNS` and `BROWSER_PAGES`, the
+inputs above, a missing key taking its default. A newer push to the same
+branch cancels its older sweep:
+
+```sh
+git switch -c sweep/my-fix my-branch
+printf 'SEEDS=15485863,32452843\nSCALE=20\n' > .github/sweep-request.env
+git add .github/sweep-request.env && git commit -m "Sweep" && git push origin sweep/my-fix
+```
+
 ## Design rules
 
 ### The editor state is one handle into the arena
@@ -93,6 +148,33 @@ An edit is an `Edit` with an `Origin`; `EditorState::commit`
 (read-only fields), apply, record (undo) and notify (`on_change`, Edit-as
 conversion). Never write `doc.text` around it: folding, read-only fields,
 secrets, undo and Edit-as all rely on seeing every edit.
+
+### One change record says what an edit did
+
+Every edit records a `Change` (`src/editor/edit/change.rs`), as CodeMirror's
+`ChangeSet` and Helix's `Transaction` do: the sorted replacements it made,
+and the stretches it moved whole. The code making the edit says its change;
+only a text from outside (a host value, a reload) is read off two texts.
+Undo (`invert`), the followers that move locks and folds (`map_pos`,
+`compose`) and the mapping of the host's ranges all read this one record,
+so none of them guesses what changed.
+
+### Text positions are typed
+
+Inside the editor a byte offset is a `TextSize` and a range a `TextRange`
+(crate `text-size`, as in rust-analyzer). A UTF-16 position (`Utf16`,
+`src/editor/text/offset.rs`) exists only at the browser's edge and in a
+public API that is UTF-16 by design. A position is converted once, at that
+edge, with the line index (`src/editor/paths/lines.rs`), and never with an
+`as` cast (`TextSize::try_from`: on wasm32 a text is at most `u32::MAX`
+bytes). Every cut of text at a position goes through
+`src/editor/text/slice.rs`, which never panics on a position inside a
+character or past the end; `clippy::string_slice` and the truncating casts
+are denied in the typed modules (`text/`, `edit/`, `history`, `projection`,
+`source_area`). `tests/typed_offsets.rs` counts the plain `usize` parameters
+and fields named like an offset per file against
+`tests/typed_offsets_allowed.txt`: a file's count may only go down, so the
+list only shrinks.
 
 ### Views that come and go read long-lived state through a relay
 
@@ -195,6 +277,71 @@ save waits; the editor never writes something the host would read back
 differently. Every feature works while editing as another language (its
 locks, tokens, folds and diagnostics follow the field there), and
 `save_properties.rs` checks random edits in every language pair.
+
+### The save reads recorded facts, not guesses
+
+Which host item each item of an Edit-as view came from, and how the host
+holds it (a list written as one repeated key, a value written once), is
+recorded where the view is written (`src/editor/bridge/links/`,
+`holding.rs`) and followed through every edit. The save reads those links
+and never compares texts or values to find out. An untouched value keeps
+its exact host text (as `toml_edit` keeps a document's formatting). When the
+save cannot write a value exactly, it waits with a reason rather than
+writing something else.
+
+### XML and HCL are read as data in one place
+
+A language that writes a list by repeating a key, or every scalar as text,
+reads as data only through `src/editor/data_reading/`: it records each list
+of one and each retyped scalar (`8080` as text or number), depending on the
+schemas that apply. Completion, diagnostics, paths, the save and the codec
+read that record and never decide again.
+
+### Every language writer is called through one door
+
+`src/editor/language/writer_door.rs` is the one way into a hook that writes
+a value's text: it gives the language the values as it can hold them (the
+data model's marks for infinities and NaN are taken off for a language
+without them). `tests/one_writer_door.rs` fails on a call to a writer hook
+anywhere else.
+
+### One schema walker answers every feature
+
+Validation, hover, completion, fills, locks and the save's type choice all
+ask `src/editor/applies/` which schemas apply at a place (as VS Code's
+`getMatchingSchemas`): `allOf`, `$ref`, `if`/`then`, `patternProperties`,
+one option of a `oneOf`. A feature never walks the schema on its own, so
+all of them agree on every shape. `src/editor/schema/` only compiles the
+schema and lists its subschemas.
+
+### One rule for read-only fields and secrets
+
+The guard (`src/editor/protect/guard/`) judges the protected text spans of
+an edit (each locked value, its key and the keys holding it, the host's
+ranges), never key names; `src/editor/protect/locks/` places the locks from
+the parse. The host's ranges given while a save is held name places in its
+older text: they are mapped through the recorded edits it has not heard yet,
+and when no place holds a range's text it locks nothing and the save waits
+with a reason. A secret never appears in a problem message: schema messages
+are hidden by the schema (`diagnostics/secrets/by_schema.rs`) and syntax
+messages hide what they quote (`diagnostics/secrets/in_syntax.rs`).
+
+### The host stays in sync by revisions
+
+`onChange(text, revision)` sends each text with a number, and the host
+passes it back as `valueRevision` (as `prosemirror-collab` numbers its
+steps), so an echo is known exactly (`src/editor/sync/echoes.rs`). Only a
+host that gives no revisions falls back to matching texts and a named pause
+(`SETTLE_MS`); that pause is the one place time enters.
+
+### Random tests guard the promises
+
+The seeded, shrinking suites listed by `scripts/sweep.sh --list` cover
+saves, locks and secrets, schema features, edits, hostile text and the
+browser. A suite's `known` list excuses a class of failure only by naming
+it (its properties, a part of the class name and its finding), never a
+whole check, and an entry goes when its finding is fixed. The sweep workflow
+runs the suites at release size (see "Random suites at release size").
 
 ### Light, generic and themable
 

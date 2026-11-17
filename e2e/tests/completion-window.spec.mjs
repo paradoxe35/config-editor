@@ -4,9 +4,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // The suggestion list renders the rows in its view and a screen's worth
-// more each way, not every candidate (D5.perf-3: 1,200 keys in scope built
+// more each way, not every candidate (1,200 keys in scope built
 // 1,200 options on every open and filter), and stays a listbox a screen
-// reader can count (D12.a11y-1): each option says its place among all of
+// reader can count: each option says its place among all of
 // them, the highlighted one is always in the page, and a filter that
 // leaves nothing says so.
 
@@ -109,7 +109,7 @@ test.describe('the suggestion list', () => {
     }
   });
 
-  test('renders as many options for 1,200 keys as for 50 (D5.perf-3)', async ({ page }) => {
+  test('renders as many options for 1,200 keys as for 50', async ({ page }) => {
     const rendered = {};
     for (const count of [50, 1200]) {
       await openWith(page, count);
@@ -119,7 +119,7 @@ test.describe('the suggestion list', () => {
     expect(rendered[1200]).toBeLessThanOrEqual(40);
   });
 
-  test('each option says its place among all of them (D12.a11y-1)', async ({ page }) => {
+  test('each option says its place among all of them', async ({ page }) => {
     await openWith(page, 1200);
     const { options: shown, active } = await readList(page);
     expect(shown.length).toBeGreaterThan(0);
@@ -132,7 +132,7 @@ test.describe('the suggestion list', () => {
     expect(active).toEqual({ selected: 'true', posinset: '1', label: 'k0001', inView: true });
   });
 
-  test('the highlighted option is in the page and in view however far it moves (D12.a11y-1)', async ({ page }) => {
+  test('the highlighted option is in the page and in view however far it moves', async ({ page }) => {
     await openWith(page, 1200);
     // Paging down far: the list scrolls with it.
     for (let step = 0; step < 30; step++) await page.keyboard.press('PageDown');
@@ -175,20 +175,20 @@ test.describe('the suggestion list', () => {
     await expect(page.locator('#listed .config-editor__input')).toHaveValue(/^k0601:/);
   });
 
-  test('a filter that leaves nothing says so (D12.a11y-1)', async ({ page }) => {
+  test('a filter that leaves nothing says so', async ({ page }) => {
     await openWith(page, 50);
     await page.keyboard.type('k00');
     await expect(options(page).first()).toBeVisible();
     await page.keyboard.type('zz');
     await expect(options(page)).toHaveCount(0);
     await expect(page.locator('#listed .config-editor__announcement')).toHaveText(/^No suggestions/);
-    // Backspace back to a match brings the list back (D13.a11y-1).
+    // Backspace back to a match brings the list back.
     await page.keyboard.press('Backspace');
     await page.keyboard.press('Backspace');
     await expect(options(page).first()).toBeVisible();
   });
 
-  // U30-1: a new selection (a filter result, a reopened list) is scrolled
+  // a new selection (a filter result, a reopened list) is scrolled
   // into view, for both row heights, however the list got scrolled before.
   for (const [described, row] of [[false, 28], [true, 44]]) {
     test(`a filter after paging down selects and shows its first match (${row} px rows)`, async ({ page }) => {
@@ -214,7 +214,7 @@ test.describe('the suggestion list', () => {
     });
   }
 
-  // A30-4: "No suggestions" is for a list the user opened or moved in; a
+  // "No suggestions" is for a list the user opened or moved in; a
   // list that opened by itself on a first letter closes silently.
   test('typing lines announces no "No suggestions"; an asked-for list emptied does once', async ({ page }) => {
     await page.goto(VANILLA);

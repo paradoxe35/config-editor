@@ -10,13 +10,15 @@
 //! The lines typed after the token's own line were not read, and a join
 //! making the text parse again was let through and only flagged.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::codec;
 use super::super::edit::Edit;
 use super::super::keys::line_edit::LineCommand;
-use super::super::keys::lines::{Command, run};
+use super::super::keys::lines::{Command, run_units as run};
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::guarantee_tests::{HOSTS, Tokens, utf16};
@@ -143,7 +145,7 @@ fn input(state: EditorState, range: std::ops::Range<usize>, with: &str) -> bool 
         _ if with.starts_with('\n') => "insertLineBreak",
         _ => "insertText",
     };
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (start, end),
         after,

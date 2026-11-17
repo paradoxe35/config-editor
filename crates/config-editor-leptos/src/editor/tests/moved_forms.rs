@@ -1,4 +1,4 @@
-//! QA `E36-1`/`E36-2`: a key cut in an Edit-as view and pasted back, at
+//! A key cut in an Edit-as view and pasted back, at
 //! once, after a pause, a switch to another view or to the host's
 //! language, in its own block or another, keeps the form its host writes
 //! it in that no view shows (an HCL expression or heredoc, a TOML
@@ -173,11 +173,13 @@ enum At {
     Last,
 }
 
-/// Where it is pasted: in `a` beside `mid`, or in `b` beside `other`.
+/// Where it is pasted: in `a` beside `mid`, or in `b` beside `other`,
+/// or over `other`'s line selected whole.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Place {
     SameBlock,
     OtherBlock,
+    OverOther,
 }
 
 /// What happens between the cut and the paste.
@@ -330,7 +332,7 @@ fn fix_commas(state: EditorState, view: Language) {
         let text = format!("{}{typed}{}", &before[..start], &before[end..]);
         let (from, to) = (units(&before[..start]), units(&before[..end]));
         let caret = from + units(&typed);
-        state.commit(Edit::new(before, (from, to), text, caret));
+        state.commit(Edit::new_units(before, (from, to), text, caret));
     }
 }
 
@@ -362,7 +364,7 @@ fn cut(state: EditorState, view: Language, without: &str) -> String {
     let lines = before[from..to].to_string();
     let text = format!("{}{}", &before[..from], &before[to..]);
     let caret = units(&before[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (caret, caret + units(&lines)),
         text,
@@ -378,9 +380,24 @@ pub(super) fn paste(state: EditorState, lines: &str, name: &str, after: bool) {
     let at = line_offset(&before, line);
     let text = format!("{}{lines}{}", &before[..at], &before[at..]);
     let start = units(&before[..at]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (start, start),
+        text,
+        start + units(lines),
+    ));
+}
+
+/// `lines` pasted over the line of `name`, selected whole.
+fn paste_over(state: EditorState, lines: &str, name: &str) {
+    let before = state.doc().text.get_untracked();
+    let line = key_line(&before, name);
+    let (from, to) = (line_offset(&before, line), line_offset(&before, line + 1));
+    let text = format!("{}{lines}{}", &before[..from], &before[to..]);
+    let start = units(&before[..from]);
+    state.commit(Edit::new_units(
+        before.clone(),
+        (start, units(&before[..to])),
         text,
         start + units(lines),
     ));
@@ -392,7 +409,7 @@ fn paste_at_end(state: EditorState, lines: &str) {
     let inserted = format!("\n{}", lines.trim_end());
     let text = format!("{}{inserted}\n", before.trim_end());
     let start = units(before.trim_end());
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before,
         (start, start),
         text,
@@ -410,12 +427,18 @@ fn other_view(host: Language, view: Language) -> Language {
 /// The saved host's text for `kind` seen as `view`, the key cut at `at`,
 /// `step` between, pasted at `place`; `Err` with what went wrong.
 fn moved(kind: &Kind, view: Language, at: At, step: Between, place: Place) -> Result<(), String> {
+    let over = place == Place::OverOther;
+    let others: &[Option<&str>] = if over {
+        &[Some("other"), Some("tail")]
+    } else {
+        &[Some("other")]
+    };
     let (a, b): (Vec<Option<&str>>, Vec<Option<&str>>) = match at {
-        At::First => (vec![None, Some("mid")], vec![Some("other")]),
-        At::Last => (vec![Some("mid"), None], vec![Some("other")]),
+        At::First => (vec![None, Some("mid")], others.to_vec()),
+        At::Last => (vec![Some("mid"), None], others.to_vec()),
     };
     let host = host_text(kind, &a, &b);
-    let without = host_text(kind, &[Some("mid")], &[Some("other")]);
+    let without = host_text(kind, &[Some("mid")], others);
     let bridge = Bridge::new(kind.host.language(), view, None).expect("two languages");
     let Ok(shown) = bridge.to_edit(&without) else {
         return Ok(());
@@ -440,14 +463,14 @@ fn moved(kind: &Kind, view: Language, at: At, step: Between, place: Place) -> Re
             let at = line_offset(&before, key_line(&before, "mid"));
             let broken = format!("{}[<\n{}", &before[..at], &before[at..]);
             let caret = units(&before[..at]);
-            state.commit(Edit::new(
+            state.commit(Edit::new_units(
                 before.clone(),
                 (caret, caret),
                 broken.clone(),
                 caret + 3,
             ));
             pause(state);
-            state.commit(Edit::new(broken, (caret, caret + 3), before, caret));
+            state.commit(Edit::new_units(broken, (caret, caret + 3), before, caret));
         }
         Between::OtherView => {
             fix_commas(state, view);
@@ -466,16 +489,29 @@ fn moved(kind: &Kind, view: Language, at: At, step: Between, place: Place) -> Re
     let (name, after) = match (place, at) {
         (Place::SameBlock, At::First) => ("mid", true),
         (Place::SameBlock, At::Last) => ("mid", false),
-        (Place::OtherBlock, At::First) => ("other", false),
-        (Place::OtherBlock, At::Last) => ("other", true),
+        (Place::OtherBlock | Place::OverOther, At::First) => ("other", false),
+        (Place::OtherBlock | Place::OverOther, At::Last) => ("other", true),
     };
     // A TOML table goes after the keys, its header naming its block.
-    if lines.starts_with('[') {
-        let lines = match place {
-            Place::SameBlock => lines,
-            Place::OtherBlock => lines.replacen("[a.", "[b.", 1).replacen(".a.", ".b.", 1),
-        };
+    if over {
+        if lines.starts_with('[') {
+            return Ok(());
+        }
+        paste_over(state, &lines, "other");
+    } else if lines.starts_with('[') {
         paste_at_end(state, &lines);
+        // Its header then made to name the other block, as typed.
+        if place == Place::OtherBlock {
+            let text = state.doc().text.get_untracked();
+            let header = text
+                .rfind(lines.lines().next().expect("a header"))
+                .expect("pasted");
+            let block = header + text[header..].find("a.").expect("the block");
+            let before = text.clone();
+            let after = format!("{}b{}", &text[..block], &text[block + 1..]);
+            let at = units(&text[..block]);
+            state.commit(Edit::new_units(before, (at, at + 1), after, at + 1));
+        }
     } else {
         paste(state, &lines, name, after);
     }
@@ -483,6 +519,7 @@ fn moved(kind: &Kind, view: Language, at: At, step: Between, place: Place) -> Re
     pause(state);
     let saved = state.sync().host_text.get_value();
     let expected = match (place, after) {
+        (Place::OverOther, _) => host_text(kind, &[Some("mid")], &[None, Some("tail")]),
         (Place::SameBlock, true) => host_text(kind, &[Some("mid"), None], &[Some("other")]),
         (Place::SameBlock, false) => host_text(kind, &[None, Some("mid")], &[Some("other")]),
         (Place::OtherBlock, false) => host_text(kind, &[Some("mid")], &[None, Some("other")]),
@@ -546,7 +583,7 @@ fn a_key_cut_and_pasted_keeps_its_hosts_form_in_every_view() {
                     Between::OtherView,
                     Between::HostLanguage,
                 ] {
-                    for place in [Place::SameBlock, Place::OtherBlock] {
+                    for place in [Place::SameBlock, Place::OtherBlock, Place::OverOther] {
                         if let Err(error) = moved(kind, view, at, step, place) {
                             failures.push(format!(
                                 "{:?} `{}` as {view:?}, {at:?}, {step:?}, {place:?}: {error}",

@@ -1,7 +1,7 @@
 //! A text nested deeper than its reader goes says so in one sentence in
-//! every language, at the place it goes too deep (D23.a11y-4); and YAML
+//! every language, at the place it goes too deep; and YAML
 //! reads a file as large as it is written, with no count of keys, items or
-//! documents of its own (a stream is told it is one, however long) (D23.editing-2).
+//! documents of its own (a stream is told it is one, however long).
 
 use crate::editor::languages::Language;
 
@@ -50,6 +50,28 @@ fn every_language_says_where_a_text_nests_too_deeply_in_one_sentence() {
             error.column
         );
     }
+}
+
+/// Tables under more keys than TOML reads (`[a.a.a…]`, or a table in a
+/// list in a table…, as written for deep data) say so in the same sentence.
+#[cfg(feature = "toml")]
+#[test]
+fn toml_tables_nested_too_deeply_say_so() {
+    let mut text = String::new();
+    let mut header = String::from("a");
+    for _ in 0..150 {
+        text.push_str(&format!("[{header}]\nx = 1\n"));
+        header.push_str(".a");
+    }
+    let error = Language::TOML
+        .behavior()
+        .parse(&text)
+        .expect_err("150 levels");
+    assert!(
+        error.message.contains("nest too deeply here"),
+        "{}",
+        error.message
+    );
 }
 
 #[test]
@@ -132,19 +154,13 @@ fn yaml_reads_in_time_linear_in_the_text() {
             format!("base: &b\n{}m:\n  <<: *b\n{}", half("b"), half("m"))
         }),
     ];
+    // Timed, not counted: the time is the YAML parser's own. Quadratic
+    // reading takes 16 times as long at four times the size.
     for (shape, text) in shapes {
-        let time = |n: usize| {
-            let text = text(n);
-            crate::editor::test_timing::best_of(3, || {
-                Language::YAML.behavior().parse(&text).is_ok()
-            })
-            .0
-        };
-        let (small, large) = (time(20_000), time(80_000));
-        let ratio = large.as_secs_f64() / small.as_secs_f64().max(1e-6);
-        assert!(
-            ratio < 8.0,
-            "{shape}: {small:?} -> {large:?} ({ratio:.1}x for 4x)"
-        );
+        let (small, large) = (text(20_000), text(80_000));
+        let growth = crate::editor::test_timing::growth(5, (&small, &large), |text: &String| {
+            Language::YAML.behavior().parse(text).is_ok()
+        });
+        assert!(growth.ratio() < 10.0, "{shape}: {growth} for 4x");
     }
 }

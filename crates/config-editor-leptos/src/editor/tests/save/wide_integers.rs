@@ -1,7 +1,7 @@
 //! An integer past 64 bits typed in an Edit-as view: its own language
-//! saves it as written, the problem still shown (QA `F30-3`), and so does
+//! saves it as written, the problem still shown, and so does
 //! a view of a host that holds it as written (XML, whose numbers are
-//! text): the save writes the digits (QA `E32-7`: such a number typed in
+//! text): the save writes the digits (such a number typed in
 //! a YAML view of an XML host waited, and could only be saved quoted). A
 //! host that refuses it (TOML) still waits.
 

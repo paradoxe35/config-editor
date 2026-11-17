@@ -55,11 +55,11 @@ fn fold_items(state: EditorState) -> FoldItems {
                                 .ok()
                                 .map(|at| closed[at].end);
                             let (hidden_change, chip_column) = match closed_end {
-                                Some(end) => closed_details(state, line, end),
+                                Some(last) => closed_details(state, line, last),
                                 None => (false, 0),
                             };
                             let hidden_problem =
-                                closed_end.and_then(|end| hidden_problem(state, line, end));
+                                closed_end.and_then(|last| hidden_problem(state, line, last));
                             Some(FoldItem {
                                 row,
                                 line,
@@ -76,9 +76,10 @@ fn fold_items(state: EditorState) -> FoldItems {
     })
 }
 
-/// Whether the fold `line..=end` hides changes, and its line's width.
-fn closed_details(state: EditorState, line: usize, end: usize) -> (bool, usize) {
-    let changed = hides_change(state, line + 1..=end);
+/// Whether the fold `line..=last` (lines) hides changes, and its line's
+/// width.
+fn closed_details(state: EditorState, line: usize, last: usize) -> (bool, usize) {
+    let changed = hides_change(state, line + 1..=last);
     let width = state.view().lines.with(|lines| {
         lines
             .get(line)
@@ -87,15 +88,15 @@ fn closed_details(state: EditorState, line: usize, end: usize) -> (bool, usize) 
     (changed, (width * 100.0).round() as usize)
 }
 
-/// The most serious problem starting on a line the fold `line..=end`
+/// The most serious problem starting on a line the fold `line..=last`
 /// hides (zero-based lines), shown on its chip as VS Code does, and how
 /// many start there.
-fn hidden_problem(state: EditorState, line: usize, end: usize) -> Option<(Severity, usize)> {
+fn hidden_problem(state: EditorState, line: usize, last: usize) -> Option<(Severity, usize)> {
     state.problems().diagnostics.with(|problems| {
         let hidden = problems.iter().filter(|problem| {
             problem
                 .line
-                .is_some_and(|at| (line + 2..=end + 1).contains(&at))
+                .is_some_and(|at| (line + 2..=last + 1).contains(&at))
         });
         let worst = hidden
             .clone()

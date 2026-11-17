@@ -1,50 +1,46 @@
 //! Which item of the host each item of an Edit-as save is, as the edit
-//! made it (`bridge::item_trail`): the lines the user removed, moved, cut
-//! and pasted in the view, not values that read alike. A host whose items
-//! hold what no view shows (XML's `xsi:type` and namespace declarations)
-//! reads it while the save writes and checks its text, so two items with
-//! the same data keep their own markup (QA `E32-3`), and an item cut and
-//! pasted is moved, not removed and added (QA `E32-2`).
+//! made it (`bridge::links`: each view item's link, kept by the edits that
+//! moved, cut, copied and pasted it), not values that read alike. The save
+//! passes it ([`SaveTold`]) to each write and check of its text, so two
+//! items with the same data keep their own markup (XML's `xsi:type` and
+//! namespace declarations), and an item cut and pasted is moved, not
+//! removed and added.
 #![cfg_attr(
     not(feature = "xml"),
     allow(dead_code, reason = "only XML hosts read the sources")
 )]
 
-use serde_json::Value;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+
+mod pairing;
+
+pub(crate) use pairing::Pairing;
+#[cfg(feature = "xml")]
+pub(crate) use pairing::{Side, Step, renamed_from};
 
 /// Where an item of the saved value comes from, by its pointer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ItemSource {
-    /// The item at this pointer of the host's last text (of
-    /// [`ItemSources::followed`]).
+    /// The item at this pointer of the host's last text.
     Previous(String),
-    /// The item at this pointer of the host text the edit session began
-    /// on: cut in an earlier save, pasted back in this one.
+    /// The item at this pointer of an earlier host text
+    /// ([`ItemSources::origin`]): cut before an earlier save, pasted back
+    /// in this one.
     Origin(String),
 }
 
 /// The items of one save's value, as the edit made them.
+#[derive(Debug)]
 pub(crate) struct ItemSources {
     /// The host's last text, which the save patches.
     pub(crate) previous: String,
-    /// The host text whose items [`ItemSource::Previous`] names: the
-    /// host's last text, or one saved before it when the saves since were
-    /// told nothing (see `item_trail::Trail::wants_trace`; never so for a
-    /// host whose items hold what no view shows).
-    pub(crate) followed: String,
-    /// The host text the edit session began on.
+    /// The earlier host text the [`ItemSource::Origin`] items are in.
     pub(crate) origin: String,
-    /// The values the save writes for the view's (as edited, and as the
-    /// host reads it back): a write of another value (a step of a save
-    /// made in several) is told nothing.
-    pub(crate) values: Vec<Value>,
     /// Each item's (and map entry's) source, by its pointer in the view's
-    /// value: an item of a list at `/l/1` is at `/l/1`, and its list's
-    /// lone item at `/l/0` or `/l`. Items not listed are not told by the
-    /// edit.
+    /// value (an item of a list at `/l/1` is at `/l/1`, and its list's
+    /// lone item at `/l/0` or `/l`, as the view writes it), and its path in
+    /// the host text it is in, as that text writes it. Items not listed
+    /// are not told by the edit.
     pub(crate) items: HashMap<String, ItemSource>,
 }
 
@@ -58,16 +54,17 @@ impl ItemSource {
 }
 
 impl ItemSources {
-    /// The source of the item at `pointer` (`lone` when its list holds it
-    /// alone, which the view may write either way: the view's item at
-    /// `{pointer}/0` first, else the key or item at `pointer`).
+    /// The source of the item at `pointer` of a value written (`lone`
+    /// when its list holds it alone there, which the view may write
+    /// either way: the view's item at `{pointer}/0` first, else the key or
+    /// item at `pointer`).
     pub(crate) fn of(&self, pointer: &str, lone: bool) -> Option<&ItemSource> {
         lone.then(|| self.items.get(&format!("{pointer}/0")))
             .flatten()
             .or_else(|| self.items.get(pointer))
     }
 
-    /// Whether any item comes from the session's first host text.
+    /// Whether any item comes from an earlier host text.
     pub(crate) fn holds_origin_items(&self) -> bool {
         self.items
             .values()
@@ -75,55 +72,48 @@ impl ItemSources {
     }
 }
 
-thread_local! {
-    static CURRENT: RefCell<Option<Rc<ItemSources>>> = const { RefCell::new(None) };
+/// What an Edit-as save tells a write or a check of one of its steps:
+/// which host item each item of the saved value is (when the edit's links
+/// tell it), and whether the step writes over the host's last text, of
+/// which the sources tell, or over a text an earlier step of the save
+/// wrote. Outside a save (a conversion) it tells nothing.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SaveTold<'a> {
+    sources: Option<&'a ItemSources>,
+    over_last: bool,
 }
 
-/// Told until dropped (see [`tell`]).
-pub(crate) struct Told(Option<Rc<ItemSources>>);
-
-impl Drop for Told {
-    fn drop(&mut self) {
-        let outer = self.0.take();
-        let _ = CURRENT.try_with(|current| current.replace(outer));
-    }
-}
-
-/// Tells `sources` to the writes and checks of a save until the guard
-/// returned is dropped.
-pub(crate) fn tell(sources: Option<ItemSources>) -> Told {
-    let outer = CURRENT.with(|current| current.replace(sources.map(Rc::new)));
-    Told(outer)
-}
-
-/// Adds `value` to the values the told sources hold for.
-pub(crate) fn also_for(value: &Value) {
-    CURRENT.with(|current| {
-        let mut current = current.borrow_mut();
-        if let Some(sources) = current.as_mut()
-            && !sources.values.contains(value)
-        {
-            let mut changed = ItemSources {
-                previous: sources.previous.clone(),
-                followed: sources.followed.clone(),
-                origin: sources.origin.clone(),
-                values: sources.values.clone(),
-                items: sources.items.clone(),
-            };
-            changed.values.push(value.clone());
-            *sources = Rc::new(changed);
+impl<'a> SaveTold<'a> {
+    /// A save told `sources`, writing over the host's last text.
+    pub(crate) fn new(sources: Option<&'a ItemSources>) -> Self {
+        SaveTold {
+            sources,
+            over_last: true,
         }
-    });
-}
+    }
 
-/// The sources told for a save over `previous` of a value `holds` says is
-/// one of theirs.
-pub(crate) fn told(previous: &str, holds: impl Fn(&Value) -> bool) -> Option<Rc<ItemSources>> {
-    CURRENT.with(|current| {
-        current
-            .borrow()
-            .as_ref()
-            .filter(|sources| sources.previous == previous && sources.values.iter().any(&holds))
-            .cloned()
-    })
+    /// The same save, at a step written over a text an earlier step (or
+    /// the save's own preparation) wrote.
+    #[must_use]
+    pub(crate) fn later(self) -> Self {
+        SaveTold {
+            over_last: false,
+            ..self
+        }
+    }
+
+    /// The sources, at whichever step: for a caller that reads each item's
+    /// source text itself ([`ItemSources::previous`],
+    /// [`ItemSources::origin`]).
+    pub(crate) fn sources(self) -> Option<&'a ItemSources> {
+        self.sources
+    }
+
+    /// The sources, at a step written over the host's last text: for a
+    /// write of the value, and for the first step of a save made in
+    /// several (an item the edit brought is added there while its source
+    /// is still in it).
+    pub(crate) fn over_last(self) -> Option<&'a ItemSources> {
+        self.sources.filter(|_| self.over_last)
+    }
 }

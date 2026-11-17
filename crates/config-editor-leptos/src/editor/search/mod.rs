@@ -11,6 +11,15 @@
 //! view are drawn (see `components::SearchHighlights`).
 //!
 //! The rest of the editor sees only the hooks re-exported here.
+//!
+//! Matches are typed byte ranges (`TextRange`) from where the regex engine
+//! and the standard library's search give them (`matcher`) on.
+
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 mod actions;
 mod components;
@@ -31,11 +40,18 @@ use actions::{
     step, toggle_option,
 };
 use matcher::{SearchMatch, SearchOptions};
+// The random editing tests make Replace through the widget's own action
+// (in the builds with every language).
+#[cfg(test)]
+#[allow(unused_imports, reason = "used by the random editing tests")]
+pub(super) use actions::replace_current as replace_one_match;
 
 use leptos::prelude::*;
 
+use super::edit::Change;
 use super::live_settings::on_switch_off;
 use super::state::EditorState;
+use crate::editor::text::TextRange;
 use matcher::{Matcher, find_matches};
 
 /// Switching the `search` or `go_to_line` setting off closes its widget.
@@ -80,8 +96,12 @@ pub(super) struct SearchState {
     pub(super) query: RwSignal<String>,
     pub(super) replacement: RwSignal<String>,
     pub(super) options: RwSignal<SearchOptions>,
-    /// Index of the match stepped to, shown distinctly.
-    pub(super) current: RwSignal<Option<usize>>,
+    /// The match stepped to, followed through every edit (see
+    /// [`EditorState::follow_current_match`]).
+    stepped: RwSignal<Option<TextRange>>,
+    /// Index of the match stepped to, shown distinctly: `None` once an edit
+    /// changed its text.
+    pub(super) current: Memo<Option<usize>>,
     /// What the last replace all did, announced in place of the count.
     pub(super) notice: RwSignal<Option<SearchNotice>>,
     pub(super) results: Memo<SearchResults>,
@@ -119,13 +139,25 @@ impl SearchState {
                 }),
             })
         });
+        let stepped = RwSignal::new(None::<TextRange>);
+        let current = Memo::new(move |_| {
+            let stepped = stepped.get()?;
+            results.with(|results| {
+                let index = results
+                    .matches
+                    .binary_search_by_key(&stepped.start(), |found| found.range.start())
+                    .ok()?;
+                (results.matches[index].range == stepped).then_some(index)
+            })
+        });
         Self {
             open,
             replacing: RwSignal::new(false),
             query,
             replacement: RwSignal::new(String::new()),
             options,
-            current: RwSignal::new(None),
+            stepped,
+            current,
             notice: RwSignal::new(None),
             results,
             widget_ref: NodeRef::new(),
@@ -135,11 +167,32 @@ impl SearchState {
         }
     }
 
+    /// Steps to the match at `index` of the results (none with `None`).
+    pub(super) fn set_current(&self, index: Option<usize>) {
+        let found = index.and_then(|index| {
+            self.results
+                .with_untracked(|results| results.matches.get(index).map(|found| found.range))
+        });
+        self.stepped.set(found);
+    }
+
     /// The compiled query, when it is valid and not empty.
     fn matcher(&self) -> Option<Matcher> {
         let options = self.options.get_untracked();
         self.query
             .with_untracked(|query| Matcher::new(query, options).ok().flatten())
+    }
+}
+
+impl EditorState {
+    /// Maps the match stepped to through `change` (an edit's
+    /// `Edit::mapping`), as the edit pipeline writes it: it stays on the
+    /// same text, and is no longer current once the edit changed that text.
+    pub(super) fn follow_current_match(&self, change: &Change) {
+        let stepped = self.search().stepped;
+        if let Some(range) = stepped.get_untracked() {
+            stepped.set(change.map_range(&range));
+        }
     }
 }
 

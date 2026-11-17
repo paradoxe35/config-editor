@@ -3,7 +3,7 @@
 //! edited in another view (items removed, added, copied, moved, all
 //! changed) saves each item's markup with that item's data, an item added
 //! gets none but its siblings' namespace, and none moves to a neighbour
-//! (QA `E31-1`: deleting the second of three `<shape xsi:type=…>` gave the
+//! (deleting the second of three `<shape xsi:type=…>` gave the
 //! third the second's type).
 
 use crate::editor::Language;
@@ -146,7 +146,7 @@ fn list_edits_in_other_views_keep_each_items_markup_with_its_data() {
                         Slot::Changed(item) => kind.markup(*item),
                         // An item added is named in its siblings'
                         // namespace: the one it copies, else the one at its
-                        // place (QA `E32-1`); it takes no other markup.
+                        // place; it takes no other markup.
                         Slot::Copy(item) if matches!(kind, Kind::DefaultNamespace) => {
                             kind.markup(*item)
                         }
@@ -213,7 +213,7 @@ fn list_edits_in_other_views_keep_each_items_markup_with_its_data() {
 
 /// One edit removing an item and changing a neighbour (three items pasted
 /// over with two): the save writes and checks each item as the same host
-/// item, so it saves (QA `E32-4`: it waited, saying the value would be
+/// item, so it saves (it waited, saying the value would be
 /// written in another form, as its stages read the changed item as one
 /// removed and one added).
 #[test]

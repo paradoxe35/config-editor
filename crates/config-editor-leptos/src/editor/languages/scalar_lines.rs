@@ -1,5 +1,5 @@
 //! An edit inside one line that changes one scalar value and nothing else
-//! (see [`ConfigLanguage::edits_one_scalar`]), told by reading that line on
+//! (see [`SaveLayout::edits_one_scalar`]), told by reading that line on
 //! its own, before and after: both read as one value under the same keys.
 //!
 //! Read alone, a line says what it holds where it is too, as long as the
@@ -42,7 +42,7 @@ pub(super) struct Alone {
 /// `range` with `inserted` changes one scalar there (by `rules`), else
 /// `None`.
 pub(super) fn one_scalar_line(
-    language: &(impl ConfigLanguage + ?Sized),
+    language: &dyn ConfigLanguage,
     source: &str,
     range: Range<usize>,
     inserted: &str,

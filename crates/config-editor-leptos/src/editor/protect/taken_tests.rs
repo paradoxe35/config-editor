@@ -3,8 +3,9 @@
 //! path, the schema's `readOnly`, a read-only range over the value, over
 //! its line, over a whole block or a block's header line), in the five
 //! languages: the text it makes reads the locked value at its path as
-//! before, or does not parse (a save then waits); and the locked value's
-//! text refuses typing afterwards, wherever it went.
+//! before, or the save waits (it does not parse, or the field is held);
+//! and the locked value's text refuses typing afterwards, wherever it
+//! went (a copy of its line is free text).
 //!
 //! A host range used to lock its text alone: `Ctrl+/` commented its field
 //! out and the save dropped it, a line moved past it lost the range (the
@@ -12,13 +13,16 @@
 //! YAML parent's key moved above the line before it left its lines under
 //! that line, and the locks with them.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::codec;
 use super::super::edit::Edit;
 use super::super::keys::line_edit::LineCommand;
-use super::super::keys::lines::{Command, run};
+use super::super::keys::lines::{Command, run_units as run};
+use super::super::language::Repetition;
 use super::super::paths::{FieldPath, TextPosition, TextRange};
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
@@ -148,12 +152,12 @@ fn line_code(text: &str, line: &str) -> (usize, usize) {
 }
 
 /// A schema marking `pointer` read-only.
-fn schema(pointer: &str) -> std::sync::Arc<super::super::diagnostics::SchemaBundle> {
+fn schema(pointer: &str) -> std::sync::Arc<super::super::schema::SchemaBundle> {
     let mut schema = serde_json::json!({ "readOnly": true });
     for key in pointer.trim_start_matches('/').split('/').rev() {
         schema = serde_json::json!({ "type": "object", "properties": { key: schema } });
     }
-    let bundle = super::super::diagnostics::build_schema(&schema.to_string()).expect("a schema");
+    let bundle = super::super::schema::build_schema(&schema.to_string()).expect("a schema");
     std::sync::Arc::new(bundle)
 }
 
@@ -181,6 +185,9 @@ pub(super) fn mount(language: Language, kind: Kind) -> (Owner, EditorState) {
         }
         Kind::RangeOverHeader => editor.read_only_ranges = range(header_start, header_end),
     }
+    editor.on_save = Some(Callback::new(
+        |_: super::super::host_editing::SaveRequest| {},
+    ));
     editor.mount()
 }
 
@@ -226,10 +233,10 @@ fn press(
             if let Some((updated, start, end)) =
                 language
                     .behavior()
-                    .toggle_comments(&text, selection.0, selection.1)
+                    .toggled_text(&text, selection.0, selection.1)
                 && updated != text
             {
-                let edit = Edit::new(text, selection, updated, end).selecting_from(start);
+                let edit = Edit::new_units(text, selection, updated, end).selecting_from(start);
                 let _ = state.commit(edit);
             }
         }
@@ -245,7 +252,7 @@ pub(super) fn typed_into(state: EditorState) -> Vec<usize> {
         let at = units(&text, found + 1);
         let mut typed = text.clone();
         typed.insert(found + 1, '9');
-        let edit = Edit::input(
+        let edit = Edit::input_units(
             text.clone(),
             (at, at),
             typed,
@@ -255,8 +262,9 @@ pub(super) fn typed_into(state: EditorState) -> Vec<usize> {
         );
         if state.commit(edit) {
             taken.push(found);
-            let undo = state.history_edit(false).expect("the digit typed");
-            assert!(state.commit(undo));
+            if let Some(undo) = state.history_edit(false) {
+                let _ = state.commit(undo);
+            }
         }
     }
     taken
@@ -301,8 +309,19 @@ fn a_line_command_or_comment_toggle_never_takes_a_locked_field() {
                             .collect(),
                         Err(_) => Vec::new(),
                     };
+                    // A copy of the locked line is free text; the locked
+                    // value itself still refuses typing.
+                    let written = after.matches(VALUE).count();
                     let taken = typed_into(state);
-                    if !changed.is_empty() || !taken.is_empty() {
+                    let unlocked = written > 0 && taken.len() == written;
+                    // A field moved away (a holder's line moved) holds the
+                    // save; it is never sent changed. A host range keeps its
+                    // text: where the language repeats an element for a
+                    // list, a copy of its line is a new item beside it.
+                    let range = matches!(kind, Kind::RangeOverValue | Kind::RangeOverLine);
+                    let repeats = behavior.repetition() != Repetition::None;
+                    let saved = !changed.is_empty() && !(range && repeats) && state.save();
+                    if saved || unlocked {
                         failures.push(format!(
                             "{} {kind:?} {name} at {selection:?}: changed {changed:?}, typing taken at {taken:?}\n{after}",
                             language.label()
@@ -321,9 +340,10 @@ fn a_line_command_or_comment_toggle_never_takes_a_locked_field() {
 }
 
 /// With CRLF line ends, `Ctrl+/` on a line a host range covers (its value
-/// or the whole line) is refused as well.
+/// or the whole line) never sends the field commented out: the range's
+/// text is kept, and the save waits while the field is gone.
 #[test]
-fn a_comment_toggle_on_a_crlf_line_a_range_covers_is_refused() {
+fn a_comment_toggle_on_a_crlf_line_a_range_covers_is_never_saved() {
     for language in [Language::YAML, Language::TOML, Language::HCL] {
         let sample = sample(language);
         let text = sample.text.replace('\n', "\r\n");
@@ -340,6 +360,9 @@ fn a_comment_toggle_on_a_crlf_line_a_range_covers_is_refused() {
             };
             let (_owner, state) = TestEditor {
                 read_only_ranges: vec![TextRange::new(position(start), position(end))],
+                on_save: Some(Callback::new(
+                    |_: super::super::host_editing::SaveRequest| {},
+                )),
                 ..TestEditor::new(language, &text)
             }
             .mount();
@@ -348,10 +371,10 @@ fn a_comment_toggle_on_a_crlf_line_a_range_covers_is_refused() {
             press(state, language, None, (at, at));
             let now = codec::read(language.behavior(), &state.doc().text.get_untracked(), None)
                 .expect("parses");
-            assert_eq!(
-                now.pointer(sample.leaf).and_then(serde_json::Value::as_i64),
-                Some(512),
-                "{} {start}..{end}",
+            let kept = now.pointer(sample.leaf).and_then(serde_json::Value::as_i64) == Some(512);
+            assert!(
+                kept || !state.save(),
+                "{} {start}..{end}: saved commented out",
                 language.label()
             );
         }

@@ -20,7 +20,7 @@ pub(crate) struct Flow {
 }
 
 impl Flow {
-    pub(crate) fn of(language: &(impl ConfigLanguage + ?Sized)) -> Self {
+    pub(crate) fn of(language: &dyn ConfigLanguage) -> Self {
         Self::from_config(language.config())
     }
 
@@ -113,15 +113,32 @@ impl Flow {
             .is_some_and(|first| self.quote(first).is_some())
     }
 
-    /// `text` trimmed, without the quotes around it if it is quoted.
+    /// `text` trimmed, without the quotes around it if it is quoted; in a
+    /// quote where a backslash escapes, an escaped quote or backslash
+    /// (`"a\"b"`) as the character it writes.
     pub(crate) fn strip_quotes(&self, text: &str) -> String {
         let trimmed = text.trim();
         if let Some(first) = trimmed.chars().next()
-            && self.quote(first).is_some()
+            && let Some(escapes) = self.quote(first)
             && trimmed.len() >= 2 * first.len_utf8()
             && trimmed.ends_with(first)
         {
-            return trimmed[first.len_utf8()..trimmed.len() - first.len_utf8()].to_string();
+            let inner = &trimmed[first.len_utf8()..trimmed.len() - first.len_utf8()];
+            if !escapes || !inner.contains('\\') {
+                return inner.to_string();
+            }
+            let mut out = String::with_capacity(inner.len());
+            let mut characters = inner.chars();
+            while let Some(character) = characters.next() {
+                match (character, characters.clone().next()) {
+                    ('\\', Some(next)) if next == first || next == '\\' => {
+                        out.push(next);
+                        characters.next();
+                    }
+                    _ => out.push(character),
+                }
+            }
+            return out;
         }
         trimmed.to_string()
     }
@@ -408,11 +425,11 @@ impl Flow {
 const MARKUP_BEFORE: usize = 64;
 
 /// Where the markup opening a key (see
-/// [`ConfigLanguage::key_markup_len`]) starts when it ends right at byte
+/// [`Markup::key_markup_len`]) starts when it ends right at byte
 /// `name` of `text`: on its line, at most [`MARKUP_BEFORE`] characters
 /// back (the work per key stays bounded on a long line).
 pub(crate) fn markup_before(
-    language: &(impl ConfigLanguage + ?Sized),
+    language: &dyn ConfigLanguage,
     text: &str,
     name: usize,
 ) -> Option<usize> {

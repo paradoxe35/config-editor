@@ -2,17 +2,19 @@
 //! scrolling, hover docs, and the whole-line clipboard.
 
 use leptos::prelude::*;
+use unicode_segmentation::GraphemeCursor;
 use wasm_bindgen::JsCast;
 
 use super::commands::{copied_lines, line_range};
 use super::completion::should_auto_trigger;
-use super::components::HoverCard;
-use super::edit::{After, Edit};
-use super::history::EditHistory;
-use super::keyboard::replace_selection;
-use super::positioning::{hover_card_anchor, pointer_text_position, schedule_hover};
+use super::edit::{Assoc, Change, Edit};
+use super::history::{EditHistory, Selection};
+use super::keyboard::utf16_to_byte_index;
+use super::positioning::pointer_text_position;
+use super::problem_hit::column_at_cell;
 use super::source_area::SourceArea;
-use super::state::{EditorState, normalize_newlines, textarea_selection};
+use super::state::{EditorState, directed_selection, normalize_newlines, textarea_selection};
+use crate::editor::text::{TextRange, TextSize, Utf16, byte_of, slice, utf16_of};
 use crate::reactive::later;
 
 /// The textarea an event came from, in document offsets.
@@ -44,29 +46,45 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
         let (start, end) = textarea_selection(&element);
         let kind = event.input_type();
         if kind == "deleteByDrag" {
-            state.drag_starts();
+            state.drag_starts(start, end);
+            // The document was rewritten under the drag: refused, its drop
+            // with it.
+            if state.rewritten_under_drag() {
+                event.prevent_default();
+                return;
+            }
             // Taking a closed fold's shown closing line away rewrites the
             // textarea under the drag: refused, its drop with it.
             if state.delete_reshapes_folds(start, end) {
                 event.prevent_default();
                 return;
             }
-        } else if kind == "insertFromDrop" && state.drop_refused_by_its_delete() {
+            // Part of a placeholder dragged: refused, its drop with it.
+            if state.cuts_a_token(start, end) {
+                event.prevent_default();
+                return;
+            }
+        } else if kind == "insertFromDrop" && state.drop_refused_early() {
             event.prevent_default();
             state.drop_done();
             return;
         }
-        let reach = match kind.as_str() {
-            kind if kind.starts_with("deleteContentBackward")
-                || kind.starts_with("deleteWordBackward")
-                || kind.starts_with("deleteSoftLineBackward")
-                || kind.starts_with("deleteHardLineBackward") =>
+        // A deletion with nothing selected reaches over the character
+        // beside the caret.
+        let reach = state.doc().text.with_untracked(|text| match kind.as_str() {
+            kind if start == end
+                && (kind.starts_with("deleteContentBackward")
+                    || kind.starts_with("deleteWordBackward")
+                    || kind.starts_with("deleteSoftLineBackward")
+                    || kind.starts_with("deleteHardLineBackward")) =>
             {
-                (start.saturating_sub(usize::from(start == end)), end)
+                (slice::step_back(text, start), end)
             }
-            kind if kind.starts_with("delete") => (start, end + usize::from(start == end)),
+            kind if start == end && kind.starts_with("delete") => {
+                (start, slice::step_forward(text, end))
+            }
             _ => (start, end),
-        };
+        });
         if state.touches_fold(reach.0, reach.1) {
             event.prevent_default();
             if kind == "insertFromDrop" {
@@ -80,7 +98,11 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
             insert_whole(state, (start, end), text, event.time_stamp());
             return;
         }
-        state.typing().pre_edit_selection.set_value((start, end));
+        // As (anchor, caret): undo puts a backward selection back backward.
+        state
+            .typing()
+            .pre_edit_selection
+            .set_value(directed_selection(&element));
     }
 }
 
@@ -97,30 +119,17 @@ fn whole_lines(event: &web_sys::InputEvent) -> Option<String> {
         .map(normalize_newlines)
 }
 
-/// Puts `text` over the document's UTF-16 `selection` as a paste does: one
-/// change, one undo step.
-fn insert_whole(state: EditorState, selection: (usize, usize), text: String, time: f64) {
+/// Puts `text` over the document's `selection` (bytes) as a paste does:
+/// one change, one undo step.
+fn insert_whole(state: EditorState, selection: Selection, text: String, time: f64) {
     // Input still pending in this task first, so this lands after it.
     flush_input(state);
     let before = state.doc().text.get_untracked();
-    let (value, caret) = replace_selection(&before, selection.0, selection.1, &text);
+    let range = TextRange::new(selection.0, selection.1.max(selection.0));
+    let change = Change::replace(&before, range, &text);
     let kind = "insertFromPaste";
-    let edit = Edit {
-        // The textarea still has the text before: written, caret in view.
-        after: After::Select {
-            anchor: caret,
-            caret,
-            reveal: true,
-        },
-        ..Edit::input(
-            before.clone(),
-            selection,
-            value,
-            (caret, caret),
-            kind.to_string(),
-            time,
-        )
-    };
+    // The textarea still has the text before: written, caret in view.
+    let edit = Edit::command(before.clone(), change, selection).typed(kind, time);
     apply_input(state, edit, &before, kind);
 }
 
@@ -128,9 +137,11 @@ fn insert_whole(state: EditorState, selection: (usize, usize), text: String, tim
 /// (`execCommand("insertText")` with line breaks, dictation, some IMEs send
 /// one per line). They are applied once, at the end of the task.
 pub(super) struct InputBurst {
-    /// The document and selection before the first event.
+    /// The document, its version and the selection (anchor, caret) before
+    /// the first event.
     before: String,
-    selection: (usize, usize),
+    version: u64,
+    selection: Selection,
     /// The first event's type, and how many events came.
     input_type: String,
     events: usize,
@@ -139,37 +150,20 @@ pub(super) struct InputBurst {
     /// what the input made, even if something rewrites the textarea before
     /// the burst is applied.
     latest: String,
-    latest_selection: (usize, usize),
+    latest_selection: Selection,
 }
 
-/// No selection recorded before the input (see [`changed_range`]).
-pub(super) const UNKNOWN_SELECTION: (usize, usize) = (usize::MAX, usize::MAX);
+/// No selection recorded before the input: the browser sent no
+/// `beforeinput` (`execCommand`, a synthetic event), so its change is read
+/// off the texts (see `edit::Edit::input`).
+pub(super) const UNKNOWN_SELECTION: Selection = (TextSize::new(u32::MAX), TextSize::new(u32::MAX));
 
-pub(super) use super::text_change::{changed_range, edit_range};
-
-/// The edit that turned `before` into `latest`, made on `current` instead
-/// (where `before` became `current` meanwhile), and the caret after it.
-pub(super) fn replay(before: &str, latest: &str, current: &str) -> (String, usize) {
-    use super::sync::map_through_change;
-    let (start, end) = changed_range(before, latest);
-    let latest_units: Vec<u16> = latest.encode_utf16().collect();
-    let before_len = before.encode_utf16().count();
-    let inserted_len = latest_units.len() + (end - start) - before_len;
-    let inserted = String::from_utf16_lossy(&latest_units[start..start + inserted_len]);
-    let (from, to) = (
-        map_through_change(before, current, start),
-        map_through_change(before, current, end),
-    );
-    let current_units: Vec<u16> = current.encode_utf16().collect();
-    let (from, to) = (
-        from.min(current_units.len()),
-        to.min(current_units.len())
-            .max(from.min(current_units.len())),
-    );
-    let mut result = String::from_utf16_lossy(&current_units[..from]);
-    result.push_str(&inserted);
-    result.push_str(&String::from_utf16_lossy(&current_units[to..]));
-    (result, from + inserted_len)
+/// The input `mine` (made on `before`) made on `current` instead, where the
+/// host made `before` into `current` meanwhile: rebased over the host's
+/// change (read off the two texts, the host's), the input's text first
+/// where both wrote at one place.
+pub(super) fn replay(mine: &Change, before: &str, current: &str) -> Option<Change> {
+    mine.map(&Change::diffed(before, current), true)
 }
 
 /// An edit the browser applied (typing, paste, cut, drop, IME).
@@ -178,13 +172,27 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         state.show_text();
         return;
     }
-    let input_type = event
-        .dyn_ref::<web_sys::InputEvent>()
+    let input_event = event.dyn_ref::<web_sys::InputEvent>();
+    let input_type = input_event
         .map(web_sys::InputEvent::input_type)
         .unwrap_or_default();
+    if state.typing().composing.get_value()
+        && !input_event.is_some_and(web_sys::InputEvent::is_composing)
+    {
+        end_composition_unannounced(state);
+    }
+    // The selection the browser left is in the text it left, not yet the
+    // document's.
     let (latest, latest_selection) = target_textarea(state, event)
-        .map(|element| (element.value(), textarea_selection(&element)))
-        .unwrap_or_else(|| (state.doc().text.get_untracked(), (0, 0)));
+        .map(|element| {
+            let latest = element.value();
+            let selection = element.selection_in(&latest);
+            (latest, selection)
+        })
+        .unwrap_or_else(|| {
+            let none = TextSize::default();
+            (state.doc().text.get_untracked(), (none, none))
+        });
     if state.typing().input_burst.with_value(Option::is_some) {
         state.typing().input_burst.update_value(|burst| {
             if let Some(burst) = burst {
@@ -196,8 +204,9 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         return;
     }
     let before = state.doc().text.get_untracked();
+    let version = state.doc().version.get_value();
     // Without a `beforeinput` (`execCommand`, some synthetic events) the
-    // selection is read off the change when the burst is applied.
+    // change is read off the texts when the burst is applied.
     let selection = state.typing().pre_edit_selection.get_value();
     state
         .typing()
@@ -205,6 +214,7 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
         .set_value(UNKNOWN_SELECTION);
     state.typing().input_burst.set_value(Some(InputBurst {
         before,
+        version,
         selection,
         input_type,
         events: 1,
@@ -228,6 +238,20 @@ pub(super) fn input(state: EditorState, event: &web_sys::Event) {
             .push(later::guarded(state, flush_input))
     });
     later::soon(state, |_| flush_pending_input());
+}
+
+/// The composition is over without a `compositionend`: an input that is
+/// not part of it came. Chrome ends a composition this way when the
+/// textarea's text is rewritten under it (a host value arriving while the
+/// user composes), and the commit then arrives as plain `insertText`. The
+/// composed text not committed went with the rewrite, so the input held
+/// for the composition is dropped: what follows is typing on the text the
+/// textarea shows, and is applied as such (P4: the commit is never held
+/// back waiting for an end that does not come).
+fn end_composition_unannounced(state: EditorState) {
+    state.typing().composing.set_value(false);
+    state.typing().input_burst.set_value(None);
+    state.doc().history.update(EditHistory::seal);
 }
 
 thread_local! {
@@ -255,45 +279,45 @@ pub(super) fn flush_input(state: EditorState) {
     if state.textarea().is_none() {
         return;
     }
-    // What the input made, on the document as it is now: a host value
-    // applied since the input (a `setValue` in the same task) gets the input
-    // replayed on it, and a textarea rewritten meanwhile gets it back.
-    let before = state.doc().text.get_untracked();
-    let (value, replayed_caret) = if before == burst.before {
-        (burst.latest, None)
-    } else {
-        let (value, caret) = replay(&burst.before, &burst.latest, &before);
-        (value, Some(caret))
-    };
-    // Nothing to apply: the browser sends text arriving whole in one
-    // command (an IME commit, a drop, `Input.insertText`) as one input event
-    // per line, each in its own microtask, with the whole text already in
-    // the textarea at the first; the first applies it (or is refused, and
-    // the textarea shows the document again), the rest find nothing new.
-    // Committing each again would redo every per-text step once per line.
-    if value == before {
-        return;
-    }
-    let selection = if replayed_caret.is_some() {
-        UNKNOWN_SELECTION
-    } else {
-        burst.selection
-    };
     // Several events at once are text arriving whole, as a paste does.
     let input_type = if burst.events > 1 {
         "insertFromPaste".to_string()
     } else {
         burst.input_type
     };
-    let typed = replayed_caret.map_or(burst.latest_selection, |caret| (caret, caret));
-    let edit = Edit::input(
-        before.clone(),
-        selection,
-        value,
-        typed,
+    let before = state.doc().text.get_untracked();
+    // Nothing to apply: the browser sends text arriving whole in one
+    // command (an IME commit, a drop, `Input.insertText`) as one input event
+    // per line, each in its own microtask, with the whole text already in
+    // the textarea at the first; the first applies it (or is refused, and
+    // the textarea shows the document again), the rest find nothing new.
+    // Committing each again would redo every per-text step once per line.
+    if burst.latest == before {
+        return;
+    }
+    let input = Edit::input(
+        burst.before.clone(),
+        burst.selection,
+        burst.latest,
+        burst.latest_selection,
         input_type.clone(),
         burst.time,
     );
+    // What the input made, on the document as it is now: a host value
+    // applied since the input (a `setValue` in the same task) gets the input
+    // replayed on it, and a textarea rewritten meanwhile gets it back.
+    let edit = if state.doc().version.get_value() == burst.version {
+        input
+    } else {
+        let Some(change) = replay(input.made(), &burst.before, &before) else {
+            return;
+        };
+        let told = input.told();
+        Edit::replayed(before.clone(), change, told, input_type.clone(), burst.time)
+    };
+    if edit.text == before {
+        return;
+    }
     apply_input(state, edit, &before, &input_type);
 }
 
@@ -301,22 +325,15 @@ pub(super) fn flush_input(state: EditorState) {
 /// `before`, and updates the suggestions and popups after it.
 pub(super) fn apply_input(state: EditorState, edit: Edit, before: &str, input_type: &str) {
     let showing = state.suggestions_showing();
-    if !showing {
-        // A list that opens by itself is not one the user asked for.
-        state.completion().asked.set_value(false);
-    }
+    let mode = state.list_mode();
     // "No suggestions" is said only for a list the user asked for.
-    let listed = showing && state.completion().asked.get_value();
+    let listed = showing && mode.heeded();
     // Backspace with the list asked for refilters it instead of closing,
     // also when the filter had left nothing: taking back what emptied it
     // brings the options back. A list the user closed is not asked for,
     // nor one typing asked for that showed no options since (its filter
     // emptied nothing, so a Backspace brings nothing back).
-    let showed = state.completion().requested.get_untracked()
-        && (showing
-            || state.completion().showed.get_value()
-            || state.completion().explicit.get_untracked());
-    let refilter = input_type == "deleteContentBackward" && showed;
+    let refilter = input_type == "deleteContentBackward" && mode.brings_back(showing);
     let committed = state.commit(edit);
     if input_type == "insertFromDrop" {
         if committed {
@@ -341,20 +358,11 @@ pub(super) fn apply_input(state: EditorState, edit: Edit, before: &str, input_ty
     state.completion().placeholder.set_value(None);
     state.completion().active.set(0);
     // Typed text filters the list again.
-    if state.completion().replace_word.get_untracked() {
-        state.completion().replace_word.set(false);
-    }
-    if !refilter {
-        state.completion().explicit.set(false);
-    }
-    state.completion().requested.set(auto_trigger || refilter);
-    state
-        .completion()
-        .showed
-        .set_value((auto_trigger || refilter) && showed);
+    state.set_list_mode(mode.after_typing(auto_trigger, refilter, showing));
     super::a11y::say_no_suggestions_after(state, listed);
     if !state.suggestions_showing() {
-        state.completion().asked.set_value(false);
+        // A list that opens by itself is not one the user asked for.
+        state.set_list_mode(state.list_mode().heeding(false));
     }
     state.hide_hover();
     state.hide_shown_problem();
@@ -364,16 +372,11 @@ pub(super) fn apply_input(state: EditorState, edit: Edit, before: &str, input_ty
 /// (each after its moment to reach it).
 pub(super) fn mouse_leave(state: EditorState, event: &web_sys::MouseEvent) {
     let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
-    state.hover().on_text.set_value(false);
-    state.leave_pointer(event.related_target().as_ref(), x, y);
-    state.leave_hover();
-    if state.problems().hovered.with_untracked(Option::is_some) {
-        state.leave_problem();
-    }
+    state.pointer_left_text(event.related_target().as_ref(), x, y);
 }
 
 /// The pointer moved over the gutter: as off the text, for the way to the
-/// popup it can enter (see `hover_path`).
+/// popup it can enter (see `popups::path`).
 pub(super) fn gutter_move(state: EditorState, event: &web_sys::MouseEvent) {
     if event.buttons() == 0 {
         state.pointer_off_text(f64::from(event.client_x()), f64::from(event.client_y()));
@@ -397,73 +400,15 @@ pub(super) fn gutter_press(state: EditorState, event: &web_sys::MouseEvent) {
 
 /// Hovering a problem shows its tip (see `problem_hit`); hovering a key
 /// shows its schema docs after a short pause; hovering a
-/// read-only value says why it is read-only.
+/// read-only value says why it is read-only (see `popups`).
 pub(super) fn mouse_move(state: EditorState, event: &web_sys::MouseEvent) {
     let Some(element) = target_textarea(state, event) else {
         return;
     };
     let (x, y) = (f64::from(event.client_x()), f64::from(event.client_y()));
-    state.hover().on_text.set_value(true);
+    state.pointer_on_text();
     // Not while a button is held (a drag selecting text).
-    pointer_at(state, &element, x, y, event.buttons() == 0);
-}
-
-/// The pointer is at `(x, y)` in the window over the text (`free`: no
-/// button held): what is there shows.
-pub(super) fn pointer_at(state: EditorState, element: &SourceArea, x: f64, y: f64, free: bool) {
-    let (line, column) = pointer_text_position(element, x, y);
-    // Heading for the popup across other text: that text waits.
-    if free && state.on_the_way_to_popup(x, y, line, column) {
-        return;
-    }
-    if free {
-        state.point_at_problems(line, column);
-        state.note_on_problems();
-    }
-    if !state.completion().suggestions.with_untracked(Vec::is_empty) {
-        state.hide_hover();
-        return;
-    }
-    let on_protected = state.hover_protected(line, column).is_some();
-    if !state.config().settings.hover_docs.get_untracked() {
-        return;
-    }
-    let Some(info) = state.docs_under_pointer(line, column) else {
-        state.leave_hover();
-        return;
-    };
-    // The value's own message takes the place of its key's docs there.
-    if on_protected && column >= info.start_column + info.key.chars().count() {
-        state.leave_hover();
-        return;
-    }
-    let identity = (line, info.start_column, info.key.clone());
-    if state.hover().pending.get_value().as_ref() == Some(&identity) {
-        return;
-    }
-    if state.card_shows(line, &info) {
-        // Back on its key within the moment it was given to be reached:
-        // it stays.
-        state.keep_hover();
-        return;
-    }
-    state.hide_hover();
-    state.hover().pending.set_value(Some(identity));
-    let token = state.hover().token.get_value();
-    let anchor = hover_card_anchor(element, line, info.start_column);
-    schedule_hover(state, move |state| {
-        if state.hover().token.get_value() == token {
-            state.hover().pending.set_value(None);
-            // The pointer rests on its key: on the way to it.
-            state.hover().on_way.set_value(true);
-            state.hover().card.set(Some(HoverCard {
-                info,
-                line,
-                caret: None,
-                anchor,
-            }));
-        }
-    });
+    state.pointer_at(&element, x, y, event.buttons() == 0);
 }
 
 pub(super) fn blur(state: EditorState, event: &web_sys::FocusEvent) {
@@ -472,19 +417,16 @@ pub(super) fn blur(state: EditorState, event: &web_sys::FocusEvent) {
         state.hide_hover();
     }
     state.protect().hide_tip(true);
-    state.forget_refusal();
 }
 
 pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
     state.protect().hide_tip(false);
-    state.forget_refusal();
     // The caret never lands inside a secret placeholder.
     state.snap_to_tokens();
     state.forget_typing_aids();
     state.hide_shown_problem();
     if let Some(element) = target_textarea(state, event) {
-        let (position, _) = textarea_selection(&element);
-        state.note_caret(position);
+        element.follow_caret();
         state.completion().active.set(0);
         state.close_suggestions();
         state.hide_hover();
@@ -509,18 +451,30 @@ fn mouse_down(state: EditorState, event: &web_sys::MouseEvent) {
         return;
     }
     state.view().page_goal.set_value(None);
+    // A press is no drag going on (one whose end never came).
+    state.drag_ended();
     let Some(element) = target_textarea(state, event) else {
         return;
     };
-    let (line, column) = pointer_text_position(
+    let (line, cell) = pointer_text_position(
         &element,
         f64::from(event.client_x()),
         f64::from(event.client_y()),
     );
-    let offset = state.doc().text.with_untracked(|text| {
-        super::paths::TextPosition::new(line + 1, column + 1).to_offset(text)
-    });
+    let offset = state
+        .doc()
+        .text
+        .with_untracked(|text| press_offset(text, line, cell));
     state.press_at(offset);
+}
+
+/// The byte a press on rendered cell `cell` of zero-based `line` lands
+/// on: the character drawn there (a tab is wider than a cell, a joined
+/// accent takes none).
+fn press_offset(text: &str, line: usize, cell: usize) -> TextSize {
+    let column = column_at_cell(super::paths::split_line(text, line).unwrap_or(""), cell);
+    let units = super::paths::TextPosition::new(line + 1, column).to_offset(text);
+    byte_of(text, units)
 }
 
 /// The end of a mouse selection: a drag that started on a secret
@@ -553,15 +507,11 @@ fn selection_change(state: EditorState) {
     let Some(element) = state.textarea() else {
         return;
     };
-    let (start, _) = textarea_selection(&element);
-    if start != state.doc().caret.get_untracked() {
-        if state.completion().requested.get_untracked()
-            && state.completion().suggestions.with_untracked(Vec::is_empty)
-        {
+    if element.caret() != state.doc().caret.get_untracked() {
+        if state.completion().suggestions.with_untracked(Vec::is_empty) {
             state.close_suggestions();
-            state.completion().explicit.set(false);
         }
-        state.note_caret(start);
+        element.follow_caret();
     }
 }
 
@@ -583,11 +533,11 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
     // would have suggestions.
     let list_was_open = !state.completion().suggestions.with_untracked(Vec::is_empty);
     // A selection (Ctrl+A, Shift+arrows) ends any suggestion list.
-    if start != end && state.completion().requested.get_untracked() {
+    if start != end {
         state.close_suggestions();
     }
-    if start != state.doc().caret.get_untracked() {
-        state.note_caret(start);
+    if element.caret() != state.doc().caret.get_untracked() {
+        element.follow_caret();
     }
     // Caret navigation never shows suggestions. ArrowUp/Down move inside an
     // open list instead (handled on keydown).
@@ -598,9 +548,8 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
     };
     if navigation {
         state.forget_typing_aids();
-        if state.completion().requested.get_untracked() {
+        if state.list_mode().is_open() {
             state.close_suggestions();
-            state.completion().explicit.set(false);
             state.completion().active.set(0);
         }
     }
@@ -609,8 +558,7 @@ pub(super) fn key_up(state: EditorState, event: &web_sys::KeyboardEvent) {
 pub(super) fn scroll(state: EditorState, event: &web_sys::Event) {
     state.hide_hover();
     if let Some(element) = target_textarea(state, event) {
-        state.view().scroll_x.set(f64::from(element.scroll_left()));
-        state.view().scroll_y.set(f64::from(element.scroll_top()));
+        element.mirror_scroll();
     }
 }
 
@@ -652,6 +600,11 @@ pub(super) fn attach_listeners(state: EditorState) {
             ),
             ("mouseup", clipboard(Box::new(move |_| mouse_up(state)))),
             (
+                "dragstart",
+                clipboard(Box::new(move |_| state.drag_began())),
+            ),
+            ("dragend", clipboard(Box::new(move |_| state.drag_ended()))),
+            (
                 "compositionstart",
                 clipboard(Box::new(move |_| state.typing().composing.set_value(true))),
             ),
@@ -689,21 +642,36 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     let Some(element) = state.textarea() else {
         return;
     };
-    // A selection cutting a secret placeholder copies it whole.
+    // A selection cutting a secret placeholder copies it whole. The
+    // browser's own copy takes the selection it had before the snap, so a
+    // snapped selection is copied here. The copy is cut as the browser's
+    // own is, in UTF-16 units: a selection may end inside a character.
+    let selected_before = element.selection_utf16();
     state.snap_to_tokens();
+    let (start_units, end_units) = element.selection_utf16();
     let (start, end) = textarea_selection(&element);
     if start != end {
-        copy_across_folds(state, event, (start, end), cut);
+        let (selected, split) = state.doc().text.with_untracked(|text| {
+            let units: Vec<u16> = text.encode_utf16().collect();
+            let (from, to) = (usize::from(start_units), usize::from(end_units));
+            let selected =
+                String::from_utf16_lossy(&units[from.min(units.len())..to.min(units.len())]);
+            (selected, splits_a_character(text, (start_units, end_units)))
+        });
+        state.note_copied(&selected, (start, end));
+        // The browser's own copy of a selection splitting a character
+        // drawn as one writes nothing: the editor copies it.
+        let ours = selected_before != (start_units, end_units) || split;
+        copy_selection(state, event, (start_units, end_units), cut, ours);
         return;
     }
     let Some(clipboard) = event.clipboard_data() else {
         return;
     };
     let text = state.doc().text.get_untracked();
-    let (line_start, line_end) = state
-        .view()
-        .projection
-        .with_untracked(|projection| copied_lines(state.behavior(), &text, start, projection));
+    let (line_start, line_end) = state.view().projection.with_untracked(|projection| {
+        copied_lines(state.behavior(), &text, utf16_of(&text, start), projection)
+    });
     let units: Vec<u16> = text.encode_utf16().collect();
     let mut line = String::from_utf16_lossy(&units[line_start..line_end]);
     if !line.ends_with('\n') {
@@ -713,6 +681,10 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
         return;
     }
     event.prevent_default();
+    state.note_copied(
+        &line,
+        (byte_of(&text, line_start), byte_of(&text, line_end)),
+    );
     state.typing().copied_line.set_value(Some(line));
     // In a read-only editor the cut is refused, and says so.
     if !cut {
@@ -726,36 +698,50 @@ fn copy_line(state: EditorState, event: &web_sys::ClipboardEvent, cut: bool) {
     } else {
         line_start
     };
-    let (updated, _) = replace_selection(&text, removed_start, line_end, "");
+    let change = Change::replace_units(&text, removed_start, line_end, "");
+    let column = utf16_of(&text, start) - line_start;
+    let edit = Edit::command(text, change, (start, end));
     // The caret keeps its column on the line that moves up.
-    let column = start - line_start;
-    let next_line = line_range(&updated, removed_start.min(updated.encode_utf16().count()));
+    let updated = &edit.text;
+    let next_line = line_range(updated, removed_start.min(updated.encode_utf16().count()));
     let ends_with_newline =
         updated.encode_utf16().nth(next_line.1.wrapping_sub(1)) == Some(u16::from(b'\n'));
     let caret = (next_line.0 + column).min(next_line.1 - usize::from(ends_with_newline));
-    state.commit(Edit::new(
-        text,
-        (start, end),
-        updated,
-        caret.max(next_line.0),
-    ));
+    let caret = byte_of(updated, caret.max(next_line.0));
+    state.commit(edit.caret_at(caret));
 }
 
-/// Copy or cut of a selection across a fold takes the hidden lines too:
-/// the textarea's own copy would miss them.
-fn copy_across_folds(
+/// Whether the selection `(start, end)` (UTF-16 units of `text`) has an
+/// edge inside a character drawn as one: inside a surrogate pair, or
+/// inside a grapheme (an emoji joined to others, a letter and its accent).
+fn splits_a_character(text: &str, (start, end): (Utf16, Utf16)) -> bool {
+    [start, end].into_iter().any(|edge| {
+        let byte = utf16_to_byte_index(text, usize::from(edge));
+        Utf16::of(&text[..byte]) != edge
+            || GraphemeCursor::new(byte, text.len(), true).is_boundary(text, 0) != Ok(true)
+    })
+}
+
+/// Copy or cut of a selection the textarea's own copy would get wrong:
+/// one across a fold takes the hidden lines too, one snapped to a
+/// placeholder's edges takes the placeholder whole, one splitting a
+/// character is copied as selected; `ours` says it is one of the last two.
+fn copy_selection(
     state: EditorState,
     event: &web_sys::ClipboardEvent,
-    (start, end): (usize, usize),
+    (start, end): (Utf16, Utf16),
     cut: bool,
+    ours: bool,
 ) {
-    if !state
-        .view()
-        .projection
-        .with_untracked(|projection| projection.hides_within(start, end))
+    if !ours
+        && !state
+            .view()
+            .projection
+            .with_untracked(|projection| projection.hides_within(start, end))
     {
         return;
     }
+    let (start, end) = (usize::from(start), usize::from(end));
     let Some(clipboard) = event.clipboard_data() else {
         return;
     };
@@ -770,8 +756,9 @@ fn copy_across_folds(
     if !cut {
         return;
     }
-    let (updated, _) = replace_selection(&text, start, end, "");
-    state.commit(Edit::new(text, (start, end), updated, start));
+    let change = Change::replace_units(&text, start, end, "");
+    let selection = (byte_of(&text, start), byte_of(&text, end));
+    state.commit(Edit::command(text, change, selection));
 }
 
 /// Pasting a line copied with nothing selected puts it above the caret's
@@ -799,45 +786,139 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
     }
     event.prevent_default();
     let text = state.doc().text.get_untracked();
-    let (line_start, _) = line_range(&text, start);
-    let (updated, _) = replace_selection(&text, line_start, line_start, &pasted);
-    let caret = start + pasted.encode_utf16().count();
-    state.commit(Edit::new(text, (start, end), updated, caret));
+    let (line_start, _) = line_range(&text, utf16_of(&text, start));
+    let change = Change::insert_units(&text, line_start, &pasted);
+    // The caret stays on its text, which the pasted line moves down.
+    state.commit(Edit::command(text, change, (start, end)).keeping_caret(start, Assoc::After));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::changed_range;
+    use crate::editor::text::Utf16;
 
-    /// Round 11: the selection an edit replaced, read off the change when
-    /// the browser sent no `beforeinput` (undo puts the caret back there).
-    #[test]
-    fn the_replaced_range_is_read_off_the_change() {
-        assert_eq!(changed_range("abc", "abXc"), (2, 2));
-        assert_eq!(changed_range("abc", "aXYc"), (1, 2));
-        assert_eq!(changed_range("aaa", "aaaa"), (3, 3));
-        assert_eq!(changed_range("a\u{1F600}b", "a\u{1F600}xb"), (3, 3));
-        assert_eq!(changed_range("abc", "ac"), (1, 2));
-        // Placed by the caret where the texts alone are ambiguous (round 12).
-        use super::edit_range;
-        assert_eq!(edit_range("a: 1\nb: 2", "a: 1\nx: 1\nb: 2", 9), (4, 4));
-        assert_eq!(edit_range("k: aaa", "k: aaaa", 6), (5, 5));
-        assert_eq!(edit_range("a: 1\na: 1", "a: 1\na: 1\na: 1", 10), (5, 5));
+    /// Where a press lands, as a UTF-16 offset of `text`.
+    fn press_units(text: &str, line: usize, cell: usize) -> usize {
+        crate::editor::text::utf16_of(text, press_offset(text, line, cell))
     }
 
-    /// Round 11: input made before a host value was applied is made on that
-    /// value instead of being lost.
+    /// A selection written as UTF-16 offsets.
+    fn units(start: usize, end: usize) -> (Utf16, Utf16) {
+        (Utf16::count(start), Utf16::count(end))
+    }
+    use super::super::edit::Change;
+    use super::{press_offset, replay, splits_a_character};
+
+    /// A selection edge inside a character drawn as one (half a joined
+    /// emoji, a letter without its accent, half a surrogate pair) splits
+    /// it: the textarea's own copy of such a selection writes nothing.
+    #[test]
+    fn a_selection_inside_a_joined_character_splits_it() {
+        // `é`, then a man and a woman joined, then `5`, in UTF-16 units.
+        let text = "é👨\u{200d}👩\u{200d}5";
+        assert!(!splits_a_character(text, units(0, 1)), "the é");
+        assert!(!splits_a_character(text, units(1, 7)), "the joined pair");
+        assert!(splits_a_character(text, units(3, 4)), "the first joiner");
+        assert!(splits_a_character(text, units(4, 6)), "the woman alone");
+        assert!(splits_a_character(text, units(1, 2)), "half the man");
+        assert!(!splits_a_character(text, units(7, 8)), "the 5");
+        let accented = "e\u{301}x";
+        assert!(
+            splits_a_character(accented, units(0, 1)),
+            "e without its accent"
+        );
+        assert!(
+            !splits_a_character(accented, units(0, 2)),
+            "e and its accent"
+        );
+    }
+
+    /// Every caret place inside a character drawn as one splits it, in
+    /// every script (Hangul jamo, Indic conjuncts and vowel signs, a
+    /// Prepend mark), and every place between them does not; a mark after
+    /// a newline stands alone, and a joiner joins only an emoji to one.
+    #[test]
+    fn every_place_inside_a_character_drawn_as_one_splits_it() {
+        let clusters = [
+            "a",
+            "e\u{301}",
+            "👨\u{200d}👩\u{200d}👧",
+            "🇫🇷",
+            "🇩🇪",
+            "👍🏽",
+            "1\u{fe0f}\u{20e3}",
+            "\r\n",
+            "日",
+            "🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
+            "\u{1112}\u{1161}\u{11ab}",
+            "\u{d55c}\u{11ab}",
+            "क्षि",
+            "\u{0995}\u{09cd}\u{09b7}",
+            "\u{0b95}\u{0bc1}",
+            "\u{0e01}\u{0e33}",
+            "\u{1780}\u{17d2}\u{1780}",
+            "\u{0600}1",
+            "\n",
+            "\u{301}",
+            "a\u{200d}",
+            "👩",
+            "x",
+        ];
+        let text: String = clusters.concat();
+        let mut starts = vec![0];
+        for cluster in clusters {
+            starts.push(starts.last().copied().unwrap_or(0) + cluster.encode_utf16().count());
+        }
+        for edge in 0..=text.encode_utf16().count() {
+            assert_eq!(
+                splits_a_character(&text, units(edge, edge)),
+                !starts.contains(&edge),
+                "unit {edge} of {text:?}"
+            );
+        }
+    }
+
+    /// A press lands on the character drawn under it: a tab before a
+    /// secret placeholder is drawn wider than one cell, and an accent
+    /// joined to its letter takes none, so a cell is not a character
+    /// column (a press there was taken as inside or outside the
+    /// placeholder wrongly).
+    #[test]
+    fn a_press_lands_on_the_character_drawn_under_it() {
+        // `a:`, then a tab drawn up to cell 4, then the placeholder.
+        let text = "x: 1\na:\t\u{ab}secret\u{bb}\n";
+        let line_start = 5;
+        assert_eq!(
+            press_units(text, 1, 4),
+            line_start + 3,
+            "on its opening mark"
+        );
+        assert_eq!(press_units(text, 1, 5), line_start + 4, "inside it");
+        // `e` and its accent are one cell.
+        let text = "e\u{301}=\u{ab}s\u{bb}";
+        assert_eq!(press_units(text, 0, 2), 3, "on its opening mark");
+    }
+
+    /// Input made before a host value was applied is made on that value
+    /// instead of being lost (P4): the input's change rebased over the
+    /// host's.
     #[test]
     fn input_is_replayed_on_a_document_replaced_meanwhile() {
-        use super::replay;
+        let replayed = |before: &str, latest: &str, current: &str| {
+            let change = replay(&Change::diffed(before, latest), before, current)?;
+            let caret = change.hull().map(|(_, written)| usize::from(written.end()));
+            Some((change.apply(current)?, caret?))
+        };
         assert_eq!(
-            replay("listen: 1\n", "listen: 1\nQ", "x: 1\n"),
-            ("x: 1\nQ".to_string(), 6)
+            replayed("listen: 1\n", "listen: 1\nQ", "x: 1\n"),
+            Some(("x: 1\nQ".to_string(), 6))
         );
         assert_eq!(
-            replay("a: 1\nb: 2\n", "a: 1\nb: 2X\n", "a: 1\nb: 2\nc: 3\n"),
-            ("a: 1\nb: 2X\nc: 3\n".to_string(), 10)
+            replayed("a: 1\nb: 2\n", "a: 1\nb: 2X\n", "a: 1\nb: 2\nc: 3\n"),
+            Some(("a: 1\nb: 2X\nc: 3\n".to_string(), 10))
         );
-        assert_eq!(replay("abc", "aXYc", "abc"), ("aXYc".to_string(), 3));
+        assert_eq!(
+            replayed("abc", "aXYc", "abc"),
+            Some(("aXYc".to_string(), 3))
+        );
     }
 }

@@ -2,12 +2,13 @@
 //! (`KEY=value` lines). It gets schema validation with positions, highlighting,
 //! and conversion to and from every built-in language.
 
-use config_editor_leptos::Language;
 #[cfg(feature = "schema-validation")]
 use config_editor_leptos::Schema;
 use config_editor_leptos::language::{
-    ConfigLanguage, LanguageInfo, Lexical, ParseError, Span, Token, TokenKind, Tokens,
+    ConfigLanguage, LanguageInfo, Lexical, ParseError, SchemaPathSegment, Span, Text, Token,
+    TokenKind, Tokens, value_after_separator,
 };
+use config_editor_leptos::{FieldPath, Language};
 use serde_json::{Map, Value};
 
 mod ini;
@@ -77,10 +78,12 @@ impl ConfigLanguage for DotEnv {
         Ok(text)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let wanted = pointer.strip_prefix('/')?;
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let [SchemaPathSegment::Key(wanted)] = path.segments() else {
+            return None;
+        };
         Self::entries(source)
-            .find(|(_, key, ..)| *key == wanted)
+            .find(|(_, key, ..)| *key == wanted.as_str())
             .map(|(line, key, start, ..)| Span {
                 line,
                 start_column: start + 1,
@@ -88,10 +91,12 @@ impl ConfigLanguage for DotEnv {
             })
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        let wanted = pointer.strip_prefix('/')?;
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let [SchemaPathSegment::Key(wanted)] = path.segments() else {
+            return None;
+        };
         Self::entries(source)
-            .find(|(_, key, ..)| *key == wanted)
+            .find(|(_, key, ..)| *key == wanted.as_str())
             .map(|(line, _, _, start, end)| Span {
                 line,
                 start_column: start + 1,
@@ -111,7 +116,18 @@ impl ConfigLanguage for DotEnv {
         tokens.finish()
     }
 
-    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
+    fn text(&self) -> &dyn Text {
+        self
+    }
+}
+
+impl Text for DotEnv {
+    fn lexical_state(
+        &self,
+        _language: &dyn ConfigLanguage,
+        source: &str,
+        cursor: usize,
+    ) -> Lexical {
         let line = source[..cursor.min(source.len())]
             .rsplit('\n')
             .next()
@@ -195,6 +211,40 @@ fn an_external_language_converts_to_and_from_the_built_in_ones() {
     );
 }
 
+/// P2: a language whose writer prints each string as it is (as `.env`
+/// does) still writes infinities, NaN and 64-bit integers from other
+/// languages as their text, never the data model's marks.
+#[cfg(all(feature = "yaml", feature = "toml", feature = "json"))]
+#[test]
+fn a_naive_writer_writes_infinities_nan_and_huge_integers_as_text() {
+    let converted = Language::TOML
+        .convert(
+            "rate = inf\nlow = -inf\nodd = nan\nbig = 9223372036854775807\n",
+            ENV,
+        )
+        .unwrap();
+    assert_eq!(
+        converted.text,
+        "rate=inf\nlow=-inf\nodd=nan\nbig=9223372036854775807\n"
+    );
+    // The text `inf` reads back as a string: a loss, never a silent one.
+    assert_eq!(converted.losses, ["/rate", "/low", "/odd"]);
+    let yaml = Language::YAML
+        .convert("rate: .inf\nbig: 18446744073709551615\n", ENV)
+        .unwrap();
+    assert_eq!(yaml.text, "rate=inf\nbig=18446744073709551615\n");
+    // A string spelled like an infinity's form is written as its text.
+    let forged = Language::JSON
+        .convert("{\"s\": \"\\ufdd0inf\"}", ENV)
+        .unwrap();
+    assert_eq!(forged.text, "s=\u{FDD0}inf\n");
+    // A value written alone takes the same door.
+    let env: &dyn ConfigLanguage = &DOTENV;
+    let value = config_editor_leptos::float_value(f64::NEG_INFINITY);
+    assert_eq!(env.write_value(&value), "\"-inf\"");
+    assert_eq!(env.write_value_like(&value, "1"), "\"-inf\"");
+}
+
 #[test]
 fn highlighting_is_plain_data() {
     let tokens = ENV.parse("A=1").map(|_| DOTENV.highlight("A=1")).unwrap();
@@ -207,9 +257,11 @@ fn highlighting_is_plain_data() {
 
 #[test]
 fn a_language_described_by_config_gets_editing_without_code() {
-    let ini = Ini;
+    let ini: &dyn ConfigLanguage = &Ini;
     // Ctrl+/ writes the first comment marker; comments are found on lines.
-    let (commented, _, _) = ini.toggle_comments("a = 1\n", 0, 0).unwrap();
+    let toggled = ini.toggle_comments("a = 1\n", 0, 0).unwrap();
+    assert_eq!(toggled.edits, [(0..0, "; ".to_string())]);
+    let commented = toggled.apply("a = 1\n").unwrap();
     assert_eq!(commented, "; a = 1\n");
     assert_eq!(ini.comment_start("a = 1 # note"), Some(6));
     // Enter between brackets opens an indented line.
@@ -217,18 +269,37 @@ fn a_language_described_by_config_gets_editing_without_code() {
     // Key/value behavior from the separator.
     assert!(ini.value_follows_key(" = 1"));
     assert!(!ini.value_follows_key(" == 1"));
-    assert!(ini.line_has_value("debug = true"));
-    assert!(!ini.line_has_value("debug ="));
+    assert!(value_after_separator("debug = true", &ini.config()));
+    assert!(!value_after_separator("debug =", &ini.config()));
     assert_eq!(ini.empty_value_slots("a = \nb = 1\n"), vec![4]);
 }
 
+/// A language described by its config alone knows where its comments and
+/// strings are: quotes do not pair and suggestions do not open inside
+/// them.
+#[test]
+fn a_language_described_by_config_knows_its_comments_and_strings() {
+    let ini: &dyn ConfigLanguage = &Ini;
+    let source = "a = \"x ; y\" ; note\nb = 1\n";
+    let at = |marker: &str| source.find(marker).unwrap() + marker.len();
+    let state = |cursor: usize| {
+        let state = ini.lexical_state(source, cursor);
+        (state.quote, state.in_comment)
+    };
+    assert_eq!(state(at("\"x")), (Some('"'), false));
+    assert_eq!(state(at("; no")), (None, true));
+    assert_eq!(state(at("note")), (None, true));
+    assert_eq!(state(at("b = ")), (None, false));
+    assert_eq!(state(at("a = ")), (None, false));
+}
 /// Folding comes with the default: indentation, `config`'s brackets and
 /// comment runs, for a language with no folding code.
 #[cfg(feature = "folding")]
 #[test]
 fn a_language_without_folding_code_folds_by_its_config() {
     use config_editor_leptos::language::FoldRange;
-    let ranges = Ini.fold_ranges("; a\n; b\n[web]\nhosts = [\n  \"a\",\n]\nlisten = 1");
+    let ranges = (&Ini as &dyn ConfigLanguage)
+        .fold_ranges("; a\n; b\n[web]\nhosts = [\n  \"a\",\n]\nlisten = 1");
     assert_eq!(ranges, [FoldRange::new(0, 1), FoldRange::new(3, 4)]);
     // No config at all: indentation alone.
     assert_eq!(
@@ -273,6 +344,9 @@ impl ConfigLanguage for LongStrings {
 fn a_language_declaring_its_quotes_gets_whole_strings_commented() {
     let text = "a = 1\nb = \"\"\"x\ny\"\"\"\nc = 2\n";
     let caret = text.find("y\"").unwrap();
-    let (commented, _, _) = LongStrings.toggle_comments(text, caret, caret).unwrap();
+    let commented = (&LongStrings as &dyn ConfigLanguage)
+        .toggle_comments(text, caret, caret)
+        .and_then(|toggled| toggled.apply(text))
+        .unwrap();
     assert_eq!(commented, "a = 1\n; b = \"\"\"x\n; y\"\"\"\nc = 2\n");
 }

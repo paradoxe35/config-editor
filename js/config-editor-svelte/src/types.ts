@@ -24,8 +24,10 @@ export interface ConfigEditorProps extends EditorSettings {
   value?: string;
   /** The initial document when `value` is not given. */
   defaultValue?: string;
-  /** Called with the document, in `language`, after every edit. */
-  onChange?: (value: string) => void;
+  /** Called with the document, in `language`, after every edit, and its `revision` (see `valueRevision`). */
+  onChange?: (value: string, revision: number) => void;
+  /** The `revision` `onChange` gave `value` with, when the parent stores it beside the value and never goes back to an older one: a late echo is then matched exactly, with no pause. `bind:value` carries the value alone: pass `value` one way with `onChange` to keep the revision. */
+  valueRevision?: number;
   /** Language of the document. Default `"yaml"`. Changing it re-mounts. */
   language?: LanguageName;
   /** Edit in another language; switches live. */

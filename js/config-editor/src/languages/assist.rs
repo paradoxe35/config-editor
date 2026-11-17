@@ -4,14 +4,11 @@
 //! same engine suggests and documents. A result of the wrong shape is warned
 //! about and read as `null`.
 
-use std::collections::HashSet;
-
 use config_editor_leptos::language::{
-    CompletionContext, ConfigLanguage, InsertContext, SchemaPathSegment, array_branch,
-    object_branch, utf16_to_byte_index,
+    CompletionContext, ConfigLanguage, InsertContext, InsertPlan, SchemaPathSegment,
+    utf16_to_byte_index,
 };
 use js_sys::Array;
-use serde_json::Value;
 use wasm_bindgen::prelude::*;
 
 use super::js_language::JsLanguage;
@@ -138,36 +135,6 @@ fn read_context(
     Ok(Some(context))
 }
 
-/// [`ConfigLanguage::existing_keys`] for a language with `contextAt`: the
-/// keys of the object at `path` in the document parsed without the caret's
-/// line (so a half-typed key hides nothing). `None` while that does not
-/// parse.
-pub(super) fn parsed_keys(
-    language: &JsLanguage,
-    source: &str,
-    cursor_byte: usize,
-    path: &[SchemaPathSegment],
-) -> Option<HashSet<String>> {
-    let cursor_byte = cursor_byte.min(source.len());
-    let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
-    let line_end = source[cursor_byte..]
-        .find('\n')
-        .map_or(source.len(), |at| cursor_byte + at);
-    let without = format!("{}{}", &source[..line_start], &source[line_end..]);
-    let document = language.parse(&without).ok()?;
-    let mut value = &document;
-    for segment in path {
-        value = match segment {
-            SchemaPathSegment::Key(key) => value.get(key)?,
-            SchemaPathSegment::ArrayItem(index) => value.get(index)?,
-        };
-    }
-    Some(value.as_object()?.keys().cloned().collect())
-}
-
-/// [`ConfigLanguage::property_insert`] from `insertKey(key, kind)`; `null`
-/// leaves the key out. Lines after the first are indented as the caret's
-/// line.
 /// Whether UTF-16 `caret` falls between the two halves of a character of
 /// `text` (a surrogate pair).
 fn splits_character(text: &str, caret: usize) -> bool {
@@ -177,16 +144,18 @@ fn splits_character(text: &str, caret: usize) -> bool {
         && caret < units(text)
 }
 
+/// [`ConfigLanguage::write_insert`] from `insertKey(key, kind)`; `null`
+/// leaves the key out. Lines after the first are indented as the caret's
+/// line.
 pub(super) fn insert_key(
     language: &JsLanguage,
     key: &str,
-    property: &Value,
-    root: &Value,
+    plan: &InsertPlan<'_>,
     context: &InsertContext<'_>,
 ) -> Option<(String, usize)> {
-    let kind = if object_branch(property, root).is_some() {
+    let kind = if plan.object {
         "object"
-    } else if array_branch(property, root).is_some() {
+    } else if plan.list {
         "array"
     } else {
         "scalar"
@@ -237,7 +206,7 @@ pub(super) fn insert_key(
     Some((format!("{before}{after}"), caret))
 }
 
-/// [`ConfigLanguage::hover_path`] from `keyAt(text, offset)`.
+/// [`Hover::hover_path`] from `keyAt(text, offset)`.
 pub(super) fn key_at(
     language: &JsLanguage,
     source: &str,

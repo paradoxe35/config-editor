@@ -14,6 +14,8 @@
 mod tokens;
 mod scan;
 mod parse;
+mod unclosed;
+mod words;
 mod suggestions;
 mod hover;
 mod editing;
@@ -32,6 +34,7 @@ mod moved_maps;
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::{byte_at_column, first_line_span, line_column, span_between, utf16_len, FieldPath};
 use tokens::*;
 use scan::*;
 use parse::*;
@@ -44,11 +47,14 @@ use convert::*;
 use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token as HighlightToken, TokenKind, Tokens};
-use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, inline_sibling_keys, caret_value_end, statement_start_at, statements, entry_follows, in_front_of_inline_entry, matching_close};
-use super::super::completion::{kept_const, kept_default, array_branch, object_branch, placeholder, required_children, Fill, RequiredChild};
+use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_key_paths, caret_value_end, statement_start_at, statements, entry_follows, in_front_of_inline_entry, matching_close};
+use super::super::completion::{Fill, InsertPlan, Planned, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
-use super::super::language::{EntryPosition, OneLine, LanguageConfig, bracket_newline, CompletionContext, Newline, Repetition, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
+use super::super::item_sources::SaveTold;
+use super::super::language::{Text, Typing, Hover, SaveLayout, Sharing, Repeats, Repeated, LanguageTraits, Toggled, toggle_line_comments, unwrap_block_comments};
+use crate::editor::comment_toggle::comment_target;
+use super::super::language::{EntryPosition, OneLine, LanguageConfig, bracket_newline, CompletionContext, Newline, InlineBlock, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError, SchemaPathSegment,
     inline_block, unclosed_brackets,
 };
 use serde_json::Value;
@@ -56,8 +62,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) struct HclBehavior;
 
-
-/// An HCL scalar edit (see `ConfigLanguage::edits_one_scalar`): a
+/// An HCL scalar edit (see `SaveLayout::edits_one_scalar`): a
 /// `key = value` line read as a body of its own; the edit adds and removes
 /// no quote or escape (a heredoc's text), template, bracket or comma, and
 /// no `*/` (a comment over lines).
@@ -68,33 +73,6 @@ const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRul
 };
 
 impl ConfigLanguage for HclBehavior {
-    fn forget_kept(&self) {
-        scan::forget_scan();
-    }
-
-    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
-        super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
-    }
-
-    /// The specification allows any number: one past what the editor
-    /// holds saves (see `wide_integers`).
-    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
-        super::wide_integers::unheld_all(source, error)
-    }
-
-    fn repetition(&self) -> Repetition {
-        Repetition::Blocks
-    }
-
-    fn expressions(&self, source: &str) -> Vec<String> {
-        expressions::expression_pointers(source)
-    }
-
-    fn one_number_type(&self) -> bool {
-        // HCL numbers are one arbitrary-precision type: `2` is `2.0`.
-        true
-    }
-
     fn info(&self) -> LanguageInfo {
         LanguageInfo {
             label: "HCL",
@@ -116,6 +94,11 @@ impl ConfigLanguage for HclBehavior {
             item_separator: Some(','),
             item_marker: None,
             written_separator: Some(" = "),
+            // HCL numbers are one arbitrary-precision type: `2` is `2.0`.
+            traits: LanguageTraits {
+                one_number_type: true,
+                ..LanguageTraits::NONE
+            },
         }
     }
 
@@ -123,32 +106,228 @@ impl ConfigLanguage for HclBehavior {
         hcl_parse(source).map(super::super::codec::non_finite::escape_strings)
     }
 
-    /// A block written once (`/b`, `/svc/a`): never an attribute, nor a
-    /// block type with labels (an object keyed by them).
-    fn lone_item(&self, source: &str, pointer: &str) -> bool {
-        hcl_lone_block(source, pointer)
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        hcl_key_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        hcl_key_span(source, pointer).map(Span::from)
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        hcl_value_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        hcl_value_span(source, pointer).map(Span::from)
+    fn value_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        hcl_value_spans(source, &paths.iter().map(FieldPath::to_pointer).collect::<Vec<_>>()).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
-    fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        hcl_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    fn key_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        hcl_key_spans(source, &paths.iter().map(FieldPath::to_pointer).collect::<Vec<_>>()).into_iter().map(|span| span.map(Span::from)).collect()
     }
 
-    fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        hcl_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
+    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
+        completion_context(source, cursor)
+    }
+
+    fn write_insert(
+        &self,
+        key: &str,
+        plan: &InsertPlan<'_>,
+        context: &InsertContext<'_>,
+    ) -> Option<(String, usize)> {
+        write_insert(key, plan, context)
+    }
+
+    fn format_value(&self, value: &Value) -> String {
+        hcl_text(value)
+    }
+
+    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
+        key_at_column(line, column)
+    }
+
+    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
+        highlight(line)
+    }
+
+    /// An object whose keys are all identifiers becomes a block (`web { … }`),
+    /// anything else an attribute. `hcl-rs` escapes `${` as `$${`.
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        self.written(value, previous, SaveTold::default())
+    }
+
+    fn text(&self) -> &dyn Text {
+        self
+    }
+
+    fn typing(&self) -> &dyn Typing {
+        self
+    }
+
+    fn hover(&self) -> &dyn Hover {
+        self
+    }
+
+    fn layout(&self) -> &dyn SaveLayout {
+        self
+    }
+
+    fn sharing(&self) -> Option<&dyn Sharing> {
+        Some(self)
+    }
+
+    fn repeats(&self) -> Option<&dyn Repeats> {
+        Some(self)
+    }
+}
+
+impl Text for HclBehavior {
+    fn first_span(&self, source: &str) -> Option<Span> {
+        first_line_span(source).map(Span::from)
+    }
+
+    fn lexical_state(&self, _language: &dyn ConfigLanguage, source: &str, cursor: usize) -> Lexical {
+        let (quote, in_comment) = hcl_lexical_state(source, cursor);
+        Lexical { quote, in_comment }
+    }
+
+    #[cfg(feature = "folding")]
+    fn fold_ranges(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<super::super::language::FoldRange> {
+        folding::hcl_fold_ranges(source, &string_bodies(self, source))
+    }
+
+    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        heredoc_bodies(source)
+    }
+
+    fn comments(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<std::ops::Range<usize>> {
+        comments(source)
+    }
+
+    /// Outside strings and the template sequences in them (`"${ "#" }"`).
+    fn comment_start(&self, _language: &dyn ConfigLanguage, line: &str) -> Option<usize> {
+        line_comment_start(line)
+    }
+
+    /// Heredocs, their last line included: their lines are a string's,
+    /// with the template sequences in them (see `highlight_continued`).
+    fn multiline_constructs(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<MultilineConstruct> {
+        tokenize(source)
+            .iter()
+            .filter(|token| token.kind == Kind::Heredoc)
+            .map(|token| {
+                let end = token.end - usize::from(source[..token.end].ends_with('\n'));
+                MultilineConstruct::structure(token.start..end)
+            })
+            .collect()
+    }
+
+    /// A heredoc's line (its only multi-line construct): a string, its
+    /// template sequences interpolations.
+    fn highlight_continued(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<HighlightToken> {
+        let mut out = Tokens::new();
+        interpolation::push_heredoc_line(&mut out, text);
+        out.finish()
+    }
+}
+
+impl Typing for HclBehavior {
+    fn rewritable_keys(&self, source: &str, cursor_byte: usize, path: &[SchemaPathSegment]) -> HashSet<String> {
+        repeated_block_types(source, cursor_byte, path)
+    }
+
+    fn newline(&self, _language: &dyn ConfigLanguage, source: &str, cursor: usize) -> Newline {
+        if let Some(opened) = open_one_line_block(source, cursor) {
+            return opened;
+        }
+        bracket_newline(
+            source,
+            cursor,
+            &[('{', '}'), ('[', ']'), ('(', ')')],
+            &self.config(),
+            // A comment-only line has no code: its braces open nothing.
+            |line| code_before_comment(line).unwrap_or(""),
+        )
+    }
+
+    /// `{` after `$` or `%` in a quoted string opens an interpolation or a
+    /// directive (`"${`, `"%{`), and in a heredoc's text: its `}` is written
+    /// too, as VS Code's HCL support does; `$${` is literal text.
+    fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        if typed != '{' || hcl_lexical_state(source, cursor).0 != Some('"') {
+            return None;
+        }
+        let before = &source[..utf16_to_byte_index(source, cursor)];
+        let sigil = before.strip_suffix(['$', '%'])?;
+        let marker = &before[sigil.len()..];
+        let escaped = sigil.ends_with(marker);
+        let next = source[before.len()..].chars().next();
+        (!escaped && next.is_none_or(|next| !next.is_alphanumeric() && next != '_'))
+            .then(|| "}".to_string())
+    }
+
+    /// An attribute's `=` (or `:` in an object), or a block's body after its
+    /// type and labels (`pol| {`, `servi| "ssh" {`).
+    fn value_follows_key(&self, _language: &dyn ConfigLanguage, rest: &str) -> bool {
+        // The rest of a dotted name (`tcp|.nodelay`).
+        if rest.starts_with('.') {
+            return true;
+        }
+        let rest = rest.trim_start();
+        // A body over lines (`{` ending the line) or on one (`{ … }`, `{}`),
+        // after any labels.
+        let block_body = rest.starts_with('{') || (rest.starts_with('"') && rest.contains('{'));
+        rest.starts_with(':') || (rest.starts_with('=') && !rest.starts_with("==")) || block_body
+    }
+
+    /// As the default, commenting with the line comment the file writes
+    /// most (`//` in a file of `//` comments, else `#`).
+    fn toggle_comments(&self, _language: &dyn ConfigLanguage, source: &str, selection_start: usize, selection_end: usize) -> Option<Toggled> {
+        let block = ("/*", "*/");
+        if let Some(unwrapped) = unwrap_block_comments(source, selection_start, selection_end, block) {
+            return Some(unwrapped);
+        }
+        let (start, end) = comment_target(self, source, selection_start, selection_end);
+        unwrap_block_comments(source, start, end, block)
+            .or_else(|| toggle_line_comments(source, start, end, comment_markers(source)))
+    }
+}
+
+impl Hover for HclBehavior {
+    fn hover_path(
+        &self,
+        source: &str,
+        line_index: usize,
+        column: usize,
+    ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+        header_path(source, line_index, column)
+    }
+
+    fn hover_cursor(&self, line: &str, column: usize) -> usize {
+        // Just past the hovered key's `=`, so a key inside a value map
+        // resolves under that map.
+        code_before_comment(line)
+            .and_then(|code| inline_key_at(code, b'=', usize::from(byte_at_column(line, column))))
+            .map_or(line.len(), |key| key.after_separator)
+    }
+}
+
+impl SaveLayout for HclBehavior {
+    fn serialize_over(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Option<Result<String, String>> {
+        Some(self.written(value, previous, told))
+    }
+
+    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
+        super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
+    }
+
+    /// The specification allows any number: one past what the editor
+    /// holds saves (see `wide_integers`).
+    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
+        super::wide_integers::unheld_all(source, error)
     }
 
     /// A block stays a block and an object attribute an attribute; an
     /// expression stays an expression and a literal string a literal.
-    fn changed_form(&self, previous: &str, patched: &str) -> Option<String> {
-        changed_form(previous, patched).or_else(|| expressions::changed_expression(previous, patched))
+    fn changed_form(&self, previous: &str, patched: &str, told: SaveTold<'_>) -> Option<String> {
+        changed_form(previous, patched, told).or_else(|| expressions::changed_expression(previous, patched))
     }
 
     fn changed_form_reason(&self, value: &Value) -> Option<String> {
@@ -180,32 +359,24 @@ impl ConfigLanguage for HclBehavior {
         Some(text)
     }
 
-    fn opens_list_item(&self, lines: &[&str], index: usize) -> bool {
-        let comment_start = |line: &str| self.comment_start(line).unwrap_or(line.len());
+    fn opens_list_item(&self, language: &dyn ConfigLanguage, lines: &[&str], index: usize) -> bool {
+        let comment_start = |line: &str| language.comment_start(line).unwrap_or(line.len());
         list_items::opens_list_item(&comment_start, lines, index)
     }
 
-    fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-        repeated_block_lines(source, pointer)
+    fn item_lines(&self, source: &str, path: &FieldPath) -> Option<std::ops::Range<usize>> {
+        repeated_block_lines(source, &path.to_pointer())
     }
 
-    fn block_labels(&self, line: &str) -> Vec<String> {
-        let tokens = tokenize(line);
-        let Some(brace) = classify_header(&tokens, 0) else {
-            return Vec::new();
-        };
-        tokens[..brace].iter().filter_map(|token| token_name(line, token)).skip(1).collect()
-    }
-
-    fn writes_as_labels(&self, source: &str, pointer: &str) -> bool {
-        let wanted = super::super::language::pointer_segments(pointer);
+    fn writes_as_labels(&self, source: &str, path: &FieldPath) -> bool {
+        let wanted = path.texts();
         labelled_blocks(source)
             .iter()
             .any(|(path, labels)| wanted.len() >= path.len() && wanted.len() < path.len() + labels && wanted[..path.len()] == path[..])
     }
 
-    fn one_line_container(&self, source: &str, pointer: &str) -> Option<OneLine> {
-        one_line_block(source, pointer)
+    fn one_line_container(&self, source: &str, path: &FieldPath) -> Option<OneLine> {
+        one_line_block(source, &path.to_pointer())
     }
 
     /// An assignment aligned as `terraform fmt` writes it (`p    = 1`) is
@@ -220,16 +391,16 @@ impl ConfigLanguage for HclBehavior {
         }
     }
 
-    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
-        block_key_renames(source, pointer, new_key)
+    fn key_renames(&self, source: &str, path: &FieldPath, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+        block_key_renames(source, &path.to_pointer(), new_key)
     }
 
     /// An identifier (`café`, `x-y`) bare; any other key quoted where a
     /// string may stand (a block label, an object's key), and nowhere else:
     /// a block type or an attribute name is an identifier. In an object,
     /// `null`, `true` and `false` are values, so quoted.
-    fn written_key(&self, source: &str, pointer: &str, key: &str) -> Option<String> {
-        let names = names_block_or_attribute(source, pointer);
+    fn written_key(&self, _language: &dyn ConfigLanguage, source: &str, path: &FieldPath, key: &str) -> Option<String> {
+        let names = names_block_or_attribute(source, &path.to_pointer());
         let keyword = matches!(key, "null" | "true" | "false");
         if hcl::Identifier::new(key).is_ok() && (names || !keyword) {
             return Some(key.to_string());
@@ -237,50 +408,12 @@ impl ConfigLanguage for HclBehavior {
         (!names).then(|| hcl_text(&Value::String(key.to_string())))
     }
 
-    fn first_span(&self, source: &str) -> Option<Span> {
-        first_line_span(source).map(Span::from)
-    }
-
-    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
-        completion_context(source, cursor)
-    }
-
-    fn existing_keys(
-        &self,
-        source: &str,
-        cursor_byte: usize,
-        path: &[SchemaPathSegment],
-    ) -> Option<HashSet<String>> {
-        existing_body_keys(source, cursor_byte, path)
-    }
-
-    fn repeated_keys(&self, source: &str, cursor_byte: usize, path: &[SchemaPathSegment]) -> HashSet<String> {
-        repeated_block_types(source, cursor_byte, path)
-    }
-
-    fn property_insert(
-        &self,
-        key: &str,
-        property: &Value,
-        root: &Value,
-        context: &InsertContext<'_>,
-    ) -> Option<(String, usize)> {
-        if context.another_item {
-            return another_block(key, property, root, context.base_indent, context.unit);
-        }
-        property_insert(key, property, root, context.base_indent, context.unit, context.position == EntryPosition::Block)
-    }
-
-    fn format_value(&self, value: &Value) -> String {
-        hcl_text(value)
-    }
-
     /// A heredoc (`<<EOT` … `EOT`) stays one while its text ends with a line
     /// break and holds no carriage return or other control character (a
     /// heredoc has no escapes, and readers drop a raw one before a line
     /// break): else a quoted string. Text holding a line equal to its
     /// terminator takes another one (`EOT_1`).
-    fn format_value_like(&self, value: &Value, written: &str) -> String {
+    fn format_value_like(&self, _language: &dyn ConfigLanguage, value: &Value, written: &str) -> String {
         if let (Some(text), Some(header)) = (value.as_str(), written.lines().next().filter(|line| line.starts_with("<<")))
             && let Some(terminator) = written.lines().last().filter(|_| written.lines().count() > 1)
             && text.ends_with('\n')
@@ -338,71 +471,50 @@ impl ConfigLanguage for HclBehavior {
             self.scalar_reads_as(text, value)
         })
     }
+}
 
-    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
-        key_at_column(line, column)
+impl Sharing for HclBehavior {
+    fn expressions(&self, source: &str) -> Vec<String> {
+        expressions::expression_pointers(source)
+    }
+}
+
+impl Repeats for HclBehavior {
+    fn repeated(&self) -> Repeated {
+        Repeated::Blocks
     }
 
-    fn hover_path(
-        &self,
-        source: &str,
-        line_index: usize,
-        column: usize,
-    ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-        header_path(source, line_index, column)
+    /// A block written once (`/b`, `/svc/a`): never an attribute, nor a
+    /// block type with labels (an object keyed by them).
+    fn lone_item(&self, source: &str, path: &FieldPath) -> bool {
+        hcl_lone_block(source, &path.to_pointer())
     }
+}
 
-    fn hover_cursor(&self, line: &str, column: usize) -> usize {
-        // Just past the hovered key's `=`, so a key inside a value map
-        // resolves under that map.
-        code_before_comment(line)
-            .and_then(|code| inline_key_at(code, b'=', byte_at_column(line, column)))
-            .map_or(line.len(), |key| key.after_separator)
-    }
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod completion_tests;
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod splice_tests;
+#[cfg(test)]
+mod read_tests;
+#[cfg(test)]
+mod big_errors_tests;
+#[cfg(test)]
+mod expressions_scale_tests;
 
-    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
-        highlight(line)
-    }
-
-    fn newline(&self, source: &str, cursor: usize) -> Newline {
-        if let Some(opened) = open_one_line_block(source, cursor) {
-            return opened;
-        }
-        bracket_newline(
-            source,
-            cursor,
-            &[('{', '}'), ('[', ']'), ('(', ')')],
-            &self.config(),
-            // A comment-only line has no code: its braces open nothing.
-            |line| code_before_comment(line).unwrap_or(""),
-        )
-    }
-
-    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
-        let (quote, in_comment) = hcl_lexical_state(source, cursor);
-        Lexical { quote, in_comment }
-    }
-
-    /// `{` after `$` or `%` in a quoted string opens an interpolation or a
-    /// directive (`"${`, `"%{`), and in a heredoc's text: its `}` is written
-    /// too, as VS Code's HCL support does; `$${` is literal text.
-    fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
-        if typed != '{' || hcl_lexical_state(source, cursor).0 != Some('"') {
-            return None;
-        }
-        let before = &source[..utf16_to_byte_index(source, cursor)];
-        let sigil = before.strip_suffix(['$', '%'])?;
-        let marker = &before[sigil.len()..];
-        let escaped = sigil.ends_with(marker);
-        let next = source[before.len()..].chars().next();
-        (!escaped && next.is_none_or(|next| !next.is_alphanumeric() && next != '_'))
-            .then(|| "}".to_string())
-    }
-
-
-    /// An object whose keys are all identifiers becomes a block (`web { … }`),
-    /// anything else an attribute. `hcl-rs` escapes `${` as `$${`.
-    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+impl HclBehavior {
+    /// [`ConfigLanguage::serialize`], told which host item each item of
+    /// `value` is by an Edit-as save (see `SaveTold`).
+    fn written(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Result<String, String> {
         let Value::Object(map) = value else {
             return Err("an HCL document is a body: the top level must be an object".to_string());
         };
@@ -413,7 +525,7 @@ impl ConfigLanguage for HclBehavior {
             renamed_labelled_types(&mut forms, previous, map);
             // A map the save moves keeps its form (see `moved_maps`).
             let held = (std::mem::take(&mut forms.attributes), std::mem::take(&mut forms.blocks));
-            (forms.attributes, forms.blocks) = moved_maps::with_moved(held, previous, convert::forms_of);
+            (forms.attributes, forms.blocks) = moved_maps::with_moved(held, told, convert::forms_of);
         }
         let rendered = splice::writing(|| hcl::format::to_string(&hcl_body(map, &forms, &[])?).map_err(|error| error.to_string()))?;
         let rendered = fold_one_line_blocks(&rendered, &forms.one_line);
@@ -427,92 +539,4 @@ impl ConfigLanguage for HclBehavior {
         };
         Ok(floats::with_whole_floats(&rendered, value, spans))
     }
-
-    /// An attribute's `=` (or `:` in an object), or a block's body after its
-    /// type and labels (`pol| {`, `servi| "ssh" {`).
-    fn value_follows_key(&self, rest: &str) -> bool {
-        // The rest of a dotted name (`tcp|.nodelay`).
-        if rest.starts_with('.') {
-            return true;
-        }
-        let rest = rest.trim_start();
-        // A body over lines (`{` ending the line) or on one (`{ … }`, `{}`),
-        // after any labels.
-        let block_body = rest.starts_with('{') || (rest.starts_with('"') && rest.contains('{'));
-        rest.starts_with(':') || (rest.starts_with('=') && !rest.starts_with("==")) || block_body
-    }
-
-
-    #[cfg(feature = "folding")]
-    fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
-        folding::hcl_fold_ranges(source, &string_bodies(self, source))
-    }
-
-    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        heredoc_bodies(source)
-    }
-
-    fn comments(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        comments(source)
-    }
-
-    /// As the default, commenting with the line comment the file writes
-    /// most (`//` in a file of `//` comments, else `#`).
-    fn toggle_comments(&self, source: &str, selection_start: usize, selection_end: usize) -> Option<(String, usize, usize)> {
-        use super::super::language::{toggle_line_comments, unwrap_block_comments};
-        let block = ("/*", "*/");
-        if let Some(unwrapped) = unwrap_block_comments(source, selection_start, selection_end, block) {
-            return Some(unwrapped);
-        }
-        let (start, end) = self.whole_constructs(source, selection_start, selection_end);
-        unwrap_block_comments(source, start, end, block)
-            .or_else(|| toggle_line_comments(source, start, end, comment_markers(source)))
-    }
-
-    /// Outside strings and the template sequences in them (`"${ "#" }"`).
-    fn comment_start(&self, line: &str) -> Option<usize> {
-        line_comment_start(line)
-    }
-
-    /// Heredocs, their last line included: their lines are a string's,
-    /// with the template sequences in them (see `highlight_continued`).
-    fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
-        tokenize(source)
-            .iter()
-            .filter(|token| token.kind == Kind::Heredoc)
-            .map(|token| {
-                let end = token.end - usize::from(source[..token.end].ends_with('\n'));
-                MultilineConstruct::structure(token.start..end)
-            })
-            .collect()
-    }
-
-    /// A heredoc's line (its only multi-line construct): a string, its
-    /// template sequences interpolations.
-    fn highlight_continued(&self, text: &str) -> Vec<HighlightToken> {
-        let mut out = Tokens::new();
-        interpolation::push_heredoc_line(&mut out, text);
-        out.finish()
-    }
 }
-
-fn utf16(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// One-based line and character column of a byte offset.
-fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    crate::editor::paths::line_column(source, byte)
-}
-
-
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod splice_tests;
-#[cfg(test)]
-mod read_tests;
-#[cfg(test)]
-mod big_errors_tests;
-#[cfg(test)]
-mod expressions_scale_tests;

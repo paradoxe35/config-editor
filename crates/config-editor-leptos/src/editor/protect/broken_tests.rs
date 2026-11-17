@@ -10,7 +10,7 @@ use super::super::codec;
 use super::super::paths::FieldPath;
 use super::guard::check;
 use super::locks::{Protected, Sources, protect};
-use super::tests::{documents, edits, schema};
+use super::tests::{documents, edits, refused_while_broken, schema};
 
 /// Ways to break each document outside its locks: an unclosed quote above
 /// the locked fields, and a bracket left open below them.
@@ -84,6 +84,7 @@ fn locks_hold_while_the_document_does_not_parse() {
                 for (protected, round) in [(&carried, "once"), (&again, "twice")] {
                     for (what, edited, refused) in edits(language, &broken) {
                         let Some(edited) = edited else { continue };
+                        let refused = refused_while_broken(what, refused);
                         if allowed(language, &broken, &edited, protected) == refused {
                             failures.push(format!(
                                 "{tag}, carried {round}: {what}: {} {edited:?}",
@@ -107,7 +108,8 @@ fn locks_hold_while_the_document_does_not_parse() {
 
 /// Random edits on a broken document, the locks carried as the editor
 /// carries them: whenever the text parses, or would once the break is
-/// repaired, the locked values are the ones the document had.
+/// repaired, the locked values are the ones the document had, or the field
+/// is held (a key added past a locked block's end: the save waits).
 #[test]
 fn random_edits_on_a_broken_document_never_change_a_locked_value() {
     use super::tests::{PIECES, Random, WORDS, words};
@@ -148,6 +150,7 @@ fn random_edits_on_a_broken_document_never_change_a_locked_value() {
                         continue;
                     }
                     allowed_count += 1;
+                    let after = locks(language, &edited, from, Some(&protected));
                     let repaired =
                         (edited.matches(bad).count() == 1).then(|| edited.replacen(bad, good, 1));
                     for candidate in [Some(&edited), repaired.as_ref()].into_iter().flatten() {
@@ -156,16 +159,23 @@ fn random_edits_on_a_broken_document_never_change_a_locked_value() {
                             continue;
                         };
                         checked += 1;
+                        // A field reading otherwise is held: never saved so.
+                        let held = if candidate == &edited {
+                            after.held.clone()
+                        } else {
+                            locks(language, candidate, from, Some(&after)).held
+                        };
                         for pointer in ["/id", "/meta"] {
-                            if read.pointer(pointer) != original.pointer(pointer) {
+                            if read.pointer(pointer) != original.pointer(pointer)
+                                && !held.iter().any(|known| known == pointer)
+                            {
                                 failures.push(format!(
                                     "{language} ({from:?}, {bad:?}), step {step}: {pointer} changed by {piece:?} at {start}..{end}:\n{shown}\n→\n{edited}"
                                 ));
                             }
                         }
                     }
-                    let previous = std::mem::take(&mut protected);
-                    protected = locks(language, &edited, from, Some(&previous));
+                    protected = after;
                     shown = edited;
                 }
                 if failures.len() > 20 {

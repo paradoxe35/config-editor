@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // The preset stylesheet is on a page once, however many editors and
-// documents views show there (QA D7.perf-2): a copy per editor is a
+// documents views show there: a copy per editor is a
 // stylesheet the browser matches every element against, so with 100
 // editors live the 100th mounted 3× slower than the first (its style pass
 // 30×), and each copy added or removed restyled the whole page. One

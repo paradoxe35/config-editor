@@ -3,6 +3,8 @@
 //! the two lines change places: each direction, and the swap back (its
 //! undo), is judged alike, in every language.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::paths::FieldPath;
 use super::guard::check;
@@ -70,10 +72,11 @@ fn a_locked_line_swapped_with_a_neighbour_is_judged_alike_both_ways() {
 }
 
 /// A locked field's parent line moved past the locked line (`db:` below
-/// `image: pg`, `/services/db/image` locked) takes the locked value out of
-/// its parent: refused in every language, the text parsing or not.
+/// `image: pg`, `/services/db/image` locked) keeps every span's text but
+/// takes the locked value out of its parent: taken, and held (P1: the save
+/// waits) while the text reads it otherwise, in every language.
 #[test]
-fn a_locked_fields_parent_moved_past_it_is_refused_in_every_language() {
+fn a_locked_fields_parent_moved_past_it_is_taken_and_held_in_every_language() {
     use super::super::keys::line_edit::{Folded, LineCommand, line_edit};
     let hosts = [
         (
@@ -102,7 +105,7 @@ fn a_locked_fields_parent_moved_past_it_is_refused_in_every_language() {
             "  <db>",
         ),
     ];
-    let mut allowed = Vec::new();
+    let mut failures = Vec::new();
     for (language, before, parent) in hosts {
         let paths = [FieldPath::from("/services/db/image")];
         let behavior = language.behavior();
@@ -123,9 +126,23 @@ fn a_locked_fields_parent_moved_past_it_is_refused_in_every_language() {
             neighbors: &[],
         };
         let edit = line_edit(before, (at, at), LineCommand::Move { down: true }, none).unwrap();
-        if check(behavior, None, &protected, before, &edit.text).is_ok() {
-            allowed.push(format!("{language}: {:?}", edit.text));
+        if let Err(why) = check(behavior, None, &protected, before, &edit.text) {
+            failures.push(format!("{language}: {:?} refused: {why:?}", edit.text));
+            continue;
+        }
+        let after = protect(
+            behavior,
+            &edit.text,
+            Sources {
+                paths: &paths,
+                previous: Some(&protected),
+                ..Sources::default()
+            },
+        );
+        let parses = super::super::codec::read(behavior, &edit.text, None).is_ok();
+        if parses && !after.held.iter().any(|held| held == "/services/db/image") {
+            failures.push(format!("{language}: {:?} not held", edit.text));
         }
     }
-    assert!(allowed.is_empty(), "{allowed:#?}");
+    assert!(failures.is_empty(), "{failures:#?}");
 }

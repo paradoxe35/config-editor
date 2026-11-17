@@ -5,7 +5,7 @@
 use serde_json::json;
 
 use super::super::{LossEffect, SchemaFormat, SchemaInput, SchemaResources};
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 
 const XS: &str = "xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"";
 

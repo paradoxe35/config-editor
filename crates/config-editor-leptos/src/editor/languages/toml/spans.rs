@@ -7,6 +7,7 @@
 use super::*;
 use crate::editor::paths::{batch_cached, in_batch};
 use crate::editor::work_count::{Work, note};
+use crate::editor::text::{byte_range};
 
 /// A span: line, first and end character columns.
 type At = (usize, usize, usize);
@@ -155,6 +156,7 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
     note(Work::DocumentRead);
     let lines: Vec<&str> = source.lines().collect();
     let tables = table_paths(&lines);
+    let in_string = super::editing::in_string_lines(&lines);
     // The containers written over lines, read once when one is met.
     let mut statements = None;
     let mut offset = 0;
@@ -164,6 +166,9 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
         }
         let line_offset = offset;
         offset += line.len() + 1;
+        if in_string[index] {
+            continue;
+        }
         let (code, _) = split_toml_comment(line);
         if let Some((key, start, end)) = key_assignment(code) {
             let table = path_strings(&tables[index]);
@@ -172,7 +177,7 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
             if sink.wants(&full) {
                 // A dotted key (`websocket.bogus`) names its last segment.
                 let start = start + last_segment_start(&code[start..end]);
-                sink.set(&full, || Some(span_between(source, line_offset + start, line_offset + end)));
+                sink.set(&full, || Some(span_between(source, byte_range(line_offset + start..line_offset + end))));
             }
             // A dotted key below the path (`bogus.deep` for `/limits/bogus`)
             // names it with one of its segments.
@@ -180,7 +185,7 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
                 if sink.wants(&full[..length]) {
                     sink.set(&full[..length], || {
                         let (from, to) = segment_range(&code[start..end], length - table.len() - 1)?;
-                        Some(span_between(source, line_offset + start + from, line_offset + start + to))
+                        Some(span_between(source, byte_range(line_offset + start + from..line_offset + start + to)))
                     });
                 }
             }
@@ -188,7 +193,7 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
             if sink.below(&full) {
                 for entry in inline_entries_on(code, &full) {
                     if sink.wants(&entry.path) {
-                        sink.set(&entry.path, || Some(span_between(source, line_offset + entry.key.0, line_offset + entry.key.1)));
+                        sink.set(&entry.path, || Some(span_between(source, byte_range(line_offset + entry.key.0..line_offset + entry.key.1))));
                     }
                 }
                 let end = container_end(source, code, line_offset, &mut statements);
@@ -196,7 +201,7 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
                     let mut entry = full.clone();
                     entry.extend(path);
                     if sink.wants(&entry) {
-                        sink.set(&entry, || Some(span_between(source, line_offset + key.start, line_offset + key.end)));
+                        sink.set(&entry, || Some(span_between(source, byte_range(line_offset + key.start..line_offset + key.end))));
                     }
                 }
             }
@@ -205,7 +210,7 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
             && !segments.is_empty()
         {
             let header_start = line.find('[').unwrap_or(0);
-            let header = || Some(span_between(source, line_offset + header_start, line_offset + line.len()));
+            let header = || Some(span_between(source, byte_range(line_offset + header_start..line_offset + line.len())));
             let full = &tables[index + 1];
             // A `[table]` header names the table itself.
             let table = path_strings(full);
@@ -233,7 +238,7 @@ fn walk_keys(source: &str, sink: &mut impl Sink) {
                 } else {
                     sink.set(above, || {
                         let (from, to) = segment_range(inner, keys - 1)?;
-                        Some(span_between(source, line_offset + inner_start + from, line_offset + inner_start + to))
+                        Some(span_between(source, byte_range(line_offset + inner_start + from..line_offset + inner_start + to)))
                     });
                 }
             }
@@ -292,12 +297,17 @@ fn walk_values(source: &str, sink: &mut impl Sink) {
     let mut tables = Tables::default();
     let mut table: Vec<String> = Vec::new();
     let mut offset = 0;
-    for line in source.lines() {
+    let lines: Vec<&str> = source.lines().collect();
+    let in_string = super::editing::in_string_lines(&lines);
+    for (line, in_string) in lines.into_iter().zip(in_string) {
         if sink.done() {
             break;
         }
         let line_offset = offset;
         offset += line.len() + 1;
+        if in_string {
+            continue;
+        }
         if line.trim_start().starts_with('[') {
             let (code, _) = split_toml_comment(line);
             if let Some((segments, is_array)) = parse_header(code) {

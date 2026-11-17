@@ -1,35 +1,36 @@
-//! A text that does not parse and has no earlier text to carry locks from
-//! (the host gave it so, or named a lock while it was so), read two ways:
+//! A text that does not parse, for the locks the text before cannot carry
+//! into it (the host gave it so, or named a lock while it was so), read
+//! two ways:
 //! - `stand_in`: the same text with the line breaking it blanked, when that
 //!   parses: its locks fall on the same places, and its values are pinned;
 //! - `written`: each line's path, read by the tolerant path lookup the
 //!   caret uses, so the schema's read-only fields and the contents of a
 //!   locked block are found where the stand-in has none (in a large text,
-//!   the lines naming a protected field and the block under each).
+//!   every line naming a protected field and the block under each).
 //!
-//! Neither reading decides what an edit may do to a locked value: that is
-//! decided when the text parses again (`guard::repair`), against the
-//! reference text. They place the locks shown, and refuse an edit on them
-//! at once rather than at the repair.
+//! `read_off` places a field from these readings, also in a text that does
+//! not parse after one that did, for a field with no lock to follow there
+//! (a path named while it does not parse). A lock placed so is followed
+//! through edits by position (see `locks`), never read again off the
+//! lines; once the text parses, the parse places it.
 
 use serde_json::Value;
 
+use super::super::applies::Applies;
 use super::super::codec;
-use super::super::completion::schema_at_path;
 use super::super::language::{ConfigLanguage, Repetition};
-use super::super::paths::{FieldPath, path_at};
-use super::locate::{Extent, LineIndex, extent};
-use super::marks::read_only_reason;
+use super::super::paths::{
+    FieldPath, api_units, field_range, in_batch, inside, key_range, path_at, with_spans,
+};
+use super::super::text::{TextRange, TextSize, slice, text_size};
+use super::locate::{Extent, LineIndex, within};
+use super::marks::read_only_in;
 use super::texts::Reason;
 
-/// Lines of a text read line by line at most (each line's path is read
-/// from the top); a larger one is read on the lines `candidates` picks.
+/// Lines of a text whose every line's path is read at most; a larger one
+/// is read on the lines `candidates` picks, every one of them (a line left
+/// unread would leave a protected field there unlocked).
 const MAX_LINES: usize = 500;
-
-/// Line reads a large text gets (each costs a read from the top, so they
-/// are this divided by its lines), as many as a text of `MAX_LINES` lines
-/// gets for every line.
-const LARGE_READS: usize = MAX_LINES * MAX_LINES / 2;
 
 /// Lines tried blanked (their last character, then all of it) in each
 /// round at most: the one the parser stopped
@@ -41,7 +42,7 @@ const STAND_IN_TRIES: usize = 24;
 const STAND_IN_ROUNDS: usize = 4;
 
 /// `text` with the lines breaking it blanked (each character a space of
-/// the same UTF-16 length, so every other place keeps its offsets) such
+/// the same byte length, so every other place keeps its offsets) such
 /// that it parses: in each round, a line at or above where the parser
 /// stopped, the one that parses, else the one taking the parser furthest.
 pub(super) fn stand_in(
@@ -105,8 +106,8 @@ pub(super) struct StandIn {
     pub(super) blanked: Vec<usize>,
 }
 
-/// `line` with its last non-blank character a space (or two, for one of
-/// two UTF-16 units).
+/// `line` with its last non-blank character spaces of the same byte
+/// length.
 fn blank_last(line: &str) -> String {
     let trimmed = line.trim_end();
     let mut kept: String = trimmed
@@ -118,16 +119,16 @@ fn blank_last(line: &str) -> String {
         .rev()
         .collect();
     if let Some(last) = trimmed.chars().next_back() {
-        kept.push_str(&" ".repeat(last.len_utf16()));
+        kept.push_str(&" ".repeat(last.len_utf8()));
     }
-    kept.push_str(&line[trimmed.len()..]);
+    kept.push_str(line.get(trimmed.len()..).unwrap_or_default());
     kept
 }
 
-/// `line` as spaces of the same UTF-16 length.
+/// `line` as spaces of the same byte length.
 fn blank(line: &str) -> String {
     line.chars()
-        .map(|character| " ".repeat(character.len_utf16()))
+        .map(|character| " ".repeat(character.len_utf8()))
         .collect()
 }
 
@@ -140,7 +141,9 @@ pub(super) struct Written {
 
 /// The path at the start of each line of `text` holding code (not blank,
 /// not only a comment): of the lines `only`, else of every line, or in a
-/// large text of the lines naming one of `names` (see `candidates`).
+/// large text of the lines naming one of `names` (see `candidates`). The
+/// paths are read with the text read once for all of them, not from its
+/// top for each line.
 pub(super) fn written(
     behavior: &dyn ConfigLanguage,
     text: &str,
@@ -154,10 +157,26 @@ pub(super) fn written(
         None if count > MAX_LINES => {
             let names_one =
                 |content: &str| names.iter().any(|name| content.contains(name.as_str()));
-            candidates(behavior, lines, &names_one, LARGE_READS / count)
+            candidates(behavior, lines, &names_one)
         }
         None => (0..count).collect(),
     };
+    if in_batch(text) {
+        paths_of(behavior, text, lines, chosen)
+    } else {
+        with_spans(behavior, text, &[], || {
+            paths_of(behavior, text, lines, chosen)
+        })
+    }
+}
+
+/// The path at the start of each of the lines `chosen` holding code.
+fn paths_of(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    lines: &LineIndex<'_>,
+    chosen: Vec<usize>,
+) -> Vec<Written> {
     let mut found = Vec::new();
     for line in chosen {
         let content = lines.line_text(line);
@@ -165,8 +184,7 @@ pub(super) fn written(
         if content.trim().is_empty() || behavior.comment_start(content) == Some(indent) {
             continue;
         }
-        let at = lines.line_bounds(line).start + content[..indent].encode_utf16().count();
-        if let Some(path) = path_at(behavior, text, at) {
+        if let Some(path) = path_at(behavior, text, api_caret(text, code_start(lines, line))) {
             found.push(Written {
                 line,
                 pointer: path.to_pointer(),
@@ -176,21 +194,31 @@ pub(super) fn written(
     found
 }
 
-/// Up to `budget` lines of a large text that may hold a protected field:
-/// each line `names_one` accepts (naming a protected field's key), with the
+/// Where the code on zero-based `line` starts: after its indent.
+fn code_start(lines: &LineIndex<'_>, line: usize) -> TextSize {
+    let content = lines.line_text(line);
+    lines.line_bounds(line).start() + TextSize::of(content) - TextSize::of(content.trim_start())
+}
+
+/// Byte `at` of `text` as the public language API's caret (UTF-16).
+fn api_caret(text: &str, at: TextSize) -> usize {
+    api_units(text, usize::from(at))
+}
+
+/// The lines of a large text that may hold a protected field: each line
+/// `names_one` accepts (naming a protected field's key), with the
 /// lines indented under it, or up to the next section after a line that
 /// starts one (TOML's `[limits]`): its block.
 pub(super) fn candidates(
     behavior: &dyn ConfigLanguage,
     lines: &LineIndex<'_>,
     names_one: &dyn Fn(&str) -> bool,
-    budget: usize,
 ) -> Vec<usize> {
     let indent = |text: &str| text.len() - text.trim_start().len();
     let header = |text: &str| behavior.starts_section(text);
     let mut chosen = Vec::new();
     let mut line = 0;
-    while line < lines.line_count() && chosen.len() < budget {
+    while line < lines.line_count() {
         let content = lines.line_text(line);
         line += 1;
         if !names_one(content) {
@@ -199,7 +227,7 @@ pub(super) fn candidates(
         chosen.push(line - 1);
         let own = indent(content);
         let opens_section = header(content);
-        while line < lines.line_count() && chosen.len() < budget {
+        while line < lines.line_count() {
             let next = lines.line_text(line);
             if !next.trim().is_empty() {
                 let inside = if opens_section {
@@ -225,8 +253,18 @@ pub(super) fn names_word(names: &[String], line: &str) -> bool {
     names.iter().any(|name| {
         !name.is_empty()
             && line.match_indices(name.as_str()).any(|(at, _)| {
-                !line[..at].chars().next_back().is_some_and(word)
-                    && !line[at + name.len()..].chars().next().is_some_and(word)
+                !line
+                    .get(..at)
+                    .unwrap_or_default()
+                    .chars()
+                    .next_back()
+                    .is_some_and(word)
+                    && !line
+                        .get(at + name.len()..)
+                        .unwrap_or_default()
+                        .chars()
+                        .next()
+                        .is_some_and(word)
             })
     })
 }
@@ -239,6 +277,7 @@ pub(super) fn marked(
     written: &[Written],
 ) -> Vec<(String, Reason)> {
     let repeats = behavior.repetition() != Repetition::None;
+    let applies = Applies::blind(schema, repeats);
     let mut marked: Vec<(String, Reason)> = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
     for field in written {
@@ -249,8 +288,8 @@ pub(super) fn marked(
         let path = FieldPath::from(field.pointer.as_str());
         let segments = path.segments();
         for depth in 1..=segments.len() {
-            let schemas = schema_at_path(schema, &segments[..depth], repeats);
-            if let Some(reason) = read_only_reason(&schemas, schema) {
+            let branches = applies.at(&segments[..depth]).branches();
+            if let Some(reason) = read_only_in(&branches) {
                 let pointer = FieldPath::from(segments[..depth].to_vec()).to_pointer();
                 if !marked.iter().any(|(known, _)| *known == pointer) {
                     marked.push((pointer, reason.map_or(Reason::Field, Reason::Given)));
@@ -276,14 +315,124 @@ pub(super) fn under_own_key(
     let found = written
         .iter()
         .find(|field| field.pointer != pointer && field.pointer.rsplit('/').next() == Some(key))?;
-    extent(behavior, text, lines, None, Some(written), &found.pointer).or_else(|| {
+    read_off(behavior, text, lines, None, written, &found.pointer).or_else(|| {
         let content = lines.line_text(found.line);
-        let indent = content.len() - content.trim_start().len();
-        let start = lines.line_bounds(found.line).start + content[..indent].encode_utf16().count();
-        let end = lines.line_bounds(found.line).start + content.trim_end().encode_utf16().count();
+        let start = code_start(lines, found.line);
+        let end = lines.line_bounds(found.line).start() + TextSize::of(content.trim_end());
         Some(Extent {
             key: None,
-            ranges: std::iter::once(start..end).collect(),
+            ranges: std::iter::once(TextRange::new(start, end.max(start))).collect(),
         })
+    })
+}
+
+/// Where the field at `pointer` is written in a text that does not parse,
+/// read off its lines: where the language's tolerant lookup finds it
+/// (`field_range`), with what is inside it: the fields of `value` (its
+/// value pinned in the last text that parsed) where the lookup finds them,
+/// else the lines `written` inside it; joined where only its own lines lie
+/// between them, the last carried over the closers of the containers it
+/// leaves open.
+pub(super) fn read_off(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    lines: &LineIndex<'_>,
+    value: Option<&Value>,
+    written: &[Written],
+    pointer: &str,
+) -> Option<Extent> {
+    let mut ranges = vec![lines.range(field_range(behavior, text, pointer)?)];
+    let key = key_range(behavior, text, pointer).map(|range| lines.range(range));
+    if let Some(value) = value {
+        ranges.extend(
+            inside(value, pointer)
+                .iter()
+                .filter_map(|child| field_range(behavior, text, child))
+                .map(|range| lines.range(range)),
+        );
+    }
+    for field in written.iter().filter(|_| value.is_none()) {
+        if field.pointer != pointer && within(behavior, &field.pointer, pointer) {
+            let code = lines.line_text(field.line).trim();
+            let code = match behavior.config().item_separator {
+                Some(separator) => code.strip_suffix(separator).unwrap_or(code).trim_end(),
+                None => code,
+            };
+            ranges.push(TextRange::at(
+                code_start(lines, field.line),
+                TextSize::of(code),
+            ));
+        }
+    }
+    if let Some(first) = ranges.first_mut() {
+        // `markup_before` is the flow syntax's, in `str` bytes.
+        let name = usize::from(first.start());
+        if let Some(open) = super::super::flow_syntax::markup_before(behavior, text, name) {
+            *first = TextRange::new(text_size(open), first.end());
+        }
+    }
+    ranges.sort_by_key(|range| (range.start(), range.end()));
+    let mut merged: Vec<TextRange> = Vec::new();
+    for range in ranges {
+        match merged.last_mut() {
+            Some(last)
+                if range.start() <= last.end()
+                    || own_lines_between(
+                        behavior,
+                        text,
+                        lines,
+                        TextRange::new(last.end(), range.start()),
+                        pointer,
+                    ) =>
+            {
+                *last = last.cover(range);
+            }
+            _ => merged.push(range),
+        }
+    }
+    if let (Some(first), Some(last)) = (merged.first().copied(), merged.last_mut()) {
+        let covered = slice::slice(text, first.cover(*last))?;
+        let mut depth = behavior.unclosed_containers(covered);
+        let mut end = last.end();
+        while depth > 0 {
+            let rest = slice::after(text, end)?;
+            let code = rest.trim_start();
+            let Some(length) = behavior.container_closer_len(code) else {
+                break;
+            };
+            end += TextSize::of(rest) - TextSize::of(code) + text_size(length);
+            depth -= 1;
+        }
+        *last = TextRange::new(last.start(), end);
+    }
+    Some(Extent {
+        key,
+        ranges: merged,
+    })
+}
+
+/// Whether the lines wholly inside `gap` are blank, comments, punctuation
+/// alone, or start with a path inside `pointer`'s.
+fn own_lines_between(
+    behavior: &dyn ConfigLanguage,
+    text: &str,
+    lines: &LineIndex<'_>,
+    gap: TextRange,
+    pointer: &str,
+) -> bool {
+    let punctuation = |character: char| {
+        character.is_whitespace()
+            || (character.is_ascii_punctuation() && !matches!(character, '"' | '\''))
+    };
+    (lines.line_of(gap.start()) + 1..lines.line_of(gap.end())).all(|line| {
+        let content = lines.line_text(line);
+        let indent = content.len() - content.trim_start().len();
+        if content.trim().chars().all(punctuation)
+            || behavior.comment_start(content) == Some(indent)
+        {
+            return true;
+        }
+        path_at(behavior, text, api_caret(text, code_start(lines, line)))
+            .is_some_and(|path| within(behavior, &path.to_pointer(), pointer))
     })
 }

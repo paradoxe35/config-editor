@@ -1,6 +1,7 @@
 //! How protected fields are worded, from the `strings` setting, and the
 //! defaults of secret placeholders that are patterns, not texts.
 
+use super::locks::HoldCause;
 use crate::EditorStrings;
 use crate::strings::fill;
 
@@ -29,30 +30,6 @@ impl Reason {
     /// is refused.
     pub(crate) fn holding(&self, strings: &EditorStrings) -> String {
         fill(&strings.holds_read_only, &[("reason", &self.text(strings))])
-    }
-
-    /// Why an edit making the text parse is refused: the field at
-    /// `pointer`, locked for this reason, would read otherwise than in the
-    /// host's text.
-    pub(crate) fn changed(&self, strings: &EditorStrings, pointer: &str) -> String {
-        let place = if pointer.is_empty() { "/" } else { pointer };
-        fill(
-            &strings.read_only_changed,
-            &[("pointer", &place), ("reason", &self.text(strings))],
-        )
-    }
-
-    /// Why an edit making the text parse is refused when the lines removed
-    /// that may hold the field at `pointer` are too many to read.
-    pub(crate) fn unchecked(&self, strings: &EditorStrings, pointer: Option<&str>) -> String {
-        let place = match pointer {
-            Some("") | None => "/",
-            Some(pointer) => pointer,
-        };
-        fill(
-            &strings.read_only_unchecked,
-            &[("pointer", &place), ("reason", &self.text(strings))],
-        )
     }
 
     /// "Read-only: …", the gutter lock's label.
@@ -87,6 +64,41 @@ pub(crate) fn save_waits(strings: &EditorStrings, pointer: &str) -> String {
     fill(&strings.save_waits, &[("pointer", &place)])
 }
 
+/// A save waiting while the read-only field at `pointer`, locked for
+/// `reason`, is held for `cause` (see `locks::Protected::held`).
+pub(crate) fn save_held(
+    strings: &EditorStrings,
+    pointer: &str,
+    reason: &Reason,
+    cause: HoldCause,
+) -> String {
+    let place = if pointer.is_empty() { "/" } else { pointer };
+    let template = match cause {
+        HoldCause::Duplicate => &strings.save_held_duplicate,
+        HoldCause::Renamed => &strings.save_held_renamed,
+        HoldCause::Moved => &strings.save_held_moved,
+        HoldCause::ListItem => &strings.save_held_list_item,
+        HoldCause::Commented => &strings.save_held_commented,
+        HoldCause::Removed => &strings.save_held_removed,
+        HoldCause::Added => &strings.save_held_added,
+        HoldCause::Spanless => &strings.save_held_spanless,
+        HoldCause::RangeMoved => &strings.save_held_range,
+        HoldCause::ChangedBeforeLock => &strings.save_held_before_lock,
+        HoldCause::Unclear => &strings.save_held,
+    };
+    fill(
+        template,
+        &[("pointer", &place), ("reason", &reason.text(strings))],
+    )
+}
+
+/// A save waiting while the secret field at `pointer` reads text beside a
+/// placeholder the host gave as its whole value.
+pub(crate) fn save_held_placeholder(strings: &EditorStrings, pointer: &str) -> String {
+    let place = if pointer.is_empty() { "/" } else { pointer };
+    fill(&strings.save_held_placeholder, &[("pointer", &place)])
+}
+
 /// A placeholder the host did not give, in a secret field.
 pub(crate) fn unknown_placeholder(strings: &EditorStrings, pointer: &str) -> String {
     fill(&strings.unknown_placeholder, &[("pointer", &pointer)])
@@ -98,6 +110,11 @@ pub(crate) fn moved_placeholder(strings: &EditorStrings, pointer: &str, owner: &
         &strings.moved_placeholder,
         &[("pointer", &pointer), ("owner", &owner)],
     )
+}
+
+/// One of another document's placeholders (`source`: its file name).
+pub(crate) fn foreign_placeholder(strings: &EditorStrings, source: &str) -> String {
+    fill(&strings.foreign_placeholder, &[("source", &source)])
 }
 
 /// A copy of one of the host's placeholders in its own field, past those

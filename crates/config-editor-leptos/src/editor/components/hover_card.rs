@@ -1,11 +1,13 @@
 //! Schema docs for the key or value under the pointer, under the problems
-//! on its line (see `hover_problems`).
+//! on its line (see `popups`).
 
 use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::super::completion::{ChoiceHover, HoverValue, KeyHover, ValueDoc};
-use super::super::popup_pointer::{back_on_text, enter_popup, popup_wheel};
+use super::super::popups::{
+    back_on_text, card_keys, enter_popup, opens_docs_from, popup_wheel, selects_all_in,
+};
 use super::super::positioning::{CardAnchor, hover_card_geometry};
 use super::super::state::EditorState;
 use super::diagnostics::{Entry, entries_view, problems_at};
@@ -19,9 +21,10 @@ use wasm_bindgen::JsCast;
 pub(crate) struct HoverCard {
     pub(crate) info: KeyHover,
     pub(crate) line: usize,
-    /// The one-based place at the caret it was shown at (`Ctrl+K Ctrl+I`,
-    /// a tap), whose problems it lists.
-    pub(crate) caret: Option<(usize, usize)>,
+    /// The one-based place whose problems it lists: under the pointer on
+    /// its line, F8's there, or the caret's it was shown at
+    /// (`Ctrl+K Ctrl+I`, a tap).
+    pub(crate) problems: Option<(usize, usize)>,
     /// Where it points; its side waits for its height.
     pub(crate) anchor: CardAnchor,
 }
@@ -34,21 +37,23 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
             .map(|place| problems_at(state, place))
             .unwrap_or_default()
     });
-    let card_ref = state.hover().card_ref;
-    let focused = Relay::new(move || state.hover().card_focused.get());
+    let card = Memo::new(move |_| state.popups().card());
+    let card_ref = state.popups().card_ref;
+    let focused = Relay::new(move || state.popups().focused.get());
+    let passing = Relay::new(move || state.popups().passing());
     // Its full height (0 until measured, unseen until then), which
     // decides its side; then whether it is taller than its room (it
     // scrolls): measured once drawn.
-    let natural = RwSignal::new(0.0_f64);
+    let natural = state.popups().card_height;
     let scrolls = RwSignal::new(false);
     Effect::new(move |_| {
-        state.hover().card.track();
+        card.track();
         problems.track();
         if natural.get_untracked() != 0.0 {
             natural.set(0.0);
         }
-        // Once drawn, in the same task (QA 28: from a tip to the card, the
-        // frame between showed no popup); else before it is painted.
+        // Once drawn, in the same task (a tip giving way to the card shows
+        // no frame without a popup); else before it is painted.
         later::soon(scrolls, move |scrolls| {
             if measure_height(card_ref, natural) {
                 later::next_frame(scrolls, move |scrolls| measure(card_ref, scrolls));
@@ -61,19 +66,13 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
         });
     });
     let style = Relay::new(move || {
-        state
-            .hover()
-            .card
-            .with(|card| card.as_ref().map(|card| card.anchor))
+        card.with(|card| card.as_ref().map(|card| card.anchor))
             .map(|anchor| hover_card_geometry(anchor, natural.get()))
     });
     let measured = Relay::new(move || natural.get() > 0.0);
     let scrolling = Relay::new(move || scrolls.get());
     move || {
-        state
-            .hover()
-            .card
-            .get()
+        card.get()
             .filter(|_| state.completion().suggestions.with(Vec::is_empty))
             .map(|card| {
                 let info = card.info;
@@ -90,6 +89,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                 let focused = focused.read();
                 let style = style.read();
                 let measured = measured.read();
+                let passing = passing.read();
                 // A dialog while it has the focus (to scroll it, or on its
                 // links), named after its key; a tooltip otherwise.
                 let role = move || if focused.get() { "dialog" } else { "tooltip" };
@@ -100,11 +100,14 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                         class:config-editor__hover--interactive=interactive
                         class:config-editor__hover--scrolls=move || scrolls.get()
                         class:config-editor__hover--unmeasured=move || !measured.get()
+                        // It lets the pointer through to the text under it
+                        // (see `popups::under`).
+                        data-passing=move || passing.get().then_some("")
                         role=role
                         aria-label=label
                         // Focused by a second Ctrl+K Ctrl+I, to scroll it.
                         tabindex="-1"
-                        node_ref=state.hover().card_ref
+                        node_ref=card_ref
                         style=cssom(move || style.get())
                         on:keydown=move |event| card_key(state, &event)
                         on:focusin=move |_| state.note_card_focus(true)
@@ -207,21 +210,16 @@ fn press_card(event: &web_sys::MouseEvent) {
 
 /// The pointer came onto the card: from its key, it stays, with the
 /// problems it lists; another way, it lets the pointer through to the
-/// text under it (see `popup_pointer`).
+/// text under it (see `popups::pointer`).
 fn enter_card(state: EditorState, event: &web_sys::MouseEvent) {
-    let Some(card) = state.hover().card_ref.get_untracked() else {
-        return;
-    };
-    if !enter_popup(state, &card, event) {
-        return;
+    if let Some(card) = state.popups().card_ref.get_untracked() {
+        enter_popup(state, &card, event);
     }
-    state.hover().card_entered.set_value(true);
-    state.problems().tip_entered.set_value(true);
 }
 
-/// A wheel over the card: see `popup_pointer`.
+/// A wheel over the card: see `popups::pointer`.
 fn wheel_card(state: EditorState, event: &web_sys::WheelEvent) {
-    if let Some(card) = state.hover().card_ref.get_untracked() {
+    if let Some(card) = state.popups().card_ref.get_untracked() {
         popup_wheel(state, &card, event);
     }
 }
@@ -232,21 +230,12 @@ fn wheel_card(state: EditorState, event: &web_sys::WheelEvent) {
 /// its moment, unless the pointer is on the card's key again (it stays,
 /// without closing to open again).
 fn leave_card(state: EditorState, event: &web_sys::MouseEvent) {
-    if !state.hover().card_entered.get_value() {
-        return;
-    }
-    state.hover().card_entered.set_value(false);
-    state.problems().tip_entered.set_value(false);
-    if state.card_has_focus() {
+    if !state.left_popup() || state.card_has_focus() {
         return;
     }
     state.leave_hover();
-    if state.problems().hovered.with_untracked(Option::is_some) {
-        state.leave_problem();
-    }
     if !back_on_text(state, event) {
         state.hide_hover();
-        state.hide_problem_tip();
     }
 }
 
@@ -260,13 +249,11 @@ fn card_label(state: EditorState, key: String) -> impl Fn() -> String + Send + S
 /// `Alt+Enter` anywhere in it, opens its docs (as `Alt+Enter` does from
 /// the text); the scroll keys scroll it.
 fn card_key(state: EditorState, event: &web_sys::KeyboardEvent) {
-    if let Some(card) = state.hover().card_ref.get_untracked() {
-        if super::super::hover_focus::opens_docs_from(state, &card, event)
-            || super::super::hover_focus::selects_all_in(&card, event)
-        {
+    if let Some(card) = state.popups().card_ref.get_untracked() {
+        if opens_docs_from(state, &card, event) || selects_all_in(&card, event) {
             return;
         }
-        super::super::hover_focus::card_keys(&card, event);
+        card_keys(&card, event);
     }
 }
 
@@ -274,7 +261,7 @@ fn card_key(state: EditorState, event: &web_sys::KeyboardEvent) {
 /// went to another of its links or back to the text.
 fn leave_card_focus(state: EditorState, event: &web_sys::FocusEvent) {
     let to = event.related_target();
-    let in_card = state.hover().card_ref.get_untracked().is_some_and(|card| {
+    let in_card = state.popups().card_ref.get_untracked().is_some_and(|card| {
         to.as_ref()
             .and_then(|to| to.dyn_ref::<web_sys::Node>())
             .is_some_and(|to| card.contains(Some(to)))

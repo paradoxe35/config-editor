@@ -4,13 +4,14 @@
 //! `route53`, and two that require `provider` with a `const` each): hover
 //! on the field names the option the value is in (or lists them all), and
 //! key suggestions carry their option's title, the matched option's keys
-//! first. Each test lists every failing case at once.
-//!
-//! `|` marks the caret.
+//! first. Each case is a document, written by every language itself; each
+//! test lists every failing case at once.
 
 use super::super::completion::{ChoiceHover, ValueDoc, completions, key_hover};
-use super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
+use super::harness::{At, completing, hovering, key_place, report, text, write};
+use serde_json::{Value, json};
 
 fn help() -> SchemaBundle {
     build_schema(include_str!(
@@ -19,13 +20,18 @@ fn help() -> SchemaBundle {
     .unwrap()
 }
 
-fn choice_hover(language: Language, source: &str) -> Option<ChoiceHover> {
-    let at = source.find("dns").expect("a dns key");
-    let line = source[..at].matches('\n').count();
-    let line_start = source[..at].rfind('\n').map_or(0, |index| index + 1);
-    let column = source[line_start..at].chars().count() + 1;
-    key_hover(source, line, column, Some(&help()), language.behavior())
-        .and_then(|hover| hover.choice)
+/// The hover of the key at `pointer` of `document` as `language` writes
+/// it (the values at `one_line` on one line).
+fn hover_at(
+    language: Language,
+    document: &Value,
+    one_line: &[&str],
+    pointer: &str,
+) -> Result<(String, Option<super::super::completion::KeyHover>), String> {
+    let text = text(language, document, one_line)?;
+    let (line, column) = key_place(language, &text, pointer, 1)?;
+    let hover = key_hover(&text, line, column, Some(&help()), language.behavior());
+    Ok((text, hover))
 }
 
 fn matched(title: &str, description: &str) -> Option<ChoiceHover> {
@@ -45,76 +51,48 @@ fn hover_names_the_option_the_value_is_in() {
         "Manual".into(),
         "Static file".into(),
     ]));
-    let cases: &[(Language, &str, &Option<ChoiceHover>)] = &[
-        // By its required key (through a `$ref`).
+    let cases: [(Value, &[&str], &Option<ChoiceHover>); 5] = [
+        // By its required key (through a `$ref`), over lines and on one.
         (
-            Language::YAML,
-            "dns:\n  cloudflare:\n    zone: z\n",
+            json!({"dns": {"cloudflare": {"zone": "z"}}}),
+            &[],
             &cloudflare,
         ),
         (
-            Language::JSON,
-            "{\n  \"dns\": {\n    \"cloudflare\": {\"zone\": \"z\"}\n  }\n}\n",
-            &cloudflare,
-        ),
-        (
-            Language::TOML,
-            "[dns.cloudflare]\nzone = \"z\"\n",
-            &cloudflare,
-        ),
-        (
-            Language::HCL,
-            "dns {\n  cloudflare {\n    zone = \"z\"\n  }\n}\n",
-            &cloudflare,
-        ),
-        (
-            Language::XML,
-            "<dns>\n  <cloudflare><zone>z</zone></cloudflare>\n</dns>\n",
+            json!({"dns": {"cloudflare": {"zone": "z"}}}),
+            &["/dns/cloudflare"],
             &cloudflare,
         ),
         // Two options require `provider`: its const decides.
-        (Language::YAML, "dns:\n  provider: static\n", &file),
-        (
-            Language::JSON,
-            "{\n  \"dns\": {\n    \"provider\": \"static\"\n  }\n}\n",
-            &file,
-        ),
-        (Language::TOML, "[dns]\nprovider = \"static\"\n", &file),
-        (Language::HCL, "dns {\n  provider = \"static\"\n}\n", &file),
-        (
-            Language::XML,
-            "<dns>\n  <provider>static</provider>\n</dns>\n",
-            &file,
-        ),
+        (json!({"dns": {"provider": "static"}}), &[], &file),
         // Nothing decides yet: every option, by title.
-        (Language::YAML, "dns:\n  ttl: 60\n", &none),
-        (
-            Language::JSON,
-            "{\n  \"dns\": {\n    \"ttl\": 60\n  }\n}\n",
-            &none,
-        ),
-        (Language::TOML, "[dns]\nttl = 60\n", &none),
-        (Language::HCL, "dns {\n  ttl = 60\n}\n", &none),
-        (Language::XML, "<dns>\n  <ttl>60</ttl>\n</dns>\n", &none),
-        (Language::YAML, "dns:\n  provider: other\n", &none),
+        (json!({"dns": {"ttl": 60}}), &[], &none),
+        (json!({"dns": {"provider": "other"}}), &[], &none),
     ];
     let mut failures = Vec::new();
-    for &(language, source, expected) in cases {
-        let found = choice_hover(language, source);
-        if &found != expected {
-            failures.push(format!("{language:?} {source:?}: {found:?}"));
+    for language in hovering() {
+        for (document, one_line, expected) in &cases {
+            let found = hover_at(language, document, one_line, "/dns")
+                .map(|(text, hover)| (text, hover.and_then(|hover| hover.choice)));
+            if !matches!(&found, Ok((_, choice)) if choice == *expected) {
+                failures.push(format!("{language} {document}: {found:?}"));
+            }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
-/// The keys offered at the caret (as after Ctrl+Space), with their details.
-fn offered(language: Language, marked: &str) -> Vec<(String, String)> {
-    let at = marked.find('|').expect("a | caret marker");
-    let source = marked.replacen('|', "", 1);
-    completions(
-        &source,
-        source[..at].encode_utf16().count(),
+/// The keys offered on a new entry of `dns` in `document` (as after
+/// Ctrl+Space), with their details.
+fn offered(language: Language, document: &Value) -> Result<Vec<(String, String)>, String> {
+    let at = At::NewKey {
+        object: "/dns",
+        typed: "",
+    };
+    let written = write(language, document, &[], at)?;
+    Ok(completions(
+        &written.text,
+        written.cursor(),
         true,
         Some(&help()),
         true,
@@ -122,7 +100,7 @@ fn offered(language: Language, marked: &str) -> Vec<(String, String)> {
     )
     .into_iter()
     .map(|option| (option.label, option.detail))
-    .collect()
+    .collect())
 }
 
 /// A key offered, its detail, and the keys the list starts with.
@@ -130,100 +108,75 @@ type Expected = (&'static str, &'static str, &'static [&'static str]);
 
 #[test]
 fn key_suggestions_carry_their_option_and_list_the_matched_one_first() {
-    let cloudflare = (
+    let cloudflare: Expected = (
         "ttl",
         "Cloudflare — Seconds records are cached.",
         &["ttl"][..],
     );
-    let file = ("path", "Static file", &["path"][..]);
-    let cases: &[(Language, &str, Expected)] = &[
-        (
-            Language::YAML,
-            "dns:\n  cloudflare:\n    zone: z\n  |\n",
-            cloudflare,
-        ),
-        (
-            Language::JSON,
-            "{\n  \"dns\": {\n    \"cloudflare\": {\"zone\": \"z\"},\n    |\n  }\n}\n",
-            cloudflare,
-        ),
-        (
-            Language::HCL,
-            "dns {\n  cloudflare {\n    zone = \"z\"\n  }\n  |\n}\n",
-            cloudflare,
-        ),
-        (
-            Language::XML,
-            "<dns>\n  <cloudflare><zone>z</zone></cloudflare>\n  <|\n</dns>\n",
-            cloudflare,
-        ),
-        (
-            Language::TOML,
-            "[dns]\n|\n\n[dns.cloudflare]\nzone = \"z\"\n",
-            cloudflare,
-        ),
-        (Language::YAML, "dns:\n  provider: static\n  |\n", file),
-        (
-            Language::JSON,
-            "{\n  \"dns\": {\n    |\n    \"provider\": \"static\"\n  }\n}\n",
-            file,
-        ),
-        (Language::TOML, "[dns]\nprovider = \"static\"\n|\n", file),
-        (
-            Language::HCL,
-            "dns {\n  provider = \"static\"\n  |\n}\n",
-            file,
-        ),
-        (
-            Language::XML,
-            "<dns>\n  <provider>static</provider>\n  <|\n</dns>\n",
-            file,
-        ),
+    let file: Expected = ("path", "Static file", &["path"][..]);
+    let cases = [
+        (json!({"dns": {"cloudflare": {"zone": "z"}}}), cloudflare),
+        (json!({"dns": {"provider": "static"}}), file),
     ];
     let mut failures = Vec::new();
-    for &(language, marked, (key, detail, first)) in cases {
-        let options = offered(language, marked);
-        let found = options.iter().find(|(label, _)| label == key);
-        let leading: Vec<&str> = options
-            .iter()
-            .take(first.len())
-            .map(|(label, _)| label.as_str())
-            .collect();
-        if found.map(|(_, found)| found.as_str()) != Some(detail) || leading != first {
-            failures.push(format!("{language:?} {marked:?}: {options:?}"));
+    for language in completing() {
+        for (document, (key, detail, first)) in &cases {
+            let options = match offered(language, document) {
+                Ok(options) => options,
+                Err(error) => {
+                    failures.push(error);
+                    continue;
+                }
+            };
+            let found = options.iter().find(|(label, _)| label == key);
+            let leading: Vec<&str> = options
+                .iter()
+                .take(first.len())
+                .map(|(label, _)| label.as_str())
+                .collect();
+            if found.map(|(_, found)| found.as_str()) != Some(*detail) || leading != *first {
+                failures.push(format!("{language} {document}: {options:?}"));
+            }
+        }
+        // Before anything decides, each key names its option.
+        let options = match offered(language, &json!({"dns": {}})) {
+            Ok(options) => options,
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
+        for (key, detail) in [("route53", "Route 53"), ("records", "Manual")] {
+            if !options
+                .iter()
+                .any(|(label, found)| label == key && found == detail)
+            {
+                failures.push(format!("{language} undecided {key}: {options:?}"));
+            }
         }
     }
-    // Before anything decides, each key names its option.
-    let options = offered(Language::YAML, "dns:\n  |\n");
-    for (key, detail) in [("route53", "Route 53"), ("records", "Manual")] {
-        if !options
-            .iter()
-            .any(|(label, found)| label == key && found == detail)
-        {
-            failures.push(format!("undecided {key}: {options:?}"));
-        }
-    }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
-
-/// The empty `dns` object with the caret in it, in each language.
-const UNDECIDED: &[(Language, &str)] = &[
-    (Language::YAML, "dns:\n  |\n"),
-    (Language::JSON, "{\n  \"dns\": {\n    |\n  }\n}\n"),
-    (Language::TOML, "[dns]\n|\n"),
-    (Language::HCL, "dns {\n  |\n}\n"),
-    (Language::XML, "<dns>\n  <|\n</dns>\n"),
-];
 
 #[test]
 fn a_key_of_several_options_names_each_and_a_const_key_shows_its_values() {
     let mut failures = Vec::new();
-    for &(language, marked) in UNDECIDED {
-        let at = marked.find('|').unwrap();
-        let source = marked.replacen('|', "", 1);
+    let at = At::NewKey {
+        object: "/dns",
+        typed: "",
+    };
+    for language in completing() {
+        // The empty `dns` object with the caret in it.
+        let written = match write(language, &json!({"dns": {}}), &[], at) {
+            Ok(written) => written,
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
         let options = completions(
-            &source,
-            source[..at].encode_utf16().count(),
+            &written.text,
+            written.cursor(),
             true,
             Some(&help()),
             true,
@@ -241,80 +194,37 @@ fn a_key_of_several_options_names_each_and_a_const_key_shows_its_values() {
             let found = options.iter().find(|option| option.label == key);
             let seen = found.map(|option| (option.detail.as_str(), option.type_label.as_str()));
             if seen != Some((detail, type_label)) {
-                failures.push(format!("{language:?} {key}: {seen:?}"));
+                failures.push(format!("{language} {key}: {seen:?}"));
             }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
-}
-
-/// The hover of `key` (its first occurrence after `dns`) in `source`: its
-/// type, and what it says about the options.
-fn key_choice(
-    language: Language,
-    source: &str,
-    key: &str,
-) -> Option<(String, Option<ChoiceHover>)> {
-    let dns = source.find("dns").unwrap();
-    let at = dns + source[dns..].find(key).expect("the key");
-    let line = source[..at].matches('\n').count();
-    let line_start = source[..at].rfind('\n').map_or(0, |index| index + 1);
-    let column = source[line_start..at].chars().count() + 1;
-    key_hover(source, line, column, Some(&help()), language.behavior())
-        .map(|hover| (hover.type_label, hover.choice))
+    report(&failures);
 }
 
 #[test]
 fn hover_on_a_key_of_an_option_names_the_option_and_a_const_its_value() {
     let file = matched("Static file", "Records read from a file.");
-    let documents: &[(Language, &str)] = &[
-        (Language::YAML, "dns:\n  provider: static\n  path: /x\n"),
-        (
-            Language::JSON,
-            "{\n  \"dns\": {\n    \"provider\": \"static\",\n    \"path\": \"/x\"\n  }\n}\n",
-        ),
-        (
-            Language::TOML,
-            "[dns]\nprovider = \"static\"\npath = \"/x\"\n",
-        ),
-        (
-            Language::HCL,
-            "dns {\n  provider = \"static\"\n  path = \"/x\"\n}\n",
-        ),
-        (
-            Language::XML,
-            "<dns>\n  <provider>static</provider>\n  <path>/x</path>\n</dns>\n",
-        ),
-    ];
-    let undecided: &[(Language, &str)] = &[
-        (Language::YAML, "dns:\n  ttl: 60\n"),
-        (Language::JSON, "{\n  \"dns\": {\n    \"ttl\": 60\n  }\n}\n"),
-        (Language::TOML, "[dns]\nttl = 60\n"),
-        (Language::HCL, "dns {\n  ttl = 60\n}\n"),
-        (Language::XML, "<dns>\n  <ttl>60</ttl>\n</dns>\n"),
-    ];
     let both = Some(ChoiceHover::OneOf(vec![
         "Cloudflare".into(),
         "Route 53".into(),
     ]));
+    let decided = json!({"dns": {"provider": "static", "path": "/x"}});
+    let undecided = json!({"dns": {"ttl": 60}});
+    let cases = [
+        (&decided, "provider", ("\"static\"", &file)),
+        (&decided, "path", ("string", &file)),
+        (&undecided, "ttl", ("integer", &both)),
+    ];
     let mut failures = Vec::new();
-    let mut check =
-        |language: Language, source: &str, key: &str, want: (&str, &Option<ChoiceHover>)| {
-            let seen = key_choice(language, source, key);
-            if seen
-                .as_ref()
-                .map(|(label, choice)| (label.as_str(), choice))
-                != Some(want)
-            {
-                failures.push(format!("{language:?} {key} in {source:?}: {seen:?}"));
+    for language in hovering() {
+        for (document, key, want) in cases {
+            let seen = hover_at(language, document, &[], &format!("/dns/{key}"))
+                .map(|(text, hover)| (text, hover.map(|hover| (hover.type_label, hover.choice))));
+            let shown = seen.as_ref().ok().and_then(|(_, hover)| hover.as_ref());
+            if shown.map(|(label, choice)| (label.as_str(), choice)) != Some(want) {
+                failures.push(format!("{language} {key} in {document}: {seen:?}"));
             }
-        };
-    for &(language, source) in documents {
-        check(language, source, "provider", ("\"static\"", &file));
-        check(language, source, "path", ("string", &file));
+        }
     }
-    for &(language, source) in undecided {
-        check(language, source, "ttl", ("integer", &both));
-    }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }

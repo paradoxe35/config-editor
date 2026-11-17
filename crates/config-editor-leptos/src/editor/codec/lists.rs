@@ -4,7 +4,8 @@
 
 use super::super::flow_syntax::Flow;
 use super::super::language::ConfigLanguage;
-use super::{comment_start, comparable};
+use super::code_of;
+use super::compare::{leading_space, split_comment, trailing_space};
 use serde_json::Value;
 
 /// `text` (the host's `[` … `]`, over several lines) holding `items`, or
@@ -26,7 +27,7 @@ pub(super) fn rewrite_list_lines(
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
     // The opening line may end with a comment (`[  # ports`).
-    let first_code = first[..comment_start(language, first)].trim_end();
+    let first_code = code_of(language, first).trim_end();
     if lines.len() < 2 || !first_code.ends_with(open) || last.trim() != close.to_string() {
         return None;
     }
@@ -46,7 +47,7 @@ pub(super) fn rewrite_list_lines(
         if line.trim().is_empty() {
             continue;
         }
-        let code = line[..comment_start(language, line)].trim();
+        let code = code_of(language, line).trim();
         // A comment of its own: it belongs to the item below it.
         if code.is_empty() {
             above.push(line);
@@ -68,14 +69,14 @@ pub(super) fn rewrite_list_lines(
     }
     // Comments after the last item stay at the end.
     let closing_comments = above;
-    // One line per item, each the item it was (a one-line object or list
-    // item is trusted by its place; the read-back checks it).
+    // One line per item, each the item it was, however written (`0x50`
+    // for 80; a one-line object or list item is trusted by its place; the
+    // read-back checks it).
     let one_per_line = old.len() == before.len()
         && old.iter().zip(before).all(|(line, item)| {
             item.is_object()
                 || item.is_array()
-                || comparable(language, line.code)
-                    == comparable(language, &language.format_value(item))
+                || super::flow::same_written(language, line.code, item)
         });
     if !one_per_line {
         return None;
@@ -108,11 +109,9 @@ pub(super) fn rewrite_list_lines(
                 if line.comma == wants_comma {
                     out.push(line.line.to_string());
                 } else {
-                    let comment_at = comment_start(language, line.line);
-                    let comment = &line.line[comment_at..];
-                    let code_end = line.line[..comment_at].trim_end().len();
-                    let gap = &line.line[code_end..comment_at];
-                    let lead = &line.line[..line.line.len() - line.line.trim_start().len()];
+                    let (code, comment) = split_comment(language, line.line);
+                    let gap = trailing_space(code);
+                    let lead = leading_space(line.line);
                     let comma = if wants_comma {
                         separator.to_string()
                     } else {
@@ -129,7 +128,7 @@ pub(super) fn rewrite_list_lines(
                 }
             }
             None => {
-                let written = language.format_value(item);
+                let written = language.write_value(item);
                 if written.contains('\n') {
                     return None;
                 }
@@ -165,7 +164,7 @@ pub(super) fn rewrite_map_lines(
     let separator = flow.separator()?;
     let lines: Vec<&str> = text.split('\n').collect();
     let (first, last) = (lines.first()?, lines.last()?);
-    let first_code = first[..comment_start(language, first)].trim_end();
+    let first_code = code_of(language, first).trim_end();
     if lines.len() < 2 || !first_code.ends_with(open) || last.trim() != close.to_string() {
         return None;
     }
@@ -185,7 +184,7 @@ pub(super) fn rewrite_map_lines(
         if line.trim().is_empty() {
             continue;
         }
-        let code = line[..comment_start(language, line)].trim();
+        let code = code_of(language, line).trim();
         if code.is_empty() {
             above.push(*line);
             continue;
@@ -208,7 +207,7 @@ pub(super) fn rewrite_map_lines(
             above: std::mem::take(&mut above),
             line,
             key,
-            head: &code[..value_start],
+            head: code.get(..value_start)?,
             value,
             comma,
         });
@@ -251,16 +250,14 @@ pub(super) fn rewrite_map_lines(
                 let written = if unchanged {
                     entry.value.to_string()
                 } else {
-                    language.format_value_like(value, entry.value)
+                    language.write_value_like(value, entry.value)
                 };
                 if written.contains('\n') {
                     return None;
                 }
                 let line = entry.line;
-                let comment_at = comment_start(language, line);
-                let code_end = line[..comment_at].trim_end().len();
-                let gap = &line[code_end..comment_at];
-                let comment = &line[comment_at..];
+                let (code, comment) = split_comment(language, line);
+                let gap = trailing_space(code);
                 let gap = if comment.is_empty() {
                     ""
                 } else if gap.is_empty() {
@@ -268,7 +265,7 @@ pub(super) fn rewrite_map_lines(
                 } else {
                     gap
                 };
-                let lead = &line[..line.len() - line.trim_start().len()];
+                let lead = leading_space(line);
                 out.push(format!(
                     "{lead}{}{written}{comma}{gap}{comment}",
                     entry.head
@@ -278,9 +275,9 @@ pub(super) fn rewrite_map_lines(
                 let separator = flow.separator_of(model.head);
                 let name = super::key_like(language, key, model.head)?;
                 let written = if value.is_object() || value.is_array() {
-                    language.format_value(value)
+                    language.write_value(value)
                 } else {
-                    language.format_value_like(value, model.value)
+                    language.write_value_like(value, model.value)
                 };
                 if written.contains('\n') {
                     return None;

@@ -4,40 +4,33 @@
 mod accept;
 mod around;
 mod candidates;
-mod choices;
-mod conditions;
-mod conform;
 mod docs;
 mod elsewhere;
 mod excluded;
 mod fill;
 mod headless;
 mod hover;
+mod insert_plan;
 mod kept;
 mod key_info;
 mod least;
 mod list_items;
+mod list_mode;
 mod live;
 mod matching;
-mod offsets;
 mod patterns;
+mod placed;
 mod popup;
 mod required;
 mod schema;
 mod stops;
-pub(crate) mod text_typing;
-#[cfg(test)]
-mod text_typing_tests;
 mod typed_entry;
 mod window;
 
+use super::data_reading::other_reading;
 pub(crate) use accept::*;
 pub(crate) use around::document_around;
 pub(crate) use candidates::*;
-pub(crate) use choices::*;
-pub(crate) use conditions::{decides, mentions_conditionals};
-use conform::conform;
-pub(crate) use conform::{conform_arrays, conform_typed_arrays};
 pub(crate) use docs::*;
 pub(crate) use excluded::excluded_by_not;
 #[cfg(feature = "schema-validation")]
@@ -47,35 +40,41 @@ use fill::least_list;
 pub use headless::{HoverDocs, Suggestion};
 pub(crate) use headless::{schema_hover, schema_suggestions};
 pub(crate) use hover::*;
+pub use insert_plan::{InsertPlan, Planned};
 use kept::filled_past_caret;
 pub use kept::{kept_const, kept_default, language_keeps};
-use key_info::{key_info, names_only};
+use key_info::{ObjectAt, key_info, names_only};
 use list_items::{root_values, separate_from_next_item};
+pub(crate) use list_mode::ListMode;
 pub(crate) use live::{CompletionState, Sources, SuggestionPlace};
 pub(crate) use matching::*;
-pub(crate) use patterns::unsupported_patterns;
+pub(crate) use patterns::compiles;
 pub(crate) use popup::*;
 use required::caret_at_list;
 pub use required::{Fill, RequiredChild, required_children, writes_key};
 pub(crate) use schema::*;
 pub(crate) use stops::*;
-pub(crate) use text_typing::type_texts;
 pub(crate) use window::*;
 // Public for languages written outside the crate (see `language`).
 pub use schema::{array_branch, object_branch, placeholder, schema_const, schema_default};
 pub use stops::schema_example;
 
+pub(crate) use super::applies::{
+    Applies, ChoiceHover, Choices, Entry, Here, Next, Seen, Walking, decides, each_value,
+    item_schema, named_properties, ref_target, type_includes,
+};
 use super::commands::indent_unit;
-use super::diagnostics::SchemaBundle;
-use super::keyboard::{replace_selection, utf16_to_byte_index};
+use super::keyboard::utf16_to_byte_index;
 use super::language::{
-    CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, Scalars,
-    SchemaPathSegment,
+    CompletionContext, ConfigLanguage, EntryPosition, InsertContext, Repetition, SchemaPathSegment,
 };
 use super::metrics::read_editor_metrics;
 use super::positioning::{POPUP_MARGIN, PopupFrame};
+use super::schema::SchemaBundle;
 use super::state::EditorState;
 use super::typing::Closer;
+use crate::editor::text::{TextRange, TextSize, byte_of, slice, utf16_of};
+pub(crate) use patterns::{pattern_decides, pattern_matches};
 use serde_json::Value;
 use std::collections::HashSet;
 use wasm_bindgen::JsCast;
@@ -86,12 +85,14 @@ pub(super) struct Completion {
     pub(super) detail: String,
     pub(super) type_label: String,
     pub(super) insert: String,
-    pub(super) start: usize,
-    pub(super) end: usize,
-    pub(super) cursor_offset: usize,
-    /// UTF-16 length of the text before the caret that is left selected (an
-    /// inserted default), so typing replaces it.
-    pub(super) selected: usize,
+    /// The bytes of the text accepting it replaces: `start..end`.
+    pub(super) start: TextSize,
+    pub(super) end: TextSize,
+    /// The byte of `insert` the caret goes to.
+    pub(super) cursor_offset: TextSize,
+    /// Bytes of `insert` before the caret left selected (an inserted
+    /// default), so typing replaces it.
+    pub(super) selected: TextSize,
     pub(super) is_value: bool,
     /// Renames a key that already has its value (`ht|: 80`): accepting it
     /// completes the entry, so the list does not reopen.
@@ -235,28 +236,32 @@ mod tests {
 mod slot_tests {
     use super::super::Language;
     use super::next_slot;
+    use crate::editor::language::ConfigLanguage;
+    use crate::editor::text::text_size;
+
+    /// [`next_slot`] at byte offsets written as `usize`.
+    fn slot(text: &str, caret: usize, end: usize, behavior: &dyn ConfigLanguage) -> Option<usize> {
+        next_slot(text, text_size(caret), text_size(end), behavior).map(usize::from)
+    }
 
     #[test]
     fn slots_are_empty_values_after_the_caret() {
         let yaml_behavior = Language::YAML.behavior();
         let yaml = "rfc2136:\n  server: \n  key_name: \n  secret: \n";
         let first = yaml.find("server: ").unwrap() + "server: ".len();
-        let second = next_slot(yaml, first, yaml.len(), yaml_behavior).unwrap();
+        let second = slot(yaml, first, yaml.len(), yaml_behavior).unwrap();
         assert_eq!(&yaml[..second], "rfc2136:\n  server: \n  key_name: ");
         let json = "{\"a\": \"\", \"b\": \"\"}";
         assert_eq!(
-            next_slot(json, 7, json.len(), Language::JSON.behavior()),
+            slot(json, 7, json.len(), Language::JSON.behavior()),
             Some(16)
         );
         let xml = "<x>\n  <a></a>\n  <b></b>\n</x>";
         let after_a = xml.find("<a>").unwrap() + 3;
         assert_eq!(
-            next_slot(xml, after_a, xml.len(), Language::XML.behavior()),
+            slot(xml, after_a, xml.len(), Language::XML.behavior()),
             Some(xml.find("<b>").unwrap() + 3)
         );
-        assert_eq!(
-            next_slot(yaml, yaml.len() - 1, yaml.len(), yaml_behavior),
-            None
-        );
+        assert_eq!(slot(yaml, yaml.len() - 1, yaml.len(), yaml_behavior), None);
     }
 }

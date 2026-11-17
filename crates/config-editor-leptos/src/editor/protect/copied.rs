@@ -124,7 +124,7 @@ fn on_field(
             };
         }
         match at.rfind('/') {
-            Some(cut) if !at.is_empty() => at = &at[..cut],
+            Some(cut) if !at.is_empty() => at = at.get(..cut).unwrap_or_default(),
             _ => break,
         }
     }

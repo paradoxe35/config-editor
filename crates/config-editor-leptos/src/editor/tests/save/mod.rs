@@ -110,6 +110,8 @@ mod hcl_repeated_labels;
     feature = "xml"
 ))]
 mod hcl_templates;
+#[cfg(all(feature = "json", feature = "protect"))]
+mod host_check_work;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -118,6 +120,23 @@ mod hcl_templates;
     feature = "xml"
 ))]
 mod key_order;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "protect"
+))]
+mod large_secrets;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod lists_of_one;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -190,6 +209,10 @@ mod read_back;
     feature = "xml"
 ))]
 mod renamed_aliases;
+#[cfg(all(feature = "yaml", feature = "json"))]
+mod renamed_by_links;
+#[cfg(all(feature = "yaml", feature = "xml"))]
+mod schema_meanings;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

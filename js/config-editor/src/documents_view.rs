@@ -16,7 +16,6 @@ use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
 use crate::documents_list::{Kept, Listed, documents_from};
-use crate::echoes::Echoes;
 use crate::editor::{MOUNTED, Mounted, NEXT_ID, replace_editors_in};
 use crate::editor_view::DocumentEditorView;
 use crate::languages::{language_named, writable_edit_as};
@@ -28,7 +27,6 @@ use crate::typings::{DocumentEditorResult, DocumentsOptions, DocumentsUpdate, Se
 use crate::update::{Fixed, callback_change, given, plain_object, refuse_remount, settings_change};
 use crate::values::{diagnostics_to_js, field, text_arg, to_js};
 
-mod echo_ranges;
 mod echoing;
 
 /// The options `new ConfigDocuments` takes apart from the settings.
@@ -89,11 +87,6 @@ pub(crate) struct State {
     texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
     /// What the state callbacks last reported of each document (see `told`).
     told: StoredValue<HashMap<String, Told>, LocalStorage>,
-    /// Whether the host lists every text `onChange` gives back (`echoes`).
-    echoing: bool,
-    /// With `echoing`, each document's texts `onChange` sent that the host
-    /// has not listed back yet (see `echoes`).
-    echoes: StoredValue<HashMap<String, Echoes>, LocalStorage>,
     /// The check that the host came back to each document (see `settle`).
     settle: crate::settle::Slot,
     pub(crate) handle: DocumentsHandle,
@@ -175,30 +168,15 @@ impl State {
             .kept
             .try_update_value(std::mem::take)
             .unwrap_or_default();
-        // Whether the text listed for a document will replace what its
-        // editor holds (see `Echoes::replaces`; a document listed for the
-        // first time has nothing to keep).
-        let (texts, echoes, echoing) = (self.texts, self.echoes, self.echoing);
-        let replaces = |id: &str, value: &str| {
-            texts
-                .try_with_value(|texts| {
-                    texts.get(id).is_none_or(|known| {
-                        if !echoing {
-                            return !crate::remap::reads_as(&known.value, value);
-                        }
-                        echoes
-                            .try_update_value(|echoes| {
-                                echoes
-                                    .entry(id.to_string())
-                                    .or_insert_with(|| Echoes::new(true))
-                                    .replaces(value, &known.value)
-                            })
-                            .unwrap_or(true)
-                    })
+        // Each document's text as the view holds it, read where it is kept.
+        let listed = self
+            .texts
+            .try_with_value(|texts| {
+                documents_from(list, view, &mut kept, &|id| {
+                    texts.get(id).map(|known| known.value.as_str())
                 })
-                .unwrap_or(true)
-        };
-        let listed = documents_from(list, view, &mut kept, &replaces);
+            })
+            .unwrap_or_else(|| documents_from(list, view, &mut kept, &|_| None));
         if listed.is_err() {
             kept.abandon();
         }
@@ -301,22 +279,17 @@ fn view(state: State, setup: Setup) -> AnyView {
         if let Some(callback) = host(state.on_change) {
             // The host lists this string as the document's value next.
             let value = JsValue::from_str(&text);
-            if state.echoing {
-                let _ = state.echoes.try_update_value(|echoes| {
-                    echoes
-                        .entry(id.clone())
-                        .or_insert_with(|| Echoes::new(true))
-                        .sent(&text);
-                });
-            }
             let _ = state.kept.try_update_value(|kept| {
+                if let Some(channel) = kept.channels.get_mut(&id) {
+                    channel.sent(&text);
+                }
                 kept.texts.remember(&id, "value", value.clone(), text);
             });
             call_host_with(&callback, &[JsValue::from_str(&id), value]);
-        } else if state.echoing {
-            let _ = state.echoes.try_update_value(|echoes| {
-                if let Some(echo) = echoes.get_mut(&id) {
-                    echo.unsent();
+        } else {
+            let _ = state.kept.try_update_value(|kept| {
+                if let Some(channel) = kept.channels.get_mut(&id) {
+                    channel.unsent();
                 }
             });
         }
@@ -470,10 +443,12 @@ impl ConfigDocuments {
         let options: JsValue = options.into();
         let settings = settings_from(&options)?;
         let owner = Owner::new();
+        let echoing = bool_option(&options, "echoes")?.unwrap_or(false);
         let mut kept = Kept::default();
+        kept.echoing = echoing;
         let listed = match field(&options, "documents") {
             list if list.is_undefined() || list.is_null() => Listed::default(),
-            list => owner.with(|| documents_from(&list, &settings, &mut kept, &|_, _| false))?,
+            list => owner.with(|| documents_from(&list, &settings, &mut kept, &|_| None))?,
         };
         let on_select = function_option(&options, "onSelect")?;
         let on_close = function_option(&options, "onClose")?;
@@ -484,7 +459,6 @@ impl ConfigDocuments {
         let on_problems = function_option(&options, "onProblems")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_sync_change = function_option(&options, "onSyncChange")?;
-        let echoing = bool_option(&options, "echoes")?.unwrap_or(false);
         let setup = Setup {
             active: string_option(&options, "activeId")?,
             class: string_option(&options, "className")?.unwrap_or_default(),
@@ -523,25 +497,10 @@ impl ConfigDocuments {
             adds: setup.adds,
             texts: StoredValue::new_local(HashMap::new()),
             told: StoredValue::new_local(HashMap::new()),
-            echoing,
-            echoes: StoredValue::new_local(HashMap::new()),
             settle: StoredValue::new_local(Timer::default()),
             handle: DocumentsHandle::new(),
         });
         remember_texts(state.texts, &state.documents.get_untracked());
-        if echoing {
-            let given: HashMap<String, Echoes> = state.documents.with_untracked(|documents| {
-                documents
-                    .iter()
-                    .map(|document| {
-                        let mut echo = Echoes::new(true);
-                        echo.given(&document.value);
-                        (document.id.clone(), echo)
-                    })
-                    .collect()
-            });
-            let _ = state.echoes.try_set_value(given);
-        }
         let mount_element = element.clone();
         let mounted = owner.with(|| leptos::mount::mount_to(element, move || view(state, setup)));
         let id = NEXT_ID.with(|next| {
@@ -687,8 +646,11 @@ impl ConfigDocuments {
     /// back yet is its echo; this never is (a revert to such a text). List
     /// the document with that text from then on. Its editor keeps the
     /// caret on the same text when possible, and its read-only ranges on
-    /// the text they cover; `onChange` does not hear it.
-    /// `false` when no document has that id.
+    /// the text they cover (see `host_locks`); `onChange` does not hear it.
+    /// Returns whether it replaced the text: `false` when no document has
+    /// that id, when the document holds that text already (a second
+    /// Discard: nothing changes, and a framework binding reports nothing),
+    /// or when the host gave it a newer one meanwhile.
     #[wasm_bindgen(js_name = replaceValue)]
     pub fn replace_value(
         &self,
@@ -708,32 +670,43 @@ impl ConfigDocuments {
         // The host gave the document a text (or the list) from `onChange`
         // meanwhile: newer than this call.
         if newer.contains(&key) || newer.contains("documents") {
-            return Ok(true);
+            return Ok(false);
         }
-        let _ = self.state.texts.try_update_value(|texts| {
-            if let Some(known) = texts.get_mut(&id) {
-                known.value.clone_from(&value);
-            }
-        });
-        self.state.given(&id, &value);
+        // An editor still to open with an Edit-as text opens first: its
+        // text converts and is sent now, before the reset replaces it
+        // (converted after it, the value read back would be that text's).
         let edits = self.edits();
-        let ranges = self.ranges_moved_to(&id, &value, &edits);
+        // The text it held: the host's, or the last edit's (see `Texts`).
+        if self
+            .state
+            .texts_of(&id)
+            .is_some_and(|known| known.value == value)
+        {
+            return Ok(false);
+        }
+        // The host's own text: no echo to wait for, and the ranges carried
+        // into it from the ones given (see `HostChannel::replaced`).
+        let ranges = self
+            .state
+            .texts
+            .try_update_value(|texts| {
+                texts.get_mut(&id).and_then(|known| {
+                    let ranges = self.state.replaced(&id, &value, &known.value);
+                    known.value.clone_from(&value);
+                    ranges
+                })
+            })
+            .flatten();
         let _ = self.state.documents.try_update(|documents| {
             keep_edits(documents, &edits);
             if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
                 document.value = value;
-                if let Some(ranges) = &ranges {
+                if let Some((ranges, version)) = &ranges {
                     document.read_only_ranges.clone_from(ranges);
+                    document.read_only_ranges_version = *version;
                 }
             }
         });
-        // A list giving the same ranges again compares with these.
-        if let Some(ranges) = ranges {
-            let _ = self
-                .state
-                .kept
-                .try_update_value(|kept| kept.ranges.kept(&id, ranges));
-        }
         if let Some(documents) = self.state.documents.try_get_untracked() {
             self.owner.with(|| {
                 config_editor_leptos::js_support::take_documents(&self.state.handle, &documents);
@@ -776,7 +749,7 @@ impl ConfigDocuments {
         // `flushed` on: the host did not know them). What the host set from
         // `onChange` meanwhile is newer than this call, and stays.
         self.reentry.note_options(&options);
-        let flushed = crate::echoes::clock();
+        let flushed = config_editor_leptos::js_support::echo_clock();
         let newer = self
             .reentry
             .flush(config_editor_leptos::js_support::flush_pending_input);
@@ -875,7 +848,7 @@ impl ConfigDocuments {
         }
         let mut resend = (Vec::new(), false);
         if let Some(mut listed) = listed {
-            resend = self.state.keep_moved_past(&mut listed, flushed);
+            resend = self.state.take_listed(&mut listed, flushed);
             self.state.show(listed);
             // Taken now: `activeId` and every query answer for the new list
             // right after `update` returns.
@@ -925,33 +898,6 @@ impl ConfigDocuments {
         let (resend, settles) = resend;
         self.state.tell_again(resend, settles);
         Ok(())
-    }
-
-    /// The read-only ranges of the document `id` moved to `value`, the
-    /// text `replaceValue` gives it (see `reset_ranges`): from the text its
-    /// editor holds (`edits`), else the one listed.
-    fn ranges_moved_to(
-        &self,
-        id: &str,
-        value: &str,
-        edits: &HashMap<String, Edited>,
-    ) -> Option<Vec<config_editor_leptos::TextRange>> {
-        let (listed, given) = self
-            .state
-            .documents
-            .try_with_untracked(|documents| {
-                documents
-                    .iter()
-                    .find(|document| document.id == id)
-                    .map(|document| (document.value.clone(), document.read_only_ranges.clone()))
-            })
-            .flatten()?;
-        let current = edits
-            .get(id)
-            .and_then(|edited| edited.value.clone())
-            .unwrap_or(listed);
-        let handle = self.state.handle.editor(id)?;
-        crate::reset_ranges::moved_to(&handle, &current, value, || given)
     }
 
     /// What each open document holds that its list may not say, for
@@ -1047,7 +993,7 @@ struct Edited {
 /// Lists each document with the text its editor holds and the language it
 /// is edited as (`edits`): a list the view gives its documents again (a
 /// `replaceValue` of another one, the view's settings) is no discard of
-/// their edits, nor of an `editAs` the handle made (QA 30, L30-4), as a
+/// their edits, nor of an `editAs` the handle made, as a
 /// list the host gives is.
 fn keep_edits(documents: &mut [Document], edits: &HashMap<String, Edited>) {
     for document in documents {

@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use super::super::super::diagnostics::SchemaError;
+use super::super::super::schema::SchemaError;
 use super::super::SchemaResources;
 use super::super::bundle::{join, resource};
 use super::compile::error;

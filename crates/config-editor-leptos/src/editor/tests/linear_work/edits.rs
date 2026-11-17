@@ -6,9 +6,9 @@
 use leptos::prelude::*;
 
 use crate::editor::edit::Edit;
-use crate::editor::keys::enter::{Pressed, enter_at};
+use crate::editor::keys::enter::{Pressed, enter_units};
 use crate::editor::keys::line_edit::LineCommand;
-use crate::editor::keys::lines::{Command, run};
+use crate::editor::keys::lines::{Command, run_units as run};
 use crate::editor::state::EditorState;
 use crate::editor::sync::convert_now;
 
@@ -21,6 +21,10 @@ pub(super) enum EditKind {
     /// A digit typed into the middle item's port, then the typing pause
     /// and a save.
     Type,
+    /// The middle item's name selected and typed over, then the typing
+    /// pause and a save (a value retyped: the links are read, every
+    /// item left where it was told).
+    Retype,
     /// Enter at the end of the middle item's port line.
     Enter,
     /// The middle item's port line deleted (Ctrl+Shift+K).
@@ -53,9 +57,10 @@ impl EditKind {
         dead_code,
         reason = "used by an open finding's ignored test (none open now)"
     )]
-    pub(super) const ALL: [Self; 14] = [
+    pub(super) const ALL: [Self; 15] = [
         Self::Open,
         Self::Type,
+        Self::Retype,
         Self::Enter,
         Self::DeleteLine,
         Self::CutPausePaste,
@@ -142,7 +147,7 @@ fn type_at(state: EditorState, at: usize, typed: &str) {
     let mut text = before.clone();
     text.insert_str(byte, typed);
     let caret = at + units(typed);
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (at, at),
         text,
@@ -182,7 +187,7 @@ fn cut_middle(state: EditorState, last: &str) -> String {
     let stop = crate::editor::keyboard::utf16_to_byte_index(&before, to);
     let lines = before[start..stop].to_string();
     let text = format!("{}{}", &before[..start], &before[stop..]);
-    state.commit(Edit::new(before, (from, to), text, from));
+    state.commit(Edit::new_units(before, (from, to), text, from));
     lines
 }
 
@@ -193,7 +198,7 @@ fn paste_after_first(state: EditorState, lines: &str, last: &str) {
     let at = line_start(&before, line);
     let byte = crate::editor::keyboard::utf16_to_byte_index(&before, at);
     let text = format!("{}{lines}{}", &before[..byte], &before[byte..]);
-    state.commit(Edit::new(before, (at, at), text, at + units(lines)));
+    state.commit(Edit::new_units(before, (at, at), text, at + units(lines)));
 }
 
 /// Every item's `port` key replaced with `listen` by the find widget's
@@ -222,7 +227,12 @@ fn paste_whole(state: EditorState) {
     }
     let text = written.join("\n");
     let caret = units(&text);
-    state.commit(Edit::new(before.clone(), (0, units(&before)), text, caret));
+    state.commit(Edit::new_units(
+        before.clone(),
+        (0, units(&before)),
+        text,
+        caret,
+    ));
 }
 
 /// The setup an edit needs before it is counted (the edit to undo).
@@ -245,10 +255,39 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
             pause(state);
             let _ = state.save();
         }
+        EditKind::Retype => {
+            let before = shown(state);
+            let line = middle(&before, "name");
+            let written = before.split('\n').nth(line).unwrap_or_default();
+            let start = written
+                .find('a')
+                .unwrap_or_else(|| panic!("no name in {written:?}"));
+            let end = start
+                + 1
+                + written[start + 1..]
+                    .find(|character: char| !character.is_ascii_digit())
+                    .unwrap_or(written.len() - start - 1);
+            let at = line_start(&before, line);
+            let (from, to) = (at + units(&written[..start]), at + units(&written[..end]));
+            let byte = crate::editor::keyboard::utf16_to_byte_index(&before, from);
+            let stop = crate::editor::keyboard::utf16_to_byte_index(&before, to);
+            let text = format!("{}zz{}", &before[..byte], &before[stop..]);
+            state.commit(Edit::input_units(
+                before,
+                (from, to),
+                text,
+                (from + 2, from + 2),
+                "insertText".into(),
+                0.0,
+            ));
+            read_view(state);
+            pause(state);
+            let _ = state.save();
+        }
         EditKind::Enter => {
             let text = shown(state);
             let at = line_end(&text, middle(&text, "port"));
-            enter_at(state, (at, at), Pressed::Enter, None);
+            enter_units(state, (at, at), Pressed::Enter, None);
             read_view(state);
             pause(state);
         }
@@ -295,9 +334,9 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
         EditKind::Suggest => {
             let text = shown(state);
             let at = line_end(&text, middle(&text, "port"));
-            enter_at(state, (at, at), Pressed::Enter, None);
-            state.completion().requested.set(true);
-            let at = state.doc().caret.get_untracked();
+            enter_units(state, (at, at), Pressed::Enter, None);
+            state.set_list_mode(crate::editor::completion::ListMode::TYPED);
+            let at = state.caret_units();
             type_at(state, at, "h");
             let _ = state.completion().suggestions.get_untracked();
             type_at(state, at + 1, "o");

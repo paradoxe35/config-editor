@@ -1,4 +1,4 @@
-//! M23-E4: strings of line breaks only (`"\n"`), which no YAML block
+//! Strings of line breaks only (`"\n"`), which no YAML block
 //! scalar holds (`|+` over blank lines reads back as `""`): YAML writes
 //! them double-quoted, so serializing, converting, showing and saving them
 //! keeps them.

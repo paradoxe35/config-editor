@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use serde_json::{Map, Value, json};
 
-use super::super::super::diagnostics::SchemaError;
+use super::super::super::schema::SchemaError;
 use super::super::{LossEffect, SchemaLoss};
 use super::checks::IDENTITY;
 use super::checks::automaton::Namespaces;

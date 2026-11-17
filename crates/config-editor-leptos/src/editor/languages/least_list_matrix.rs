@@ -4,17 +4,10 @@
 //! `minItems` asks, and the first ones matching its `contains`.
 
 use super::super::completion::accept_marked;
-use super::super::diagnostics::{Schema, build_schema};
+use super::super::schema::{Schema, build_schema};
 use super::Language;
+use super::harness::{completing, report};
 use serde_json::{Value, json};
-
-const LANGUAGES: [Language; 5] = [
-    Language::YAML,
-    Language::JSON,
-    Language::TOML,
-    Language::HCL,
-    Language::XML,
-];
 
 /// `svc` requiring only the list `xs` of schema `list`.
 fn requiring(list: Value) -> Value {
@@ -97,6 +90,13 @@ fn cases() -> Vec<(Value, Value)> {
     ]
 }
 
+/// Whether `language` writes a plain key in quotes.
+fn quotes_keys(language: Language) -> bool {
+    language
+        .serialize(&json!({"name": 1}))
+        .is_ok_and(|text| text.contains("\"name\""))
+}
+
 #[test]
 fn a_least_list_is_valid_the_moment_it_is_written() {
     let mut failures = Vec::new();
@@ -104,7 +104,7 @@ fn a_least_list_is_valid_the_moment_it_is_written() {
         let schema = requiring(list.clone()).to_string();
         let bundle = build_schema(&schema).unwrap();
         let compiled = Schema::compile(&schema).unwrap();
-        for language in LANGUAGES {
+        for language in completing() {
             let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
             let text = accepted.replace('|', "");
             let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
@@ -120,7 +120,7 @@ fn a_least_list_is_valid_the_moment_it_is_written() {
                 .collect();
             // Written in the document's own style: no JSON-quoted keys
             // where the language writes them bare.
-            let quoted_key = language != Language::JSON && accepted.contains("\"name\"");
+            let quoted_key = accepted.contains("\"name\"") && !quotes_keys(language);
             if found.as_ref() != Some(&wanted) || !problems.is_empty() || quoted_key {
                 failures.push(format!(
                     "{language} {list}\n{accepted}\n{found:?} {problems:?}"
@@ -128,7 +128,7 @@ fn a_least_list_is_valid_the_moment_it_is_written() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    report(&failures);
 }
 
 /// The items one fill writes are bounded, so a schema asking a huge list
@@ -156,7 +156,7 @@ fn a_huge_least_list_is_written_up_to_the_bound() {
     for (list, items) in lists {
         let schema = requiring(list.clone()).to_string();
         let bundle = build_schema(&schema).unwrap();
-        for language in LANGUAGES {
+        for language in completing() {
             let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
             let text = accepted.replace('|', "");
             let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
@@ -179,5 +179,5 @@ fn a_huge_least_list_is_written_up_to_the_bound() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }

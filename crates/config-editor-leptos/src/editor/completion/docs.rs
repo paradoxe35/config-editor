@@ -40,13 +40,16 @@ pub(crate) fn docs_url(schema: &Value, root: &Value) -> Option<String> {
 
 /// The `x-docs-url` of the value at JSON `pointer` (its property's, or an
 /// item's), so a problem there links to its docs as the hover does.
-/// `repeats_arrays` as in [`schema_at_path`].
+/// `repeats_arrays` as in [`Applies`].
+#[cfg(feature = "schema-validation")]
 pub(crate) fn docs_url_at(root: &Value, pointer: &str, repeats_arrays: bool) -> Option<String> {
     let path: Vec<SchemaPathSegment> = crate::editor::language::pointer_segments(pointer)
         .into_iter()
         .map(SchemaPathSegment::from_pointer_segment)
         .collect();
-    schema_at_path(root, &path, repeats_arrays)
+    Applies::blind(root, repeats_arrays)
+        .at(&path)
+        .schemas()
         .into_iter()
         .find_map(|schema| docs_url(schema, root))
 }
@@ -137,18 +140,6 @@ impl<'a> ValueDocs<'a> {
     }
 }
 
-/// Whether any schema in `root` is marked deprecated, so documents are
-/// only searched for deprecated keys when there can be some.
-pub(crate) fn mentions_deprecated(root: &Value) -> bool {
-    match root {
-        Value::Object(map) => map.iter().any(|(key, value)| {
-            (key == "deprecated" && value == &Value::Bool(true)) || mentions_deprecated(value)
-        }),
-        Value::Array(items) => items.iter().any(mentions_deprecated),
-        _ => false,
-    }
-}
-
 /// A key of the document its schema marks deprecated.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct DeprecatedKey {
@@ -157,89 +148,49 @@ pub(crate) struct DeprecatedKey {
     pub(crate) key: String,
     /// What to use instead (`deprecationMessage`).
     pub(crate) message: Option<String>,
+    /// Its schema's docs link (see [`docs_url`]).
+    pub(crate) docs_url: Option<String>,
 }
 
 /// Up to `limit` keys of `document` that the schema marks deprecated, in
 /// document order.
 pub(crate) fn deprecated_keys(document: &Value, root: &Value, limit: usize) -> Vec<DeprecatedKey> {
     let mut found = Vec::new();
-    find_deprecated(
-        document,
-        &[root],
-        root,
-        &mut String::new(),
-        &mut found,
-        limit,
-        0,
-    );
+    let walking = Walking {
+        decided: true,
+        repeats_arrays: false,
+    };
+    each_value(document, root, walking, &mut |visit| {
+        if found.len() >= limit {
+            return Next::Stop;
+        }
+        let Some(SchemaPathSegment::Key(key)) = visit.segment else {
+            return Next::Into;
+        };
+        let branches = visit.here.branches();
+        if branches
+            .iter()
+            .any(|branch| branch.get("deprecated").and_then(Value::as_bool) == Some(true))
+        {
+            found.push(DeprecatedKey {
+                pointer: visit.pointer.to_string(),
+                key: key.clone(),
+                docs_url: visit
+                    .here
+                    .schemas()
+                    .into_iter()
+                    .find_map(|schema| docs_url(schema, root)),
+                message: branches.iter().find_map(|branch| {
+                    branch
+                        .get("deprecationMessage")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                }),
+            });
+        }
+        Next::Into
+    });
     found
-}
-
-fn find_deprecated(
-    value: &Value,
-    schemas: &[&Value],
-    root: &Value,
-    pointer: &mut String,
-    found: &mut Vec<DeprecatedKey>,
-    limit: usize,
-    depth: usize,
-) {
-    if depth > 64 || schemas.is_empty() {
-        return;
-    }
-    let length = pointer.len();
-    match value {
-        Value::Object(map) => {
-            for (key, child) in map {
-                if found.len() >= limit {
-                    return;
-                }
-                let segment = SchemaPathSegment::Key(key.clone());
-                let child_schemas: Vec<&Value> = schemas
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
-                pointer.push('/');
-                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
-                if child_schemas
-                    .iter()
-                    .any(|schema| is_deprecated(schema, root))
-                {
-                    found.push(DeprecatedKey {
-                        pointer: pointer.clone(),
-                        key: key.clone(),
-                        message: child_schemas
-                            .iter()
-                            .find_map(|schema| deprecation_message(schema, root)),
-                    });
-                }
-                find_deprecated(
-                    child,
-                    &child_schemas,
-                    root,
-                    pointer,
-                    found,
-                    limit,
-                    depth + 1,
-                );
-                pointer.truncate(length);
-            }
-        }
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                let segment = SchemaPathSegment::ArrayItem(index);
-                let item_schemas: Vec<&Value> = schemas
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
-                pointer.push('/');
-                pointer.push_str(&index.to_string());
-                find_deprecated(item, &item_schemas, root, pointer, found, limit, depth + 1);
-                pointer.truncate(length);
-            }
-        }
-        _ => {}
-    }
 }
 
 #[cfg(test)]
@@ -273,10 +224,6 @@ mod tests {
                 "servers": {"type": "array", "items": {"properties": {"weight": {"deprecated": true}}}}
             }
         });
-        assert!(mentions_deprecated(&root));
-        assert!(!mentions_deprecated(
-            &json!({"properties": {"deprecated": {"type": "boolean"}}})
-        ));
         let document = json!({"timeout": 3, "servers": [{"weight": 1}, {"host": "a"}]});
         assert_eq!(
             deprecated_keys(&document, &root, 20),
@@ -284,12 +231,14 @@ mod tests {
                 DeprecatedKey {
                     pointer: "/timeout".into(),
                     key: "timeout".into(),
-                    message: Some("Use deadline.".into())
+                    message: Some("Use deadline.".into()),
+                    docs_url: None,
                 },
                 DeprecatedKey {
                     pointer: "/servers/0/weight".into(),
                     key: "weight".into(),
-                    message: None
+                    message: None,
+                    docs_url: None,
                 },
             ]
         );

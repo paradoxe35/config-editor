@@ -5,7 +5,7 @@
 use serde_json::{Value, json};
 
 use super::super::{LossEffect, SchemaFormat, SchemaInput};
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 
 const API_30: &str = r##"{
   "openapi": "3.0.3",

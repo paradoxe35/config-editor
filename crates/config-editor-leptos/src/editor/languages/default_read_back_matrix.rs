@@ -2,13 +2,13 @@
 //! its suggestion as text that reads back as that default, in every
 //! language: strings YAML or XML would read otherwise (`a\r\nb`, `~`,
 //! `<tag>&amp;`), and empty lists and objects (a YAML `[]`, not an item
-//! left empty).
+//! left empty). Every language that suggests keys (see `harness::completing`).
 //!
 //! `|` marks the caret.
 
 use super::super::completion::{accept_marked, language_keeps};
-use super::super::diagnostics::build_schema;
-use super::Language;
+use super::super::schema::build_schema;
+use super::harness::{completing, report};
 use serde_json::Value;
 
 const SCHEMA: &str = include_str!("../../../tests/fixtures/defaults.schema.json");
@@ -18,13 +18,7 @@ fn a_kept_default_reads_back_as_itself() {
     let bundle = build_schema(SCHEMA).unwrap();
     let properties = bundle.schema["properties"].as_object().unwrap().clone();
     let mut failures = Vec::new();
-    for language in [
-        Language::YAML,
-        Language::JSON,
-        Language::TOML,
-        Language::HCL,
-        Language::XML,
-    ] {
+    for language in completing() {
         for (key, property) in properties.iter().filter(|(key, _)| *key != "a") {
             let default = property
                 .get("default")
@@ -48,7 +42,7 @@ fn a_kept_default_reads_back_as_itself() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }
 
 /// Whether `value` is what an empty value left to type reads as: nothing

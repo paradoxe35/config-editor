@@ -5,8 +5,8 @@
 //! it, so top-level, nested, map-entry, and array-item containers are covered.
 
 use super::super::completion::{apply_completion, completions};
-use super::super::diagnostics::build_schema;
 use super::super::language::SchemaPathSegment;
+use super::super::schema::build_schema;
 use super::Language;
 use serde_json::{Map, Value, json};
 
@@ -223,12 +223,7 @@ fn check_accepts(schema_text: &str, minimum: usize) {
                 };
                 checked += 1;
                 let (updated, _, new_caret) = apply_completion(&source, option);
-                let caret_at = updated
-                    .char_indices()
-                    .map(|(index, _)| index)
-                    .chain([updated.len()])
-                    .find(|index| updated[..*index].encode_utf16().count() == new_caret)
-                    .unwrap();
+                let caret_at = usize::from(new_caret);
                 let mut filled = updated.clone();
                 filled.insert_str(caret_at, fill(&updated, caret_at));
                 // The entry lands on the caret's own line: nothing above it moves.
@@ -267,12 +262,7 @@ fn check_accepts(schema_text: &str, minimum: usize) {
 /// Accepts `option` and types a value at the caret, returning the result.
 fn accept_and_fill(source: &str, option: &super::super::completion::Completion) -> String {
     let (updated, _, new_caret) = apply_completion(source, option);
-    let caret_at = updated
-        .char_indices()
-        .map(|(index, _)| index)
-        .chain([updated.len()])
-        .find(|index| updated[..*index].encode_utf16().count() == new_caret)
-        .unwrap();
+    let caret_at = usize::from(new_caret);
     let mut filled = updated.clone();
     filled.insert_str(caret_at, fill(&updated, caret_at));
     filled

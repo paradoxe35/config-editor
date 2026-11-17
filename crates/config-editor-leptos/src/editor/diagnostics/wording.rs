@@ -1,14 +1,17 @@
 //! How a schema problem reads: the validator's error in the editor's words
 //! (the strings tables where a host can translate them), a secret field's
 //! value never quoted (nor one inside the value told, a secret item of a
-//! list or field of an item) and a long value abbreviated. A value that matches
-//! none of a `oneOf`'s or `anyOf`'s options, or more than one of a
-//! `oneOf`'s, names the options (their titles) and says what each misses.
+//! list or field of an item) and a long value abbreviated (see `cut`). A
+//! value that matches none of a `oneOf`'s or `anyOf`'s options, or more
+//! than one of a `oneOf`'s, names the options (their titles) and says what
+//! each misses.
 
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
-use super::Fields;
+use super::cut::{Tokens, cut, cut_point};
+use super::secrets::Secrets;
+use super::{Explanations, Fields};
 use crate::EditorStrings;
 use crate::strings::fill;
 
@@ -16,9 +19,6 @@ use crate::strings::fill;
 /// then replaced by the strings' "the secret value": a private-use
 /// character JSON writes as it is, in no text a document holds.
 const SECRET_MARK: &str = "\u{F8FF}secret\u{F8FF}";
-
-/// Longest value quoted whole in a message; a longer one is cut with `…`.
-const MAX_QUOTED_VALUE: usize = 80;
 
 /// Most options a "matches none of the options" message gives reasons for.
 const MAX_OPTIONS_LISTED: usize = 5;
@@ -36,14 +36,20 @@ pub(in crate::editor) struct Wording<'a> {
     /// The schema the validator was built from (`$ref`s as pointers).
     pub root: &'a Value,
     pub strings: &'a EditorStrings,
-    /// The secret fields: a value one of them or inside one is never
-    /// quoted, and one holding one is quoted with each hidden.
-    pub secrets: &'a Fields,
+    /// The secrets: a value one of them or inside one is never quoted,
+    /// and one holding one is quoted with each hidden.
+    pub secrets: &'a Secrets<'a>,
     /// The host's placeholders: an item holding one is told repeated in
     /// a list by no message (see `placeholders`).
     pub placeholders: &'a Fields,
+    /// The placeholders a cut value never ends inside: the host's tokens
+    /// and what the placeholder patterns find.
+    pub tokens: &'a Tokens<'a>,
     /// How many levels of options the message being worded is inside.
     pub levels: std::cell::Cell<usize>,
+    /// Each option's first explanation, for the places it was not
+    /// explained again.
+    pub explanations: &'a Explanations<'a>,
 }
 
 impl Wording<'_> {
@@ -54,14 +60,15 @@ impl Wording<'_> {
         // Written as JSON only when the message quotes it.
         let value = std::cell::LazyCell::new(|| self.value(error));
         match error.kind() {
-            ValidationErrorKind::AnyOf { context } => {
-                expected_types(error, context, &value, strings)
-                    .or_else(|| self.none_matches(error, context, "anyOf"))
-                    .unwrap_or_else(|| self.validators_words(error))
-            }
-            ValidationErrorKind::OneOfNotValid { context } => {
-                expected_types(error, context, &value, strings)
-                    .or_else(|| self.none_matches(error, context, "oneOf"))
+            ValidationErrorKind::AnyOf { .. } | ValidationErrorKind::OneOfNotValid { .. } => {
+                let keyword = if matches!(error.kind(), ValidationErrorKind::AnyOf { .. }) {
+                    "anyOf"
+                } else {
+                    "oneOf"
+                };
+                let branches = self.explanations.branches(error).unwrap_or_default();
+                expected_types(error, &branches, &value, strings)
+                    .or_else(|| self.none_matches(error, &branches, keyword))
                     .unwrap_or_else(|| self.validators_words(error))
             }
             ValidationErrorKind::OneOfMultipleValid { context } => {
@@ -109,7 +116,7 @@ impl Wording<'_> {
                 *value,
                 Value::from(pattern.as_str())
             ),
-            ValidationErrorKind::FalseSchema => super::super::false_schema::message(&value),
+            ValidationErrorKind::FalseSchema => super::super::schema::false_schema_message(&value),
             ValidationErrorKind::Contains => self.contains(error),
             // Counts, not the whole list or object printed.
             ValidationErrorKind::MinItems { limit } => {
@@ -160,28 +167,26 @@ impl Wording<'_> {
     /// `value` (at `pointer`) as a message quotes it: "the secret value"
     /// for a secret field's, each secret inside it hidden, cut when long.
     pub(in crate::editor) fn value_at(&self, pointer: &str, value: &Value) -> String {
-        if self.secrets.holds(pointer) {
+        if self.secrets.holds(pointer, value) {
             return self.strings.secret_value.clone();
         }
-        if !self.secrets.any_within(pointer) {
-            return cut(&value.to_string());
+        if !self.secrets.touches(pointer, value) {
+            return cut(&value.to_string(), self.tokens);
         }
-        let mut hidden = value.clone();
-        for inner in self.secrets.within(pointer) {
-            if let Some(slot) = hidden.pointer_mut(&inner[pointer.len()..]) {
-                *slot = Value::from(SECRET_MARK);
-            }
-        }
-        cut(&hidden.to_string().replace(
-            &Value::from(SECRET_MARK).to_string(),
-            &self.strings.secret_value,
-        ))
+        let mark = Value::from(SECRET_MARK);
+        let hidden = self.secrets.hidden(pointer, value, &mark);
+        cut(
+            &hidden
+                .to_string()
+                .replace(&mark.to_string(), &self.strings.secret_value),
+            self.tokens,
+        )
     }
 
     /// Whether the value of `error` is a secret or holds one.
     fn holds_secret(&self, error: &ValidationError<'_>) -> bool {
-        let path = error.instance_path().as_str();
-        self.secrets.holds(path) || self.secrets.any_within(path)
+        self.secrets
+            .touches(error.instance_path().as_str(), error.instance())
     }
 
     /// The validator's own message for `error`, the value it starts with
@@ -192,7 +197,7 @@ impl Wording<'_> {
         let value = if self.holds_secret(error) {
             self.value(error)
         } else {
-            cut(&instance)
+            cut(&instance, self.tokens)
         };
         if value == instance {
             message
@@ -224,7 +229,7 @@ impl Wording<'_> {
                 .as_object()
                 .is_some_and(|members| members.keys().all(|keyword| annotation(keyword)))
         {
-            return super::super::false_schema::message(value);
+            return super::super::schema::false_schema_message(value);
         }
         // A `type` beside a `const` or `enum` adds nothing to their names.
         let only = schema.as_object().and_then(|members| {
@@ -319,7 +324,7 @@ impl Wording<'_> {
         let mut segments = schema_path.rsplit('/');
         let trigger = match (segments.next(), segments.next(), segments.next()) {
             (Some("not"), Some(trigger), Some("dependentSchemas" | "dependencies")) => {
-                Some(trigger.replace("~1", "/").replace("~0", "~"))
+                Some(crate::editor::language::unescaped_key(trigger))
             }
             _ => None,
         };
@@ -393,7 +398,7 @@ impl Wording<'_> {
     fn none_matches(
         &self,
         error: &ValidationError<'_>,
-        branches: &[Vec<ValidationError<'_>>],
+        branches: &[&[ValidationError<'_>]],
         keyword: &str,
     ) -> Option<String> {
         let path = error.instance_path().as_str();
@@ -413,8 +418,10 @@ impl Wording<'_> {
                 {
                     return Some(name.clone());
                 }
-                let errors: Vec<&ValidationError<'_>> =
-                    branch.iter().flat_map(super::specific_errors).collect();
+                let errors: Vec<&ValidationError<'_>> = branch
+                    .iter()
+                    .flat_map(|nested| super::specific_errors(self.explanations, nested))
+                    .collect();
                 let at_path =
                     |error: &&&ValidationError<'_>| error.instance_path().as_str() == path;
                 let first = errors
@@ -470,7 +477,7 @@ impl Wording<'_> {
                 .and_then(|rest| rest.strip_prefix('/'))
                 .filter(|key| !key.contains('/'))
         {
-            let key = key.replace("~1", "/").replace("~0", "~");
+            let key = crate::editor::language::unescaped_key(key);
             return fill(&strings.option_refuses, &[("option", &name), ("key", &key)]);
         }
         let message = self.message(error);
@@ -570,12 +577,12 @@ impl Wording<'_> {
             return Some(title.to_string());
         }
         let description = text("description")?.lines().next()?.trim();
-        Some(if description.chars().count() > MAX_OPTION_NAME {
-            let short: String = description.chars().take(MAX_OPTION_NAME).collect();
-            format!("{}…", short.trim_end())
-        } else {
-            description.to_string()
-        })
+        Some(
+            match cut_point(description, MAX_OPTION_NAME, &Tokens::default()) {
+                Some(end) => format!("{}…", description[..end].trim_end()),
+                None => description.to_string(),
+            },
+        )
     }
 }
 
@@ -594,7 +601,7 @@ fn unexpected(error: &ValidationError<'_>) -> Option<String> {
 /// text, `1.5` for `integer` or `"auto"`).
 fn expected_types(
     error: &ValidationError<'_>,
-    branches: &[Vec<ValidationError<'_>>],
+    branches: &[&[ValidationError<'_>]],
     value: &str,
     strings: &EditorStrings,
 ) -> Option<String> {
@@ -605,15 +612,17 @@ fn expected_types(
     ))
 }
 
-/// Whether `error` (an `anyOf` or a `oneOf` none of whose options match)
-/// is only that every option wants another type for the value: a problem
-/// with the value, not with which keys an object has.
-pub(in crate::editor) fn every_option_wants_another_type(error: &ValidationError<'_>) -> bool {
-    match error.kind() {
-        ValidationErrorKind::AnyOf { context } | ValidationErrorKind::OneOfNotValid { context } => {
-            expected_type_names(error, context).is_some()
-        }
-        _ => false,
+impl Wording<'_> {
+    /// Whether `error` (an `anyOf` or a `oneOf` none of whose options match)
+    /// is only that every option wants another type for the value: a problem
+    /// with the value, not with which keys an object has.
+    pub(in crate::editor) fn every_option_wants_another_type(
+        &self,
+        error: &ValidationError<'_>,
+    ) -> bool {
+        self.explanations
+            .branches(error)
+            .is_some_and(|branches| expected_type_names(error, &branches).is_some())
     }
 }
 
@@ -621,16 +630,19 @@ pub(in crate::editor) fn every_option_wants_another_type(error: &ValidationError
 /// another type for the value.
 fn expected_type_names(
     error: &ValidationError<'_>,
-    branches: &[Vec<ValidationError<'_>>],
+    branches: &[&[ValidationError<'_>]],
 ) -> Option<Vec<String>> {
     let path = error.instance_path().as_str();
     let mut types: Vec<String> = Vec::new();
     for branch in branches {
         let mut typed = false;
-        for nested in branch.iter().filter(|nested| {
-            matches!(nested.kind(), ValidationErrorKind::Type { .. })
-                && nested.instance_path().as_str() == path
-        }) {
+        for nested in super::own_errors(branch, path)
+            .into_iter()
+            .filter(|nested| {
+                matches!(nested.kind(), ValidationErrorKind::Type { .. })
+                    && nested.instance_path().as_str() == path
+            })
+        {
             typed = true;
             for name in listed_types(&nested.to_string())? {
                 if !types.contains(&name) {
@@ -659,15 +671,4 @@ pub(super) fn listed_types(message: &str) -> Option<Vec<String>> {
             .filter(|name| !name.is_empty())
             .collect(),
     )
-}
-
-/// `text` (a value as JSON), cut with `…` past [`MAX_QUOTED_VALUE`]
-/// characters.
-pub(super) fn cut(text: &str) -> String {
-    if text.chars().count() > MAX_QUOTED_VALUE {
-        let short: String = text.chars().take(MAX_QUOTED_VALUE).collect();
-        format!("{short}…")
-    } else {
-        text.to_string()
-    }
 }

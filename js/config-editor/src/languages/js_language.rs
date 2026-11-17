@@ -4,9 +4,11 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ops::Range;
 
+use config_editor_leptos::FieldPath;
 use config_editor_leptos::language::{
-    CompletionContext, ConfigLanguage, InsertContext, LanguageConfig, LanguageInfo, Lexical,
-    ParseError, Scalars, SchemaPathSegment, Span, Token, TokenKind, Tokens,
+    CompletionContext, ConfigLanguage, Hover, InsertContext, InsertPlan, LanguageConfig,
+    LanguageInfo, ParseError, SaveLayout, SchemaPathSegment, Span, Text, Token, TokenKind, Tokens,
+    Typing, flat_value_text, flat_write_insert,
 };
 use js_sys::{Array, Function};
 use serde_json::Value;
@@ -14,7 +16,7 @@ use wasm_bindgen::prelude::*;
 
 use super::assist;
 use super::ranges::{self, Multiline};
-use crate::values::{field, json_from_js, string_field, to_js};
+use crate::values::{field, json_from_js, string_field, written_to_js};
 
 /// The kinds a custom language's `highlight` tokens take.
 const TOKEN_KINDS: &str = "\"key\", \"string\", \"value\", \"literal\", \"comment\", \"punctuation\", \"reference\" or \"interpolation\"";
@@ -24,9 +26,11 @@ const TOKEN_KINDS: &str = "\"key\", \"string\", \"value\", \"literal\", \"commen
 /// with positions, conversion to and from every other language, Edit-as,
 /// the editing behavior its configuration describes, and schema completion
 /// and hover: through its optional `contextAt`, `insertKey` and `keyAt`
-/// callbacks, each one in place of its part of the flat default that its
-/// `separators` give (one `KEY=value` entry per line; see
-/// [`LanguageConfig::flat_completion_context`]). A flat language without
+/// callbacks, each one in place of its part of the default its declared
+/// syntax gives (`KEY=value` lines and values written on one line between
+/// its brackets, see [`LanguageConfig::flat_completion_context`]; entries
+/// written as its `serialize` writes them, see [`flat_write_insert`]). A
+/// flat language without
 /// `keySpan` / `valueSpan` (or where they return `null` or `undefined`)
 /// has its fields found on their lines; any other
 /// has its read-only fields checked by value alone. Constructs written over
@@ -39,8 +43,6 @@ pub(super) struct JsLanguage {
     definition: RefCell<JsValue>,
     info: Cell<LanguageInfo>,
     config: Cell<LanguageConfig>,
-    /// Its `scalars`: whether every scalar is text the schema types.
-    scalars: Cell<Scalars>,
     /// `multilineRanges` of the last text it was called for.
     multiline: RefCell<Option<(String, Multiline)>>,
 }
@@ -54,31 +56,20 @@ unsafe impl Send for JsLanguage {}
 unsafe impl Sync for JsLanguage {}
 
 impl JsLanguage {
-    pub(super) fn new(
-        definition: JsValue,
-        info: LanguageInfo,
-        (config, scalars): (LanguageConfig, Scalars),
-    ) -> Self {
+    pub(super) fn new(definition: JsValue, info: LanguageInfo, config: LanguageConfig) -> Self {
         Self {
             definition: RefCell::new(definition),
             info: Cell::new(info),
             config: Cell::new(config),
-            scalars: Cell::new(scalars),
             multiline: RefCell::default(),
         }
     }
 
     /// Takes a new definition of its label: editors already open follow it.
-    pub(super) fn replace(
-        &self,
-        definition: JsValue,
-        info: LanguageInfo,
-        (config, scalars): (LanguageConfig, Scalars),
-    ) {
+    pub(super) fn replace(&self, definition: JsValue, info: LanguageInfo, config: LanguageConfig) {
         *self.definition.borrow_mut() = definition;
         self.info.set(info);
         self.config.set(config);
-        self.scalars.set(scalars);
         self.multiline.borrow_mut().take();
     }
 
@@ -165,16 +156,15 @@ impl JsLanguage {
         ranges
     }
 
-    /// What `name` (`keySpan`, `valueSpan`) says of `pointer`: `None` when
+    /// What `name` (`keySpan`, `valueSpan`) says of `path`, given to it as a
+    /// JSON pointer: `None` when
     /// it says nothing (absent, threw, or gave `null` or `undefined`, as a
     /// stub does), so the flat default answers; else the span it gives, if
     /// it is in the text.
-    fn span(&self, name: &str, source: &str, pointer: &str) -> Option<Option<Span>> {
+    fn span(&self, name: &str, source: &str, path: &FieldPath) -> Option<Option<Span>> {
+        let pointer = JsValue::from_str(&path.to_pointer());
         let span = self
-            .call(
-                name,
-                &[JsValue::from_str(source), JsValue::from_str(pointer)],
-            )
+            .call(name, &[JsValue::from_str(source), pointer])
             .filter(|span| !span.is_null() && !span.is_undefined())?;
         Some(given_span(&span, source))
     }
@@ -256,7 +246,7 @@ impl ConfigLanguage for JsLanguage {
             .method("serialize")
             .ok_or_else(|| format!("{} cannot write documents", self.info.get().label))?;
         serialize
-            .call1(&self.definition(), &to_js(value))
+            .call1(&self.definition(), &written_to_js(value))
             .map_err(|error| {
                 string_field(&error, "message")
                     .or_else(|| error.as_string())
@@ -266,18 +256,18 @@ impl ConfigLanguage for JsLanguage {
             .ok_or_else(|| "serialize() must return a string".to_string())
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.span("keySpan", source, pointer).unwrap_or_else(|| {
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        self.span("keySpan", source, path).unwrap_or_else(|| {
             self.is_flat()
-                .then(|| self.config.get().flat_key_span(source, pointer))
+                .then(|| self.config.get().flat_key_span(source, path))
                 .flatten()
         })
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        self.span("valueSpan", source, pointer).unwrap_or_else(|| {
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        self.span("valueSpan", source, path).unwrap_or_else(|| {
             self.is_flat()
-                .then(|| self.config.get().flat_value_span(source, pointer))
+                .then(|| self.config.get().flat_value_span(source, path))
                 .flatten()
         })
     }
@@ -341,14 +331,67 @@ impl ConfigLanguage for JsLanguage {
         out.finish()
     }
 
-    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
-        Lexical {
-            in_comment: ranges::in_comment(&self.multiline(source), source, cursor),
-            ..Lexical::default()
+    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
+        if self.has("contextAt") {
+            assist::context_at(self, source, cursor)
+        } else {
+            self.config.get().flat_completion_context(source, cursor)
         }
     }
 
-    fn comments(&self, source: &str) -> Vec<Range<usize>> {
+    fn write_insert(
+        &self,
+        key: &str,
+        plan: &InsertPlan<'_>,
+        context: &InsertContext<'_>,
+    ) -> Option<(String, usize)> {
+        if self.has("insertKey") {
+            assist::insert_key(self, key, plan, context)
+        } else {
+            flat_write_insert(self, key, plan, context)
+        }
+    }
+
+    fn format_value(&self, value: &Value) -> String {
+        // A nested language (one that places the caret itself) writes
+        // values as JSON, which such formats read; a flat one bare.
+        if self.has("contextAt") {
+            value.to_string()
+        } else {
+            flat_value_text(self, value)
+        }
+    }
+
+    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
+        if self.has("keyAt") {
+            return None;
+        }
+        self.config.get().flat_hover_key(line, column)
+    }
+
+    fn config(&self) -> LanguageConfig {
+        self.config.get()
+    }
+
+    fn text(&self) -> &dyn Text {
+        self
+    }
+
+    fn hover(&self) -> &dyn Hover {
+        self
+    }
+
+    fn typing(&self) -> &dyn Typing {
+        self
+    }
+
+    fn layout(&self) -> &dyn SaveLayout {
+        self
+    }
+}
+
+impl Text for JsLanguage {
+    fn comments(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<Range<usize>> {
         ranges::comments(self, &self.multiline(source), source)
     }
 
@@ -359,68 +402,15 @@ impl ConfigLanguage for JsLanguage {
     fn string_body_lines(&self, source: &str) -> Vec<Range<usize>> {
         ranges::body_lines(source, &self.multiline(source).strings)
     }
+}
 
-    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
-        if self.has("contextAt") {
-            assist::context_at(self, source, cursor)
-        } else {
-            self.config.get().flat_completion_context(source, cursor)
-        }
+impl Typing for JsLanguage {
+    fn empty_value_slots(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<usize> {
+        self.config.get().flat_empty_value_slots(text)
     }
+}
 
-    fn existing_keys(
-        &self,
-        source: &str,
-        cursor_byte: usize,
-        path: &[SchemaPathSegment],
-    ) -> Option<HashSet<String>> {
-        if self.has("contextAt") {
-            assist::parsed_keys(self, source, cursor_byte, path)
-        } else {
-            self.config
-                .get()
-                .flat_existing_keys(source, cursor_byte, path)
-        }
-    }
-
-    fn property_insert(
-        &self,
-        key: &str,
-        property: &Value,
-        root: &Value,
-        context: &InsertContext<'_>,
-    ) -> Option<(String, usize)> {
-        if self.has("insertKey") {
-            assist::insert_key(self, key, property, root, context)
-        } else {
-            self.config.get().flat_property_insert(key)
-        }
-    }
-
-    fn format_value(&self, value: &Value) -> String {
-        // A nested language (one that places the caret itself) writes
-        // values as JSON, which such formats read; a flat one bare.
-        if self.has("contextAt") {
-            value.to_string()
-        } else {
-            self.config.get().flat_format_value(value)
-        }
-    }
-
-    /// A string edited where the host wrote one in quotes keeps them.
-    fn format_value_like(&self, value: &Value, written: &str) -> String {
-        self.config
-            .get()
-            .quoted_like(value, written, self.format_value(value))
-    }
-
-    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
-        if self.has("keyAt") {
-            return None;
-        }
-        self.config.get().flat_hover_key(line, column)
-    }
-
+impl Hover for JsLanguage {
     fn hover_path(
         &self,
         source: &str,
@@ -432,14 +422,18 @@ impl ConfigLanguage for JsLanguage {
         }
         assist::key_at(self, source, line_index, column)
     }
+}
 
-    /// `"text"`: every value `parse` gives is text, typed by the schema
-    /// where it says a type (and left as text where not).
-    fn scalars(&self) -> Scalars {
-        self.scalars.get()
-    }
-
-    fn config(&self) -> LanguageConfig {
-        self.config.get()
+impl SaveLayout for JsLanguage {
+    /// A string edited where the host wrote one in quotes keeps them.
+    fn format_value_like(
+        &self,
+        _language: &dyn ConfigLanguage,
+        value: &Value,
+        written: &str,
+    ) -> String {
+        self.config
+            .get()
+            .quoted_like(value, written, self.format_value(value))
     }
 }

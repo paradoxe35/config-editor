@@ -2,7 +2,9 @@
 //! completes the line (a quote, a bracket, `>`, an end tag, the missing
 //! `:`) makes the field read exactly as the host wrote it, so it goes
 //! through (I2); writing anything else there with it, or deleting the line,
-//! is refused naming the field (I1).
+//! changes the field's span and is refused with its reason (I1).
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use super::super::Language;
 use super::super::codec;
@@ -118,7 +120,7 @@ fn without_locked_line(text: &str) -> String {
 }
 
 #[test]
-fn closing_the_locked_line_goes_through_and_changing_it_is_refused_by_name() {
+fn closing_the_locked_line_goes_through_and_changing_it_is_refused() {
     let strings = EditorStrings::default();
     let mut failures = Vec::new();
     for (language, broken, closed, changed) in cases() {
@@ -146,10 +148,10 @@ fn closing_the_locked_line_goes_through_and_changing_it_is_refused_by_name() {
                     )),
                     Err(blocked) => {
                         let message = blocked.message(&strings);
-                        if !message.contains(LOCK) {
+                        if !message.contains("read-only") {
                             failures.push(format!(
                                 "{language} lock {order} the text: {after:?} refused with \
-                                 {message:?}, not naming {LOCK}"
+                                 {message:?}, not saying why"
                             ));
                         }
                     }

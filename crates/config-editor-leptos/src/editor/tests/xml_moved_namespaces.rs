@@ -1,9 +1,9 @@
 //! An element cut in an Edit-as view and pasted under another element
 //! keeps its namespace: no view shows a declaration or a prefix, so the
-//! user could neither see nor fix one that changed. QA `E36-3`: moved out
+//! user could neither see nor fix one that changed. Moved out
 //! of the element declaring its prefix (or a prefixed attribute's or
 //! child's), it declares the prefix itself, bound as the host bound it.
-//! QA `E37-6`: moved into or out of a default namespace (`xmlns="…"`), or
+//! Moved into or out of a default namespace (`xmlns="…"`), or
 //! where its prefix is bound to another namespace, it declares its own
 //! (`xmlns=""`, `xmlns="urn:d"`, `xmlns:c="urn:c"`). Moved within its
 //! namespace, it declares nothing. From every view, pasted at once, after
@@ -17,6 +17,7 @@ use super::super::state::EditorState;
 use super::super::sync::{convert_now, switch_to};
 use super::super::test_state::TestEditor;
 use crate::editor::save_matrix::report;
+use crate::editor::text::text_size;
 use leptos::prelude::*;
 
 struct Case {
@@ -200,7 +201,7 @@ fn cut(state: EditorState, view: Language, key: &str) -> String {
     let (from, to) = (line_offset(&before, start), line_offset(&before, end));
     let text = format!("{}{}", &before[..from], &before[to..]);
     let caret = units(&before[..from]);
-    state.commit(Edit::new(before, (caret, caret), text, caret));
+    state.commit(Edit::new_units(before, (caret, caret), text, caret));
     lines
 }
 
@@ -216,9 +217,29 @@ fn paste(state: EditorState, lines: &str, sibling: &str, table: &str) {
     let before = state.doc().text.get_untracked();
     let (at, inserted) = match lines.strip_prefix('[') {
         Some(header) => {
-            let (name, rest) = header.split_once(']').expect("a table header");
-            let key = name.rsplit('.').next().unwrap_or(name);
-            (before.len(), format!("[{table}.{key}]{rest}"))
+            // Pasted at the end, its header then made to name `table`, as
+            // typed.
+            let (name, _) = header.split_once(']').expect("a table header");
+            let parent = name.rsplit_once('.').map_or("", |(parent, _)| parent);
+            let at = before.len();
+            let text = format!("{before}{lines}");
+            let start = units(&before);
+            state.commit(Edit::new_units(
+                before,
+                (start, start),
+                text.clone(),
+                start + units(lines),
+            ));
+            let (from, to) = (at + 1, at + 1 + parent.len());
+            let renamed = format!("{}{table}{}", &text[..from], &text[to..]);
+            let (from, to) = (units(&text[..from]), units(&text[..to]));
+            state.commit(Edit::new_units(
+                text,
+                (from, to),
+                renamed,
+                from + units(table),
+            ));
+            return;
         }
         None => {
             let shown: Vec<&str> = before.lines().collect();
@@ -240,7 +261,7 @@ fn paste(state: EditorState, lines: &str, sibling: &str, table: &str) {
     let text = format!("{}{inserted}{}", &before[..at], &before[at..]);
     let start = units(&before[..at]);
     let caret = start + units(&inserted);
-    state.commit(Edit::new(before, (start, start), text, caret));
+    state.commit(Edit::new_units(before, (start, start), text, caret));
 }
 
 /// What happens between the cut and the paste.
@@ -273,7 +294,14 @@ fn an_element_moved_keeps_its_namespace() {
                 editor.edit_as = Some(view);
                 let (_owner, state) = editor.mount();
                 let lines = match step {
-                    Between::Copied => copy(view, &state.doc().text.get_untracked(), case.key),
+                    Between::Copied => {
+                        // As Ctrl+C copies them.
+                        let text = state.doc().text.get_untracked();
+                        let (start, end) = entry_lines(view, &text, case.key);
+                        let (from, to) = (line_offset(&text, start), line_offset(&text, end));
+                        state.note_copied(&text[from..to], (text_size(from), text_size(to)));
+                        copy(view, &text, case.key)
+                    }
                     _ => cut(state, view, case.key),
                 };
                 match step {
@@ -295,8 +323,8 @@ fn an_element_moved_keeps_its_namespace() {
                 let saved = state.sync().host_text.get_value();
                 let problems = crate::check_syntax(Language::XML, &saved);
                 // A copy keeps its source's namespace like a moved element
-                // (QA 37, E37-5: a copy of an existing item keeps its form);
-                // only a brand-new element takes its siblings' (E34-3).
+                // (a copy of an existing item keeps its form);
+                // only a brand-new element takes its siblings'.
                 let kept = saved != case.host && saved.contains(case.expected);
                 if !kept || !problems.is_empty() {
                     let waits: Vec<String> = state

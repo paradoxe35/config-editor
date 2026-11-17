@@ -2,7 +2,7 @@
 //! no whole float, so it writes `1`. Readers still take `1.0` as the number
 //! 1, but a view of a host's float shows it as the host wrote it.
 
-use super::super::super::codec::byte_range;
+use super::super::super::codec::span_text_range;
 use super::super::super::language::Span;
 use serde_json::Value;
 
@@ -25,7 +25,7 @@ pub(super) fn with_whole_floats(
         .into_iter()
         .zip(&integers)
         .filter_map(|(span, integer)| {
-            let range = byte_range(text, span?)?;
+            let range: std::ops::Range<usize> = span_text_range(text, span?)?.into();
             (text[range.clone()] == **integer).then(|| (range, format!("{integer}.0")))
         })
         .collect();
@@ -51,7 +51,7 @@ fn whole_floats(value: &Value, pointer: String, out: &mut Vec<(String, String)>)
         }
         Value::Object(map) => {
             for (key, child) in map {
-                let key = key.replace('~', "~0").replace('/', "~1");
+                let key = crate::editor::language::pointer_key(key);
                 whole_floats(child, format!("{pointer}/{key}"), out);
             }
         }

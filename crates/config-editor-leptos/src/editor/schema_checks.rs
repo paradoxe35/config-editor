@@ -5,8 +5,9 @@
 
 use serde_json::Value;
 
-use super::diagnostics::{Diagnostic, SchemaBundle};
+use super::diagnostics::Diagnostic;
 use super::language::ConfigLanguage;
+use super::schema::SchemaBundle;
 use super::schema_formats::CheckedDocument;
 use super::work_count::{Work, note};
 

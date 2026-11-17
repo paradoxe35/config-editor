@@ -1,0 +1,225 @@
+//! P1 across the documents of a documents view: one document's secret
+//! placeholder pasted into another (glued into a value) stands for no
+//! secret there, and a problem says so where it is written, in every
+//! language. The view gives each editor every editor's placeholders; an
+//! editor's own are real only in its own fields.
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
+use std::sync::Arc;
+
+use leptos::prelude::*;
+
+use super::super::Language;
+use super::super::test_state::TestEditor;
+use super::guarantee_tests::{problems, replace};
+use super::secret_tests::{ID, PIN, SECRET, documents};
+use crate::editor::text::text_size;
+
+/// Another document's placeholder.
+const OTHER: &str = "«secret 9b1c»";
+
+#[test]
+fn another_documents_placeholder_pasted_in_is_flagged_in_every_language() {
+    let mut failures = Vec::new();
+    for (language, text) in documents() {
+        let (_other_owner, other) =
+            TestEditor::new(Language::YAML, &format!("key: {OTHER}\n")).mount();
+        let shared = Signal::derive(move || {
+            let theirs = other.protect().own_placeholders("tls.yaml".to_string());
+            Arc::new(theirs.into_iter().collect::<Vec<_>>())
+        });
+        let mut editor = TestEditor::new(language, &text);
+        editor.foreign = Some(shared);
+        let (_owner, state) = editor.mount();
+        // Glued after the `name` value's `a`.
+        let name = text.find("name").expect("a name field") + 4;
+        let at = name + text[name..].find('a').expect("its value") + 1;
+        replace(state, at..at, OTHER);
+        let found = problems(state, language, None);
+        let line = text[..at].matches('\n').count() + 1;
+        if !found
+            .iter()
+            .any(|problem| problem.starts_with(&format!("{line}:")) && problem.contains("tls.yaml"))
+        {
+            failures.push(format!("{language}: glued on line {line}: {found:?}"));
+        }
+        // This document's own placeholder, in its own field, is not flagged.
+        if found.iter().any(|problem| problem.contains(SECRET)) {
+            failures.push(format!("{language}: its own flagged: {found:?}"));
+        }
+        // The problems the editor lists (`on_problems`) hold it too.
+        state
+            .problems()
+            .diagnosed_text
+            .set(state.doc().text.get_untracked());
+        let listed = state.problems().own.get_untracked();
+        if !listed
+            .iter()
+            .any(|problem| problem.line == Some(line) && problem.message.contains("tls.yaml"))
+        {
+            failures.push(format!("{language}: not listed: {listed:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// P1: another document's placeholder pasted in is as solid here as a
+/// placeholder of this document's own: an edit cutting it (Backspace on
+/// its last character, part of it selected and deleted) takes it whole,
+/// a drag of part of it is refused, and Replace all leaves a match inside
+/// it, in every language, also in a document whose host gave no
+/// placeholder of its own.
+#[test]
+fn another_documents_placeholder_pasted_in_is_never_cut() {
+    let mut failures = Vec::new();
+    let without_own = documents().into_iter().map(|(language, text)| {
+        let plain = [SECRET, PIN, ID]
+            .iter()
+            .fold(text, |text, token| text.replace(token, "x"));
+        (language, plain)
+    });
+    for (language, text) in documents().into_iter().chain(without_own) {
+        let own = if text.contains(SECRET) {
+            "own"
+        } else {
+            "none of its own"
+        };
+        let name = text.find("name").expect("a name field") + 4;
+        let at = name + text[name..].find('a').expect("its value") + 1;
+        let end = at + OTHER.len();
+        // An editor of `text` with the other document's token pasted at
+        // `at` (the owners of both editors kept with it).
+        let pasted = || {
+            let (theirs_owner, theirs) =
+                TestEditor::new(Language::YAML, &format!("key: {OTHER}\n")).mount();
+            let shared = Signal::derive(move || {
+                let tokens = theirs.protect().own_placeholders("tls.yaml".to_string());
+                Arc::new(tokens.into_iter().collect::<Vec<_>>())
+            });
+            let mut editor = TestEditor::new(language, &text);
+            editor.foreign = Some(shared);
+            let (owner, state) = editor.mount();
+            replace(state, at..at, OTHER);
+            (theirs_owner, owner, state)
+        };
+        let (_theirs, _owner, state) = pasted();
+        #[cfg(feature = "search")]
+        let shown = state.doc().text.get_untracked();
+        if !state.cuts_a_token(text_size(at + '«'.len_utf8()), text_size(end)) {
+            failures.push(format!("{language} ({own}): a drag of part of it taken"));
+        }
+        // Replace All exists only with find and replace.
+        #[cfg(feature = "search")]
+        if !state
+            .protected_bytes(&shown)
+            .iter()
+            .any(|range| range.start <= at && end <= range.end)
+        {
+            failures.push(format!("{language} ({own}): Replace all may cut it"));
+        }
+        for (what, cut) in [
+            ("Backspace on its last character", end - '»'.len_utf8()..end),
+            ("part of it deleted", at + '«'.len_utf8()..at + 9),
+        ] {
+            let (_theirs, _owner, state) = pasted();
+            replace(state, cut, "");
+            let now = state.doc().text.get_untracked();
+            if now.contains("9b1c") || now.matches('«').count() != text.matches('«').count() {
+                failures.push(format!("{language} ({own}): {what}: {now:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// P1: with a copy of this document's own placeholder pasted over the
+/// `name` value (plain text there), an undo and a redo leave the real one
+/// in its field real: a cut into it, or a key typed into it, takes it
+/// whole, in every language. (Found again by their text after the undo,
+/// the copy, written first, was taken for the real one.)
+#[test]
+fn the_real_placeholder_stays_real_past_an_undo_of_a_copy_written_before_it() {
+    let mut failures = Vec::new();
+    for (language, text) in documents() {
+        let name = text.find("name").expect("a name field") + 4;
+        let at = name + text[name..].find('a').expect("its value");
+        let pasted = format!("{}{SECRET}{}", &text[..at], &text[at + 1..]);
+        let real = pasted.rfind(SECRET).expect("the real one") + SECRET.len();
+        for (what, cut, with) in [
+            ("the real one cut into", real - 5..real - 2, ""),
+            ("a key typed into the real one", real - 5..real - 5, "c"),
+        ] {
+            let (_owner, state) = TestEditor::new(language, &text).mount();
+            replace(state, at..at + 1, SECRET);
+            if state.doc().text.get_untracked() != pasted {
+                failures.push(format!("{language}: the copy not pasted"));
+                continue;
+            }
+            // Undone and redone: the tokens found again by their text.
+            for redo in [false, true] {
+                if let Some(step) = state.history_edit(redo) {
+                    state.commit(step);
+                }
+            }
+            replace(state, cut, with);
+            let now = state.doc().text.get_untracked();
+            // Every `«` starts a whole token the host gave.
+            let whole = now.match_indices('«').all(|(start, _)| {
+                [SECRET, PIN, ID]
+                    .iter()
+                    .any(|token| now[start..].starts_with(token))
+            });
+            if !whole {
+                failures.push(format!("{language}: {what}: {now:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// P1: a problem quoting a long value cuts it before another document's
+/// placeholder pasted in, never inside it (a piece of a token on the page
+/// is a piece of that document's secret's stand-in), as it does for this
+/// document's own.
+#[cfg(feature = "schema-validation")]
+#[test]
+fn a_problem_never_quotes_part_of_another_documents_placeholder() {
+    let schema =
+        super::super::schema::build_schema(r#"{"properties": {"note": {"type": "integer"}}}"#)
+            .expect("a schema");
+    let schema = Arc::new(schema);
+    let mut failures = Vec::new();
+    // For some of these leads the token starts before the cut and ends
+    // after it.
+    for lead in 57..80 {
+        let (_theirs_owner, theirs) =
+            TestEditor::new(Language::YAML, &format!("key: {OTHER}\n")).mount();
+        let shared = Signal::derive(move || {
+            let tokens = theirs.protect().own_placeholders("tls.yaml".to_string());
+            Arc::new(tokens.into_iter().collect::<Vec<_>>())
+        });
+        let mut editor = TestEditor::new(Language::YAML, "note: x\n");
+        editor.foreign = Some(shared);
+        editor.schema = Some(schema.clone());
+        let (_owner, state) = editor.mount();
+        let at = "note: ".len();
+        let value = format!("{}{OTHER}{}", "x".repeat(lead), "y".repeat(20));
+        replace(state, at..at + 1, &value);
+        state
+            .problems()
+            .diagnosed_text
+            .set(state.doc().text.get_untracked());
+        let listed = state.problems().own.get_untracked();
+        if !listed.iter().any(|problem| problem.message.contains('…')) {
+            failures.push(format!("lead {lead}: no value cut in {listed:?}"));
+        }
+        for problem in listed {
+            let message = &problem.message;
+            if message.matches('«').count() != message.matches(OTHER).count() {
+                failures.push(format!("lead {lead}: {message}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

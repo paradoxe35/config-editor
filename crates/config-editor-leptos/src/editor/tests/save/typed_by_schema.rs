@@ -8,11 +8,12 @@
 
 use std::sync::Arc;
 
+use crate::editor::FieldPath;
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
 use crate::editor::codec;
-use crate::editor::diagnostics::{SchemaBundle, build_schema};
 use crate::editor::save_matrix::{ALL, report};
+use crate::editor::schema::{SchemaBundle, build_schema};
 use serde_json::{Value, json};
 
 /// Types `f` (number), `i` (integer), `b` (boolean) and `n`, `s` (strings)
@@ -57,8 +58,10 @@ fn in_host(host: Language, key: &str) -> String {
 
 /// `text` with the value at `pointer` replaced by `typed`.
 fn typed_over(language: Language, text: &str, pointer: &str, typed: &str) -> Option<String> {
-    let span = language.behavior().value_span(text, pointer)?;
-    let range = codec::byte_range(text, span)?;
+    let span = language
+        .behavior()
+        .value_span(text, &FieldPath::from(pointer))?;
+    let range: std::ops::Range<usize> = codec::span_text_range(text, span)?.into();
     let mut typed_text = text.to_string();
     typed_text.replace_range(range, typed);
     Some(typed_text)
@@ -138,8 +141,9 @@ fn numbers_and_booleans_in_any_spelling_save_as_the_schema_types_them() {
                 // An XML host writes the number as typed: it is text there.
                 let spelled = host
                     .behavior()
-                    .value_span(&saved, &pointer)
-                    .and_then(|span| codec::byte_range(&saved, span))
+                    .value_span(&saved, &FieldPath::from(&pointer))
+                    .and_then(|span| codec::span_text_range(&saved, span))
+                    .map(std::ops::Range::<usize>::from)
                     .map(|range| saved[range].trim().to_string());
                 // (HCL has one number type: a whole number typed over a
                 // float stays a float, `3.0`.)

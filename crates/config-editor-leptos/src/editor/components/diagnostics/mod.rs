@@ -244,7 +244,7 @@ mod tests {
         }
     }
 
-    /// QA 19: an error and a warning over the same text are drawn in the
+    /// An error and a warning over the same text are drawn in the
     /// error's colour (the warning's underline no longer over it).
     #[test]
     fn only_the_most_serious_problem_over_the_same_text_is_drawn_in_colour() {

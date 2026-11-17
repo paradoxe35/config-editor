@@ -1,4 +1,4 @@
-//! QA `E37-1` (low): TOML keys moved together from a table into an item
+//! TOML keys moved together from a table into an item
 //! of an array of tables keep their forms (a datetime, a hex
 //! number), and the item gains no blank line.
 
@@ -27,7 +27,7 @@ fn moved(pausing: bool, reindented: bool) -> Result<(), String> {
     let lines = text[from..to].to_string();
     let after = format!("{}{}", &text[..from], &text[to..]);
     let caret = units(&text[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         text.clone(),
         (caret, caret + units(&lines)),
         after,
@@ -45,7 +45,7 @@ fn moved(pausing: bool, reindented: bool) -> Result<(), String> {
     let paste = |text: &str, at: usize, removed: usize, inserted: &str| {
         let after = format!("{}{inserted}{}", &text[..at], &text[at + removed..]);
         let start = units(&text[..at]);
-        state.commit(Edit::new(
+        state.commit(Edit::new_units(
             text.to_string(),
             (start, start + units(&text[at..at + removed])),
             after,

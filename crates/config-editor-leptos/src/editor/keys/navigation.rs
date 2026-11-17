@@ -7,11 +7,11 @@ use web_sys::KeyboardEvent;
 use super::super::a11y::problem_announcement;
 use super::super::commands::smart_home as home_target;
 use super::super::completion::visual_column;
-use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::problem_walk::next_stop;
-use super::super::state::{EditorState, directed_selection, textarea_selection};
+use super::super::state::{EditorState, directed_selection, select, textarea_selection};
+use crate::editor::text::{TextSize, slice, utf16_of};
 
 /// Smart Home: the first non-blank character, then the line start.
 pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
@@ -33,19 +33,19 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
         } else {
             "forward"
         };
-        let _ = element.set_selection_range_with_direction(
-            anchor.min(target) as u32,
-            anchor.max(target) as u32,
-            direction,
+        select(
+            &element,
+            anchor.min(target),
+            anchor.max(target),
+            direction == "backward",
         );
     } else {
-        let _ = element.set_selection_range(target as u32, target as u32);
+        select(&element, target, target, false);
     }
     // Bring the caret back into view when the line is scrolled sideways.
     let column = state.doc().text.with_untracked(|text| {
-        let byte = utf16_to_byte_index(text, target);
-        let line_start = text[..byte].rfind('\n').map_or(0, |index| index + 1);
-        visual_column(&text[line_start..byte])
+        let head = slice::before(text, target).unwrap_or_default();
+        visual_column(head.rsplit('\n').next().unwrap_or_default())
     });
     let metrics = read_editor_metrics(element.element());
     let caret_x = column * metrics.char_width;
@@ -56,8 +56,7 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
     state
         .doc()
         .text
-        .with_untracked(|text| reveal_offset(&element, text, target, state.view().scroll_y));
-    state.note_caret(target);
+        .with_untracked(|text| reveal_offset(&element, text, target));
     true
 }
 
@@ -80,17 +79,17 @@ pub(super) fn keep_placeholder(state: EditorState, event: &KeyboardEvent) -> boo
         return false;
     }
     let end = state.doc().text.with_untracked(|text| {
-        let byte = utf16_to_byte_index(text, end);
-        let rest = &text[byte..];
+        let rest = slice::after(text, end).unwrap_or_default();
         let skip = if key == "Enter" {
-            rest.find('\n').unwrap_or(rest.len())
+            rest.split('\n').next().unwrap_or_default()
         } else {
-            usize::from(rest.starts_with(['"', '\'']))
+            rest.get(..1)
+                .filter(|quote| matches!(*quote, "\"" | "'"))
+                .unwrap_or_default()
         };
-        end + rest[..skip].encode_utf16().count()
+        end + TextSize::of(skip)
     });
-    let _ = element.set_selection_range(end as u32, end as u32);
-    state.doc().caret.set(end);
+    select(&element, end, end, false);
     state.close_suggestions();
     if key == "Tab" {
         event.prevent_default();
@@ -133,17 +132,12 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
         return false;
     }
     event.prevent_default();
-    // Right after an edit the problems are those of the text before the
-    // typing pause: check the text as it is now first.
-    let text = state.doc().text.get_untracked();
-    if state
-        .problems()
-        .diagnosed_text
-        .with_untracked(|diagnosed| *diagnosed != text)
-    {
-        state.problems().diagnosed_text.set(text);
-    }
-    let here = state.doc().caret.get_untracked();
+    check_before_walk(state);
+    // The walk's stops are UTF-16 offsets of the text.
+    let here = state
+        .doc()
+        .text
+        .with_untracked(|text| utf16_of(text, state.doc().caret.get_untracked()));
     let problems = state.problems();
     let stops = problems.walk.get_untracked();
     // Where the last press left off, if the caret is still there.
@@ -166,7 +160,10 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     };
     let index = stops[position].index;
     state.go_to_diagnostic(index);
-    let caret = state.doc().caret.get_untracked();
+    let caret = state
+        .doc()
+        .text
+        .with_untracked(|text| utf16_of(text, state.doc().caret.get_untracked()));
     // "Error 2 of 5: …" for screen readers, which do not see the message
     // the marker shows (an unplaced problem has none).
     let walked = problems
@@ -181,6 +178,14 @@ pub(super) fn next_problem(state: EditorState, event: &KeyboardEvent) -> bool {
     problems.walked.set(Some((problem, caret)));
     state.a11y().announce(said);
     true
+}
+
+/// Right after an edit the problems are those of the text before the
+/// typing pause: F8 checks the text as it is now first, as the pause does,
+/// the secret placeholders read afresh before the problems they give.
+pub(in crate::editor) fn check_before_walk(state: EditorState) {
+    state.recheck_tokens();
+    state.check_text_now();
 }
 
 /// Escape closes the suggestion list, then the find widget, or with nothing
@@ -198,7 +203,7 @@ pub(super) fn escape(state: EditorState, event: &KeyboardEvent) {
         let (start, end) = textarea_selection(&element);
         if start != end {
             let (_, caret) = directed_selection(&element);
-            let _ = element.set_selection_range(caret as u32, caret as u32);
+            select(&element, caret, caret, false);
         }
     }
 }

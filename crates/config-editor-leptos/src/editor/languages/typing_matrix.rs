@@ -1,11 +1,16 @@
 //! Typing text character by character in every language, with what the
 //! editor writes as it goes: pairs, closers typed over, lines re-indented,
-//! and markup a character finishes (round 21: XML's `</` wrote no end tag,
-//! an attribute quote before `/>` stayed open, HCL's `"${` wrote no `}`).
+//! and markup a character finishes (XML's `</` writes the end tag, an
+//! attribute quote closes before `/>`, HCL's `"${` writes its `}`). Each
+//! language, custom ones too, types its own quoted strings and bracketed
+//! values whole; what a language's own syntax finishes is written by hand.
 
-use super::super::keyboard::{paired_edit, replace_selection};
+use super::super::keyboard::{is_closer, paired_edit, replace_selection};
 use super::super::keys::complete::{completed, reindented};
 use super::Language;
+use super::harness::{At, every_language, report, write};
+use crate::editor::text::{byte_of, utf16_of};
+use serde_json::json;
 
 /// Types `typed` at the `|` of `marked`, as the editor's keys do with
 /// auto-closing on; returns the text with the caret marked.
@@ -22,7 +27,7 @@ fn type_in(language: Language, marked: &str, typed: &str) -> String {
     for character in typed.chars() {
         let next = units(&text).get(caret).copied();
         let over = closers.iter().any(|(at, completion)| {
-            *at == caret && (*completion || matches!(character, ')' | ']' | '}' | '"' | '\''))
+            *at == caret && (*completion || is_closer(behavior, character))
         });
         // A markup language's `>` moves over the `>` ahead.
         let markup_end = character == '>'
@@ -34,23 +39,42 @@ fn type_in(language: Language, marked: &str, typed: &str) -> String {
             continue;
         }
         let before_len = units(&text).len();
-        let (updated, new_caret, closed, completion) =
-            if let Some((updated, at)) = reindented(behavior, &text, caret, character) {
-                (updated, at, 0, false)
-            } else if let Some(done) = completed(behavior, &text, caret, character) {
-                (done.text, done.caret, done.len, true)
-            } else if let Some(closing) = behavior.auto_close(&text, caret, character) {
-                let (updated, _) =
-                    replace_selection(&text, caret, caret, &format!("{character}{closing}"));
-                (updated, caret + 1, closing.encode_utf16().count(), false)
-            } else if let Some((updated, start, _)) =
-                paired_edit(&text, caret, caret, character, behavior)
-            {
-                (updated, start, 1, false)
-            } else {
-                let (updated, at) = replace_selection(&text, caret, caret, &character.to_string());
-                (updated, at, 0, false)
-            };
+        let made = |change: super::super::edit::Change| {
+            let updated = change.apply(&text).expect("made on the text");
+            let end = change
+                .hull()
+                .map_or(0, |(_, written)| usize::from(written.end()));
+            let at = updated[..end].encode_utf16().count();
+            (updated, at)
+        };
+        let (updated, new_caret, closed, completion) = if let Some(change) =
+            reindented(behavior, &text, byte_of(&text, caret), character)
+        {
+            let (updated, at) = made(change);
+            (updated, at, 0, false)
+        } else if let Some(done) = completed(behavior, &text, byte_of(&text, caret), character) {
+            let (updated, _) = made(done.change);
+            let at = utf16_of(&updated, done.caret);
+            let len = utf16_of(&updated, done.caret + done.len) - at;
+            (updated, at, len, true)
+        } else if let Some(closing) = behavior.auto_close(&text, caret, character) {
+            let (updated, _) =
+                replace_selection(&text, caret, caret, &format!("{character}{closing}"));
+            (updated, caret + 1, closing.encode_utf16().count(), false)
+        } else if let Some((change, start, _)) = paired_edit(
+            &text,
+            byte_of(&text, caret),
+            byte_of(&text, caret),
+            character,
+            behavior,
+        ) {
+            let (updated, _) = made(change);
+            let start = utf16_of(&updated, start);
+            (updated, start, 1, false)
+        } else {
+            let (updated, at) = replace_selection(&text, caret, caret, &character.to_string());
+            (updated, at, 0, false)
+        };
         let grown = units(&updated).len() - before_len;
         for (at, _) in &mut closers {
             if *at >= caret {
@@ -135,4 +159,51 @@ fn typed_characters_finish_what_they_begin() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A quoted string or a bracketed value typed whole where a value goes
+/// leaves exactly what was typed: each closer the editor wrote is typed
+/// over, never doubled or left behind. In each language's own quotes and
+/// list and map brackets, custom languages too.
+#[test]
+fn a_value_typed_whole_is_written_as_typed() {
+    let mut failures = Vec::new();
+    for language in every_language() {
+        let config = language.behavior().config();
+        let written = match write(
+            language,
+            &json!({"a": "", "b": 1}),
+            &[],
+            At::EmptyValue("/a"),
+        ) {
+            Ok(written) => written,
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
+        let mut typed: Vec<String> = config
+            .quotes
+            .iter()
+            .filter(|_| language.behavior().markup().is_none())
+            .map(|quote| format!("{quote}a b{quote}"))
+            .collect();
+        for (open, close) in [config.list_brackets, config.map_brackets]
+            .into_iter()
+            .flatten()
+        {
+            typed.push(format!("{open}{close}"));
+        }
+        let marked = written.marked();
+        for typed in typed {
+            let expected = marked.replacen('|', &format!("{typed}|"), 1);
+            let found = type_in(language, &marked, &typed);
+            if found != expected {
+                failures.push(format!(
+                    "{language} {marked:?} typing {typed:?}: {found:?}, expected {expected:?}"
+                ));
+            }
+        }
+    }
+    report(&failures);
 }

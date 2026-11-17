@@ -12,6 +12,7 @@ use super::super::scroll_through::{
 };
 use super::super::state::{EditorState, line_count};
 use super::row_state_for;
+use crate::editor::text::{byte_of, utf16_of};
 use crate::reactive::{KeyedList, MANY_ROWS, RowSpacer};
 
 #[component]
@@ -63,12 +64,12 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
         let Some(offset) = state.focus_at(line, 1) else {
             return;
         };
-        let (_, line_end) = state
+        let line_end = state
             .doc()
             .text
-            .with_untracked(|text| line_range(text, offset));
+            .with_untracked(|text| byte_of(text, line_range(text, utf16_of(text, offset)).1));
         if let Some(element) = state.textarea() {
-            let _ = element.set_selection_range(offset as u32, line_end as u32);
+            let _ = element.set_selection_range(offset, line_end);
         }
     };
     view! {

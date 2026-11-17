@@ -3,14 +3,17 @@
 //! patches only that key's lines (no whole document written anew), and
 //! no other value is ever written in another form, reading the same (a
 //! TOML hex number as decimal, a datetime as a string, an HCL expression
-//! as text, a YAML tag or quoting dropped, XML markup lost: QA `E37-2`).
+//! as text, a YAML tag or quoting dropped, XML markup lost).
 //! A save that cannot keep every form waits; here only for what the view
 //! or host cannot hold at all, never for want of a patch.
 
 use crate::editor::Language;
 use crate::editor::bridge::WHOLE_RENDERS;
-use crate::editor::codec::written_range;
+use crate::editor::codec::written_text_range;
+use crate::editor::language::{pointer_key, unescaped_key};
+use crate::editor::paths::FieldPath;
 use crate::editor::save_matrix::{ALL, find_slot, report, save_conversion};
+use crate::editor::text::slice;
 use serde_json::{Map, Value};
 
 /// Hosts without comments, each holding every form of value its language
@@ -61,10 +64,6 @@ enum Op {
 }
 
 const OPS: [Op; 4] = [Op::Delete, Op::Rename, Op::MoveLast, Op::MoveOut];
-
-fn escaped(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
-}
 
 fn renamed(key: &str) -> String {
     if key.starts_with('@') {
@@ -120,7 +119,7 @@ fn scalars(value: &Value, pointer: String, out: &mut Vec<String>) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                scalars(child, format!("{pointer}/{}", escaped(key)), out);
+                scalars(child, format!("{pointer}/{}", pointer_key(key)), out);
             }
         }
         Value::Array(items) => {
@@ -146,7 +145,7 @@ fn moved_to(pointer: &str, touched: &str, op: Op) -> Option<String> {
         Op::Delete | Op::MoveOut => None,
         Op::Rename => Some(format!(
             "{parent}/{}{rest}",
-            escaped(&renamed(&key.replace("~1", "/").replace("~0", "~")))
+            pointer_key(&renamed(&unescaped_key(key)))
         )),
         Op::MoveLast => Some(pointer.to_string()),
     }
@@ -155,9 +154,9 @@ fn moved_to(pointer: &str, touched: &str, op: Op) -> Option<String> {
 /// The host's written text of the scalar at `pointer` of `text`.
 fn written(host: Language, text: &str, pointer: &str) -> Option<String> {
     let behavior = host.behavior();
-    let span = behavior.value_span(text, pointer)?;
-    let range = written_range(behavior, text, span)?;
-    Some(text[range].to_string())
+    let span = behavior.value_span(text, &FieldPath::from(pointer))?;
+    let range = written_text_range(behavior, text, span)?;
+    slice::slice(text, range).map(str::to_string)
 }
 
 /// Whether a save waited on what the view or the host holds no form for:
@@ -193,7 +192,7 @@ fn a_key_deleted_renamed_or_moved_keeps_every_form_and_is_patched() {
         let mut others = Vec::new();
         scalars(&old, String::new(), &mut others);
         for key in &keys {
-            let touched = format!("{parent}/{}", escaped(key));
+            let touched = format!("{parent}/{}", pointer_key(key));
             for op in OPS {
                 for edit in ALL.into_iter().filter(|edit| *edit != host) {
                     let shown = std::cell::Cell::new(true);

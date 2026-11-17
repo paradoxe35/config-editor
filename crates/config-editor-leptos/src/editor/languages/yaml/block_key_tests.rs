@@ -1,5 +1,5 @@
 //! A key written as a block scalar (`? |`): the caret anywhere in its text
-//! is on that key, as on its `?` line and its `: value` line (round 25
+//! is on that key, as on its `?` line and its `: value` line (it once
 //! gave the document's root inside the text).
 
 use super::super::Language;

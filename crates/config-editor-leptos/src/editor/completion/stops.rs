@@ -3,24 +3,25 @@
 //! along with the empty values it left.
 
 use super::*;
+use crate::editor::text::byte_range;
 
 /// The first `examples` entry (or `example`) of a property schema, when its
 /// types allow it; a numeric string example is a number where only numbers
 /// are allowed.
 pub fn schema_example(schema: &Value, root: &Value) -> Option<Value> {
-    let branches = resolve_branches(schema, root);
-    let example = branches
-        .iter()
+    let here = Here::of(schema, root);
+    let example = here
+        .branches()
+        .into_iter()
         .find_map(|branch| match branch.get("examples") {
             Some(Value::Array(examples)) => examples.first(),
             Some(example) => Some(example),
             None => branch.get("example"),
         })?;
-    let has_type = |name: &str| branches.iter().any(|branch| type_includes(branch, name));
-    let numeric_only = (has_type("integer") || has_type("number")) && !has_type("string");
+    let types = here.types();
+    let numeric_only = types.allows_type("number") && !types.allows_type("string");
     let example = numeric_example_as_number(example.clone(), numeric_only);
-    let typed = branches.iter().any(|branch| branch.get("type").is_some());
-    (!typed || branches.iter().any(|branch| accepts(branch, &example))).then_some(example)
+    types.allows(&example).then_some(example)
 }
 
 /// `(key, value text)` of each scalar a block insert for `property` writes
@@ -77,7 +78,7 @@ fn collect_values(key: &str, value: &Value, fills: &mut Vec<(String, String)>) {
     }
 }
 
-/// UTF-16 ranges in `insert`, after `cursor_offset`, of the `fills` it
+/// Byte ranges in `insert`, after `cursor_offset`, of the `fills` it
 /// wrote: each value is looked for after its key on the key's line (the
 /// first such line from where the fill before it ended), in order; the
 /// next item of a list (a fill under the key of the fill before) first
@@ -88,10 +89,10 @@ fn collect_values(key: &str, value: &Value, fills: &mut Vec<(String, String)>) {
 /// is skipped.
 pub(crate) fn stop_ranges(
     insert: &str,
-    cursor_offset: usize,
+    cursor_offset: TextSize,
     fills: &[(String, String)],
-) -> Vec<(usize, usize)> {
-    let mut from = utf16_to_byte_index(insert, cursor_offset);
+) -> Vec<TextRange> {
+    let mut from = usize::from(cursor_offset).min(insert.len());
     let mut ranges = Vec::new();
     let line_end = |at: usize| insert[at..].find('\n').map_or(insert.len(), |end| at + end);
     let after_key = |from: usize, key: &str, text: &str| {
@@ -132,8 +133,7 @@ pub(crate) fn stop_ranges(
             continue;
         };
         let end = start + text.len();
-        let utf16 = |byte: usize| insert[..byte].encode_utf16().count();
-        ranges.push((utf16(start), utf16(end)));
+        ranges.push(byte_range(start..end));
         from = end;
     }
     ranges
@@ -160,21 +160,21 @@ fn find_word(text: &str, from: usize, word: &str) -> Option<usize> {
     None
 }
 
-/// Where Tab goes next in an accepted block, as `(anchor, caret)`: the
-/// nearest empty value slot after `caret` (an empty selection), or written
-/// value (selected, so typing replaces it), before UTF-16 `region_end`.
-/// `stops` are UTF-16 ranges in `source`.
+/// Where Tab goes next in an accepted block, as `(anchor, caret)` bytes:
+/// the nearest empty value slot after byte `caret` (an empty selection),
+/// or written value (selected, so typing replaces it), before byte
+/// `region_end`. `stops` are byte ranges of `source`.
 pub(crate) fn next_stop(
     source: &str,
-    caret: usize,
-    region_end: usize,
-    stops: &[(usize, usize)],
+    caret: TextSize,
+    region_end: TextSize,
+    stops: &[TextRange],
     behavior: &dyn ConfigLanguage,
-) -> Option<(usize, usize)> {
+) -> Option<(TextSize, TextSize)> {
     let slot = next_slot(source, caret, region_end, behavior).map(|slot| (slot, slot));
     let stop = stops
         .iter()
-        .copied()
+        .map(|stop| (stop.start(), stop.end()))
         .filter(|(start, end)| *start >= caret && *end <= region_end)
         .min();
     match (slot, stop) {
@@ -183,16 +183,17 @@ pub(crate) fn next_stop(
     }
 }
 
-/// `(cursor_offset, selected)` for a block whose caret goes to a list
-/// written with items ([`caret_at_list`]): in its first item's value, as
-/// Tab would select it (its empty slot, or the value written selected).
+/// `(cursor_offset, selected)` (bytes of `insert`) for a block whose caret
+/// goes to a list written with items ([`caret_at_list`]): in its first
+/// item's value, as Tab would select it (its empty slot, or the value
+/// written selected).
 pub(crate) fn caret_in_list(
     insert: &str,
-    cursor_offset: usize,
+    cursor_offset: TextSize,
     fills: &[(String, String)],
     behavior: &dyn ConfigLanguage,
-) -> Option<(usize, usize)> {
-    let end = insert.encode_utf16().count();
+) -> Option<(TextSize, TextSize)> {
+    let end = TextSize::of(insert);
     let stops = stop_ranges(insert, cursor_offset, fills);
     let (anchor, caret) = next_stop(insert, cursor_offset, end, &stops, behavior)?;
     Some((caret, caret - anchor))
@@ -201,6 +202,7 @@ pub(crate) fn caret_in_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::text::text_size;
     use serde_json::json;
 
     #[test]
@@ -239,14 +241,11 @@ mod tests {
         ];
         for insert in inserts {
             let caret = insert.find("host").unwrap() + 4;
-            let ranges = stop_ranges(insert, caret, &fills);
-            let texts: Vec<&str> = ranges
-                .iter()
-                .map(|(start, end)| &insert[*start..*end])
-                .collect();
+            let ranges = stop_ranges(insert, text_size(caret), &fills);
+            let texts: Vec<&str> = ranges.iter().map(|range| &insert[*range]).collect();
             assert_eq!(texts, ["8080", "https"], "{insert:?}");
         }
-        // QA 36: the caret moved into a list's first item is at the first
+        // the caret moved into a list's first item is at the first
         // fill: that one, not the same key's in the next item.
         let fill = |key: &str| (key.to_string(), "0".to_string());
         let list_fills = [fill("from"), fill("to"), fill("from"), fill("to")];
@@ -257,14 +256,14 @@ mod tests {
             let zero = insert.find('0').unwrap();
             // The caret before the value, or after it with it selected.
             for caret in [zero, zero + 1] {
-                let ranges = stop_ranges(insert, caret, &list_fills);
-                let starts: Vec<usize> = ranges.iter().map(|(start, _)| *start).collect();
+                let ranges = stop_ranges(insert, text_size(caret), &list_fills);
+                let starts: Vec<usize> = ranges.iter().map(|range| range.start().into()).collect();
                 let zeros: Vec<usize> = insert.match_indices('0').map(|(at, _)| at).collect();
                 assert_eq!(starts, zeros, "{insert} {caret}");
             }
         }
         // A key never written, or a value left empty, is skipped.
-        assert_eq!(stop_ranges("server:\n  port: \n", 0, &fills), vec![]);
+        assert_eq!(stop_ranges("server:\n  port: \n", 0.into(), &fills), vec![]);
     }
 
     #[test]

@@ -5,12 +5,13 @@
 //! same text again, an edit undone by the next) is not reported as a new
 //! one. In every language, for two unrelated placeholder patterns.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::edit::Edit;
 use super::super::save_matrix::{ALL, report};
-use super::super::state::normalize_newlines;
 use super::super::sync::take_host_value;
 use super::super::test_state::TestEditor;
 use super::guarantee_tests::{HOSTS, Tokens, has_comments, sample, utf16};
@@ -54,8 +55,8 @@ fn forms(language: Language, tokens: &Tokens) -> Vec<(&'static str, String)> {
 
 /// The host's `value` set to `text`, as the component takes it.
 fn host_sends(state: super::super::state::EditorState, text: &str) {
-    state.sync().line_endings.note(text);
-    take_host_value(state, normalize_newlines(text.to_string()));
+    let text = state.sync().line_endings.received(text.to_string());
+    take_host_value(state, text);
 }
 
 /// Byte offset of the name's value (`a`) in `text`, in every form.
@@ -101,7 +102,12 @@ fn on_change_hands_back_the_hosts_text_with_exactly_the_edit() {
                     let byte = name_value(&before) + 1;
                     format!("{}b{}", &before[..byte], &before[byte..])
                 };
-                state.commit(Edit::new(before.clone(), (at, at), after.clone(), at + 1));
+                state.commit(Edit::new_units(
+                    before.clone(),
+                    (at, at),
+                    after.clone(),
+                    at + 1,
+                ));
                 let host_at = name_value(&text) + 1;
                 let expected = format!("{}b{}", &text[..host_at], &text[host_at..]);
                 if heard.get_untracked() != vec![expected.clone()] {
@@ -111,7 +117,7 @@ fn on_change_hands_back_the_hosts_text_with_exactly_the_edit() {
                     ));
                 }
                 // And deleted again: the host's own text, byte for byte.
-                state.commit(Edit::new(after, (at, at + 1), before, at));
+                state.commit(Edit::new_units(after, (at, at + 1), before, at));
                 if heard.get_untracked().last() != Some(&text) {
                     failures.push(format!(
                         "{case}: back to {:?}, expected {text:?}",

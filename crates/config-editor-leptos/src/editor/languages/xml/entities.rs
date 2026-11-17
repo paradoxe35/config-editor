@@ -17,7 +17,7 @@ pub(super) fn declared_entity(source: &str) -> Option<String> {
     let mut buf = Vec::new();
     let mut stack: Vec<String> = Vec::new();
     let reason = |stack: &[String], name: &str| {
-        let pointer: String = stack.iter().map(|name| format!("/{}", name.replace('~', "~0").replace('/', "~1"))).collect();
+        let pointer: String = stack.iter().map(|name| format!("/{}", crate::editor::language::pointer_key(name))).collect();
         let at = if pointer.is_empty() { "/".to_string() } else { pointer };
         format!("this XML uses the entity &{name};, which no other language can write: edit it as XML (at {at})")
     };

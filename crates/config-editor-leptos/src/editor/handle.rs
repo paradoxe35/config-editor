@@ -3,11 +3,16 @@
 
 use leptos::prelude::*;
 
+use super::bridge::links::Clipboard;
+
 use super::paths::{
-    FieldPath, TextPosition, TextRange, field_range, lines, offset_of, path_at, units_at,
+    FieldPath, TextPosition, TextRange, api_units, field_range, lines, offset_of, path_at,
 };
+use super::protect::DocumentPlaceholders;
 use super::state::EditorState;
+use crate::editor::text::byte_of;
 use crate::reactive::later::Alive;
+use std::sync::Arc;
 
 /// A handle on a mounted [`ConfigEditor`](crate::ConfigEditor), for paths
 /// and positions: where a field is written, which field a position is on,
@@ -39,6 +44,13 @@ pub struct EditorHandle {
     /// The text the editor opens with in place of the host's (a
     /// `ConfigDocuments` document's `edit_as_text`), taken when it mounts.
     opening: StoredValue<Option<String>>,
+    /// The placeholders of every editor of a `ConfigDocuments` view, taken
+    /// when the editor mounts (see `protect::foreign`).
+    foreign: StoredValue<Option<Signal<Arc<Vec<DocumentPlaceholders>>>>>,
+    /// The clipboard records the editor mounting next shares (a
+    /// `ConfigDocuments` view's editors of one host language), taken when
+    /// it mounts.
+    clipboard: StoredValue<Option<StoredValue<Clipboard>>>,
 }
 
 impl Default for EditorHandle {
@@ -63,6 +75,8 @@ impl EditorHandle {
             state: RwSignal::new(None),
             show: StoredValue::new(None),
             opening: StoredValue::new(None),
+            foreign: StoredValue::new(None),
+            clipboard: StoredValue::new(None),
         }
     }
 
@@ -91,11 +105,38 @@ impl EditorHandle {
         self.opening.try_update_value(std::mem::take).flatten()
     }
 
-    /// The host's read-only ranges where the edits since moved them, in
-    /// the host's text (see `EditorState::host_ranges_now`); `None` before
-    /// the editor mounts.
-    pub(crate) fn read_only_ranges_now(self) -> Option<Vec<crate::TextRange>> {
-        Some(self.editor()?.host_ranges_now())
+    /// The editor mounting next with this handle reads the placeholders of
+    /// a documents view's editors from `placeholders` (a signal the
+    /// mounting view owns).
+    pub(crate) fn share_placeholders(self, placeholders: Signal<Arc<Vec<DocumentPlaceholders>>>) {
+        let _ = self.foreign.try_set_value(Some(placeholders));
+    }
+
+    /// The editor mounting next with this handle keeps its copies' records
+    /// in `clipboard`, which other editors read and write too: an item
+    /// copied in one pasted in another keeps its source.
+    pub(crate) fn share_clipboard(self, clipboard: StoredValue<Clipboard>) {
+        let _ = self.clipboard.try_set_value(Some(clipboard));
+    }
+
+    /// The clipboard to share, once.
+    pub(super) fn take_clipboard(self) -> Option<StoredValue<Clipboard>> {
+        self.clipboard.try_update_value(std::mem::take).flatten()
+    }
+
+    /// The placeholders of a documents view's editors, once.
+    pub(super) fn take_foreign(self) -> Option<Signal<Arc<Vec<DocumentPlaceholders>>>> {
+        self.foreign.try_update_value(std::mem::take).flatten()
+    }
+
+    /// The real placeholders of the editor, once mounted (`source`: its
+    /// document's file name). Tracked.
+    pub(crate) fn placeholders(self, source: String) -> Option<DocumentPlaceholders> {
+        let state = self.state.try_get().flatten()?;
+        if !state.is_alive() {
+            return None;
+        }
+        state.protect().own_placeholders(source)
     }
 
     /// The language on screen.
@@ -147,13 +188,28 @@ impl EditorHandle {
     /// pending Edit-as edit is converted first (and reaches `on_change`
     /// first), as [`save`](Self::save) does. `None` before the editor
     /// mounts, and while an Edit-as edit cannot be written in the host's
-    /// language (invalid text, or a value the language cannot hold). Written
+    /// language (invalid text, or a value the language cannot hold), and
+    /// while a read-only field reads otherwise than the host gave it (a
+    /// duplicate shadows it: the save waits too, saying why). Written
     /// with the host's line endings (CRLF when its text had them): the text
     /// `on_change` and `on_save` get.
     pub fn value(&self) -> Option<String> {
         let state = self.editor()?;
-        let text = state.host_document()?;
+        let text = state.to_host(super::sync::Route::Value).ok()?;
         Some(state.sync().line_endings.restore(text))
+    }
+
+    /// The revision of the text `on_change` sent last, while the host has
+    /// not handed it back (with the `echoes` prop): read it in `on_change`
+    /// and pass it back as the `value_revision` prop with that text, for an
+    /// exact echo match. `None` before the editor mounts, without `echoes`,
+    /// and once the host has handed back every text sent.
+    pub fn sent_revision(&self) -> Option<u64> {
+        self.editor()?
+            .sync()
+            .echoes
+            .try_with_value(super::sync::Echoes::latest_revision)
+            .flatten()
     }
 
     /// The unified diff (`diff -u`) of the baseline against
@@ -165,7 +221,7 @@ impl EditorHandle {
     #[cfg(feature = "diff")]
     pub fn unified_diff(&self, context: usize) -> Option<String> {
         let state = self.editor()?;
-        let current = state.host_document()?;
+        let current = state.to_host(super::sync::Route::UnifiedDiff).ok()?;
         let baseline = state.editing().baseline.try_get_untracked()?;
         Some(super::changes::unified_diff(&baseline, &current, context))
     }
@@ -208,7 +264,8 @@ impl EditorHandle {
                     kept.with(behavior, text, || {
                         let range = field_range(behavior, text, &pointer)?;
                         let line_breaks_only = !text.contains('\r');
-                        let offset = |position| offset_of(text, position, line_breaks_only);
+                        let offset =
+                            |position| usize::from(offset_of(text, position, line_breaks_only));
                         Some((range, offset(range.start), offset(range.end)))
                     })
                 })
@@ -222,7 +279,7 @@ impl EditorHandle {
     pub fn path_at(&self, position: TextPosition) -> Option<FieldPath> {
         self.path_in_text(|text| {
             (position.line <= lines(text).count())
-                .then(|| offset_of(text, position, !text.contains('\r')))
+                .then(|| usize::from(offset_of(text, position, !text.contains('\r'))))
         })
     }
 
@@ -233,10 +290,10 @@ impl EditorHandle {
             if text.contains('\r') {
                 // As a position: a place inside a `\r\n` is the line's end.
                 let position = TextPosition::from_offset(text, offset);
-                return (offset <= units_at(text, text.len()))
-                    .then(|| offset_of(text, position, false));
+                return (offset <= api_units(text, text.len()))
+                    .then(|| usize::from(offset_of(text, position, false)));
             }
-            (offset <= units_at(text, text.len())).then_some(offset)
+            (offset <= api_units(text, text.len())).then_some(offset)
         })
     }
 
@@ -281,6 +338,10 @@ impl EditorHandle {
         let Some((start, end)) = self.offsets_of(range) else {
             return false;
         };
+        let (start, end) = state
+            .doc()
+            .text
+            .with_untracked(|text| (byte_of(text, start), byte_of(text, end)));
         self.show();
         state.hide_shown_problem();
         state.focus_range(start, end).is_some()
@@ -302,6 +363,10 @@ impl EditorHandle {
         let Some((start, end)) = self.offsets_of(range) else {
             return false;
         };
+        let (start, end) = state
+            .doc()
+            .text
+            .with_untracked(|text| (byte_of(text, start), byte_of(text, end)));
         self.show();
         state.hide_shown_problem();
         state.focus_range(start, end).is_some()

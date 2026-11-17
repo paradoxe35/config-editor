@@ -1,7 +1,7 @@
 //! A number written in the form of the one it replaces (`0x1F90` edited to
 //! 8083 is `0x1F93`, `1_000_000` to 1000003 is `1_000_003`, `1.5e3` to
 //! 1500.3 is `1.5003e3`, `1.50` to 1.8 is `1.80`): the building block of
-//! [`ConfigLanguage::number_in_form`](super::super::language::ConfigLanguage::number_in_form).
+//! [`SaveLayout::number_in_form`](super::super::language::SaveLayout::number_in_form).
 //! Each language says which forms it writes; the result is a candidate the
 //! language checks reads back as the value.
 #![cfg_attr(

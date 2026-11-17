@@ -1,7 +1,7 @@
 //! An element renamed while its values change in the same edit (a Replace
 //! All of `server` with `backend` over the key and the values holding it,
 //! a paste over a key and its value) is the element it was: its attributes
-//! stay attributes and it keeps its place (QA `E33-2`: they were saved as
+//! stay attributes and it keeps its place (they were saved as
 //! child elements, and from a TOML view it moved after its siblings).
 
 use crate::editor::Language;

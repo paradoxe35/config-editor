@@ -5,6 +5,8 @@
 //! shown in its own language and as every other one, for two unrelated
 //! patterns.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
@@ -100,7 +102,7 @@ fn type_value(
     let (start, stop) = (utf16(&before, prefix), utf16(&before, end));
     let caret = start + with.encode_utf16().count();
     let text = format!("{}{with}{}", &before[..prefix], &before[end..]);
-    if !state.commit(Edit::new(before, (start, stop), text, caret)) {
+    if !state.commit(Edit::new_units(before, (start, stop), text, caret)) {
         return Err("refused".to_string());
     }
     Ok(())
@@ -280,7 +282,7 @@ fn a_placeholder_follows_its_field_through_a_renamed_key_above_it() {
 }
 
 /// Saved at once, inside the typing pause after items shifted around a
-/// placeholder or a key above it was renamed (round 19's `D19.editing-1`):
+/// placeholder or a key above it was renamed:
 /// the save follows the placeholder to its field as the pause would, and
 /// sends the host with the secret in its new place, in every host and
 /// view.

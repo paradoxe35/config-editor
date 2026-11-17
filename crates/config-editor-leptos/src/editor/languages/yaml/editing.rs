@@ -2,38 +2,10 @@
 
 use super::*;
 
-/// Finds the start of a YAML comment on a single line, ignoring `#` characters
-/// that appear inside quoted scalars.
+/// Where the comment on `line` starts, outside quoted scalars (see
+/// `lexical`).
 pub(super) fn line_comment_start(line: &str) -> Option<usize> {
-    // Most lines hold no `#` at all: found without reading them by
-    // character.
-    if !line.contains('#') {
-        return None;
-    }
-    let mut quote = None;
-    let mut escaped = false;
-    for (index, character) in line.char_indices() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match (quote, character) {
-            (Some('"'), '\\') => escaped = true,
-            (Some(active), character) if active == character => quote = None,
-            (None, '"' | '\'') => quote = Some(character),
-            (None, '#')
-                if index == 0
-                    || line[..index]
-                        .chars()
-                        .next_back()
-                        .is_some_and(char::is_whitespace) =>
-            {
-                return Some(index);
-            }
-            _ => {}
-        }
-    }
-    None
+    super::lexical::comment_start(line)
 }
 
 pub(super) fn code_before_comment(line: &str) -> &str {
@@ -144,7 +116,7 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
         if let Some(colon) = mapping_colon(content) {
             let value = content[colon + 1..].trim();
             if opens_children(value) {
-                return format!("\n{indent}{item_indent}{unit}");
+                return format!("\n{}", entries_indent(source, byte_index, &format!("{indent}{item_indent}"), &unit));
             }
             // Mapping inside a sequence item: the next key stays in the same item.
             return format!("\n{indent}{item_indent}");
@@ -154,10 +126,28 @@ pub(super) fn newline_with_indent(source: &str, cursor: usize) -> String {
     if let Some(colon) = mapping_colon(code) {
         let value = code[colon + 1..].trim();
         if opens_children(value) {
-            return format!("\n{indent}{unit}");
+            return format!("\n{}", entries_indent(source, byte_index, &indent, &unit));
         }
     }
     format!("\n{indent}")
+}
+
+/// Where the entries of a node opened on the caret's line (its content at
+/// `owner`'s width) are written: at the indentation of its first entry
+/// below when it has one (`pool:` over `    max: 2` gives four spaces in a
+/// file indented by two elsewhere), else one `unit` past `owner`.
+fn entries_indent(source: &str, caret: usize, owner: &str, unit: &str) -> String {
+    let line_end = source[caret..].find('\n').map_or(source.len(), |at| caret + at);
+    let below = source.get(line_end + 1..).unwrap_or_default().split('\n').find(|line| {
+        let content = line.trim_start_matches([' ', '\t']);
+        !content.trim().is_empty() && !content.starts_with('#')
+    });
+    match below {
+        Some(line) if line.len() - line.trim_start_matches([' ', '\t']).len() > owner.len() => {
+            line[..line.len() - line.trim_start_matches([' ', '\t']).len()].to_string()
+        }
+        _ => format!("{owner}{unit}"),
+    }
 }
 
 /// The indentation of the line Enter opens inside a scalar that may run over
@@ -231,93 +221,23 @@ fn continuation_column(line: &str, unit: &str) -> usize {
     }
 }
 
+/// `value` split before its comment, if it has one.
 pub(super) fn split_yaml_comment(value: &str) -> (&str, Option<&str>) {
-    let characters: Vec<_> = value.char_indices().collect();
-    let mut quote = None;
-    let mut escaped = false;
-    let mut position = 0;
-    while position < characters.len() {
-        let (index, character) = characters[position];
-        if let Some(active_quote) = quote {
-            if active_quote == '\'' && character == '\'' {
-                if characters
-                    .get(position + 1)
-                    .is_some_and(|(_, next)| *next == '\'')
-                {
-                    position += 2;
-                    continue;
-                }
-                quote = None;
-            } else if active_quote == '"' && escaped {
-                escaped = false;
-            } else if active_quote == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active_quote {
-                quote = None;
-            }
-        } else if matches!(character, '\'' | '"') {
-            quote = Some(character);
-        } else if character == '#'
-            && (index == 0
-                || value[..index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace))
-        {
-            return (&value[..index], Some(&value[index..]));
-        }
-        position += 1;
+    match line_comment_start(value) {
+        Some(at) => (&value[..at], Some(&value[at..])),
+        None => (value, None),
     }
-    (value, None)
 }
 
+/// The quote of the quoted scalar open at UTF-16 `cursor` of `source`, and
+/// whether the caret is in a comment, read from the start of its line.
 pub(super) fn yaml_lexical_state(source: &str, cursor: usize) -> (Option<char>, bool) {
     let cursor = utf16_to_byte_index(source, cursor);
     let line_start = source[..cursor].rfind('\n').map_or(0, |index| index + 1);
     let line = &source[line_start..cursor];
-    let characters: Vec<_> = line.char_indices().collect();
-    let mut quote = None;
-    let mut comment = false;
-    let mut escaped = false;
-    let mut index = 0;
-    while index < characters.len() {
-        let (byte_index, character) = characters[index];
-        if comment {
-            break;
-        }
-        if let Some(active_quote) = quote {
-            if active_quote == '\'' && character == '\'' {
-                if characters
-                    .get(index + 1)
-                    .is_some_and(|(_, next)| *next == '\'')
-                {
-                    index += 2;
-                    continue;
-                }
-                quote = None;
-            } else if active_quote == '"' && escaped {
-                escaped = false;
-            } else if active_quote == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active_quote {
-                quote = None;
-            }
-        } else if matches!(character, '\'' | '"') {
-            quote = Some(character);
-        } else if character == '#'
-            && (byte_index == 0
-                || line[..byte_index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace))
-        {
-            comment = true;
-        }
-        index += 1;
-    }
-    (quote, comment)
+    let read = super::lexical::read_line(line, line.len());
+    (read.quote, read.comment.is_some())
 }
-
 
 // Conversion
 
@@ -504,7 +424,7 @@ pub(super) fn children_of_selected_keys(source: &str, start: usize, end: usize) 
     if last_end == line_end {
         return (start, end);
     }
-    (start, end.max(crate::editor::paths::units_at(source, last_end)))
+    (start, end.max(crate::editor::paths::api_units(source, last_end)))
 }
 
 /// The UTF-16 offset of the start of the entry a plain value over lines
@@ -551,5 +471,5 @@ fn continued_entry_start(source: &str, start: usize) -> usize {
     if line_start == own_line {
         return start;
     }
-    crate::editor::paths::units_at(source, line_start).min(start)
+    crate::editor::paths::api_units(source, line_start).min(start)
 }

@@ -121,3 +121,72 @@ fn sent_texts_are_recognized_and_bounded() {
     assert!(sent.contains("n: 99\n"));
     assert!(sent.0.len() <= super::SENT_TEXTS_KEPT);
 }
+
+/// Reload over unsaved edits: the host's text replaces the document only
+/// where the two differ, line by line, so a caret on a line neither the
+/// host nor the user changed stays on its text, wherever the host's change
+/// and the user's edit are.
+#[test]
+#[cfg(feature = "yaml")]
+fn a_reload_keeps_the_caret_on_its_text_past_changes_elsewhere() {
+    use leptos::prelude::*;
+
+    use super::super::edit::Edit;
+    use super::super::languages::Language;
+    use super::super::test_state::TestEditor;
+
+    const HOST: &str = "a: 1\nb: 2\nc: 3\nd: 4\n";
+    // (the user's unsaved text, the host's new text, the caret in the
+    // user's text, where it is in the host's)
+    let cases = [
+        // The host changed a line before the caret, the user one after.
+        (
+            "a: 1\nb: 2\nc: 3\nd: 4x\n",
+            "a: 100\nb: 2\nc: 3\nd: 4\n",
+            8,
+            10,
+        ),
+        // The user's edit before the caret, the host's after it.
+        (
+            "ax: 1\nb: 2\nc: 3\nd: 4\n",
+            "a: 1\nb: 2\nc: 3\nd: 400\n",
+            9,
+            8,
+        ),
+        // Both before it, on lines next to each other.
+        (
+            "ax: 1\nb: 2\nc: 3\nd: 4\n",
+            "a: 1\nb: 20\nc: 3\nd: 4\n",
+            15,
+            15,
+        ),
+        // Lines added before it and after it, a line removed.
+        (
+            "a: 1\nb: 2\nc: 3\n",
+            "z: 0\na: 1\nb: 2\nc: 3\nd: 4\n",
+            7,
+            12,
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (mine, host, caret, expected) in cases {
+        let (_owner, state) = TestEditor::new(Language::YAML, HOST).mount();
+        let unsaved = Edit::new_units(HOST.into(), (0, HOST.len()), mine.into(), mine.len());
+        assert!(state.commit(unsaved), "{mine:?}");
+        state.set_caret_units(caret);
+        state.offer_baseline(host.to_string());
+        if state.editing().conflict.with_untracked(Option::is_none) {
+            failures.push(format!("{mine:?} → {host:?}: no conflict"));
+            continue;
+        }
+        state.reload_baseline();
+        let text = state.doc().text.get_untracked();
+        let at = state.caret_units();
+        if text != host || at != expected {
+            failures.push(format!(
+                "{mine:?} → {host:?} at {caret}: {text:?} at {at}, expected at {expected}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

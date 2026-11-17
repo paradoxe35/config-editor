@@ -9,6 +9,7 @@ use web_sys::KeyboardEvent;
 
 use super::super::keys::{typed_character, unmodified};
 use super::super::state::{EditorState, textarea_selection};
+use crate::editor::text::slice;
 
 /// The folding shortcuts. Returns whether the key was one.
 pub(in crate::editor) fn shortcuts(state: EditorState, event: &KeyboardEvent) -> bool {
@@ -69,13 +70,18 @@ pub(in crate::editor) fn unfold_before_edit(state: EditorState, event: &Keyboard
         return;
     };
     let (start, end) = textarea_selection(&element);
-    let collapsed = usize::from(start == end);
+    let collapsed = start == end;
+    let text = state.doc().text.get_untracked();
+    // With nothing selected, a deletion reaches over the character beside
+    // the caret.
     let reach = match event.key().as_str() {
         // Ctrl+Enter and Ctrl+Shift+Enter open a line beside the caret's
         // line, a folded one taken whole: they edit no fold.
         "Enter" if event.ctrl_key() || event.meta_key() => return,
-        "Backspace" => (start.saturating_sub(collapsed), end),
-        "Delete" => (start, end + collapsed),
+        "Backspace" if collapsed => (slice::step_back(&text, start), end),
+        "Backspace" => (start, end),
+        "Delete" if collapsed => (start, slice::step_forward(&text, end)),
+        "Delete" => (start, end),
         "Enter" | "Tab" => (start, end),
         _ if typed_character(event).is_some() && unmodified(event) => (start, end),
         _ => return,

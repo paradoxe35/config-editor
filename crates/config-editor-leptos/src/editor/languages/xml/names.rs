@@ -39,7 +39,7 @@ fn find(value: &Value, pointer: &mut String) -> Option<String> {
         Value::Object(map) => map.iter().find_map(|(key, child)| {
             let at = pointer.len();
             pointer.push('/');
-            pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+            pointer.push_str(&crate::editor::language::pointer_key(key));
             let name = key.strip_prefix('@').unwrap_or(key);
             let found = if !key.is_empty() && key != "#text" && !is_name(name) {
                 Some(format!("`{key}` is not an XML name, so it cannot name an element or an attribute (at {pointer})"))

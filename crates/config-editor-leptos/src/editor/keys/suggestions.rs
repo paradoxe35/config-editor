@@ -3,9 +3,9 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::completion::apply_completion;
-use super::super::keyboard::utf16_to_byte_index;
-use super::super::state::EditorState;
+use super::super::completion::{ListMode, apply_completion};
+use super::super::state::{EditorState, select};
+use crate::editor::text::slice;
 
 /// Ctrl+Space opens the list, schema examples included.
 pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
@@ -16,21 +16,19 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
     // With a selection, the list opens at its end, the selection let go
     // (otherwise a selection closes the list, and Enter would replace it).
     let selected = state.textarea().and_then(|element| {
-        match (element.selection_start(), element.selection_end()) {
-            (Ok(Some(start)), Ok(Some(end))) if start != end => Some((element, end)),
-            _ => None,
-        }
+        let (start, end) = element.selection();
+        (start != end).then_some((element, end))
     });
+    let replace_word = selected.is_some() || state.list_mode().replaces_word();
     if let Some((element, end)) = selected {
         let _ = element.set_selection_range(end, end);
-        state.note_caret(end as usize);
-        // The selected word is to be replaced: every key is offered.
-        state.completion().replace_word.set(true);
     }
     state.completion().active.set(0);
-    state.completion().asked.set_value(true);
-    state.completion().explicit.set(true);
-    state.completion().requested.set(true);
+    // The selected word is to be replaced: every key is offered.
+    state.set_list_mode(ListMode::Asked {
+        replace_word,
+        heeded: true,
+    });
     // The user asked: nothing to offer is said, with the reason where the
     // text is protected (a secret placeholder).
     if state.completion().suggestions.with_untracked(Vec::is_empty)
@@ -76,24 +74,21 @@ pub(super) fn step_past_unchanged(state: EditorState, event: &KeyboardEvent) -> 
         state.say_why_read_only(option);
     }
     if let Some(element) = state.textarea() {
-        let _ = element.set_selection_range(caret as u32, caret as u32);
-        state.doc().caret.set(caret);
+        select(&element, caret, caret, false);
     }
+    // After an explicit Ctrl+Space, Enter on what is already written only
+    // closes the list.
+    let asked = state.list_mode().is_explicit();
     state.close_suggestions();
     // Text after the caret on its line (`nodelay| = true`) would be split
     // off by a new line: Enter only closes the list there. A closer the
     // editor inserted (`</mode>`) is stepped out of by Enter instead.
     let line_continues = state.closer_at(caret).is_none()
         && state.doc().text.with_untracked(|text| {
-            let byte = utf16_to_byte_index(text, caret);
-            text[byte..]
-                .lines()
-                .next()
+            slice::after(text, caret)
+                .and_then(|rest| rest.lines().next())
                 .is_some_and(|rest| !rest.trim().is_empty())
         });
-    // After an explicit Ctrl+Space, Enter on what is already written only
-    // closes the list.
-    let asked = state.completion().explicit.get_untracked();
     if key == "Tab" || line_continues || asked {
         event.prevent_default();
         return None;
@@ -130,6 +125,6 @@ pub(super) fn list_keys(state: EditorState, event: &KeyboardEvent) -> bool {
     };
     event.prevent_default();
     state.completion().active.set(next);
-    state.completion().asked.set_value(true);
+    state.set_list_mode(state.list_mode().heeding(true));
     true
 }

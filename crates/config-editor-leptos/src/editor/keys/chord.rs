@@ -21,8 +21,7 @@ pub(super) fn keeps_card(state: EditorState, event: &KeyboardEvent) -> bool {
     } else {
         "k"
     };
-    let card =
-        state.hover().at_caret.get_value() && state.hover().card.with_untracked(Option::is_some);
+    let card = state.popups().card_at_caret();
     // The problem tip F8 or the chord showed at the caret too.
     let tip = state.problems().current.with_untracked(Option::is_some);
     command && key.eq_ignore_ascii_case(wanted) && (card || tip)

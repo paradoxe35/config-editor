@@ -5,13 +5,13 @@
 //! key/value spans come from line-based scans so they work while the document
 //! is mid-edit and unparsable.
 
-
-
 mod parse;
+pub(in crate::editor::languages) mod words;
 mod suggestions;
 mod hover;
 mod indent_above;
 mod editing;
+mod lexical;
 mod colors;
 mod style;
 mod block_scalar;
@@ -20,6 +20,8 @@ mod newlines;
 mod plain;
 mod constructs;
 mod enter;
+use crate::editor::paths::FieldPath;
+use crate::editor::text::{TextRange, TextSize, byte_range, slice};
 use style::{comparable_yaml_line, node_properties_len};
 mod aliases;
 mod aliases_back;
@@ -53,11 +55,12 @@ use super::super::parse_cache::string_bodies;
 use super::super::commands::indent_unit;
 use super::super::highlight::{MultilineConstruct, Token, TokenKind, Tokens};
 use super::inline::{caret_value_end, 
-    InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_sibling_keys,
+    InlineEntry as CaretEntry, inline_caret, inline_key_at,
     statement_start_at, entry_follows, in_front_of_inline_entry,
 };
-use super::super::completion::{kept_const, kept_default, array_branch, object_branch, required_children, Fill, RequiredChild};
+use super::super::completion::{Fill, InsertPlan, Planned, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
+use super::super::language::{Text, Typing, Hover, SaveLayout, Sharing, LanguageTraits};
 use super::super::language::{LanguageConfig, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
@@ -67,46 +70,10 @@ use std::collections::HashSet;
 
 pub(super) struct YamlBehavior;
 
-/// Why a text of several YAML documents (`---` between them) is not read.
-const MULTI_DOCUMENT: &str = "This text holds more than one YAML document (a line --- starts one, a line ... ends one): the editor reads one document per file. Keep one, or split them into files";
-
-
-impl ConfigLanguage for YamlBehavior {
-    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
-        scalar_edit::edits_one_scalar(self, source, range, inserted)
-    }
-
-    /// The specification allows any number: one past what the editor
-    /// holds saves (see `wide_integers`).
-    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
-        super::wide_integers::unheld_all(source, error)
-    }
-
-    fn info(&self) -> LanguageInfo {
-        LanguageInfo {
-            label: "YAML",
-            icon: "Y",
-            extensions: &["yaml", "yml"],
-        }
-    }
-
-    fn config(&self) -> LanguageConfig {
-        LanguageConfig {
-            line_comments: &["#"],
-            block_comment: None,
-            brackets: &[('{', '}'), ('[', ']')],
-            separators: &[":"],
-            quotes: &["\"", "'"],
-            literal_quotes: &["'"],
-            map_brackets: Some(('{', '}')),
-            list_brackets: Some(('[', ']')),
-            item_separator: Some(','),
-            item_marker: Some("-"),
-            written_separator: Some(": "),
-        }
-    }
-
-    fn parse(&self, source: &str) -> Result<Value, ParseError> {
+impl YamlBehavior {
+    /// `parse` with the reader's own messages (see `words`), for a caller
+    /// that words them itself.
+    pub(in crate::editor::languages) fn parse_raw(&self, source: &str) -> Result<Value, ParseError> {
         // A lone carriage return breaks a line, as CRLF does (YAML 1.2's
         // line breaks): read as LF, as the editor holds the text, so a file
         // with them reads the same headless (a comment line ending in one
@@ -176,8 +143,48 @@ impl ConfigLanguage for YamlBehavior {
             None => Ok(value),
         })
     }
+}
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
+/// Why a text of several YAML documents (`---` between them) is not read.
+const MULTI_DOCUMENT: &str = "This text holds more than one YAML document (a line --- starts one, a line ... ends one): the editor reads one document per file. Keep one, or split them into files";
+
+impl ConfigLanguage for YamlBehavior {
+    fn info(&self) -> LanguageInfo {
+        LanguageInfo {
+            label: "YAML",
+            icon: "Y",
+            extensions: &["yaml", "yml"],
+        }
+    }
+
+    fn config(&self) -> LanguageConfig {
+        LanguageConfig {
+            line_comments: &["#"],
+            block_comment: None,
+            brackets: &[('{', '}'), ('[', ']')],
+            separators: &[":"],
+            quotes: &["\"", "'"],
+            literal_quotes: &["'"],
+            map_brackets: Some(('{', '}')),
+            list_brackets: Some(('[', ']')),
+            item_separator: Some(','),
+            item_marker: Some("-"),
+            written_separator: Some(": "),
+            traits: LanguageTraits {
+                writes_non_finite: true,
+                indent_is_structure: true,
+                plain_scalars: true,
+                ..LanguageTraits::NONE
+            },
+        }
+    }
+
+    fn parse(&self, source: &str) -> Result<Value, ParseError> {
+        self.parse_raw(source).map_err(words::told)
+    }
+
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let pointer = &path.to_pointer();
         match root_flow_span(source) {
             Some(root) => in_flow_root(self, source, root, pointer, true),
             // A key inside a flow collection over lines (`tcp: {` then
@@ -190,49 +197,205 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     /// The root's value is found only when it is a flow collection.
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let pointer = &path.to_pointer();
         match root_flow_span(source) {
             Some(root) => in_flow_root(self, source, root, pointer, false),
             None => yaml_value_span_for_path(source, pointer).map(Span::from),
         }
     }
 
-    fn first_span(&self, source: &str) -> Option<Span> {
-        first_yaml_span(source).map(Span::from)
-    }
-
     fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
         completion_context(source, cursor)
     }
 
-    fn existing_keys(
-        &self,
-        source: &str,
-        cursor_byte: usize,
-        path: &[SchemaPathSegment],
-    ) -> Option<HashSet<String>> {
-        existing_mapping_keys(source, cursor_byte, path)
-    }
-
-    fn caret_line_left_out(&self, source: &str, line_start: usize, line_end: usize) -> String {
-        suggestions::caret_line_left_out(source, line_start, line_end)
-    }
-
-    fn property_insert(
+    fn write_insert(
         &self,
         key: &str,
-        property: &Value,
-        root: &Value,
+        plan: &InsertPlan<'_>,
         context: &InsertContext<'_>,
     ) -> Option<(String, usize)> {
-        if context.position == EntryPosition::Inline {
-            return flow_property_insert(key, property, root);
-        }
-        property_completion_insert(key, property, root, context.base_indent, context.unit)
+        Some(if context.position == EntryPosition::Inline {
+            flow_insert(key, plan)
+        } else {
+            block_insert(key, plan, context.base_indent, context.unit)
+        })
     }
 
     fn format_value(&self, value: &Value) -> String {
         yaml_value(value)
+    }
+
+    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
+        key_at_column(line, column)
+    }
+
+    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
+        highlight(line)
+    }
+
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        use super::super::codec::non_finite::Floats;
+        // Strings of line breaks only are written `"\n"` (see `newlines`).
+        let marked = newlines::marked(value);
+        let (value, markers) = match &marked {
+            Some((marked, markers)) => (marked, markers.as_slice()),
+            None => (value, &[][..]),
+        };
+        noyalib::to_string(&Floats(value))
+            .map(|text| plain::quote_typed_plain(&text, value, &previous.map(plain::keys_written_bare).unwrap_or_default()))
+            .map(|text| newlines::written(text, markers))
+            .map(|text| match previous {
+                // Nested sequences written compact, as the host writes them.
+                Some(previous) if style::writes_compact_sequences(previous) => style::compact_sequences(&text),
+                _ => text,
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    fn text(&self) -> &dyn Text {
+        self
+    }
+
+    fn typing(&self) -> &dyn Typing {
+        self
+    }
+
+    fn hover(&self) -> &dyn Hover {
+        self
+    }
+
+    fn layout(&self) -> &dyn SaveLayout {
+        self
+    }
+
+    fn sharing(&self) -> Option<&dyn Sharing> {
+        Some(self)
+    }
+}
+
+impl Text for YamlBehavior {
+    /// The language's spans joined (see `Text::value_ranges`), and a
+    /// scalar written on the lines below its key from where it is written
+    /// there.
+    fn value_ranges(&self, language: &dyn ConfigLanguage, source: &str, path: &FieldPath) -> Vec<std::ops::Range<usize>> {
+        let pointer = &path.to_pointer();
+        let parsed = crate::editor::paths::parsed_in_batch(self, source);
+        let Ok(document) = parsed.as_ref() else {
+            return Vec::new();
+        };
+        let scalar = document.pointer(pointer).is_some_and(|value| !value.is_object() && !value.is_array());
+        if scalar && let Some(below) = yaml_scalar_below_key(source, pointer) {
+            return vec![below];
+        }
+        crate::editor::paths::joined_value_ranges(language, source, pointer)
+    }
+
+    fn first_span(&self, source: &str) -> Option<Span> {
+        first_yaml_span(source).map(Span::from)
+    }
+
+    fn lexical_state(&self, _language: &dyn ConfigLanguage, source: &str, cursor: usize) -> Lexical {
+        let (quote, in_comment) = yaml_lexical_state(source, cursor);
+        Lexical { quote, in_comment }
+    }
+
+    fn comment_start(&self, _language: &dyn ConfigLanguage, line: &str) -> Option<usize> {
+        line_comment_start(line)
+    }
+
+    #[cfg(feature = "folding")]
+    fn fold_ranges(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<super::super::language::FoldRange> {
+        folding::yaml_fold_ranges(source, &string_bodies(self, source))
+    }
+
+    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        let mut bodies = block_scalar_bodies(source);
+        bodies.extend(quoted_scalar_bodies(source));
+        bodies
+    }
+
+    /// With a plain scalar's continuation lines (`p: plain` then
+    /// `  continued`), which the editor leaves to be typed as keys.
+    fn saved_string_lines(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<std::ops::Range<usize>> {
+        let mut bodies = string_bodies(self, source).to_vec();
+        let plain = plain_scalar_bodies(source, &bodies);
+        bodies.extend(plain);
+        bodies.sort_by_key(|range| range.start);
+        bodies
+    }
+
+    /// Quoted scalars, plain scalars' continuation lines, and flow
+    /// collections over lines.
+    fn multiline_constructs(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<MultilineConstruct> {
+        constructs::multiline_constructs(source, &string_bodies(self, source))
+    }
+
+    /// The inside of a flow collection: its entries.
+    fn highlight_continued(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<Token> {
+        let mut tokens = Tokens::new();
+        constructs::flow_tokens(text, 0, &mut tokens);
+        tokens.finish()
+    }
+}
+
+impl Typing for YamlBehavior {
+    /// A key opening a block (`websocket:`) takes its indented lines along:
+    /// commented alone, they would be left without their parent.
+    fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
+        children_of_selected_keys(source, start, end)
+    }
+
+    fn newline(&self, _language: &dyn ConfigLanguage, source: &str, cursor: usize) -> Newline {
+        enter::newline(source, cursor)
+    }
+
+    /// Values left empty at line ends (`key: `) and in flow maps
+    /// (`{ cert: , key:  }`).
+    fn empty_value_slots(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<usize> {
+        let mut slots = suggestions::line_end_slots(text);
+        for (at, _) in text.match_indices(':') {
+            let rest = &text[at + 1..];
+            let spaces = rest.len() - rest.trim_start_matches(' ').len();
+            if spaces > 0 && rest[spaces..].starts_with([',', '}']) {
+                slots.push(at + 2);
+            }
+        }
+        slots
+    }
+}
+
+impl Hover for YamlBehavior {
+    fn hover_path(&self, source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+        explicit_key_path(source, line_index, column)
+    }
+
+    fn hover_cursor(&self, line: &str, column: usize) -> usize {
+        hover_context_offset(line, column)
+    }
+
+    fn item_start(&self, _language: &dyn ConfigLanguage, source: &str, line_start: usize, line: &str, column: usize) -> Option<usize> {
+        // A block sequence's `- ` (or a dash alone on its line) opens an item.
+        let (at, marker) = line.char_indices().nth(column)?;
+        let after = &line[at + marker.len_utf8()..];
+        match after.chars().next() {
+            _ if marker != '-' => crate::editor::language::bracket_item_start(self, source, line_start, line, column),
+            None => Some(at + 1),
+            Some(next) if next.is_whitespace() => Some(at + 1 + next.len_utf8()),
+            Some(_) => None,
+        }
+    }
+}
+
+impl SaveLayout for YamlBehavior {
+    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
+        scalar_edit::edits_one_scalar(self, source, range, inserted)
+    }
+
+    /// The specification allows any number: one past what the editor
+    /// holds saves (see `wide_integers`).
+    fn unheld_numbers(&self, source: &str, error: &ParseError) -> Vec<std::ops::Range<usize>> {
+        super::wide_integers::unheld_all(source, error)
     }
 
     /// Bare where a value could be (and an identifier), else in double
@@ -240,7 +403,7 @@ impl ConfigLanguage for YamlBehavior {
     /// As the document writer writes it: plain where every reader takes it
     /// as that text (`foo bar`, `a/b`, `Über`), quoted where YAML 1.1 types
     /// it (`on`, `1_000`, a date) or it holds what plain text cannot.
-    fn written_key(&self, _source: &str, _pointer: &str, key: &str) -> Option<String> {
+    fn written_key(&self, _language: &dyn ConfigLanguage, _source: &str, _path: &FieldPath, key: &str) -> Option<String> {
         let mut entry = serde_json::Map::new();
         entry.insert(key.to_string(), Value::from(0));
         let written = self
@@ -249,12 +412,6 @@ impl ConfigLanguage for YamlBehavior {
             .and_then(|text| Some(text.trim_end_matches('\n').strip_suffix(": 0")?.to_string()))
             .filter(|written| !written.contains('\n') && !written.starts_with('?'));
         Some(written.unwrap_or_else(|| yaml_quoted(key)))
-    }
-
-    /// A key opening a block (`websocket:`) takes its indented lines along:
-    /// commented alone, they would be left without their parent.
-    fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
-        children_of_selected_keys(source, start, end)
     }
 
     fn comparable_line<'a>(&self, code: &'a str) -> std::borrow::Cow<'a, str> {
@@ -267,6 +424,50 @@ impl ConfigLanguage for YamlBehavior {
         }
     }
 
+    fn scalar_reads_as(&self, written: &str, value: &Value) -> bool {
+        self.parse(&format!("k: [{}]\n", written.trim())).ok().and_then(|document| document.get("k")?.get(0).cloned()).as_ref() == Some(value)
+    }
+
+    /// Hexadecimal, octal and binary integers (`1_000` is a string).
+    fn number_in_form(&self, written: &str, value: &serde_json::Number) -> Option<String> {
+        const SYNTAX: super::number_forms::NumberSyntax =
+            super::number_forms::NumberSyntax { radixes: &[("0x", 16), ("0o", 8), ("0b", 2)], separator: None };
+        super::number_forms::checked(written, value, &SYNTAX, |text, value| self.scalar_reads_as(text, value))
+    }
+
+    fn format_value_like(&self, _language: &dyn ConfigLanguage, value: &Value, written: &str) -> String {
+        // Where the host writes a value without its place (a flow
+        // collection's entries): as inside one.
+        style::yaml_value_like(self, value, written, "", true)
+    }
+
+    /// A block scalar kept with `+` holds the blank lines after its text.
+    fn written_value_range(&self, source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+        block_scalar::with_kept_blank_lines(source, byte_range(range)).into()
+    }
+
+    fn format_value_at(&self, _language: &dyn ConfigLanguage, value: &Value, source: &str, range: std::ops::Range<usize>) -> String {
+        let range = byte_range(range);
+        let line_start = slice::line_start_of(source, range.start());
+        let in_flow = style::in_flow_collection(source, range);
+        let prefix = slice::slice(source, TextRange::new(line_start, range.start())).unwrap_or("");
+        let written = slice::slice(source, range).unwrap_or("");
+        // After a `!!str` tag a plain value is text whatever it looks like
+        // (`!!str 2`): it stays plain.
+        if let Some(text) = value.as_str()
+            && prefix.trim_end().ends_with("!!str")
+            && !written.trim_start().starts_with(['"', '\''])
+            && !text.contains(['\n', '#'])
+            && self.parse(&format!("k: !!str {text}\n")).ok() == Some(serde_json::json!({ "k": text }))
+            && (!in_flow || self.parse(&format!("k: [!!str {text}]\n")).ok() == Some(serde_json::json!({ "k": [text] })))
+        {
+            return text.to_string();
+        }
+        style::yaml_value_like(self, value, written, prefix, in_flow)
+    }
+}
+
+impl Sharing for YamlBehavior {
     /// `---` starts a document and `%` a directive.
     fn document_marker(&self, code: &str) -> bool {
         code == "---" || code.starts_with('%')
@@ -291,8 +492,8 @@ impl ConfigLanguage for YamlBehavior {
         aliases::detach_shared(previous, old, new)
     }
 
-    fn written_at(&self, source: &str, pointer: &str) -> Option<String> {
-        aliases::written_at(source, pointer)
+    fn written_at(&self, source: &str, path: &FieldPath) -> Option<FieldPath> {
+        aliases::written_at(source, &path.to_pointer()).map(FieldPath::from)
     }
 
     fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
@@ -302,170 +503,7 @@ impl ConfigLanguage for YamlBehavior {
     fn tags(&self, source: &str) -> Vec<(String, String)> {
         tags::yaml_tags(source)
     }
-
-    fn scalar_reads_as(&self, written: &str, value: &Value) -> bool {
-        self.parse(&format!("k: [{}]\n", written.trim())).ok().and_then(|document| document.get("k")?.get(0).cloned()).as_ref() == Some(value)
-    }
-
-    /// Hexadecimal, octal and binary integers (`1_000` is a string).
-    fn number_in_form(&self, written: &str, value: &serde_json::Number) -> Option<String> {
-        const SYNTAX: super::number_forms::NumberSyntax =
-            super::number_forms::NumberSyntax { radixes: &[("0x", 16), ("0o", 8), ("0b", 2)], separator: None };
-        super::number_forms::checked(written, value, &SYNTAX, |text, value| self.scalar_reads_as(text, value))
-    }
-
-    fn format_value_like(&self, value: &Value, written: &str) -> String {
-        // Where the host writes a value without its place (a flow
-        // collection's entries): as inside one.
-        style::yaml_value_like(self, value, written, "", true)
-    }
-
-    /// A block scalar kept with `+` holds the blank lines after its text.
-    fn written_value_range(&self, source: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
-        block_scalar::with_kept_blank_lines(source, range)
-    }
-
-    fn format_value_at(&self, value: &Value, source: &str, range: std::ops::Range<usize>) -> String {
-        let line_start = source[..range.start].rfind('\n').map_or(0, |index| index + 1);
-        let in_flow = style::in_flow_collection(source, range.clone());
-        let prefix = &source[line_start..range.start];
-        // After a `!!str` tag a plain value is text whatever it looks like
-        // (`!!str 2`): it stays plain.
-        if let Some(text) = value.as_str()
-            && prefix.trim_end().ends_with("!!str")
-            && !source[range.clone()].trim_start().starts_with(['"', '\''])
-            && !text.contains(['\n', '#'])
-            && self.parse(&format!("k: !!str {text}\n")).ok() == Some(serde_json::json!({ "k": text }))
-            && (!in_flow || self.parse(&format!("k: [!!str {text}]\n")).ok() == Some(serde_json::json!({ "k": [text] })))
-        {
-            return text.to_string();
-        }
-        style::yaml_value_like(self, value, &source[range.clone()], prefix, in_flow)
-    }
-
-    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
-        key_at_column(line, column)
-    }
-
-    fn hover_path(&self, source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-        explicit_key_path(source, line_index, column)
-    }
-
-    fn hover_cursor(&self, line: &str, column: usize) -> usize {
-        hover_context_offset(line, column)
-    }
-
-    fn item_start(&self, source: &str, line_start: usize, line: &str, column: usize) -> Option<usize> {
-        // A block sequence's `- ` (or a dash alone on its line) opens an item.
-        let (at, marker) = line.char_indices().nth(column)?;
-        let after = &line[at + marker.len_utf8()..];
-        match after.chars().next() {
-            _ if marker != '-' => crate::editor::language::bracket_item_start(self, source, line_start, line, column),
-            None => Some(at + 1),
-            Some(next) if next.is_whitespace() => Some(at + 1 + next.len_utf8()),
-            Some(_) => None,
-        }
-    }
-
-    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
-        highlight(line)
-    }
-
-    fn newline(&self, source: &str, cursor: usize) -> Newline {
-        enter::newline(source, cursor)
-    }
-
-    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
-        let (quote, in_comment) = yaml_lexical_state(source, cursor);
-        Lexical { quote, in_comment }
-    }
-
-    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
-        use super::super::codec::non_finite::Floats;
-        // Strings of line breaks only are written `"\n"` (see `newlines`).
-        let marked = newlines::marked(value);
-        let (value, markers) = match &marked {
-            Some((marked, markers)) => (marked, markers.as_slice()),
-            None => (value, &[][..]),
-        };
-        noyalib::to_string(&Floats(value))
-            .map(|text| plain::quote_typed_plain(&text, value, &previous.map(plain::keys_written_bare).unwrap_or_default()))
-            .map(|text| newlines::written(text, markers))
-            .map(|text| match previous {
-                // Nested sequences written compact, as the host writes them.
-                Some(previous) if style::writes_compact_sequences(previous) => style::compact_sequences(&text),
-                _ => text,
-            })
-            .map_err(|error| error.to_string())
-    }
-
-    /// `.inf`, `-.inf` and `.nan`.
-    fn writes_non_finite(&self) -> bool {
-        true
-    }
-
-    fn indent_is_structure(&self) -> bool {
-        true
-    }
-
-    fn plain_scalars(&self) -> bool {
-        true
-    }
-
-    fn comment_start(&self, line: &str) -> Option<usize> {
-        line_comment_start(line)
-    }
-
-
-    /// Values left empty at line ends (`key: `) and in flow maps
-    /// (`{ cert: , key:  }`).
-    fn empty_value_slots(&self, text: &str) -> Vec<usize> {
-        let mut slots = suggestions::line_end_slots(text);
-        for (at, _) in text.match_indices(':') {
-            let rest = &text[at + 1..];
-            let spaces = rest.len() - rest.trim_start_matches(' ').len();
-            if spaces > 0 && rest[spaces..].starts_with([',', '}']) {
-                slots.push(at + 2);
-            }
-        }
-        slots
-    }
-
-    #[cfg(feature = "folding")]
-    fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
-        folding::yaml_fold_ranges(source, &string_bodies(self, source))
-    }
-
-    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        let mut bodies = block_scalar_bodies(source);
-        bodies.extend(quoted_scalar_bodies(source));
-        bodies
-    }
-
-    /// With a plain scalar's continuation lines (`p: plain` then
-    /// `  continued`), which the editor leaves to be typed as keys.
-    fn saved_string_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        let mut bodies = string_bodies(self, source).to_vec();
-        let plain = plain_scalar_bodies(source, &bodies);
-        bodies.extend(plain);
-        bodies.sort_by_key(|range| range.start);
-        bodies
-    }
-
-    /// Quoted scalars, plain scalars' continuation lines, and flow
-    /// collections over lines.
-    fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
-        constructs::multiline_constructs(source, &string_bodies(self, source))
-    }
-
-    /// The inside of a flow collection: its entries.
-    fn highlight_continued(&self, text: &str) -> Vec<Token> {
-        let mut tokens = Tokens::new();
-        constructs::flow_tokens(text, 0, &mut tokens);
-        tokens.finish()
-    }
 }
-
 
 #[cfg(test)]
 #[cfg_attr(

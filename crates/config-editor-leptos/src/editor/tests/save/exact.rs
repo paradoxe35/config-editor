@@ -220,8 +220,8 @@ fn a_list_over_lines_gains_and_loses_items_in_place() {
         );
         // Two items made one (a selection over both retyped as one of
         // them), and none, then one again: each kept line as it was, a new
-        // one at the items' indent with their trailing comma (round 19:
-        // `443` at the start of the line, its comma gone).
+        // one at the items' indent with their trailing comma (`443` once
+        // came at the start of the line, its comma gone).
         let two = text.replace(&format!("{item}8443,\n"), "");
         from_every_view(
             &mut failures,
@@ -636,7 +636,7 @@ fn number_hosts() -> Vec<(Language, String)> {
 
 /// An edit elsewhere leaves every value it did not touch as the host wrote
 /// it: a number the view shows (and would write) otherwise is only shown
-/// that way (round 19: XML `1.0` saved as `1`).
+/// that way (XML `1.0` saved as `1`).
 #[test]
 fn untouched_numbers_stay_as_written_through_any_view() {
     let mut failures = Vec::new();
@@ -678,8 +678,8 @@ fn untouched_numbers_stay_as_written_through_any_view() {
 
 /// A view that reads a whole float as an integer, or whose numbers are one
 /// type (HCL), cannot tell it from one: a number typed over it keeps the
-/// host's float type (round 20: the HCL view saved an integer; QA 25 again,
-/// once HCL read `1.0` as a float), and only that line changes.
+/// host's float type (the HCL view saved an integer, once HCL
+/// read `1.0` as a float), and only that line changes.
 #[test]
 fn a_whole_float_edited_in_a_view_that_shows_it_as_an_integer_stays_a_float() {
     fn whole_floats(value: &Value, pointer: String, out: &mut Vec<String>) {
@@ -753,7 +753,7 @@ fn a_whole_float_edited_in_a_view_that_shows_it_as_an_integer_stays_a_float() {
 /// Items moved in another view take their comments along at any depth: a
 /// list inside a list item, maps as items, own-line comments above each
 /// item (the first one's too), in YAML, TOML and HCL lists over lines and
-/// XML repeated elements (round 20: they stayed where they were).
+/// XML repeated elements (they stayed where they were).
 #[test]
 fn moved_items_take_their_comments_at_any_depth_from_every_view() {
     let cases: &[(Language, &str, &str, &str)] = &[
@@ -853,7 +853,7 @@ fn moved_items_take_their_comments_at_any_depth_from_every_view() {
 /// A plain YAML string cleared and then typed again in another view is
 /// written as typing over it writes it: plain where every reader takes it as text,
 /// quoted where one would not (a date, `yes`), not quoted because the empty
-/// string in between was (round 20: the XML view gave `name: "abc"`).
+/// string in between was (the XML view gave `name: "abc"`).
 #[test]
 fn a_yaml_string_cleared_then_typed_is_written_as_typed_over() {
     let host = "# top\nname: edge  # nc\nq: \"edge\"\nn: 1\n";
@@ -888,7 +888,7 @@ fn a_yaml_string_cleared_then_typed_is_written_as_typed_over() {
 
 /// A YAML list or map emptied from another view (`ports: []`), and filled
 /// again, keeps the spacing before its key line's comment as written
-/// (round 20: `ports:    # pc` became `ports: [] # pc`, then `ports: # pc`),
+/// (`ports:    # pc` became `ports: [] # pc`, then `ports: # pc`),
 /// with any gap, nested or at the top.
 #[test]
 fn a_yaml_container_emptied_and_refilled_keeps_the_gap_before_its_comment() {
@@ -958,7 +958,7 @@ fn a_yaml_container_emptied_and_refilled_keeps_the_gap_before_its_comment() {
 /// reading, so a value edited there keeps the host's type: a string stays a
 /// string whatever is typed (`"1"` made `12` is `"12"`), an emptied element
 /// is the empty string where the host has a string, and the save waits
-/// where the host has a number or a boolean (round 19: `{}` was saved).
+/// where the host has a number or a boolean (`{}` was saved).
 /// The host's other lines, and the spacing before its comment, stay.
 #[test]
 fn a_scalar_edited_in_the_xml_view_keeps_the_hosts_type() {
@@ -994,7 +994,7 @@ fn a_scalar_edited_in_the_xml_view_keeps_the_hosts_type() {
         ("port", json!(81), Some(json!(81))),
         ("port", json!(1.5), Some(json!(1.5))),
         ("port", json!("abc"), Some(json!("abc"))),
-        // A hexadecimal, octal or binary integer is that number (round 20:
+        // A hexadecimal, octal or binary integer is that number (not
         // the text `0x50`).
         ("port", json!("0x50"), Some(json!(80))),
         ("port", json!("0o17"), Some(json!(15))),
@@ -1095,7 +1095,7 @@ fn a_toml_datetime_retyped_in_any_view_stays_a_datetime() {
 }
 
 /// A key added to a JSON object holding one key goes on its own line at the
-/// object's indentation, as in an object holding more (round 19: `"max":
+/// object's indentation, as in an object holding more (`"max":
 /// 10, "min": 1` on one line), whatever the host indents with.
 #[test]
 fn a_key_added_to_a_one_key_json_object_gets_its_own_line() {
@@ -1162,7 +1162,7 @@ fn a_key_added_to_a_one_key_json_object_gets_its_own_line() {
 
 /// Items of a YAML block list moved through any view take all their lines
 /// along, their comments included: maps, block scalars, indentless and
-/// nested lists (round 19: a map item's comments stayed where it was).
+/// nested lists (a map item's comments stayed where it was).
 #[test]
 fn yaml_list_items_moved_through_any_view_take_their_comments() {
     let mut failures = Vec::new();

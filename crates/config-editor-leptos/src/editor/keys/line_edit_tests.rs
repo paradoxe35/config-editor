@@ -33,6 +33,7 @@ fn run_units(
         text,
         selection,
         mut folds,
+        ..
     } = line_edit(
         &text,
         (start, end),
@@ -92,6 +93,11 @@ fn alt_arrows_move_the_lines() {
     // The last line without a newline: the text still has none.
     assert_eq!(run("a: 1\nb: |2", UP).unwrap(), "b: |2\na: 1");
     assert_eq!(run("a: |1\nb: 2", DOWN).unwrap(), "b: 2\na: |1");
+    // A selection ending past the text's end ends at its end; a blank line
+    // does not move to the end, where it would be a last newline.
+    assert_eq!(run("[a\n]b", DOWN).unwrap(), "b\n[a]");
+    assert_eq!(run("|\na: 1", DOWN), None);
+    assert_eq!(run("x\n\na: |1", UP), None);
     // Selected lines move together; a selection ending at a line's start
     // leaves that line.
     assert_eq!(run("x\n[a\nb\n]c\n", DOWN).unwrap(), "x\nc\n[a\nb\n]");

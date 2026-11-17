@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { editor, pointerOn } from './helpers.mjs';
 
-// How problems are shown (v0.1 plan, A; QA 18 UX): a deprecated key struck
+// How problems are shown: a deprecated key struck
 // through, a host range over several lines, a range while editing as
 // another language, a field not found named by its path, the footer's
 // counts each in its color and readable on a phone, F8 through problems at

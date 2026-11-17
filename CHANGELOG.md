@@ -68,7 +68,8 @@ WebAssembly.
 - YAML, JSON, TOML, HCL and XML, and your own: in Rust through the
   `ConfigLanguage` trait, or in JavaScript with `registerLanguage` (schema
   suggestions and hover included, from `separators` alone for flat formats
-  such as `.env`, or through callbacks for nested ones).
+  such as `.env`, from the brackets, item separator and item marker they
+  declare for values on one line, or through callbacks for nested ones).
 - One JSON Schema drives every language: they all parse into the same data.
   The schema is given as JSON or YAML text.
 - The shared code knows no language's characters: brackets, separators,
@@ -171,3 +172,101 @@ WebAssembly.
   `/binding` entries.
 - `@pngwasi/config-editor-react`, `-vue` and `-svelte`: components for each
   framework, built on the same binding.
+
+### Behaviour notes
+
+Some things work the way they do on purpose, or because a file format cannot
+do more. Here they are in one place.
+
+**Limits of the file formats**
+
+- XML has no types. In an XML view, a value is read as the schema says:
+  - where the file holds a string the schema allows, a value you type that
+    looks like a number or `true` is saved as a string;
+  - where the file holds a number and the schema takes a number or a string
+    there, a number you type stays a number; where it takes only text, the
+    value is saved as text;
+  - a number typed in another spelling (`08`, `2.50`) where the file holds a
+    number is saved as that number;
+  - a value the schema refuses in every reading keeps the file's type.
+- XML writes a list as repeated elements:
+  - without a schema that says a field is a list, a list of one item is shown
+    as that item (the view says it cannot show it exactly), and the file
+    keeps its list when you save;
+  - in a file that writes lists this way (XML, HCL blocks, TOML `[[tables]]`),
+    a list cut down to one item is written as one item, which reads back as
+    a single value. In a file of another language it stays a list;
+  - a list you empty in a view of such a file waits to save, because those
+    files write no key for an empty list;
+  - XML has no list of lists: in an XML view the items of an inner list are
+    shown as items of the outer one.
+- An empty XML element (`<a/>`) reads as an empty object where the schema
+  allows one. An element you empty where the file holds text is saved as empty
+  text.
+- TOML and XML have no `null`, and XML no empty list. When a required key can
+  only take such a value, the fill leaves it out and the problem names it. A
+  `null` in a view waits to save in a TOML or XML file.
+- In HCL, a block where the schema wants a list is read as that list's one
+  item.
+
+**Working with a host**
+
+- After `replaceValue`, a host text equal to the one the host gave before the
+  reset is read as a stale render and ignored. To go back to it, call
+  `replaceValue` again.
+- Without `valueRevision`, when your store still holds an older text after an
+  echo, the editor waits 250 ms and then sends the document again. With
+  `valueRevision` there is no pause, but a store that loses a text (a failed
+  save, a dropped render) must send it again.
+- Give `readOnlyRanges` with the text they were worked out for (the `value`,
+  an echo, or `rangesFor`); the editor moves them to the document. A range
+  whose text was changed before it was locked locks nothing, and the save
+  waits until that text is back.
+- In a custom language that gives no positions (`spans`), a locked field is
+  checked by value, not by place. While the text does not parse, edits go
+  through and the save waits until it parses again.
+
+**Decided behaviours**
+
+- A key whose list must have items is inserted as an empty list with the
+  caret inside, and the problem shows until you type the items.
+- Under `oneOf` and `anyOf`, the fill writes the keys one option alone takes,
+  and tries the next option when two share them. When no option can be valid,
+  the value is left for you to type.
+- A key whose schema needs another key beside it is still offered. The
+  problem it adds names the key to write next. A key that would make the
+  schemas refuse a value you already wrote beside it is not offered.
+- An empty file shows no schema problems, even when the schema asks for keys.
+- With a schema no value can meet (`enum: []`, or `allOf` of a boolean and a
+  string), the fill writes nothing that passes, and an XML view may save such
+  a field in another type. The problem is shown. In an XML view, a `oneOf`
+  with an "anything" option (`{}`) may show a problem differently from the
+  file.
+- A value you did not touch keeps its exact text in the file, even when the
+  view reads it as another type (`'8080'` stays quoted).
+- A `null` in a view is saved as `null` where the file's language has one
+  (YAML, JSON, HCL).
+- A save that would drop the comment of an item it keeps waits, with "this
+  edit would drop the comment …".
+- When an edit leaves a locked value's text alone but the document now reads
+  it differently (a duplicate key, a new parent, a commented-out line), the
+  edit is kept and the save waits. The reason is shown at the field, and no
+  change event or `getValue` carries the changed value.
+- Cutting a read-only value is refused.
+- A secret placeholder you copy and paste is plain text: it has no chip and is
+  saved as its text. It still moves as one piece: the caret steps over it,
+  and Backspace or Cut removes it whole. Another document's placeholder pasted
+  anywhere is flagged as plain text.
+- A syntax message does not quote text of a line that may hold a secret; it
+  shows `…` there.
+- `Ctrl+/` with a selection comments exactly the selected lines. With only a
+  caret, it comments the line, widened to the whole list, string or tag over
+  several lines that it is in.
+- With a deeply recursive schema, the problem list may end with "The schema
+  check stopped early; more problems may follow."
+- A block of several lines copied into a map or list that the file writes on
+  one line is written on that line, in its one-line form. The values inside
+  keep their own forms.
+- Typing is fast in files up to about 10,000 lines. In files near 100,000
+  lines each key takes about a third of a second, and switching to Edit as
+  takes a few seconds.

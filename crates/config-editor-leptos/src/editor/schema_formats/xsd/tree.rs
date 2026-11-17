@@ -8,7 +8,7 @@ use std::rc::Rc;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
-use super::super::super::diagnostics::SchemaError;
+use super::super::super::schema::SchemaError;
 
 /// The XML Schema namespace.
 pub(super) const XSD_NS: &str = "http://www.w3.org/2001/XMLSchema";

@@ -5,6 +5,7 @@
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
 use crate::editor::codec;
+use crate::editor::paths::FieldPath;
 use crate::editor::save_matrix::{ALL, from_every_view, report};
 use serde_json::Value;
 
@@ -27,8 +28,10 @@ fn hosts() -> [(Language, &'static str); 5] {
 
 /// `text` with the value at `pointer` replaced by `typed`.
 fn typed_over(language: Language, text: &str, pointer: &str, typed: &str) -> Option<String> {
-    let span = language.behavior().value_span(text, pointer)?;
-    let range = codec::byte_range(text, span)?;
+    let span = language
+        .behavior()
+        .value_span(text, &FieldPath::from(pointer))?;
+    let range: std::ops::Range<usize> = codec::span_text_range(text, span)?.into();
     let mut typed_text = text.to_string();
     typed_text.replace_range(range, typed);
     Some(typed_text)
@@ -124,8 +127,9 @@ fn numbers_and_booleans_typed_in_their_own_spelling_keep_the_host_type_and_spell
                 // The spelling, where the host reads it as the same value.
                 let spelled = host
                     .behavior()
-                    .value_span(&saved, &pointer)
-                    .and_then(|span| codec::byte_range(&saved, span))
+                    .value_span(&saved, &FieldPath::from(&pointer))
+                    .and_then(|span| codec::span_text_range(&saved, span))
+                    .map(std::ops::Range::<usize>::from)
                     .map(|range| saved[range].trim().to_string());
                 if expected.is_number()
                     && host.behavior().scalar_reads_as(typed, expected)
@@ -192,8 +196,9 @@ fn a_number_typed_in_a_view_keeps_its_spelling_in_a_host_whose_values_are_text()
                     };
                     let written = host
                         .behavior()
-                        .value_span(&saved, pointer)
-                        .and_then(|span| codec::byte_range(&saved, span))
+                        .value_span(&saved, &FieldPath::from(*pointer))
+                        .and_then(|span| codec::span_text_range(&saved, span))
+                        .map(std::ops::Range::<usize>::from)
                         .map(|range| saved[range].trim().trim_matches('"').to_string());
                     if written.as_deref() != Some(typed) {
                         failures.push(format!("{case}: written {written:?}:\n{saved}"));
@@ -253,7 +258,7 @@ fn a_yaml_str_tagged_value_edited_from_every_view_stays_plain() {
 
 /// An element copied in an XML view (a value become a list):
 /// each copy keeps the type of the host's value it copies, strings stay
-/// strings (round 29 read `"1"` copied as `[1, 1]`).
+/// strings.
 #[test]
 fn an_element_copied_in_an_xml_view_keeps_the_host_type_of_what_it_copies() {
     let hosts = [

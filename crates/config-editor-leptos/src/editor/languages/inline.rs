@@ -170,52 +170,6 @@ pub fn inline_caret(code_before: &str, separator: u8) -> Option<InlineCaret> {
     })
 }
 
-/// The keys of the inline container holding byte `at` of a line of code,
-/// before and after it; `None` when `at` is at the line's top level. Completion
-/// uses it so a key already in the container is not offered again.
-pub fn inline_sibling_keys(code: &str, separator: u8, at: usize) -> Option<Vec<String>> {
-    let mut stack: Vec<usize> = Vec::new();
-    let mut next_id = 1;
-    let mut keys: Vec<(usize, String)> = Vec::new();
-    let mut caret_container = None;
-    let mut check_caret = |stack: &[usize], position: usize| {
-        if caret_container.is_none() && position >= at {
-            caret_container = Some(stack.last().copied().unwrap_or(0));
-        }
-    };
-    walk(code, separator, |event| match event {
-        // The key the caret is in is being typed or renamed: not a sibling.
-        Event::Key(key) if key.start < at && at <= key.end => {}
-        Event::Key(key) => {
-            check_caret(&stack, key.start);
-            keys.push((
-                stack.last().copied().unwrap_or(0),
-                unquote(&code[key.start..key.end]),
-            ));
-        }
-        // A caret up to the bracket is outside; right after it, inside.
-        Event::Open(_, position) => {
-            check_caret(&stack, position);
-            stack.push(next_id);
-            next_id += 1;
-            check_caret(&stack, position + 1);
-        }
-        Event::Close(position) => {
-            check_caret(&stack, position);
-            stack.pop();
-        }
-        Event::Comma(position) => check_caret(&stack, position),
-        Event::Newline(_) => {}
-    });
-    let container = caret_container.unwrap_or_else(|| stack.last().copied().unwrap_or(0));
-    (container != 0).then(|| {
-        keys.into_iter()
-            .filter(|(owner, _)| *owner == container)
-            .map(|(_, key)| key)
-            .collect()
-    })
-}
-
 /// Whether the text after the caret begins another entry (`listen = 7835`
 /// after `lim|`): accepting a key there must insert before that entry, on
 /// its own line, rather than replace it.
@@ -731,9 +685,11 @@ fn is_comment_start(code: &str, index: usize) -> bool {
 }
 
 fn line_end(code: &str, from: usize) -> usize {
-    code[from..]
+    let end = code[from..]
         .find('\n')
-        .map_or(code.len(), |offset| from + offset)
+        .map_or(code.len(), |offset| from + offset);
+    crate::editor::work_count::note_many(crate::editor::work_count::Work::LineEndBytes, end - from);
+    end
 }
 
 /// Past the whitespace at `from`, line breaks included, and the comment
@@ -744,8 +700,13 @@ fn skip_blanks(code: &str, from: usize) -> usize {
     loop {
         from += code[from..].len() - code[from..].trim_start().len();
         let comment = code[from..].starts_with('#') || code[from..].starts_with("//");
+        if !comment || !is_comment_start(code, from) {
+            return from;
+        }
+        // The line's end looked for only past a comment: for every entry
+        // it is a read of the rest of a long line.
         let end = line_end(code, from);
-        if !comment || !is_comment_start(code, from) || end == code.len() {
+        if end == code.len() {
             return from;
         }
         from = end;
@@ -772,6 +733,20 @@ mod tests {
 
     fn key(name: &str) -> SchemaPathSegment {
         Key(name.to_string())
+    }
+
+    /// The keys of a long line of open lists (`a = [1, [1, …`, no line
+    /// break) cost the line once: each entry looked for the line's end,
+    /// reading the rest of the line for each (P5). Counted, twice the
+    /// line: twice the work, four times when quadratic.
+    #[test]
+    fn the_keys_of_a_long_line_of_entries_cost_the_line_once() {
+        let line = |entries: usize| format!("a = {}", "[1, ".repeat(entries));
+        let grown = crate::editor::work_count::grown_faster(2.5, (10_000, 20_000), |entries| {
+            inline_keys(&line(entries), b'=')
+        });
+        assert!(grown.is_empty(), "{grown:?}");
+        assert_eq!(inline_keys(&line(20_000), b'=').len(), 1);
     }
 
     #[test]
@@ -852,22 +827,6 @@ mod tests {
         let code = "x = { \"k:=\" = 1 }";
         let found = inline_keys(code, b'=');
         assert_eq!(&code[found[1].start..found[1].end], "\"k:=\"");
-    }
-
-    #[test]
-    fn sibling_keys_are_those_of_the_caret_container() {
-        let code = "a = { x = 1, y = { z = 2 }, w = 3 }";
-        let caret = code.find("w").unwrap() - 2;
-        assert_eq!(
-            inline_sibling_keys(code, b'=', caret),
-            Some(vec!["x".into(), "y".into(), "w".into()])
-        );
-        let inner = code.find("z").unwrap();
-        assert_eq!(
-            inline_sibling_keys(code, b'=', inner),
-            Some(vec!["z".into()])
-        );
-        assert_eq!(inline_sibling_keys(code, b'=', 1), None);
     }
 
     #[test]

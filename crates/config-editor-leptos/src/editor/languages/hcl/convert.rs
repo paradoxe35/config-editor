@@ -92,8 +92,8 @@ pub(super) fn host_forms(source: &str) -> HostForms {
 /// The first map `patched` writes as a block that `previous` writes as an
 /// attribute (`name = { … }`), or the other way round: where it is, or
 /// where a save moved it to (`moved_maps`).
-pub(super) fn changed_form(previous: &str, patched: &str) -> Option<String> {
-    let before = super::moved_maps::with_moved(forms_of(previous), previous, forms_of);
+pub(super) fn changed_form(previous: &str, patched: &str, told: crate::editor::item_sources::SaveTold<'_>) -> Option<String> {
+    let before = super::moved_maps::with_moved(forms_of(previous), told, forms_of);
     let ((attributes_before, blocks_before), (attributes_after, blocks_after)) = (before, forms_of(patched));
     let unnumbered = |paths: std::collections::HashSet<Vec<String>>| -> std::collections::HashSet<Vec<String>> {
         paths.into_iter().map(|path| path.into_iter().filter(|segment| crate::editor::language::pointer_index(segment).is_none()).collect()).collect()
@@ -103,7 +103,7 @@ pub(super) fn changed_form(previous: &str, patched: &str) -> Option<String> {
         .iter()
         .find(|path| blocks_after.contains(*path))
         .or_else(|| blocks_before.iter().find(|path| attributes_after.contains(*path)))?;
-    Some(switched.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect())
+    Some(switched.iter().map(|segment| format!("/{}", crate::editor::language::pointer_key(segment))).collect())
 }
 
 /// The blocks of `source` opened and closed on their header's line, with
@@ -180,7 +180,7 @@ pub(super) fn labelled_blocks(source: &str) -> LabelledBlocks {
 
 /// The JSON pointer of `path`.
 fn pointer_of(path: &[String]) -> String {
-    path.iter().map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1"))).collect()
+    path.iter().map(|segment| format!("/{}", crate::editor::language::pointer_key(segment))).collect()
 }
 
 pub(super) fn hcl_body(
@@ -424,9 +424,7 @@ pub(super) fn expression_of(text: &str) -> Option<hcl::Expression> {
 /// bare expressions that way again.
 pub(super) fn hcl_expression_in(value: &Value, forms: &HostForms) -> hcl::Expression {
     let template = |text: &str| {
-        hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(
-            super::super::super::codec::non_finite::written(text).to_string(),
-        )))
+        hcl::Expression::TemplateExpr(Box::new(hcl::TemplateExpr::QuotedString(text.to_string())))
     };
     match value {
         Value::String(text) if forms.templates.contains(text) => template(text),
@@ -453,7 +451,6 @@ pub(super) fn hcl_expression(value: &Value) -> hcl::Expression {
         // Text holding a template marker is escaped here (see
         // `heredoc::quoted`).
         Value::String(text) => {
-            let text = super::super::super::codec::non_finite::written(text);
             if text.contains("${") || text.contains("%{") {
                 super::heredoc::string_expression(text)
             } else {

@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use config_editor_leptos::Language;
-use config_editor_leptos::language::{LanguageConfig, LanguageInfo, Scalars};
+use config_editor_leptos::language::{LanguageConfig, LanguageInfo, LanguageTraits};
 use js_sys::{Array, Function};
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
@@ -14,7 +14,7 @@ use crate::typings::CustomLanguage;
 use crate::values::{field, string_field};
 
 mod assist;
-pub(crate) mod interned;
+mod interned;
 mod js_language;
 mod ranges;
 mod syntax;
@@ -97,7 +97,6 @@ const DEFINITION_KEYS: &[&str] = &[
     "insertKey",
     "keyAt",
     "multilineRanges",
-    "scalars",
 ];
 
 /// A list of strings, or one string, as `name` (absent is empty).
@@ -124,20 +123,6 @@ fn string_list(value: &JsValue, name: &str) -> Result<Vec<String>, JsError> {
                 .ok_or_else(|| JsError::new(&format!("{name} must hold non-empty strings")))
         })
         .collect()
-}
-
-/// A definition's `scalars`: `"typed"` (the default) or `"text"`.
-fn scalars_of(definition: &JsValue) -> Result<Scalars, JsError> {
-    match field(definition, "scalars").as_string().as_deref() {
-        None if field(definition, "scalars").is_undefined()
-            || field(definition, "scalars").is_null() =>
-        {
-            Ok(Scalars::Typed)
-        }
-        Some("typed") => Ok(Scalars::Typed),
-        Some("text") => Ok(Scalars::Text),
-        _ => Err(JsError::new("scalars must be \"typed\" or \"text\"")),
-    }
 }
 
 /// The declarative part of a JavaScript language definition.
@@ -204,6 +189,9 @@ fn language_config(definition: &JsValue) -> Result<LanguageConfig, JsError> {
         list_brackets: syntax::bracket_member(definition, "listBrackets")?,
         item_separator: syntax::item_separator(definition)?,
         item_marker: syntax::item_marker(definition)?,
+        // What a language registered from JavaScript is like it says
+        // only through `parse` and `serialize`.
+        traits: LanguageTraits::NONE,
     })
 }
 
@@ -305,7 +293,7 @@ pub fn register_language(definition: CustomLanguage) -> Result<String, JsError> 
         }
         Ok(())
     })?;
-    let config = (language_config(&definition)?, scalars_of(&definition)?);
+    let config = language_config(&definition)?;
     let info = LanguageInfo {
         label: interned::text(&label),
         icon: interned::text(&icon),

@@ -48,6 +48,13 @@ pub(super) fn editor_text(text: String) -> String {
     }
 }
 
+/// Whether two host texts are the same document as the editor reads them
+/// (see [`editor_text`]): their line breaks and a leading byte order mark
+/// aside. The one rule for "unchanged", shown or not.
+pub(crate) fn same_document(left: &str, right: &str) -> bool {
+    left == right || editor_text(left.to_string()) == editor_text(right.to_string())
+}
+
 impl LineEndings {
     /// The line endings of `text`, a document in `language`.
     pub(super) fn of(text: &str, language: Language) -> Self {
@@ -63,13 +70,33 @@ impl LineEndings {
         this
     }
 
-    /// A new text from the host: its line endings (a text without line
-    /// breaks keeps the most common ending seen before, for new lines) and
-    /// its byte order mark.
-    pub(super) fn note(&self, text: &str) {
+    /// The host's first text: its line endings and its byte order mark,
+    /// recorded once (see [`Self::received`] for the texts after it).
+    fn note(&self, text: &str) {
         let (text, marked) = byte_order_mark::split(text);
+        self.0.update_value(|endings| endings.marked = marked);
+        self.note_endings(text);
+    }
+
+    /// A later text from the host (a new `value`, an echo), as the editor
+    /// works on it: LF breaks, its line endings noted. A leading U+FEFF is
+    /// the byte order mark the host's first text had, and goes; when that
+    /// text had none, it is a character of the document, and stays.
+    pub(super) fn received(&self, text: String) -> String {
+        let marked = self.0.with_value(|endings| endings.marked);
+        let document = match byte_order_mark::split(&text) {
+            (document, true) if marked => document.to_string(),
+            _ => text,
+        };
+        self.note_endings(&document);
+        normalize_newlines(document)
+    }
+
+    /// `text`'s line endings (a text without line breaks keeps the most
+    /// common ending seen before, for new lines), `text` being a document
+    /// (no byte order mark).
+    fn note_endings(&self, text: &str) {
         self.0.update_value(|endings| {
-            endings.marked = marked;
             if text.contains(['\n', '\r']) {
                 endings.common = most_common(text);
             }
@@ -92,6 +119,12 @@ impl LineEndings {
     pub(super) fn restore(&self, text: String) -> String {
         let restored = self.preview(text);
         self.0.update_value(|endings| {
+            // As for a text from the host: an all-LF text handed back is
+            // its own reference too, or every line would take the most
+            // common ending of an older one.
+            if restored.contains(['\n', '\r']) {
+                endings.common = most_common(&restored);
+            }
             endings.reference = if restored.contains('\r') {
                 restored.clone()
             } else {
@@ -210,7 +243,25 @@ fn written(text: &str, endings: &Endings) -> String {
         } else {
             ""
         };
-        let ending = if ending.is_empty() { above } else { ending };
+        let ending = match ending {
+            "" if readable(above) => above,
+            "" => common,
+            ending => ending,
+        };
+        // After a lone CR, an empty line's LF would read as one CRLF with
+        // it: a line lost. The ending of the line edited is made CRLF, the
+        // one left alone kept.
+        let kept = |index: usize| index < prefix || index >= count - suffix;
+        let ending = if ending == "\n" && line.is_empty() && out.ends_with('\r') {
+            if kept(index) && index > 0 && !kept(index - 1) {
+                out.push('\n');
+                "\n"
+            } else {
+                "\r\n"
+            }
+        } else {
+            ending
+        };
         out.push_str(ending);
         above = ending;
     }
@@ -328,8 +379,8 @@ mod tests {
 }
 
 /// Edits in every language, in its own view and from every other, reach
-/// `on_change` and `on_save` with the host's CRLF line endings (round 16
-/// turned every line ending into LF).
+/// `on_change` and `on_save` with the host's CRLF line endings, not
+/// turned into LF.
 #[cfg(all(
     test,
     feature = "yaml",
@@ -379,7 +430,7 @@ mod editor_tests {
                 let before = state.doc().text.get_untracked();
                 let at = before.find('1').expect("the value");
                 let after = format!("{}2{}", &before[..at], &before[at + 1..]);
-                state.commit(Edit::new(before, (at, at + 1), after.clone(), at + 1));
+                state.commit(Edit::new_units(before, (at, at + 1), after.clone(), at + 1));
                 if edit != host {
                     convert_now(state, after, edit);
                 }
@@ -413,8 +464,8 @@ mod editor_tests {
         format!("{}\r\n{}{ending}{}\n", lines[0], lines[1], lines[2])
     }
 
-    /// Each untouched line keeps its own ending (round 17 made every line
-    /// the majority's), in every language, in its own view and from every
+    /// Each untouched line keeps its own ending (not the
+    /// majority's), in every language, in its own view and from every
     /// other.
     #[test]
     fn untouched_lines_keep_their_own_endings() {
@@ -432,7 +483,7 @@ mod editor_tests {
                 let before = state.doc().text.get_untracked();
                 let at = before.find('x').expect("the value");
                 let after = format!("{}w{}", &before[..at], &before[at + 1..]);
-                state.commit(Edit::new(before, (at, at + 1), after.clone(), at + 1));
+                state.commit(Edit::new_units(before, (at, at + 1), after.clone(), at + 1));
                 if edit != host {
                     convert_now(state, after, edit);
                 }
@@ -475,7 +526,7 @@ mod editor_tests {
             let before = state.doc().text.get_untracked();
             let at = before.find('x').expect("the value");
             let after = format!("{}w{}", &before[..at], &before[at + 1..]);
-            state.commit(Edit::new(before, (at, at + 1), after.clone(), at + 1));
+            state.commit(Edit::new_units(before, (at, at + 1), after.clone(), at + 1));
             let expected = text.replacen('x', "w", 1);
             if changes.get_untracked().last() != Some(&expected) {
                 failures.push(format!(
@@ -487,7 +538,7 @@ mod editor_tests {
             let before = after;
             let at = before.find('1').expect("the value");
             let after = format!("{}2{}", &before[..at], &before[at + 1..]);
-            state.commit(Edit::new(before, (at, at + 1), after.clone(), at + 1));
+            state.commit(Edit::new_units(before, (at, at + 1), after.clone(), at + 1));
             let heard = changes.get_untracked().last().cloned().unwrap_or_default();
             if rejects == super::has_lone_cr(&heard) || host.parse(&heard).is_err() {
                 failures.push(format!("{host}: after editing the line, heard {heard:?}"));

@@ -5,7 +5,7 @@
 //! |---|---|---|---|---|---|---|
 //! | `Command` | yes | yes | yes | its own step | yes | – |
 //! | `Input` | yes | yes | yes | grouped by kind | yes | indent, after a paste or drop |
-//! | `Undo`, `Redo` | – | yes | yes | the step moves | yes | placeholders |
+//! | `Undo`, `Redo` | – | yes | yes | the step moves | yes | – |
 //! | `Reload` | – | – | yes | its own step | yes | the host's placeholders |
 //! | `HostValue` | – | – | – | carried into the steps before (dropped when shown in another language) | – | indent, ranges, the host's placeholders |
 //! | `Switch` | – | – | – | its own step | – | indent, ranges, placeholders |
@@ -51,12 +51,13 @@ impl Origin {
     }
 
     /// Whether the edit is checked: refused while read-only, or when it
-    /// changes a read-only field. The host's own texts are not.
+    /// changes a read-only field. The host's own texts are not. Every
+    /// origin is named: a new one says whether the gate checks it.
     pub(super) fn is_checked(&self) -> bool {
-        matches!(
-            self,
-            Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo
-        )
+        match self {
+            Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo => true,
+            Origin::Reload { .. } | Origin::HostValue | Origin::Switch => false,
+        }
     }
 
     /// Whether what is kept by position follows the edit; a text replaced

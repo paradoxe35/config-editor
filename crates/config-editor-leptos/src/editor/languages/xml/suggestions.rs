@@ -3,17 +3,6 @@
 use std::borrow::Cow;
 use super::*;
 
-/// The default a suggestion writes for `property`: one XML reads back as
-/// it is, else none (the caret stays where the value goes).
-fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_default(&XmlBehavior, property, root)
-}
-
-/// The `const` a suggestion writes for `property`, as [`written_default`].
-fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_const(&XmlBehavior, property, root)
-}
-
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let snapshot = caret_snapshot(source, cursor);
@@ -256,7 +245,7 @@ pub(super) fn xml_block(source: &str, start: usize, end: usize) -> Option<Inline
     let line_start = source[..start].rfind('\n').map_or(0, |index| index + 1);
     let line = &source[line_start..start];
     let mut depth = 0usize;
-    for token in tokenize(line) {
+    for token in tokenize_text(line) {
         match token.kind {
             Kind::OpenTag { .. }
                 if !token_name(line, &token).is_empty()
@@ -394,130 +383,49 @@ pub(super) fn text_typed(
 }
 
 pub(super) fn cursor_bytes(source: &str, cursor: usize) -> usize {
-    crate::editor::paths::units_at(source, cursor)
+    crate::editor::paths::api_units(source, cursor)
 }
 
-/// Names to filter from suggestions. Only attribute positions filter;
-/// repeated sibling elements are arrays, so element names never do.
-pub(super) fn existing_elements(source: &str, cursor_byte: usize) -> Option<HashSet<String>> {
-    let snapshot = caret_snapshot(source, cursor_byte);
-    let naming_element = snapshot
-        .open_tag
-        .is_some_and(|tag| is_element_name_position(&tag, cursor_byte));
-    if snapshot.in_tag && !naming_element {
-        if snapshot.pending_attr.is_some() {
-            return None;
-        }
-        // The tag's attributes, and the element's children: one key either
-        // way.
-        let mut names = existing_attributes(source, &snapshot, cursor_byte);
-        let element = snapshot.open_tag.map(|tag| {
-            let mut path = strings(&snapshot.path);
-            let name = token_name(source, &tag);
-            if path.last() != Some(&name) {
-                path.push(name);
-            }
-            path
-        });
-        if let Some(element) = element {
-            let starts = [snapshot.open_tag.map(|tag| tag.start), snapshot.holder];
-            names.extend(
-                key_spans_under(source, cursor_byte, &element, starts.into_iter().flatten())
-                    .iter()
-                    .filter(|(segments, ..)| segments.len() == element.len() + 1 && segments.starts_with(&element))
-                    .map(|(segments, ..)| segments[element.len()].clone()),
-            );
-        }
-        return Some(names);
-    }
-    // Children and attributes already on the element holding the caret; the
-    // tag being typed does not count. Arrays may still repeat (see
-    // `repetition`).
-    let holder = strings(&snapshot.path);
-    Some(
-        key_spans_under(source, cursor_byte, &holder, snapshot.holder)
-            .iter()
-            .filter(|(_, start, end)| !(*start <= cursor_byte && cursor_byte <= *end))
-            .filter(|(segments, ..)| segments.len() > holder.len() && segments.starts_with(&holder))
-            .map(|(segments, ..)| segments[holder.len()].clone())
-            .collect(),
-    )
-}
-
-/// Attribute names already on the tag under the caret.
-///
-/// The name the caret is inside or at the end of is being typed or renamed,
-/// so it does not count.
-pub(super) fn existing_attributes(source: &str, snapshot: &Snapshot, cursor: usize) -> HashSet<String> {
-    let mut names = HashSet::new();
-    for (position, token) in snapshot.inner.iter().enumerate() {
-        if !matches!(token.kind, Kind::Text { quoted: false }) || (token.start < cursor && cursor <= token.end) {
-            continue;
-        }
-        let is_name = snapshot
-            .inner
-            .get(position + 1)
-            .is_some_and(|next| matches!(next.kind, Kind::Equals));
-        if is_name {
-            names.insert(source[token.start..token.end].to_string());
-        }
-    }
-    names
-}
-
-/// Elements expand to `<key>|</key>` (or a block with required children);
-/// attributes insert `name="|"`.
-pub(super) fn property_insert(
-    key: &str,
-    property: &Value,
-    root: &Value,
-    context: &InsertContext<'_>,
-) -> Option<(String, usize)> {
+/// The text a suggestion of `key` inserts for `plan`: an element
+/// `<key>|</key>` (or a block with required children; a list or object
+/// value as the elements the XML writer writes for it), or in a start tag
+/// an attribute `key="|"`.
+pub(super) fn write_insert(key: &str, plan: &InsertPlan<'_>, context: &InsertContext<'_>) -> Option<(String, usize)> {
     // A key no XML name (`a b`, `1x`, an unbound `p:k`) names nothing the
     // writer writes.
     if !writes_key(&XmlBehavior, key) {
         return None;
     }
-    // A schema marking attributes (`"xml": {"attribute": true}`) tells
-    // them from elements: a start tag offers only those (when the element
-    // has any), the content only the others.
-    let attribute = hints::hinted_attribute(&[property], root);
     if context.position == EntryPosition::Attribute {
-        if !attribute && hints::holder_has_attributes(root, context.path) {
-            return None;
-        }
-        return attribute_insert(key, property, root);
-    }
-    if attribute {
-        return None;
+        return attribute_insert(key, plan);
     }
     let (base_indent, unit) = (context.base_indent, context.unit);
-    // An object or list const or default is elements of its own (a
-    // list's items repeat the key), as the XML writer writes them.
-    let kept = written_const(property, root).or_else(|| written_default(property, root));
-    if let Some(elements) = kept
-        .filter(|value| is_filled_container(value))
-        .and_then(|value| written_elements(key, value, base_indent, unit))
+    // An object or list value is elements of its own (a list's items
+    // repeat the key), as the XML writer writes them.
+    if let Planned::Value(value) = plan.value
+        && is_filled_container(value)
+        && let Some(elements) = written_elements(key, value, base_indent, unit)
     {
-        let caret = utf16(&elements);
+        let caret = utf16_len(&elements);
         return Some((elements, caret));
     }
     let mut insert = format!("<{key}>");
     let mut caret = None;
-    if let Some(value) = kept.filter(|value| !value.is_array() && !value.is_object()) {
-        insert.push_str(&escape_text(&xml_text(value)));
-    } else if object_branch(property, root).or_else(|| item_object(property, root)).is_some() {
-        let children = required_children(&XmlBehavior, property, root);
-        if children.is_empty() {
-            // No required children: leave the caret between the tags.
-            caret = Some(insert.len());
-        } else {
-            write_children(&children, base_indent, unit, &mut insert, &mut caret);
+    match plan.value {
+        Planned::Value(value) if !value.is_array() && !value.is_object() => {
+            insert.push_str(&escape_text(&xml_text(value)));
         }
+        // An object, or a list of objects (each repeated element is one
+        // item, so accepting the list's key writes an item).
+        Planned::List { .. } | Planned::Object { .. } if !plan.children.is_empty() => {
+            write_children(&plan.children, base_indent, unit, &mut insert, &mut caret);
+        }
+        // Nothing to write: the caret between the tags.
+        _ => caret = Some(insert.len()),
     }
     let caret = caret.unwrap_or(insert.len());
     insert.push_str(&format!("</{key}>"));
-    let caret = utf16(&insert[..caret]);
+    let caret = utf16_len(&insert[..caret]);
     Some((insert, caret))
 }
 
@@ -570,29 +478,21 @@ fn with_end_tag(line: &str) -> Cow<'_, str> {
     }
 }
 
-/// The object schema of an array's items: each repeated element is one item,
-/// so accepting the array key writes an item.
-pub(super) fn item_object<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    let items = array_branch(property, root)?.get("items")?;
-    object_branch(items, root)
-}
-
-/// `name="|"`, or with the default/const filled in. Objects and arrays have
-/// no attribute form and yield `None`.
-pub(super) fn attribute_insert(name: &str, property: &Value, root: &Value) -> Option<(String, usize)> {
-    if object_branch(property, root).is_some() || array_branch(property, root).is_some() {
+/// `name="|"`, or with the value `plan` writes filled in. Objects and
+/// lists have no attribute form and yield `None`.
+fn attribute_insert(name: &str, plan: &InsertPlan<'_>) -> Option<(String, usize)> {
+    if plan.object || plan.list {
         return None;
     }
     let mut insert = format!("{name}=\"");
-    if let Some(value) = written_const(property, root) {
+    if let Planned::Value(value) = plan.value {
         insert.push_str(&escape_attribute(&xml_text(value)));
-    } else if let Some(default) = written_default(property, root) {
-        insert.push_str(&escape_attribute(&xml_text(default)));
     }
-    let caret = utf16(&insert);
+    let caret = utf16_len(&insert);
     insert.push('"');
     Some((insert, caret))
 }
+
 
 /// `children` as elements on lines of their own below the start tag just
 /// written, then `base_indent` for its end tag; `caret` is set to the
@@ -729,8 +629,11 @@ fn end_tag_name_context(source: &str, cursor: usize) -> Option<CompletionContext
         tokens.iter().position(in_name)?
     };
     let end = &tokens[index];
-    let name_start = local_name_start(source, end).min(cursor.max(end.start + 2));
-    let name_end = name_start + token_name(source, end).len();
+    // The name ends where its local part does, wherever the caret starts
+    // it (`</‸a:é>` replaces through `é`, not a byte into it).
+    let local_start = local_name_start(source, end);
+    let name_start = local_start.min(cursor.max(end.start + 2));
+    let name_end = local_start + token_name(source, end).len();
     // Its start tag: the last one before it left open.
     let mut depth = 0usize;
     let open = tokens[..index].iter().rev().find(|token| match token.kind {

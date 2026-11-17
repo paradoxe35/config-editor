@@ -116,7 +116,7 @@ fn focus_when_mounted(documents: Documents, entry: &Entry) {
         documents.focus_editor.set(None);
         // Once the panel has lost `inert`: at the end of this task, so the
         // keys pressed right after the switch (`Enter`, then `End`) land in
-        // the editor, not on the tab (QA 30, L30-6); a panel still inert
+        // the editor, not on the tab; a panel still inert
         // then is shown by the next frame.
         let id = id.clone();
         later::soon(documents, move |documents| {
@@ -170,6 +170,10 @@ fn editor(
     entry
         .handle
         .open_with(opening.filter(|_| entry.edit_as.get_untracked().is_some()));
+    entry.handle.share_placeholders(follows.placeholders.read());
+    entry
+        .handle
+        .share_clipboard(documents.clipboard_for(entry.setup.language));
     let read_only_reason = entry.read_only_reason;
     let edit_as = entry.edit_as;
     let edit_as = Signal::derive(move || edit_as.get());
@@ -188,6 +192,7 @@ fn editor(
             language=language
             edit_as=edit_as
             value=entry.value
+            echoes=documents.callbacks.echoes
             baseline=entry.baseline
             read_only=entry.read_only
             read_only_reason=read_only_reason

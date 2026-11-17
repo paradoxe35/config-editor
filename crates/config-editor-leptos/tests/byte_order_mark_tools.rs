@@ -4,7 +4,7 @@
 //! is a character of the text given), and none panics. Astral, other
 //! non-ASCII and ASCII characters sit in each kind of place (keys, values,
 //! element text, attributes, comments), on the first line too, in documents
-//! that read and in ones that do not (QA 31: an XML text with a mark and an
+//! that read and in ones that do not (an XML text with a mark and an
 //! emoji in an element's text panicked `convert`).
 #![cfg(all(
     feature = "yaml",
@@ -16,6 +16,7 @@
     feature = "folding"
 ))]
 
+use config_editor_leptos::language::pointer_key;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use config_editor_leptos::{
@@ -125,7 +126,7 @@ fn pointers(value: &Value, at: String, out: &mut Vec<String>) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                let key = key.replace('~', "~0").replace('/', "~1");
+                let key = pointer_key(key);
                 pointers(child, format!("{at}/{key}"), out);
             }
         }

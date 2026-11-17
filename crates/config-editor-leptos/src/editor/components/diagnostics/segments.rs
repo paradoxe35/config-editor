@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(found.len(), MAX_LINES);
     }
 
-    /// QA 19: the cap counts every line drawn, not every problem: 200
+    /// The cap counts every line drawn, not every problem: 200
     /// ranges of 200 lines draw 200 underlines, not 40,000, quickly.
     #[test]
     fn the_cap_counts_every_underlined_line_of_every_problem() {
@@ -230,16 +230,21 @@ mod tests {
         let problems: Vec<Diagnostic> = (0..200)
             .map(|index| over(1 + index * 7, 1, Some(1 + index * 7 + 200), 2))
             .collect();
-        let (took, planned) =
-            crate::editor::test_timing::best_of(3, || plan(&problems, &lines, |_| false));
+        let planned = plan(&problems, &lines, |_| false);
         assert_eq!(planned.drawn.len(), MAX_DRAWN);
         assert!(planned.cut);
-        // Every problem's start first (QA 20: the first one took the whole
+        // Every problem's start first (the first one took the whole
         // budget, hiding the others).
         let mut starts: Vec<usize> = planned.drawn.iter().map(|(index, _)| *index).collect();
         starts.dedup();
         assert_eq!(starts, (0..200).collect::<Vec<_>>());
-        assert!(took.as_millis() < 50, "planning took {took:?}");
+        // And planning grows with the problems only: four times the ranges
+        // about four times as long.
+        let growth =
+            crate::editor::test_timing::growth(5, (&problems[..50], &problems[..]), |problems| {
+                plan(problems, &lines, |_| false)
+            });
+        assert!(growth.ratio() < 10.0, "50 ranges, then 200: {growth}");
         // One-line problems: the first 200 of them.
         let short: Vec<Diagnostic> = (0..300).map(|index| over(1 + index, 1, None, 3)).collect();
         let planned = plan(&short, &lines, |_| false);
@@ -266,7 +271,7 @@ mod tests {
         assert_eq!((planned.drawn.len(), planned.cut), (20, false));
     }
 
-    /// QA 20: the cap went in list order, so a wide info (or 250 hints
+    /// The cap went in list order, so a wide info (or 250 hints
     /// listed first) hid a later error's underline. The most serious
     /// problems are drawn first, each kind in list order, across every
     /// mix of severities.

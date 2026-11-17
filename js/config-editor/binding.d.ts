@@ -37,7 +37,9 @@ export const SETTING_TYPES: Readonly<Record<keyof EditorSettings, "boolean" | "s
 export interface EditorBindingProps extends EditorSettings {
   value?: string;
   defaultValue?: string;
-  onChange?: (value: string) => void;
+  /** The `revision` `onChange` gave `value` with, when the parent stores it beside the value and never goes back to an older one: its echo is matched exactly (no pause). */
+  valueRevision?: number;
+  onChange?: (value: string, revision: number) => void;
   language?: LanguageName;
   editAs?: LanguageName | null;
   onEditAsChange?: (language: LanguageName) => void;
@@ -176,7 +178,9 @@ export interface ConfigDocumentsHandle {
   /**
    * Replaces the text of the document `id`, always (a revert or a reset to a
    * text the user just passed through), and reports it through `onChange`
-   * for the parent's list; `false` when there is no such document.
+   * for the parent's list. Returns whether it replaced the text: `false`
+   * when there is no such document or it holds that text already (nothing
+   * is reported then).
    */
   setValue(id: string, value: string): boolean;
 }

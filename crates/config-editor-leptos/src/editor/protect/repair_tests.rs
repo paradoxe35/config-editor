@@ -2,8 +2,9 @@
 //! read-only paths: closing the block that holds a lock, a lock on a path
 //! the text never had, a lock beside the break. Each repair keeps every
 //! locked value, so each goes through (I2), whichever order the text and
-//! the paths arrive in; changing the locked value and then repairing is
-//! refused (I1), with a message naming the field.
+//! the paths arrive in; changing the locked value while the text does not
+//! parse is refused at once (I1): the value is a span of the text, followed
+//! from where it was found, whatever breaks the text around it.
 
 use super::super::Language;
 use super::super::codec;
@@ -109,31 +110,20 @@ fn closing_what_the_host_left_open_goes_through_in_any_arrival_order() {
     );
 }
 
-/// The repair decides, whatever was found while the text did not parse.
+/// The locked value is a span while the text does not parse: changing it
+/// is refused, with the field's reason.
 #[test]
-fn changing_a_locked_value_then_closing_is_refused_with_its_path() {
+fn changing_a_locked_value_while_the_text_does_not_parse_is_refused() {
     let mut failures = Vec::new();
-    for (language, text, closer, fields) in unclosed() {
+    for (language, text, _, fields) in unclosed() {
         let lock = fields[1];
         let protected = locks(language, text, &[lock], None);
-        // The value changed while the text did not parse, as if no lock had
-        // been found then (the same length: the locks still fit the text).
         let shown = text.replacen("80", "81", 1);
-        let carried = protected;
-        let repaired = format!("{shown}{closer}");
-        match check(language.behavior(), None, &carried, &shown, &repaired) {
-            Ok(()) => failures.push(format!(
-                "{language}: {lock} changed and closed: {repaired:?}"
-            )),
-            Err(blocked) if blocked.pointer.as_deref() != Some(lock) => {
-                failures.push(format!(
-                    "{language}: refused for {:?}, not {lock}",
-                    blocked.pointer
-                ));
-            }
+        match check(language.behavior(), None, &protected, text, &shown) {
+            Ok(()) => failures.push(format!("{language}: {lock} changed: {shown:?}")),
             Err(blocked) => {
                 let message = blocked.message(&crate::EditorStrings::default());
-                if !message.contains(lock) || !message.contains("read-only") {
+                if !message.contains("read-only") {
                     failures.push(format!(
                         "{language}: the message {message:?} does not say why"
                     ));

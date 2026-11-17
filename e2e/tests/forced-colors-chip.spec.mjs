@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Under forced colours a secret placeholder's chip reads in every theme: its
-// text takes the system's text colour on its forced background (hard round
-// 27's `D27.a11y-1`: it kept the theme's string colour, 1.1:1 in dracula).
+// text takes the system's text colour on its forced background (it once kept
+// the theme's string colour, 1.1:1 in dracula).
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');

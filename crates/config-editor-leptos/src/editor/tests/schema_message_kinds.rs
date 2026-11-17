@@ -8,7 +8,8 @@
 //! start with a byte order mark.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::{Diagnostic, Schema, build_schema};
+use crate::editor::diagnostics::Diagnostic;
+use crate::editor::schema::{Schema, build_schema};
 
 const LANGUAGES: [Language; 4] = [
     Language::YAML,
@@ -70,7 +71,7 @@ fn problems_of_every_kind_read_plainly_in_every_language() {
             r#"{"properties":{"l":{"contains":{"type":"string"},"maxContains":2}}}"#,
             r#"/l: more than 2 items of the list match its "contains" schema"#,
         ),
-        // QA 36: counts, not the whole list or object printed.
+        // Counts, not the whole list or object printed.
         (
             "l: [1, 2]\n",
             r#"{"properties":{"l":{"minItems":10}}}"#,

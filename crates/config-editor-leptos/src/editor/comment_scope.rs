@@ -1,14 +1,17 @@
-//! The lines Ctrl+/ comments, widened so they never cut through something
-//! written over several lines: a flow collection (`a: [1,` … `2]`), a call
+//! The lines Ctrl+/ comments at a caret (and a copy or cut of a folded
+//! line takes), widened so they never cut through something written over
+//! several lines: a flow collection (`a: [1,` … `2]`), a call
 //! or object over lines, a string whose text starts on its opening line
 //! (`s = """multi` … `line"""`), an XML start tag, element or CDATA over
 //! lines. Commenting part of one would leave an invalid document or change
-//! a value; the whole of it is commented instead.
+//! a value; the whole of it is commented instead. A selection is commented
+//! as selected.
 
 use super::keyboard::utf16_to_byte_index;
 use super::language::ConfigLanguage;
 use super::paths::{batch_kept, line_of_byte, line_start, split_line, units_at};
 use super::work_count::{Work, note};
+use crate::editor::text::{TextSize, text_size};
 
 /// The state at each line start: the nesting depth there, and whether a
 /// string (or another construct the language reads as one) is open.
@@ -56,9 +59,10 @@ pub(crate) fn selection_over(
     if (first, last) == selected_lines(source, start, end) {
         return (start, end);
     }
-    let last_end = line_start(source, last) + split_line(source, last).map_or(0, str::len);
-    let new_start = units_at(source, line_start(source, first)).min(start);
-    let new_end = units_at(source, last_end).max(end);
+    let last_end = line_start(source, last)
+        + split_line(source, last).map_or(TextSize::default(), TextSize::of);
+    let new_start = usize::from(units_at(source, line_start(source, first))).min(start);
+    let new_end = usize::from(units_at(source, last_end)).max(end);
     (new_start, new_end)
 }
 
@@ -66,7 +70,7 @@ pub(crate) fn selection_over(
 /// its quoted strings (`"…"`, `'…'`, `"""…"""`, `'''…'''`) and multi-line
 /// string bodies.
 pub(crate) fn over_balanced_lines(
-    behavior: &(impl ConfigLanguage + ?Sized),
+    behavior: &dyn ConfigLanguage,
     source: &str,
     start: usize,
     end: usize,
@@ -98,10 +102,7 @@ struct BalancedLines {
 
 /// Each line start's state over `behavior`'s brackets and strings, and the
 /// lowest depth on each line.
-fn line_states(
-    behavior: &(impl ConfigLanguage + ?Sized),
-    source: &str,
-) -> (Vec<LineState>, Vec<usize>) {
+fn line_states(behavior: &dyn ConfigLanguage, source: &str) -> (Vec<LineState>, Vec<usize>) {
     note(Work::ConstructScan);
     let lines: Vec<&str> = source.split('\n').collect();
     let mut body = vec![false; lines.len()];
@@ -194,10 +195,18 @@ fn line_states(
                 .next_back()
                 .is_none_or(|before| before.is_whitespace() || value_starts.contains(&before));
             // The language's string delimiters, longest first; a literal
-            // one-character quote opens one only where a value starts.
+            // one-character quote opens one only where a value starts, and
+            // any one-character quote right after a letter or digit is part
+            // of that word (`don't`, YAML's plain `x"y`).
+            let after_word = line[..at]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_alphanumeric);
             if let Some(delimiter) = quotes.iter().copied().find(|delimiter| {
                 rest.starts_with(delimiter)
-                    && (boundary || !literal(delimiter) || delimiter.chars().count() > 1)
+                    && (delimiter.chars().count() > 1
+                        || boundary
+                        || !literal(delimiter) && !after_word)
             }) {
                 quote = Some(delimiter);
                 at += delimiter.len();
@@ -225,8 +234,8 @@ fn line_states(
 pub(crate) fn selected_lines(source: &str, start: usize, end: usize) -> (usize, usize) {
     let start_byte = utf16_to_byte_index(source, start);
     let end_byte = utf16_to_byte_index(source, end);
-    let first = line_of_byte(source, start_byte);
-    let last = line_of_byte(source, end_byte);
+    let first = line_of_byte(source, text_size(start_byte));
+    let last = line_of_byte(source, text_size(end_byte));
     let last = if end_byte > start_byte && source[..end_byte].ends_with('\n') {
         last - 1
     } else {

@@ -8,15 +8,14 @@ use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
 use crate::given::Given;
-use crate::given_ranges::Again;
+use crate::host_channel::{HostChannel, Ranges};
 use crate::host_diagnostics::host_diagnostics_from;
+use crate::host_locks::print;
 use crate::languages::{language_for_path, language_named, writable_edit_as};
 use crate::options::{bool_option, warn_unknown_keys};
-use crate::protect::{paths_from, ranges_from, secrets_from};
-use crate::schema_formats::{SOURCE_KEYS, read_spec};
-use crate::schema_spec::{SpecKey, registrations};
+use crate::protect::{paths_from, ranges_in, secrets_from};
 use crate::settings::{setting_keys, settings_over};
-use crate::values::{field, json_from_js, optional_text, text_arg};
+use crate::values::{field, optional_text, text_arg};
 
 /// The keys of one document.
 const DOCUMENT_KEYS: &[&str] = &[
@@ -29,9 +28,6 @@ const DOCUMENT_KEYS: &[&str] = &[
     "readOnlyReason",
     "closable",
     "schema",
-    "schemaFormat",
-    "schemaResources",
-    "schemaOptions",
     "editAs",
     "editAsText",
     "settings",
@@ -47,52 +43,34 @@ const DOCUMENT_KEYS: &[&str] = &[
 pub(crate) struct Listed {
     pub(crate) documents: Vec<Document>,
     pub(crate) overrides: Vec<(String, JsValue)>,
-    /// The documents listed with the ranges given last (see
-    /// `given_ranges`), and what became of those ranges.
-    pub(crate) ranges_again: HashMap<String, Again>,
+    /// The ranges listed for each document listed before, read (or not)
+    /// as its channel's first step (see `HostChannel::ranges`): the view
+    /// takes the list with the second. A document listed for the first
+    /// time has none here: it is taken as listed.
+    pub(crate) ranges: HashMap<String, Ranges>,
 }
 
 /// What reading the list keeps from one reading to the next: each
 /// document's secret options, built once per id as its editor reads them
-/// when it mounts; its texts, and its schema compiled, each read again only
-/// when the host gives another string (see `given`).
+/// when it mounts; its texts, and its schema compiled (with its text),
+/// each read again only when the host gives another string (see `given`).
 #[derive(Default)]
 pub(crate) struct Kept {
     secrets: HashMap<String, SecretOptions>,
     pub(crate) texts: Given<String>,
-    schemas: KeptSchemas,
-    /// Each document's `readOnlyRanges` as given (see `given_ranges`).
-    pub(crate) ranges: crate::given_ranges::Listed,
+    schemas: Given<(String, Schema)>,
+    /// Whether the host lists every text `onChange` gives back (`echoes`).
+    pub(crate) echoing: bool,
+    /// Each document's channel to the host (see `host_channel`).
+    pub(crate) channels: HashMap<String, HostChannel>,
 }
 
 impl Kept {
     /// The list could not be read: what the last one read stays.
     pub(crate) fn abandon(&mut self) {
         self.texts.abandon();
-        self.schemas.read.clear();
-        self.ranges.abandon();
+        self.schemas.abandon();
     }
-}
-
-/// Each document's schema as the last list gave it, compiled, and those of
-/// the list being read (which replace them once it is read whole).
-#[derive(Default)]
-struct KeptSchemas {
-    last: HashMap<String, KeptSchema>,
-    read: HashMap<String, KeptSchema>,
-}
-
-/// A document's schema: what it was given (the `schema` and
-/// `schemaResources` values as passed, the format's name and the options as
-/// JSON text) and what that compiled to.
-#[derive(Clone)]
-struct KeptSchema {
-    text: JsValue,
-    resources: JsValue,
-    format: Option<String>,
-    options: String,
-    key: SpecKey,
-    schema: Schema,
 }
 
 /// `message` as a console warning, once: a host hands its list to `update`
@@ -130,16 +108,14 @@ fn warn_unclaimed(file_name: &str, fallback: Language) {
 ///
 /// A document's `settings` go over `view`; its `secrets` are built once per
 /// id, and its `schema` compiled once per text (a schema that does not
-/// compile throws, as a `ConfigEditor`'s does), see [`Kept`]. `replaces(id,
-/// value)` says whether the text `value` will replace what the editor of
-/// document `id` holds: not that text, an echo, nor the text the host
-/// listed last (its ranges given again are read in it only then, see
-/// `given_ranges`).
-pub(crate) fn documents_from(
+/// compile throws, as a `ConfigEditor`'s does), see [`Kept`]. `current(id)`
+/// is the text the view holds for document `id`, if it was listed before:
+/// its ranges are read as its channel decides (see `HostChannel::ranges`).
+pub(crate) fn documents_from<'a>(
     list: &JsValue,
     view: &EditorSettings,
     kept: &mut Kept,
-    replaces: &dyn Fn(&str, &str) -> bool,
+    current: &dyn Fn(&str) -> Option<&'a str>,
 ) -> Result<Listed, JsError> {
     if !Array::is_array(list) {
         return Err(JsError::new(
@@ -149,7 +125,7 @@ pub(crate) fn documents_from(
     let list: &Array = list.unchecked_ref();
     let mut documents = Vec::with_capacity(list.length() as usize);
     let mut overrides = Vec::new();
-    let mut ranges_again = HashMap::new();
+    let mut ranges = HashMap::new();
     for (index, item) in list.iter().enumerate() {
         let name = |key: &str| format!("documents[{index}].{key}");
         if !item.is_object() || Array::is_array(&item) {
@@ -165,7 +141,7 @@ pub(crate) fn documents_from(
         let file_name = text_arg(&field(&item, "fileName"), &name("fileName"))?;
         let value = value_of(kept, &id, &item, &name("value"))?;
         let baseline = text_of(kept, &id, &item, "baseline", &name("baseline"))?;
-        let schema = schema_of(kept, &id, &item, &name(""))?;
+        let schema = schema_of(kept, &id, &field(&item, "schema"), &name("schema"))?;
         let mut document = Document::new(id, file_name, value);
         document = match optional_text(&field(&item, "language"), &name("language"))? {
             Some(language) => document.language(language_named(&language)?),
@@ -207,10 +183,10 @@ pub(crate) fn documents_from(
             ));
             document.edit_as_text = None;
         }
-        let again;
-        (document, again) = with_protection(document, &item, index, kept, replaces)?;
-        if let Some(again) = again {
-            ranges_again.insert(document.id.clone(), again);
+        let listed;
+        (document, listed) = with_protection(document, &item, index, kept, current)?;
+        if let Some(listed) = listed {
+            ranges.insert(document.id.clone(), listed);
         }
         let own = field(&item, "settings");
         if !own.is_undefined() && !own.is_null() {
@@ -234,30 +210,28 @@ pub(crate) fn documents_from(
     }
     kept.secrets
         .retain(|id, _| documents.iter().any(|document| document.id == *id));
+    kept.channels
+        .retain(|id, _| documents.iter().any(|document| document.id == *id));
     kept.texts.finish();
-    kept.schemas.last = std::mem::take(&mut kept.schemas.read);
-    kept.ranges.finish();
+    kept.schemas.finish();
     Ok(Listed {
         documents,
         overrides,
-        ranges_again,
+        ranges,
     })
 }
 
 /// A document's host problems, read-only fields and secrets. Its ranges
-/// as given last, listed again with a text that does not replace the one
-/// it holds (that text, an echo), keep where its editor moved them (see
-/// `given_ranges`): they are not read again, nor checked, in a text they
-/// were not given for (QA 34, HO34-1). Listed with a text that replaces
-/// it, they are read in it, and the ones its editor was given are
-/// returned too (see [`Again`]).
-fn with_protection(
+/// are read by its channel's first step when it was listed before (see
+/// `HostChannel::ranges`), and returned for the second; listed for the
+/// first time, they are read in its text and it gets its channel.
+fn with_protection<'a>(
     mut document: Document,
     item: &JsValue,
     index: usize,
     kept: &mut Kept,
-    replaces: &dyn Fn(&str, &str) -> bool,
-) -> Result<(Document, Option<Again>), JsError> {
+    current: &dyn Fn(&str) -> Option<&'a str>,
+) -> Result<(Document, Option<Ranges>), JsError> {
     let name = |key: &str| format!("documents[{index}].{key}");
     let diagnostics = field(item, "hostDiagnostics");
     if !diagnostics.is_undefined() && !diagnostics.is_null() {
@@ -266,21 +240,34 @@ fn with_protection(
         document = document.host_diagnostics(list);
     }
     let paths = paths_from(&field(item, "readOnlyPaths"), &name("readOnlyPaths"))?;
+    document = document.read_only_paths(paths);
     let given = field(item, "readOnlyRanges");
-    let print = crate::given_ranges::print(&given);
-    let (ranges, again) = match kept.ranges.again(&document.id, print.as_deref()) {
-        Some(ranges)
-            if crate::given_ranges::stay(true, replaces(&document.id, &document.value)) =>
-        {
-            (ranges, Some(Again::Stayed))
+    let read =
+        |text: &str, before: Option<&str>| ranges_in(&given, text, before, &name("readOnlyRanges"));
+    let listed = match (current(&document.id), kept.channels.get_mut(&document.id)) {
+        (Some(current), Some(channel)) => Some(channel.ranges(
+            print(&given),
+            Some(&document.value),
+            None,
+            current,
+            false,
+            |text, came_with| read(text, Some(came_with)),
+        )?),
+        _ => {
+            let ranges = read(&document.value, None)?;
+            let channel = HostChannel::new(
+                kept.echoing,
+                &document.value,
+                print(&given),
+                &document.value,
+                ranges.clone(),
+            );
+            document.read_only_ranges_version = channel.version();
+            kept.channels.insert(document.id.clone(), channel);
+            document = document.read_only_ranges(ranges);
+            None
         }
-        last => (
-            ranges_from(&given, &document.value, &name("readOnlyRanges"))?,
-            last.map(Again::Read),
-        ),
     };
-    kept.ranges.read(&document.id, print, ranges.clone());
-    document = document.read_only_paths(paths).read_only_ranges(ranges);
     let given = field(item, "secrets");
     if !given.is_undefined() && !given.is_null() {
         let options = match kept.secrets.get(&document.id) {
@@ -293,7 +280,7 @@ fn with_protection(
         };
         document = document.secrets(options);
     }
-    Ok((document, again))
+    Ok((document, listed))
 }
 
 /// Document `id`'s `value` (`name` in errors): a string, as a
@@ -326,72 +313,27 @@ fn text_of(
         .map(Some)
 }
 
-/// Document `id`'s schema (`item`'s `schema`, in its `schemaFormat`, with
-/// its `schemaResources` and `schemaOptions`): compiled once per schema,
-/// shared by the documents giving the same one, and read again only when
-/// the host gives another text or resources object, format or options.
-/// Errors name the key after `prefix` (`documents[0].`).
+/// Document `id`'s schema, given as `given` (its JSON or YAML text): compiled once
+/// per text, shared by the documents giving the same one.
 fn schema_of(
     kept: &mut Kept,
     id: &str,
-    item: &JsValue,
-    prefix: &str,
+    given: &JsValue,
+    name: &str,
 ) -> Result<Option<Schema>, JsError> {
-    let given = field(item, "schema");
     if given.is_undefined() || given.is_null() {
         return Ok(None);
     }
-    let name = |key: &str| format!("{prefix}{key}");
-    let format = optional_text(&field(item, "schemaFormat"), &name("schemaFormat"))?;
-    let resources = field(item, "schemaResources");
-    let options_value = field(item, "schemaOptions");
-    let options = if options_value.is_undefined() || options_value.is_null() {
-        "{}".to_string()
-    } else {
-        json_from_js(&options_value, 0)
-            .map_err(|error| JsError::new(&format!("{}: {error}", name("schemaOptions"))))?
-            .to_string()
-    };
-    let same = |known: &KeptSchema| {
-        Object::is(&known.text, &given)
-            && Object::is(&known.resources, &resources)
-            && known.format == format
-            && known.options == options
-            && known.key.4 == registrations()
-    };
-    if let Some(known) = kept.schemas.last.get(id).filter(|known| same(known)) {
-        let known = known.clone();
-        let schema = known.schema.clone();
-        kept.schemas.read.insert(id.to_string(), known);
-        return Ok(Some(schema));
-    }
-    let text = text_arg(&given, &name("schema"))?;
-    let spec = read_spec(item, &SOURCE_KEYS, prefix)?;
-    let key = spec.key(&text);
-    let shared = kept
-        .schemas
-        .read
-        .values()
-        .chain(kept.schemas.last.values())
-        .find(|known| known.key == key)
-        .map(|known| known.schema.clone());
-    let schema = match shared {
-        Some(schema) => schema,
-        None => spec
-            .compile(&text)
-            .map_err(|error| JsError::new(&format!("{}: {error}", name("schema"))))?,
-    };
-    kept.schemas.read.insert(
-        id.to_string(),
-        KeptSchema {
-            text: given,
-            resources,
-            format,
-            options,
-            key,
-            schema: schema.clone(),
-        },
-    );
+    let (_, schema) = kept.schemas.get(id, "schema", given, |known| {
+        let json = text_arg(given, name)?;
+        let schema = match known.values().find(|(text, _)| *text == json) {
+            Some((_, schema)) => schema.clone(),
+            None => {
+                Schema::compile(&json).map_err(|error| JsError::new(&format!("{name}: {error}")))?
+            }
+        };
+        Ok((json, schema))
+    })?;
     Ok(Some(schema))
 }
 

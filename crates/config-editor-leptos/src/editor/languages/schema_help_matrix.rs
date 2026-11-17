@@ -8,8 +8,14 @@
 use super::super::completion::{
     Completion, apply_completion, completions, key_hover, next_stop, stop_ranges,
 };
-use super::super::diagnostics::{Diagnostic, SchemaBundle, Severity, build_schema, validate};
+use super::super::diagnostics::{Diagnostic, Severity, validate};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
+use super::harness::{
+    At, completing, every_language, hovering, key_place, key_text, report, text, value_place, write,
+};
+use crate::editor::text::{TextRange, TextSize};
+use serde_json::{Value, json};
 
 fn help() -> SchemaBundle {
     build_schema(include_str!(
@@ -32,20 +38,37 @@ fn offered(language: Language, marked: &str) -> Vec<Completion> {
     )
 }
 
-/// Where a new top-level key is typed, per language.
-const ROOT: [(Language, &str); 5] = [
-    (Language::YAML, "|\n"),
-    (Language::JSON, "{\n  |\n}\n"),
-    (Language::TOML, "|\n"),
-    (Language::HCL, "|\n"),
-    (Language::XML, "<|\n"),
-];
+/// Where a new top-level key is typed, in each language.
+fn root() -> Vec<(Language, String)> {
+    let at = At::NewKey {
+        object: "",
+        typed: "",
+    };
+    completing()
+        .into_iter()
+        .map(|language| {
+            let marked = write(language, &json!({}), &[], at)
+                .map_or_else(|error| error, |written| written.marked());
+            (language, marked)
+        })
+        .collect()
+}
+
+/// `document` as `language` writes it, or why it cannot.
+fn written(language: Language, document: &Value) -> String {
+    text(language, document, &[]).unwrap_or_else(|error| error)
+}
+
+/// The zero-based line and one-based column of the key at `pointer`.
+fn key_at(language: Language, source: &str, pointer: &str) -> (usize, usize) {
+    key_place(language, source, pointer, 0).map_or((0, 0), |(line, column)| (line, column + 1))
+}
 
 #[test]
 fn deprecated_keys_are_marked_and_listed_after_the_others() {
     let mut failures = Vec::new();
-    for (language, marked) in ROOT {
-        let options = offered(language, marked);
+    for (language, marked) in root() {
+        let options = offered(language, &marked);
         let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
         let deprecated: Vec<&str> = options
             .iter()
@@ -58,85 +81,42 @@ fn deprecated_keys_are_marked_and_listed_after_the_others() {
             ));
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
 #[test]
 fn values_show_their_own_title_and_description() {
-    let cases: &[(Language, &str, &str, &str)] = &[
-        (Language::YAML, "mode: |\n", "fast", "Skips the checks."),
-        (
-            Language::JSON,
-            "{\"mode\": |}\n",
-            "safe",
-            "Checks everything.",
-        ),
-        (Language::TOML, "mode = |\n", "debug", "Logs every step."),
-        (Language::HCL, "mode = |\n", "fast", "Skips the checks."),
-        (
-            Language::XML,
-            "<mode>|</mode>\n",
-            "safe",
-            "Checks everything.",
-        ),
-        (
-            Language::YAML,
-            "level: |\n",
-            "trace",
-            "Trace — Everything, very verbose.",
-        ),
-        (
-            Language::JSON,
-            "{\"level\": |}\n",
-            "info",
-            "Info — Normal messages.",
-        ),
-        (
-            Language::TOML,
-            "level = |\n",
-            "trace",
-            "Trace — Everything, very verbose.",
-        ),
-        (
-            Language::HCL,
-            "level = |\n",
-            "info",
-            "Info — Normal messages.",
-        ),
-        (
-            Language::XML,
-            "<level>|</level>\n",
-            "trace",
-            "Trace — Everything, very verbose.",
-        ),
+    let cases = [
+        ("mode", "fast", "Skips the checks."),
+        ("mode", "safe", "Checks everything."),
+        ("mode", "debug", "Logs every step."),
+        ("level", "trace", "Trace — Everything, very verbose."),
+        ("level", "info", "Info — Normal messages."),
     ];
     let mut failures = Vec::new();
-    for &(language, marked, label, detail) in cases {
-        let options = offered(language, marked);
-        let found = options.iter().find(|option| option.label == label);
-        if found.map(|option| option.detail.as_str()) != Some(detail) {
-            let all: Vec<(&str, &str)> = options
-                .iter()
-                .map(|option| (option.label.as_str(), option.detail.as_str()))
-                .collect();
-            failures.push(format!("{language:?} {marked:?} {label}: {all:?}"));
+    for language in completing() {
+        for (key, label, detail) in cases {
+            let pointer = format!("/{key}");
+            let marked = write(language, &json!({ key: "" }), &[], At::EmptyValue(&pointer))
+                .map_or_else(|error| error, |written| written.marked());
+            let options = offered(language, &marked);
+            let found = options.iter().find(|option| option.label == label);
+            if found.map(|option| option.detail.as_str()) != Some(detail) {
+                let all: Vec<(&str, &str)> = options
+                    .iter()
+                    .map(|option| (option.label.as_str(), option.detail.as_str()))
+                    .collect();
+                failures.push(format!("{language:?} {marked:?} {label}: {all:?}"));
+            }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
-/// A document with `mode: fast` and `timeout: 3`, the zero-based line and
-/// column of the `fast` value, and of the `timeout` key.
-const DOCUMENTS: [(Language, &str); 5] = [
-    (Language::YAML, "mode: fast\ntimeout: 3\n"),
-    (
-        Language::JSON,
-        "{\n  \"mode\": \"fast\",\n  \"timeout\": 3\n}\n",
-    ),
-    (Language::TOML, "mode = \"fast\"\ntimeout = 3\n"),
-    (Language::HCL, "mode = \"fast\"\ntimeout = 3\n"),
-    (Language::XML, "<mode>fast</mode>\n<timeout>3</timeout>\n"),
-];
+/// A document with `mode: fast` and `timeout: 3`.
+fn mode_and_timeout() -> Value {
+    json!({"mode": "fast", "timeout": 3})
+}
 
 /// The text a diagnostic underlines (on its one line).
 fn marked(source: &str, diagnostic: &Diagnostic) -> Option<String> {
@@ -146,20 +126,15 @@ fn marked(source: &str, diagnostic: &Diagnostic) -> Option<String> {
     Some(line.chars().skip(column - 1).take(end - column).collect())
 }
 
-fn position_of(source: &str, needle: &str) -> (usize, usize) {
-    let at = source.find(needle).expect("needle in the document");
-    let line = source[..at].matches('\n').count();
-    let line_start = source[..at].rfind('\n').map_or(0, |index| index + 1);
-    (line, source[line_start..at].chars().count() + 1)
-}
-
 #[test]
 fn hover_shows_values_deprecation_and_docs_links() {
     let bundle = help();
     let mut failures = Vec::new();
-    for (language, source) in DOCUMENTS {
+    for language in hovering() {
+        let source = &written(language, &mode_and_timeout());
         let behavior = language.behavior();
-        let (line, column) = position_of(source, "fast");
+        let (line, column) = value_place(language, source, "/mode", "fast", 0)
+            .map_or((0, 0), |(line, column)| (line, column + 1));
         match key_hover(source, line, column, Some(&bundle), behavior) {
             Some(hover) => {
                 let value = hover.value.as_ref();
@@ -177,7 +152,7 @@ fn hover_shows_values_deprecation_and_docs_links() {
             }
             None => failures.push(format!("{language:?}: no hover over the value")),
         }
-        let (line, column) = position_of(source, "timeout");
+        let (line, column) = key_at(language, source, "/timeout");
         match key_hover(source, line, column, Some(&bundle), behavior) {
             Some(hover)
                 if hover.key == "timeout"
@@ -190,14 +165,14 @@ fn hover_shows_values_deprecation_and_docs_links() {
             )),
             None => failures.push(format!("{language:?}: no hover over timeout")),
         }
-        let (line, column) = position_of(source, "mode");
+        let (line, column) = key_at(language, source, "/mode");
         let docs = key_hover(source, line, column, Some(&bundle), behavior)
             .and_then(|hover| hover.docs_url);
         if docs.as_deref() != Some("https://example.com/docs/mode") {
             failures.push(format!("{language:?}: the mode key links {docs:?}"));
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
 /// Works with and without the `schema-validation` feature.
@@ -205,16 +180,15 @@ fn hover_shows_values_deprecation_and_docs_links() {
 fn deprecated_keys_in_the_document_get_a_warning_on_the_key() {
     let bundle = help();
     let mut failures = Vec::new();
-    for (language, source) in DOCUMENTS {
+    for language in every_language() {
+        let source = &written(language, &mode_and_timeout());
         let diagnostics = validate(source, Some(&bundle), None, true, language.behavior());
-        let (line, column) = position_of(source, "timeout");
-        let expected_column = column + usize::from(language == Language::JSON);
-        // The key only, as VS Code strikes it: never its value.
-        let expected_key = if language == Language::JSON {
-            "\"timeout\""
-        } else {
-            "timeout"
-        };
+        let (line, column) = key_at(language, source, "/timeout");
+        // The key only, as VS Code strikes it (with its quotes): never its
+        // value.
+        let expected_key = key_text(language, source, "/timeout").unwrap_or_default();
+        let expected_column = column + usize::from(expected_key.len() > "timeout".len());
+        let expected_key = expected_key.as_str();
         match diagnostics.as_slice() {
             [warning]
                 if warning.severity == Severity::Warning
@@ -231,7 +205,7 @@ fn deprecated_keys_in_the_document_get_a_warning_on_the_key() {
             )),
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
 /// Accepting `server` writes its required children: `host` takes the caret,
@@ -239,8 +213,8 @@ fn deprecated_keys_in_the_document_get_a_warning_on_the_key() {
 #[test]
 fn required_children_take_examples_and_tab_selects_each_written_value() {
     let mut failures = Vec::new();
-    for (language, marked) in ROOT {
-        let options = offered(language, marked);
+    for (language, marked) in root() {
+        let options = offered(language, &marked);
         let Some(option) = options.iter().find(|option| option.label == "server") else {
             failures.push(format!("{language:?}: server not offered"));
             continue;
@@ -248,21 +222,25 @@ fn required_children_take_examples_and_tab_selects_each_written_value() {
         let source = marked.replacen('|', "", 1);
         let (updated, _, caret) = apply_completion(&source, option);
         let insert_start = caret - option.cursor_offset;
-        let stops: Vec<(usize, usize)> =
+        let stops: Vec<TextRange> =
             stop_ranges(&option.insert, option.cursor_offset, &option.fills)
                 .into_iter()
-                .map(|(start, end)| (insert_start + start, insert_start + end))
+                .map(|stop| stop + insert_start)
                 .collect();
-        let region_end = insert_start + option.insert.encode_utf16().count();
-        let units: Vec<u16> = updated.encode_utf16().collect();
+        let region_end = insert_start + TextSize::of(option.insert.as_str());
         let mut walked = Vec::new();
         let mut at = caret;
         while let Some((anchor, end)) =
             next_stop(&updated, at, region_end, &stops, language.behavior())
         {
-            walked.push(String::from_utf16_lossy(&units[anchor..end]));
+            walked.push(updated[TextRange::new(anchor, end)].to_string());
             // Past the value, and its closing quote, as Tab steps.
-            at = end + usize::from(units.get(end) == Some(&u16::from(b'"')));
+            at = end
+                + if updated[usize::from(end)..].starts_with('"') {
+                    TextSize::of('"')
+                } else {
+                    TextSize::default()
+                };
             if walked.len() > 4 {
                 break;
             }
@@ -271,7 +249,7 @@ fn required_children_take_examples_and_tab_selects_each_written_value() {
             failures.push(format!("{language:?}: {updated:?} walks {walked:?}"));
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
 /// An example fills only children the caret does not go to, and never
@@ -281,8 +259,8 @@ fn required_children_take_examples_and_tab_selects_each_written_value() {
 #[test]
 fn examples_never_take_the_caret_or_shape_a_keys_own_value() {
     let mut failures = Vec::new();
-    for (language, marked) in ROOT {
-        let options = offered(language, marked);
+    for (language, marked) in root() {
+        let options = offered(language, &marked);
         let source = marked.replacen('|', "", 1);
         for label in ["bind", "metrics"] {
             let Some(option) = options.iter().find(|option| option.label == label) else {
@@ -295,7 +273,7 @@ fn examples_never_take_the_caret_or_shape_a_keys_own_value() {
             }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
 #[test]
@@ -307,23 +285,17 @@ fn keys_matching_a_supported_pattern_get_docs_and_unsupported_ones_are_reported(
         "{:?}",
         bundle.warnings
     );
-    let documents: [(Language, &str); 5] = [
-        (Language::YAML, "env:\n  PATH: x\n"),
-        (Language::JSON, "{\"env\": {\"PATH\": \"x\"}}\n"),
-        (Language::TOML, "[env]\nPATH = \"x\"\n"),
-        (Language::HCL, "env {\n  PATH = \"x\"\n}\n"),
-        (Language::XML, "<env>\n  <PATH>x</PATH>\n</env>\n"),
-    ];
     let mut failures = Vec::new();
-    for (language, source) in documents {
-        let (line, column) = position_of(source, "PATH");
+    for language in hovering() {
+        let source = &written(language, &json!({"env": {"PATH": "x"}}));
+        let (line, column) = key_at(language, source, "/env/PATH");
         let description = key_hover(source, line, column, Some(&bundle), language.behavior())
             .and_then(|hover| hover.description);
         if description.as_deref() != Some("One variable.") {
             failures.push(format!("{language:?}: {description:?}"));
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
 /// A key's hover card shows the property's `title` above its description
@@ -342,28 +314,13 @@ fn hover_shows_a_keys_title() {
         }}"#,
     )
     .unwrap();
-    let documents = [
-        (Language::YAML, "listen: 1\nname: a\nlevel: trace\n"),
-        (
-            Language::JSON,
-            "{\n  \"listen\": 1,\n  \"name\": \"a\",\n  \"level\": \"trace\"\n}\n",
-        ),
-        (
-            Language::TOML,
-            "listen = 1\nname = \"a\"\nlevel = \"trace\"\n",
-        ),
-        (
-            Language::HCL,
-            "listen = 1\nname = \"a\"\nlevel = \"trace\"\n",
-        ),
-        (
-            Language::XML,
-            "<listen>1</listen>\n<name>a</name>\n<level>trace</level>\n",
-        ),
-    ];
     let mut failures = Vec::new();
-    for (language, source) in documents {
-        let (line, column) = position_of(source, "listen");
+    for language in hovering() {
+        let source = &written(
+            language,
+            &json!({"listen": 1, "name": "a", "level": "trace"}),
+        );
+        let (line, column) = key_at(language, source, "/listen");
         let hover = key_hover(source, line, column, Some(&bundle), language.behavior());
         let shown = hover
             .as_ref()
@@ -371,20 +328,20 @@ fn hover_shows_a_keys_title() {
         if shown != Some((Some("Listen port"), Some("Where it listens."))) {
             failures.push(format!("{language:?} listen: {shown:?}"));
         }
-        let (line, column) = position_of(source, "name");
+        let (line, column) = key_at(language, source, "/name");
         let title = key_hover(source, line, column, Some(&bundle), language.behavior())
             .map(|hover| hover.title);
         if title != Some(None) {
             failures.push(format!("{language:?} name: {title:?}"));
         }
-        // QA 22: a `oneOf` of values took its first value's title and
-        // description as the key's own; they are the values'.
-        let (line, column) = position_of(source, "level");
+        // A `oneOf` of values gives the values titles and descriptions,
+        // not the key: the first value's are not the key's own.
+        let (line, column) = key_at(language, source, "/level");
         let shown = key_hover(source, line, column, Some(&bundle), language.behavior())
             .map(|hover| (hover.title, hover.description));
         if shown != Some((None, None)) {
             failures.push(format!("{language:?} level: {shown:?}"));
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }

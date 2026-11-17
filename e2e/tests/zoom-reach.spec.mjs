@@ -3,8 +3,8 @@ import { editor, setupEditor } from './helpers.mjs';
 
 // At 400% (a 320x225 CSS px window) what the keyboard moves to, or what a
 // press changes under it, stays reachable: focus the editor carries to a
-// control is scrolled into view (`D6.a11y-2`), the find row that wraps under
-// the pressed button keeps it in view (`D21.a11y-2`).
+// control is scrolled into view, the find row that wraps under
+// the pressed button keeps it in view.
 
 test.use({ viewport: { width: 320, height: 225 } });
 
@@ -29,7 +29,7 @@ function expectShown({ name, top, bottom, height }) {
 test.describe('focus the editor moves stays in the window', () => {
   setupEditor(test, '?sample=large');
 
-  test('Tab out of the change preview (D6.a11y-2)', async ({ page }) => {
+  test('Tab out of the change preview', async ({ page }) => {
     await editor(page).input.click();
     await page.keyboard.press('Control+Home');
     await page.keyboard.type('x: 1\n');
@@ -42,7 +42,7 @@ test.describe('focus the editor moves stays in the window', () => {
     expectShown(await focusInWindow(page));
   });
 
-  test('Ctrl+F in a page scrolled past the editor top (D6.a11y-2)', async ({ page }) => {
+  test('Ctrl+F in a page scrolled past the editor top', async ({ page }) => {
     await editor(page).input.click();
     await page.keyboard.press('Control+Home');
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
@@ -51,7 +51,7 @@ test.describe('focus the editor moves stays in the window', () => {
     expectShown(await focusInWindow(page));
   });
 
-  test('Replace all that wraps the find row (D21.a11y-2)', async ({ page }) => {
+  test('Replace all that wraps the find row', async ({ page }) => {
     await editor(page).input.click();
     await page.keyboard.press('Control+Home');
     await page.evaluate(() => window.scrollTo(0, 0));

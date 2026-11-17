@@ -12,7 +12,8 @@
 //! And the documents read the way a schema expects (see [`conformed`]),
 //! which an Edit-as save reads in several of its steps, and the copies of
 //! fields' keys written more than once (see `copies`), which a keystroke's
-//! checks each look for.
+//! checks each look for. And what a language reads off a whole text
+//! besides its parse (see [`reading`]).
 //!
 //! Two parses (an Edit-as view's text and the host's, which each pause
 //! reads in turn), three documents read as a schema expects and one entry
@@ -26,25 +27,32 @@ use std::rc::Rc;
 
 use serde_json::Value;
 
-use super::language::{CompletionContext, ConfigLanguage, Lexical, ParseError, Scalars};
+use super::language::{CompletionContext, ConfigLanguage, Lexical, ParseError};
+use super::text::TextSize;
 use super::work_count::{Work, note, note_many};
 
 mod conformed;
+mod readings;
 pub(crate) use conformed::conformed;
-#[cfg(feature = "protect")]
-mod copies;
-#[cfg(feature = "protect")]
-pub(crate) use copies::every_copy;
+#[cfg(all(test, any(feature = "hcl", feature = "xml")))]
+pub(crate) use readings::any_kept;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+pub(crate) use readings::forget as forget_readings;
+#[cfg(any(feature = "yaml", feature = "hcl", feature = "xml"))]
+pub(crate) use readings::reading;
 
-/// How many parses are kept: two texts, each read as the language guesses
-/// its scalars and with them as text (a language that writes every scalar
-/// as text reads both ways when a schema types them, see
-/// `ConfigLanguage::parse_text`).
-const PARSES_KEPT: usize = 4;
+/// How many parses are kept.
+const PARSES_KEPT: usize = 2;
 
-/// A parse: the language's label (its identity), whether its scalars were
-/// left as text, the text and the result.
-type Entry = (&'static str, bool, String, Rc<Result<Value, ParseError>>);
+/// A parse: the language's label (its identity), the text and the result.
+type Entry = (&'static str, String, Rc<Result<Value, ParseError>>);
 
 /// String bodies: the language's label, the text and its body lines.
 type Bodies = (&'static str, String, Rc<Vec<Range<usize>>>);
@@ -55,7 +63,7 @@ type Place<T> = RefCell<Option<(&'static str, String, usize, T)>>;
 
 /// A line's path: the language's label, the text, the line's first UTF-16
 /// offset and the path.
-type LinePath = (&'static str, String, usize, Option<String>);
+type LinePath = (&'static str, String, TextSize, Option<String>);
 
 /// How many line paths are kept: the text an edit was made on and the one
 /// it made.
@@ -75,52 +83,28 @@ thread_local! {
 /// `text` parsed as `language`, from the last parse when it was of the same
 /// text in the same language.
 pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Value, ParseError>> {
-    parsed_as(language, text, false)
-}
-
-/// [`parsed`], or with `as_text` [`ConfigLanguage::parse_text`]'s reading.
-fn parsed_as(
-    language: &dyn ConfigLanguage,
-    text: &str,
-    as_text: bool,
-) -> Rc<Result<Value, ParseError>> {
     let label = language.info().label;
     let cached = LAST.with(|last| {
         let mut last = last.borrow_mut();
-        let at = last.iter().position(|(known, reading, written, _)| {
-            *known == label && *reading == as_text && written == text
-        })?;
+        let at = last
+            .iter()
+            .position(|(known, written, _)| *known == label && written == text)?;
         let entry = last.remove(at);
-        let result = Rc::clone(&entry.3);
+        let result = Rc::clone(&entry.2);
         last.insert(0, entry);
         Some(result)
     });
     if let Some(result) = cached {
         return result;
     }
-    // A language whose scalars are text reads a document as its text
-    // reading with each scalar guessed (`ConfigLanguage::parse_text`): one
-    // parse serves both readings.
-    let result = if !as_text && language.scalars() == Scalars::Text {
-        let read = parsed_as(language, text, true);
-        Rc::new(match read.as_ref() {
-            Ok(value) => Ok(guessed(language, value, None)),
-            Err(error) => Err(error.clone()),
-        })
-    } else {
-        note_many(Work::ParsedBytes, text.len());
-        Rc::new(if as_text {
-            language.parse_text(text)
-        } else {
-            language.parse(text)
-        })
-    };
+    note_many(Work::ParsedBytes, text.len());
+    let result = Rc::new(language.parse(text));
     if HOLDERS.with(Cell::get) == 0 {
         return result;
     }
     LAST.with(|last| {
         let mut last = last.borrow_mut();
-        last.insert(0, (label, as_text, text.to_string(), Rc::clone(&result)));
+        last.insert(0, (label, text.to_string(), Rc::clone(&result)));
         last.truncate(PARSES_KEPT);
     });
     result
@@ -137,19 +121,15 @@ pub(crate) fn known_to_parse(language: &dyn ConfigLanguage, text: &str) -> Optio
     LAST.with(|last| {
         last.borrow()
             .iter()
-            // A reading as text parses where the typed one does.
-            .find(|(known, _, written, _)| *known == label && written == text)
-            .map(|(_, _, _, result)| result.is_ok())
+            .find(|(known, written, _)| *known == label && written == text)
+            .map(|(_, _, result)| result.is_ok())
     })
 }
 
 /// The lines of `text`'s multi-line string bodies in `language` (see
-/// [`ConfigLanguage::string_body_lines`]), from the last reading when it was
+/// [`Text::string_body_lines`]), from the last reading when it was
 /// of the same text in the same language.
-pub(crate) fn string_bodies(
-    language: &(impl ConfigLanguage + ?Sized),
-    text: &str,
-) -> Rc<Vec<Range<usize>>> {
+pub(crate) fn string_bodies(language: &dyn ConfigLanguage, text: &str) -> Rc<Vec<Range<usize>>> {
     let label = language.info().label;
     let cached = BODIES.with(|last| {
         last.borrow()
@@ -186,7 +166,7 @@ pub(crate) fn completion_context(
 }
 
 /// Whether the caret at UTF-16 `cursor` of `text` is in a string or a
-/// comment (see [`ConfigLanguage::lexical_state`]), from the last reading
+/// comment (see [`Text::lexical_state`]), from the last reading
 /// when it was of the same place: the suggestions, what protection makes of
 /// them and the keys typing pairs ask more than once.
 pub(crate) fn lexical_state(language: &dyn ConfigLanguage, text: &str, cursor: usize) -> Lexical {
@@ -197,7 +177,7 @@ pub(crate) fn lexical_state(language: &dyn ConfigLanguage, text: &str, cursor: u
     at_place(&LEXICAL, language, text, cursor, read)
 }
 
-/// The path of the line of `text` starting at UTF-16 `line`, read by `read`
+/// The path of the line of `text` starting at byte `line`, read by `read`
 /// unless it was read or told (see [`tell_line_path`]) for the same text.
 #[cfg_attr(
     not(feature = "protect"),
@@ -206,7 +186,7 @@ pub(crate) fn lexical_state(language: &dyn ConfigLanguage, text: &str, cursor: u
 pub(crate) fn line_path(
     language: &dyn ConfigLanguage,
     text: &str,
-    line: usize,
+    line: TextSize,
     read: impl FnOnce() -> Option<String>,
 ) -> Option<String> {
     let label = language.info().label;
@@ -224,7 +204,7 @@ pub(crate) fn line_path(
     path
 }
 
-/// That the line of `text` starting at UTF-16 `line` writes `path` (an edit
+/// That the line of `text` starting at byte `line` writes `path` (an edit
 /// changing one scalar on it left its path as it was).
 #[cfg_attr(
     not(feature = "protect"),
@@ -233,7 +213,7 @@ pub(crate) fn line_path(
 pub(crate) fn tell_line_path(
     language: &dyn ConfigLanguage,
     text: &str,
-    line: usize,
+    line: TextSize,
     path: Option<String>,
 ) {
     if HOLDERS.with(Cell::get) == 0 {
@@ -275,42 +255,9 @@ fn at_place<T: Clone + 'static>(
     made
 }
 
-/// `read` (a text reading) with each text scalar as `language` guesses it
-/// where no schema says (strings it guesses as strings stay as read);
-/// the text written beside child entries (`text_key`) stays text. `key`:
-/// the key `read` is under.
-fn guessed(language: &dyn ConfigLanguage, read: &Value, key: Option<&str>) -> Value {
-    match read {
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .map(|(name, item)| (name.clone(), guessed(language, item, Some(name))))
-                .collect(),
-        ),
-        Value::Array(items) => Value::Array(
-            items
-                .iter()
-                .map(|item| guessed(language, item, key))
-                .collect(),
-        ),
-        Value::String(text) if key.is_none() || key != language.text_key() => {
-            match language.guess_scalar(super::codec::non_finite::written(text)) {
-                Value::String(_) => read.clone(),
-                other => other,
-            }
-        }
-        other => other.clone(),
-    }
-}
-
 /// [`parsed`], as an owned document.
 pub(crate) fn parse(language: &dyn ConfigLanguage, text: &str) -> Result<Value, ParseError> {
     (*parsed(language, text)).clone()
-}
-
-/// `text` read by [`ConfigLanguage::parse_text`], from the last such
-/// reading when it was of the same text in the same language.
-pub(crate) fn parse_text(language: &dyn ConfigLanguage, text: &str) -> Result<Value, ParseError> {
-    (*parsed_as(language, text, true)).clone()
 }
 
 /// An editor mounted: parses are kept.
@@ -327,11 +274,8 @@ pub(crate) fn release() {
             holders.get() == 0
         })
         .unwrap_or(false);
-    // The last editor gone: what the languages keep goes too.
     if last {
-        for language in super::Language::ALL {
-            language.behavior().forget_kept();
-        }
+        readings::forget();
     }
     let _ = LAST.try_with(|last| last.borrow_mut().clear());
     let _ = BODIES.try_with(|last| last.borrow_mut().take());
@@ -339,6 +283,4 @@ pub(crate) fn release() {
     let _ = LEXICAL.try_with(|last| last.borrow_mut().take());
     let _ = LINE_PATHS.try_with(|kept| kept.borrow_mut().clear());
     conformed::forget();
-    #[cfg(feature = "protect")]
-    copies::forget();
 }

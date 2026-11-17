@@ -38,6 +38,15 @@ mod switch_tests;
     feature = "xml"
 ))]
 mod tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod untouched_tests;
 
 pub(super) use notice::NoticeReasons;
 pub(super) use problems::{EditAsProblem, EditAsText, SaveError};
@@ -63,7 +72,7 @@ impl EditAsState {
         host_language: Language,
         edit_language: RwSignal<Language>,
         diagnosed_text: RwSignal<String>,
-        host_text: StoredValue<String>,
+        host_text: super::sync::HostTextReader,
     ) -> Self {
         let reasons = Memo::new(move |_| {
             let edit = edit_language.get();

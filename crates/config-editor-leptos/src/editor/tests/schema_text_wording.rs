@@ -5,7 +5,7 @@
 //! a one-keyword `not` refuses is told in words, not as the `not`'s JSON.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::{Schema, build_schema};
+use crate::editor::schema::{Schema, build_schema};
 
 #[test]
 fn schema_text_problems_read_plainly() {
@@ -38,7 +38,7 @@ fn schema_text_problems_read_plainly() {
             "type: object\nproperties:\n  @a: {type: string}\n",
             "a plain key or value cannot start with @ or ` in YAML: quote it, as in \"@a\" (line 3, column 3)",
         ),
-        // QA 35: each hint quotes the user's own key and value.
+        // Each hint quotes the user's own key and value.
         (
             "type: object\nproperties:\n  a:\n    title: @me\n",
             "a plain key or value cannot start with @ or ` in YAML: quote it, as in \"@me\" (line 4, column 12)",
@@ -55,7 +55,7 @@ fn schema_text_problems_read_plainly() {
             "type: object\nproperties:\n  a:\n    description: see: docs\n",
             "a colon and a space inside a plain value start a map in YAML: quote the value, as in description: \"see: docs\" (line 4, column 21)",
         ),
-        // QA 35: the YAML reader's own words, a schema rule's words.
+        // The YAML reader's own words, a schema rule's words.
         (
             "type: object\nproperties: [a, b\n",
             "a list opened with [ is not closed: a , or ] is missing (line 3, column 1)",
@@ -118,7 +118,7 @@ fn schema_text_problems_read_plainly() {
             "type: objekt\n",
             "\"objekt\" is no type JSON Schema knows: use \"array\", \"boolean\", \"integer\", \"null\", \"number\", \"object\" or \"string\" (at /type)",
         ),
-        // QA 36: the rules for schemas in plain words, JSON's own rules
+        // The rules for schemas in plain words, JSON's own rules
         // for a text written as JSON, YAML's for a YAML flow map.
         (
             "type: object\nproperties:\n  a: !!binary x\n",
@@ -200,7 +200,7 @@ fn a_one_keyword_not_says_what_it_refuses() {
             "a: x\nc: z\n",
             r#""a" must not be set here"#,
         ),
-        // QA 35: no `not` is said as JSON: a pattern by its pattern, one
+        // No `not` is said as JSON: a pattern by its pattern, one
         // every value matches as no value allowed, a `type` beside an
         // `enum` by the values, any other in plain words.
         (

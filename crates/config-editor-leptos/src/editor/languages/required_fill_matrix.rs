@@ -6,8 +6,9 @@
 //! `|` marks the caret.
 
 use super::super::completion::accept_marked;
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
+use super::harness::{At, completing, holds, report, write};
 use serde_json::{Value, json};
 
 const SCHEMA: &str = r#"{"type":"object","properties":{"svc":{"type":"object",
@@ -21,34 +22,32 @@ const SCHEMA: &str = r#"{"type":"object","properties":{"svc":{"type":"object",
         "port":{"type":"integer","default":80}
     }}}}"#;
 
-const LANGUAGES: [Language; 5] = [
-    Language::YAML,
-    Language::JSON,
-    Language::TOML,
-    Language::HCL,
-    Language::XML,
-];
+/// Whether `language` writes an empty list (XML has none: an empty element
+/// reads as one empty item).
+fn has_empty_list(language: Language) -> bool {
+    holds(language, &json!({"tags": []}))
+}
 
 #[test]
 fn required_children_are_filled_alike_in_every_language() {
     let bundle = build_schema(SCHEMA).unwrap();
     let mut failures = Vec::new();
-    for language in LANGUAGES {
+    for language in completing() {
         let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
         let text = accepted.replace('|', "");
         let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
         let svc = read.as_ref().ok().and_then(|read| read.get("svc"));
         let field = |key: &str| svc.and_then(|svc| svc.get(key)).cloned();
         let found = (field("limits"), field("tags"), field("port"));
-        // XML has no empty list (an empty element reads as one empty
-        // item): the list is left out, not written as another value.
-        let tags = (language != Language::XML).then(|| Value::Array(Vec::new()));
+        // A language with no empty list leaves the list out, never writes
+        // it as another value.
+        let tags = has_empty_list(language).then(|| Value::Array(Vec::new()));
         let wanted = (Some(json!({"cpu": 2, "mem": "1G"})), tags, Some(json!(80)));
         if found != wanted {
             failures.push(format!("{language}\n{accepted}\nreads {read:?}"));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    report(&failures);
 }
 
 /// The orders `svc` requires its children in.
@@ -84,7 +83,7 @@ fn required_children_are_filled_alike_in_any_order() {
             }
         }}});
         let bundle = build_schema(&schema.to_string()).unwrap();
-        for language in LANGUAGES {
+        for language in completing() {
             let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
             let text = accepted.replace('|', "");
             let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
@@ -94,7 +93,7 @@ fn required_children_are_filled_alike_in_any_order() {
                 ));
                 continue;
             };
-            let empty_list = (language != Language::XML).then(|| json!([]));
+            let empty_list = has_empty_list(language).then(|| json!([]));
             for key in *order {
                 let wanted = match *key {
                     "limits" => Some(json!({"cpu": 2})),
@@ -121,7 +120,7 @@ fn required_children_are_filled_alike_in_any_order() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    report(&failures);
 }
 
 /// A required list with `minItems` is written with that many items (each
@@ -144,7 +143,7 @@ fn a_required_list_with_min_items_is_written_with_its_items() {
     }}});
     let bundle = build_schema(&schema.to_string()).unwrap();
     let mut failures = Vec::new();
-    for language in LANGUAGES {
+    for language in completing() {
         let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
         let text = accepted.replace('|', "");
         let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
@@ -164,5 +163,92 @@ fn a_required_list_with_min_items_is_written_with_its_items() {
             failures.push(format!("{language}\n{accepted}\nreads {read:?}"));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    report(&failures);
+}
+
+/// `opts` requires `x` when `kind` is `a`, `y` otherwise: an `if` the
+/// document decides, its `then` and `else` naming only what they add.
+const BRANCHED: &str = r#"{"type":"object","properties":{
+    "kind":{"enum":["a","b"]},
+    "opts":{"type":"object","properties":{
+        "x":{"type":"string","default":"1"},"y":{"type":"string","default":"2"}}}},
+    "if":{"properties":{"kind":{"const":"a"}},"required":["kind"]},
+    "then":{"properties":{"opts":{"required":["x"]}}},
+    "else":{"properties":{"opts":{"required":["y"]}}}}"#;
+
+/// The children an accepted key writes are those every schema at the key
+/// requires, the branches of an `if` the document decides included: what
+/// is written beside the key chooses them.
+#[test]
+fn the_children_written_follow_the_branch_the_document_takes() {
+    let bundle = build_schema(BRANCHED).unwrap();
+    let mut failures = Vec::new();
+    for language in completing() {
+        for (kind, wanted) in [("a", json!({"x": "1"})), ("b", json!({"y": "2"}))] {
+            let typed = At::NewKey {
+                object: "",
+                typed: "op",
+            };
+            let marked = match write(language, &json!({ "kind": kind }), &[], typed) {
+                Ok(written) => written.marked(),
+                Err(error) => {
+                    failures.push(error);
+                    continue;
+                }
+            };
+            let marked = marked.as_str();
+            let accepted = accept_marked(marked, "opts", &bundle, language.behavior());
+            let text = accepted.replace('|', "");
+            let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
+            let opts = read
+                .as_ref()
+                .ok()
+                .and_then(|read| read.get("opts"))
+                .cloned();
+            if opts.as_ref() != Some(&wanted) {
+                failures.push(format!("{language}\n{accepted}\nreads {read:?}"));
+            }
+        }
+    }
+    report(&failures);
+}
+
+/// A required child under a `oneOf` is filled with a value one option
+/// alone takes, in every language: the next option's required keys where
+/// the first one's are taken by another option too; and no key (the value
+/// left to type) where every option's are taken twice, as beside an
+/// option taking anything, never keys the `oneOf` refuses.
+#[test]
+fn a_required_child_under_one_of_is_filled_with_what_one_option_takes() {
+    let first_taken_twice = json!({"oneOf": [
+        {"required": ["a"], "properties": {"a": {"const": 1}}},
+        {"required": ["b"], "properties": {"b": {"const": 2}}},
+        {"properties": {"a": {"const": 1}}, "additionalProperties": false, "minProperties": 1}]});
+    let beside_anything = json!({"oneOf": [
+        {"required": ["b"], "properties": {"b": {"type": "boolean"}}}, {},
+        {"dependentSchemas": {"x": {"required": ["s"]}}}]});
+    let mut failures = Vec::new();
+    for (mode, wanted) in [(first_taken_twice, vec!["b"]), (beside_anything, vec![])] {
+        let schema = json!({"type": "object", "properties": {"svc": {
+            "type": "object", "required": ["mode"], "properties": {"mode": mode}}}});
+        let bundle = build_schema(&schema.to_string()).unwrap();
+        for language in completing() {
+            let accepted = accept_marked("sv|", "svc", &bundle, language.behavior());
+            // The value the caret is at typed: `2`, which `b` takes.
+            let text = accepted.replace('|', "2");
+            let read = super::super::codec::read(language.behavior(), &text, Some(&bundle.schema));
+            let found = read
+                .as_ref()
+                .ok()
+                .and_then(|read| read.pointer("/svc/mode"));
+            let keys: Vec<&str> = found
+                .and_then(Value::as_object)
+                .map(|mode| mode.keys().map(String::as_str).collect())
+                .unwrap_or_default();
+            if keys != wanted {
+                failures.push(format!("{language}\n{accepted}\nreads {read:?}"));
+            }
+        }
+    }
+    report(&failures);
 }

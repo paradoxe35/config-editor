@@ -4,6 +4,8 @@
 //! text, not from the list's start for every lock (a key typed in a JSON
 //! view of a pom with hundreds of locked versions took half a second).
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 use serde_json::{Value, json};
 
@@ -129,7 +131,7 @@ fn typed_in_view(host: Language, view: Language, count: usize) -> usize {
     let at = before[..byte].encode_utf16().count();
     let mut after = before.clone();
     after.insert(byte, ' ');
-    let typed = Edit::input(
+    let typed = Edit::input_units(
         before,
         (at, at),
         after,

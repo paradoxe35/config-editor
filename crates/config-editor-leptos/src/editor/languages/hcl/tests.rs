@@ -3,8 +3,8 @@ use super::super::super::completion::{
 };
 #[cfg(feature = "schema-validation")]
 use super::super::super::diagnostics::validate;
-use super::super::super::diagnostics::{SchemaBundle, build_schema};
-use super::super::super::language::{InsertContext, ConfigLanguage};
+use super::super::super::schema::{SchemaBundle, build_schema};
+use super::super::super::language::{InsertContext, InsertPlan, ConfigLanguage};
 
 const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
     base_indent: "",
@@ -16,6 +16,9 @@ const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
 };
 use super::HclBehavior;
 use super::super::super::highlight::{TokenKind, runs};
+
+/// The language under test, read as the editor reads one.
+const LANGUAGE: &dyn ConfigLanguage = &HclBehavior;
 
 fn schema() -> SchemaBundle {
     build_schema(
@@ -33,7 +36,7 @@ fn schema() -> SchemaBundle {
 }
 
 fn parse_ok(source: &str) -> serde_json::Value {
-    match HclBehavior.parse(source) {
+    match LANGUAGE.parse(source) {
         Ok(document) => document,
         Err(error) => panic!("{}", error.message),
     }
@@ -103,7 +106,7 @@ fn a_nested_object_inside_a_block_body_is_indented_from_its_line() {
 
 #[test]
 fn duplicate_attributes_are_a_parse_error_on_the_repeated_line() {
-    let error = HclBehavior
+    let error = LANGUAGE
         .parse("region = \"a\"\nregion = \"b\"")
         .unwrap_err();
     assert_eq!(error.line, Some(2));
@@ -123,12 +126,12 @@ fn repeated_blocks_merge_instead_of_erroring() {
 fn same_key_in_different_blocks_is_not_a_duplicate() {
     let source =
         "variable \"a\" {\n  default = \"x\"\n}\nvariable \"b\" {\n  default = \"y\"\n}";
-    assert!(HclBehavior.parse(source).is_ok());
+    assert!(LANGUAGE.parse(source).is_ok());
 }
 
 #[test]
 fn syntax_errors_report_a_position() {
-    let error = HclBehavior.parse("region = ").unwrap_err();
+    let error = LANGUAGE.parse("region = ").unwrap_err();
     assert_eq!(error.line, Some(1));
     assert!(error.column.is_some());
 }
@@ -136,7 +139,7 @@ fn syntax_errors_report_a_position() {
 #[test]
 fn syntax_errors_report_the_parser_line_and_column() {
     // The line comes from hcl-rs's structured error, not its message.
-    let error = HclBehavior.parse("region = \"a\"\ncount = (").unwrap_err();
+    let error = LANGUAGE.parse("region = \"a\"\ncount = (").unwrap_err();
     assert_eq!(error.line, Some(2));
     assert!(error.column.is_some());
 }
@@ -306,9 +309,9 @@ fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
             .chain(std::iter::once(source.len()));
         for byte in caret_bytes {
             let cursor = source[..byte].encode_utf16().count();
-            let _ = HclBehavior.completion_context(source, cursor);
-            let _ = HclBehavior.newline(source, cursor);
-            let _ = HclBehavior.lexical_state(source, cursor);
+            let _ = LANGUAGE.completion_context(source, cursor);
+            let _ = LANGUAGE.newline(source, cursor);
+            let _ = LANGUAGE.lexical_state(source, cursor);
             for force in [false, true] {
                 for option in
                     completions(source, cursor, force, Some(&schema), true, &HclBehavior)
@@ -317,11 +320,11 @@ fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
                 }
             }
         }
-        let _ = HclBehavior.parse(source);
+        let _ = LANGUAGE.parse(source);
         let _ = validate(source, Some(&schema), None, true, &HclBehavior);
         for (line_index, line) in source.split('\n').enumerate() {
             for column in 0..12 {
-                let _ = HclBehavior.hover_cursor(line, column);
+                let _ = LANGUAGE.hover_cursor(line, column);
                 let _ = key_hover(source, line_index, column, Some(&schema), &HclBehavior);
             }
         }
@@ -331,25 +334,25 @@ fn every_caret_position_in_messy_documents_is_handled_without_panicking() {
 #[test]
 fn enter_inside_a_block_indents_one_level() {
     assert_eq!(
-        HclBehavior.newline("variable \"a\" {", 15).text,
+        LANGUAGE.newline("variable \"a\" {", 15).text,
         "\n  "
     );
-    assert_eq!(HclBehavior.newline("region = 1", 10).text, "\n");
+    assert_eq!(LANGUAGE.newline("region = 1", 10).text, "\n");
 }
 
 #[test]
 fn enter_between_braces_puts_the_caret_on_an_indented_middle_line() {
-    let super::Newline { text, caret, .. } = HclBehavior.newline("{}", 1);
+    let super::Newline { text, caret, .. } = LANGUAGE.newline("{}", 1);
     assert_eq!(text, "\n  \n");
     assert_eq!(caret, 3);
 }
 
 #[test]
 fn hash_comments_toggle_over_the_selection() {
-    let (updated, _, _) = HclBehavior.toggle_comments("region = 1\n", 0, 10).unwrap();
+    let (updated, _, _) = LANGUAGE.toggled_text("region = 1\n", 0, 10).unwrap();
     assert_eq!(updated, "# region = 1\n");
-    let (restored, _, _) = HclBehavior
-        .toggle_comments(&updated, 0, updated.encode_utf16().count())
+    let (restored, _, _) = LANGUAGE
+        .toggled_text(&updated, 0, updated.encode_utf16().count())
         .unwrap();
     assert_eq!(restored, "region = 1\n");
 }
@@ -359,7 +362,7 @@ fn hash_comments_toggle_over_the_selection() {
 fn comments_toggle_in_the_files_own_style() {
     let toggled = |source: &str, line: usize| {
         let start: usize = source.split_inclusive('\n').take(line).map(str::len).sum();
-        HclBehavior.toggle_comments(source, start, start).unwrap().0
+        LANGUAGE.toggled_text(source, start, start).unwrap().0
     };
     assert_eq!(toggled("// a\nx = 1\n", 1), "// a\n// x = 1\n");
     assert_eq!(toggled("// a\n// b\n# c\nx = 1\n", 3), "// a\n// b\n# c\n// x = 1\n");
@@ -381,16 +384,16 @@ fn template_sequences_close_in_a_heredoc() {
     ] {
         let at = source.find(['$', '%']).unwrap() + source[source.find(['$', '%']).unwrap()..].find(['\n']).unwrap();
         let caret = source[..at].encode_utf16().count();
-        assert_eq!(HclBehavior.auto_close(source, caret, '{').is_some(), closes, "{source:?}");
+        assert_eq!(LANGUAGE.auto_close(source, caret, '{').is_some(), closes, "{source:?}");
     }
 }
 
 #[test]
 fn an_open_string_is_reported_to_the_pairing_guard() {
-    assert_eq!(HclBehavior.lexical_state("region = \"x", 11).quote, Some('"'));
-    assert_eq!(HclBehavior.lexical_state("region = \"x\"", 12).quote, None);
-    assert!(HclBehavior.lexical_state("# region", 4).in_comment);
-    assert!(HclBehavior.lexical_state("/* region", 9).in_comment);
+    assert_eq!(LANGUAGE.lexical_state("region = \"x", 11).quote, Some('"'));
+    assert_eq!(LANGUAGE.lexical_state("region = \"x\"", 12).quote, None);
+    assert!(LANGUAGE.lexical_state("# region", 4).in_comment);
+    assert!(LANGUAGE.lexical_state("/* region", 9).in_comment);
 }
 
 /// Quotes and comment markers inside a template sequence of a string
@@ -412,7 +415,7 @@ fn markers_inside_template_sequences_are_string_text() {
     let mut failures = Vec::new();
     for line in lines {
         let source = format!("{line} # c\nb = 1\n");
-        let comments: Vec<&str> = HclBehavior
+        let comments: Vec<&str> = LANGUAGE
             .comments(&source)
             .into_iter()
             .map(|range| &source[range])
@@ -421,28 +424,28 @@ fn markers_inside_template_sequences_are_string_text() {
             failures.push(format!("{line}: comments {comments:?}"));
         }
         let with_comment = format!("{line} # c");
-        if HclBehavior.comment_start(&with_comment) != Some(line.len() + 1) {
+        if LANGUAGE.comment_start(&with_comment) != Some(line.len() + 1) {
             failures.push(format!(
                 "{line}: comment start {:?}",
-                HclBehavior.comment_start(&with_comment)
+                LANGUAGE.comment_start(&with_comment)
             ));
         }
-        if HclBehavior.comment_start(line).is_some() {
+        if LANGUAGE.comment_start(line).is_some() {
             failures.push(format!("{line}: a comment start without a comment"));
         }
         let end = line.encode_utf16().count();
-        let state = HclBehavior.lexical_state(line, end);
+        let state = LANGUAGE.lexical_state(line, end);
         if state.quote.is_some() || state.in_comment {
             failures.push(format!("{line}: after it {state:?}"));
         }
         let next = format!("{line}\nb = 1");
-        let state = HclBehavior.lexical_state(&next, next.encode_utf16().count());
+        let state = LANGUAGE.lexical_state(&next, next.encode_utf16().count());
         if state.quote.is_some() || state.in_comment {
             failures.push(format!("{line}: on the next line {state:?}"));
         }
         // Inside the template's string, the caret is in a string.
         if let Some(at) = line.find("${\"").map(|at| at + 3) {
-            let state = HclBehavior.lexical_state(line, at);
+            let state = LANGUAGE.lexical_state(line, at);
             if state.quote != Some('"') || state.in_comment {
                 failures.push(format!("{line}: inside {state:?}"));
             }
@@ -455,8 +458,8 @@ fn markers_inside_template_sequences_are_string_text() {
     }
     // `$${` is a literal `${`: the string closes at the next quote.
     let literal = "a = \"$${\" # c";
-    if HclBehavior.comment_start(literal) != Some(literal.len() - 3) {
-        failures.push(format!("{literal}: {:?}", HclBehavior.comment_start(literal)));
+    if LANGUAGE.comment_start(literal) != Some(literal.len() - 3) {
+        failures.push(format!("{literal}: {:?}", LANGUAGE.comment_start(literal)));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -466,8 +469,8 @@ fn markers_inside_template_sequences_are_string_text() {
 fn an_object_property_expands_to_a_block_with_the_caret_on_the_first_value() {
     let schema = schema();
     let tags = &schema.schema["properties"]["tags"];
-    let (insert, caret) = HclBehavior
-        .property_insert("tags", tags, &schema.schema, &INSERT_AT_ROOT)
+    let (insert, caret) = LANGUAGE
+        .write_insert("tags", &InsertPlan::of(&HclBehavior, tags, &schema.schema), &INSERT_AT_ROOT)
         .unwrap();
     assert_eq!(insert, "tags {\n  Name = \"\"\n}");
     // Inside the string's quotes.
@@ -482,16 +485,44 @@ fn run(kind: Option<TokenKind>, text: &str) -> (Option<TokenKind>, String) {
     (kind, text.to_string())
 }
 
+/// A minus starting a number is part of the literal; a subtraction's is
+/// punctuation.
 #[test]
-fn a_block_header_line_writes_its_labels_one_key_deeper_each() {
-    let labels = |line: &str| HclBehavior.block_labels(line);
-    assert_eq!(labels(r#"resource "aws_s3_bucket" "logs" {"#), ["aws_s3_bucket", "logs"]);
-    assert_eq!(labels(r#"resource "a" {}"#), ["a"]);
-    assert_eq!(labels("module web {"), ["web"]);
-    assert_eq!(labels(r#"resource "a\"b" "c" { x = 1 }"#), ["a\"b", "c"]);
-    assert!(labels("db {").is_empty());
-    assert!(labels(r#"ami = "x""#).is_empty());
-    assert!(labels(r#"resource "a" "b""#).is_empty());
+fn a_negative_number_is_one_literal_and_a_subtraction_is_not() {
+    use TokenKind::*;
+    assert_eq!(
+        highlighted("k = [-7, (-1.5)]"),
+        vec![
+            run(Some(Key), "k"),
+            run(None, " "),
+            run(Some(Punctuation), "="),
+            run(None, " "),
+            run(Some(Punctuation), "["),
+            run(Some(Literal), "-7"),
+            run(Some(Punctuation), ","),
+            run(None, " "),
+            run(Some(Punctuation), "("),
+            run(Some(Literal), "-1.5"),
+            run(Some(Punctuation), ")"),
+            run(Some(Punctuation), "]"),
+        ]
+    );
+    assert_eq!(
+        highlighted("k = f(x) -1"),
+        vec![
+            run(Some(Key), "k"),
+            run(None, " "),
+            run(Some(Punctuation), "="),
+            run(None, " "),
+            run(Some(Key), "f"),
+            run(Some(Punctuation), "("),
+            run(Some(Key), "x"),
+            run(Some(Punctuation), ")"),
+            run(None, " "),
+            run(Some(Punctuation), "-"),
+            run(Some(Literal), "1"),
+        ]
+    );
 }
 
 #[test]
@@ -557,8 +588,7 @@ fn a_leading_word_without_equals_or_brace_is_a_value() {
     );
 }
 
-/// QA 28 (F3): a template sequence is an interpolation, in a string or
-/// out of one.
+/// A template sequence is an interpolation, in a string or out of one.
 #[test]
 fn strings_and_heredocs_color_as_strings_and_templates_as_interpolations() {
     use TokenKind::*;
@@ -748,47 +778,53 @@ fn a_name_written_in_two_forms_is_reported_not_dropped() {
 #[test]
 fn key_spans_in_a_large_document_take_no_search_per_header() {
     use crate::editor::work_count::{Work, counted};
-    let source: String = (0..3_000)
-        .map(|index| format!("client_{index} {{\n  secret = \"s{index}\"\n  max = {index}\n}}\n"))
-        .collect();
-    let pointers: Vec<String> = (2_976..3_000).map(|index| format!("/client_{index}/max")).collect();
-    let spans_of = || {
-        crate::editor::paths::with_spans(&HclBehavior, &source, &pointers, || {
+    let source = |clients: usize| -> String {
+        (0..clients)
+            .map(|index| format!("client_{index} {{\n  secret = \"s{index}\"\n  max = {index}\n}}\n"))
+            .collect()
+    };
+    // The last 24 clients' keys.
+    let spans_of = |source: &String| {
+        let clients = source.matches("client_").count();
+        let pointers: Vec<String> = (clients - 24..clients).map(|index| format!("/client_{index}/max")).collect();
+        crate::editor::paths::with_spans(&HclBehavior, source, &pointers, || {
             pointers
                 .iter()
-                .map(|pointer| crate::editor::paths::memo_key_span(&HclBehavior, &source, pointer))
+                .map(|pointer| crate::editor::paths::memo_key_span(&HclBehavior, source, pointer))
                 .collect::<Vec<_>>()
         })
     };
-    let (spans, reads) = counted(Work::DocumentRead, spans_of);
+    let (small, large) = (source(750), source(3_000));
+    let (spans, reads) = counted(Work::DocumentRead, || spans_of(&large));
     assert!(spans.iter().all(Option::is_some), "{spans:?}");
     assert_eq!(spans[0].map(|span| span.line), Some(2_976 * 4 + 3));
     assert!(reads <= 2, "24 key spans read the document {reads} times");
-    // And the one read stays linear: a few milliseconds here, seconds when
-    // each attribute searches every header.
-    let (took, _) = crate::editor::test_timing::best_of(3, spans_of);
-    assert!(took.as_millis() < 200, "24 key spans in {took:?}");
+    // And the one read stays linear (timed: the time is the HCL parser's
+    // own): four times the clients about four times as long, sixteen
+    // times when each attribute searches every header.
+    let growth = crate::editor::test_timing::growth(5, (&small, &large), spans_of);
+    assert!(growth.ratio() < 10.0, "24 key spans at 750 clients, then 3000: {growth}");
 }
 
 #[test]
 fn whole_floats_are_written_with_a_fraction() {
     let value = serde_json::json!({"f": 1.0, "i": 1, "l": [2.0, 3], "b": {"x": -4.0, "y": 0.5}});
-    let text = HclBehavior.serialize(&value, None).unwrap();
+    let text = LANGUAGE.serialize(&value, None).unwrap();
     assert!(text.contains("f = 1.0\n") && text.contains("i = 1\n"), "{text}");
     assert!(text.contains("  2.0,\n") && text.contains("x = -4.0") && text.contains("y = 0.5"), "{text}");
     // Read back, they are the numbers they were.
-    assert_eq!(HclBehavior.parse(&text).unwrap()["l"][0].as_f64(), Some(2.0));
+    assert_eq!(LANGUAGE.parse(&text).unwrap()["l"][0].as_f64(), Some(2.0));
 }
 
-/// The last editor unmounted, what HCL keeps of the last text it read goes
-/// (normal round 22's `D22.memory-1`).
+/// The last editor unmounted, what HCL read of its last text goes.
 #[test]
 fn the_last_editor_gone_drops_what_hcl_keeps() {
     let text = "a = 1\nblock {\n  b = 2\n}\n";
     crate::editor::parse_cache::hold();
     let behavior = super::HclBehavior;
     let _ = behavior.completion_context(text, 18);
-    assert!(super::scan::scan_kept(), "the scan kept");
+    let kept = crate::editor::parse_cache::any_kept::<super::scan::Scan>;
+    assert!(kept(), "the scan kept");
     crate::editor::parse_cache::release();
-    assert!(!super::scan::scan_kept());
+    assert!(!kept());
 }

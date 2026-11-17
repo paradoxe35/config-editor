@@ -48,14 +48,14 @@ pub(crate) enum Work {
     )]
     TokenScan,
     /// The lines of a whole text's multi-line string bodies read
-    /// (`ConfigLanguage::string_body_lines`).
+    /// (`Text::string_body_lines`).
     StringBodies,
     /// What the caret is on, for the suggestions
     /// (`ConfigLanguage::completion_context`): a read of the text from the
     /// top.
     CompletionContext,
     /// Whether the caret is in a string or a comment
-    /// (`ConfigLanguage::lexical_state`): a read of the text before it.
+    /// (`Text::lexical_state`): a read of the text before it.
     LexicalState,
     /// The code layer's constructs over several lines (comments, strings,
     /// structure) read off a whole text.
@@ -84,11 +84,11 @@ pub(crate) enum Work {
     /// A whole text's statements over lines (containers between brackets)
     /// read (`inline::statements`).
     Statements,
-    /// A byte of a text read to tell a place in it as UTF-16 units (one
-    /// note per byte, see [`note_many`]).
+    /// A byte of a text read to place the locks' offsets in it (its line
+    /// starts found, one note per byte, see [`note_many`]).
     #[cfg_attr(
         not(feature = "protect"),
-        allow(dead_code, reason = "only the lock guard notes it")
+        allow(dead_code, reason = "only the locks' line index notes it")
     )]
     OffsetBytes,
     /// A text read from its top to find one line or one place in it (where
@@ -108,7 +108,7 @@ pub(crate) enum Work {
     ParsedBytes,
     /// A whole text read for the constructs written over its lines
     /// (brackets, strings, elements), to widen a selection over them
-    /// (`ConfigLanguage::whole_constructs`).
+    /// (`Typing::whole_constructs`).
     ConstructScan,
     /// An expression's pointer looked for among another text's (HCL: a
     /// save's check that expressions stay expressions).
@@ -121,7 +121,7 @@ pub(crate) enum Work {
     /// host's value (`bridge::merge`).
     MergeKeyVisit,
     /// Two list items compared while matching a list's items to the ones
-    /// they were (`codec::moves`).
+    /// they were (`item_sources::pairing`).
     ItemComparison,
     /// The docs of a place looked up (`completion::key_hover`): its key or
     /// value read off the whole document.
@@ -147,12 +147,12 @@ pub(crate) enum Work {
     /// time.
     CharacterStep,
     /// A byte of a whole document's value read the way a schema expects
-    /// (`completion::conform_arrays`: lone values where only a list is
+    /// (`data_reading`: lone values where only a list is
     /// allowed made lists; one note per byte of its text, see
     /// [`note_many`]), as a host that repeats keys for lists reads a text.
     ConformedBytes,
-    /// A schema's branches resolved (`completion::branches_for`): its
-    /// references, combinators and conditionals walked.
+    /// A schema's applicators walked for one value (`applies`): its
+    /// reference, combinators, conditionals and dependent schemas.
     BranchWalk,
     /// A byte of a text passed from its top to find where a UTF-16 offset
     /// is (`keyboard::utf16_to_byte_index`, outside a batch that splits
@@ -165,20 +165,6 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only protection notes it")
     )]
     RangesFollowed,
-    /// A line of an edited region weighed against one lock (whether it
-    /// would join it), in the lock check of a text that does not parse.
-    #[cfg_attr(
-        not(feature = "protect"),
-        allow(dead_code, reason = "only the lock check notes it")
-    )]
-    LockLine,
-    /// A stand-in of a text read for the copies of keys written more than
-    /// once (`protect::own_value`: the text with the keys found renamed).
-    #[cfg_attr(
-        not(feature = "protect"),
-        allow(dead_code, reason = "only the lock check notes it")
-    )]
-    StandIn,
     /// A text parsed with the caret's entry (or line) left out, to read
     /// the document around what is being typed
     /// (`completion::document_around`).
@@ -213,13 +199,62 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only schema validation notes it")
     )]
     OptionTried,
-    /// A step following the items of an Edit-as view through its edits
-    /// (`bridge::item_trail`): a place of an insert weighed for a cut
-    /// item's lines (or against a place taken), or an item of the view
-    /// looked for among the ones followed or cut.
-    TrailStep,
-    /// A schema format's extra check run on a document
-    /// (`SchemaCheck::check`): once per check and validation.
+    /// One error the validator collected for the explanation of a
+    /// document's problems (one in a `oneOf`/`anyOf` option's errors
+    /// included), before the ones shown are picked.
+    #[cfg_attr(
+        not(all(test, feature = "schema-validation")),
+        allow(dead_code, reason = "only schema validation's tests note it")
+    )]
+    ErrorCollected,
+    /// A step keeping the links of an Edit-as view's items
+    /// (`bridge::links`): a link looked at by an edit's splice, or an item
+    /// of the view paired with its links at a save.
+    LinkStep,
+    /// A byte of a host text an item's link holds compared with the
+    /// host's last text, telling whether the link is to it (one note per
+    /// byte, see [`note_many`]).
+    HostTextCompared,
+    /// A byte of a whole YAML text scanned for an alias (`*`), asking
+    /// whether a key or value may be written through one (one note per
+    /// byte, see [`note_many`]).
+    #[cfg_attr(not(feature = "yaml"), allow(dead_code, reason = "only YAML notes it"))]
+    AliasScan,
+    /// A byte of a whole text read for the lines an item is written on
+    /// as its own (`SaveLayout::item_lines`: a TOML table from its
+    /// header; one note per byte, see [`note_many`]).
+    #[cfg_attr(not(feature = "toml"), allow(dead_code, reason = "only TOML notes it"))]
+    ItemLinesBytes,
+    /// A host's text checked by the schema for the problems its Edit-as
+    /// view cannot see (`diagnostics::host_reading`).
+    #[cfg_attr(
+        not(feature = "schema-validation"),
+        allow(dead_code, reason = "only schema validation notes it")
+    )]
+    HostChecked,
+    /// A byte of a whole text read by a language for something other than
+    /// its parse (its tokens, its scan from the top, its spans, its tags;
+    /// one note per byte, see [`note_many`]), the first time that text is
+    /// read so (see `parse_cache::reading`).
+    #[cfg_attr(
+        not(any(feature = "yaml", feature = "hcl", feature = "xml")),
+        allow(dead_code, reason = "only YAML, HCL and XML keep readings")
+    )]
+    ScannedBytes,
+    /// A byte of a line passed looking for its end from an entry on it
+    /// (`inline::line_end`; one note per byte, see [`note_many`]): a line
+    /// of many entries is passed once, not once per entry.
+    LineEndBytes,
+    /// A byte of a line counted again from the line's start for a token's
+    /// character column (`languages::columns`, a column asked before the
+    /// last one; one note per byte, see [`note_many`]): the tokens of a
+    /// line read in order count it once, not once per token.
+    #[cfg_attr(
+        not(any(feature = "json", feature = "xml")),
+        allow(dead_code, reason = "only the JSON and XML columns note it")
+    )]
+    ColumnRecount,
+    /// One of a schema format's extra checks run on a document.
     SchemaCheck,
 }
 
@@ -263,16 +298,22 @@ impl Work {
             Self::BranchWalk => 33,
             Self::OffsetSeek => 34,
             Self::RangesFollowed => 35,
-            Self::LockLine => 36,
-            Self::StandIn => 37,
-            Self::AroundParse => 38,
-            Self::WalkUp => 39,
-            Self::NamespaceScan => 40,
-            Self::MovedLeaf => 41,
-            Self::ErrorVisit => 42,
-            Self::OptionTried => 43,
-            Self::TrailStep => 44,
-            Self::SchemaCheck => 45,
+            Self::AroundParse => 36,
+            Self::WalkUp => 37,
+            Self::NamespaceScan => 38,
+            Self::MovedLeaf => 39,
+            Self::ErrorVisit => 40,
+            Self::OptionTried => 41,
+            Self::LinkStep => 42,
+            Self::ErrorCollected => 43,
+            Self::HostTextCompared => 44,
+            Self::AliasScan => 45,
+            Self::ItemLinesBytes => 46,
+            Self::HostChecked => 47,
+            Self::ScannedBytes => 48,
+            Self::LineEndBytes => 49,
+            Self::ColumnRecount => 50,
+            Self::SchemaCheck => 51,
         }
     }
 
@@ -315,22 +356,28 @@ impl Work {
         Self::BranchWalk,
         Self::OffsetSeek,
         Self::RangesFollowed,
-        Self::LockLine,
-        Self::StandIn,
         Self::AroundParse,
         Self::WalkUp,
         Self::NamespaceScan,
         Self::MovedLeaf,
         Self::ErrorVisit,
         Self::OptionTried,
-        Self::TrailStep,
+        Self::LinkStep,
+        Self::ErrorCollected,
+        Self::HostTextCompared,
+        Self::AliasScan,
+        Self::ItemLinesBytes,
+        Self::HostChecked,
+        Self::ScannedBytes,
+        Self::LineEndBytes,
+        Self::ColumnRecount,
         Self::SchemaCheck,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 46;
+const KINDS: usize = 52;
 
 #[cfg(test)]
 thread_local! {
@@ -385,9 +432,102 @@ pub(crate) fn counted_all<T>(run: impl FnOnce() -> T) -> (T, [usize; KINDS]) {
     )
 }
 
+/// Runs `run` and returns its result and how many times it started each
+/// of `works`, in their order.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "the count tests that use it need features a build may leave out"
+)]
+pub(crate) fn counted_each<T, const N: usize>(
+    works: [Work; N],
+    run: impl FnOnce() -> T,
+) -> (T, [usize; N]) {
+    let (result, counts) = counted_all(run);
+    (result, works.map(|work| counts[work.index()]))
+}
+
+/// `run`'s result and how many times it read the whole of `text`: the
+/// reads of it for spans or paths, and its parses (the bytes parsed over
+/// its length, rounded up). Work that reads the whole text
+/// once per item (a path lookup for each token) shows here as thousands.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "the count tests that use it need features a build may leave out"
+)]
+pub(crate) fn whole_reads<T>(text: &str, run: impl FnOnce() -> T) -> (T, usize) {
+    let (result, [reads, lookups, parsed]) = counted_each(
+        [Work::DocumentRead, Work::PathLookup, Work::ParsedBytes],
+        run,
+    );
+    (result, reads + lookups + parsed.div_ceil(text.len().max(1)))
+}
+
+/// The kinds of work (and their total) that `run` starts more than
+/// `ratio` times as often at `large` as at `small` (a count under
+/// [`GROWTH_FLOOR`] at the small size compared as if that large), each
+/// with its counts. Twice the size gives linear work twice the count and
+/// quadratic work four times: a ratio of 2.5 tells them apart on any
+/// machine under any load, where a timing could not.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "the count tests that use it need languages a build may leave out"
+)]
+pub(crate) fn grown_faster<T>(
+    ratio: f64,
+    (small, large): (usize, usize),
+    mut run: impl FnMut(usize) -> T,
+) -> Vec<String> {
+    let [small_counts, large_counts] = [small, large].map(|size| counted_all(|| run(size)).1);
+    let total = |counts: &[usize; KINDS]| counts.iter().sum::<usize>();
+    Work::ALL
+        .iter()
+        .map(|work| format!("{work:?}"))
+        .chain(["total".to_string()])
+        .zip(
+            small_counts
+                .iter()
+                .zip(&large_counts)
+                .map(|(small, large)| (*small, *large))
+                .chain([(total(&small_counts), total(&large_counts))]),
+        )
+        .filter(|(_, (at_small, at_large))| {
+            *at_large as f64 > ratio * (*at_small).max(GROWTH_FLOOR) as f64
+        })
+        .map(|(work, (at_small, at_large))| {
+            format!("{work}: {at_small} at size {small}, {at_large} at {large}")
+        })
+        .collect()
+}
+
+/// Counts this small at the smaller size are compared as if this large
+/// in [`grown_faster`]: a constant few more steps are not growth.
+#[cfg(test)]
+const GROWTH_FLOOR: usize = 16;
+
 #[cfg(test)]
 mod tests {
-    use super::{KINDS, Work, counted, counted_all, note};
+    use super::{KINDS, Work, counted, counted_all, grown_faster, note};
+
+    #[test]
+    fn work_growing_faster_than_its_input_is_named() {
+        let linear = grown_faster(2.5, (100, 200), |size| {
+            (0..size).for_each(|_| note(Work::LineSeek));
+        });
+        assert!(linear.is_empty(), "{linear:?}");
+        let quadratic = grown_faster(2.5, (100, 200), |size| {
+            (0..size * size).for_each(|_| note(Work::LineSeek));
+        });
+        assert_eq!(
+            quadratic,
+            [
+                "LineSeek: 10000 at size 100, 40000 at 200",
+                "total: 10000 at size 100, 40000 at 200"
+            ]
+        );
+    }
 
     #[test]
     fn counts_only_the_work_asked_inside_the_run() {

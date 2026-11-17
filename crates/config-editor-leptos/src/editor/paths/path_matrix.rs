@@ -144,7 +144,7 @@ fn range_of_selects_the_field_in_every_language() {
     report(failures);
 }
 
-/// QA 21: on a quoted key's closing quote (TOML), or just after a `}` in a
+/// On a quoted key's closing quote (TOML), or just after a `}` in a
 /// string (HCL `"${x}"`), `path_at` gave the table or block around the
 /// field (so did a host range starting there).
 #[test]
@@ -344,18 +344,19 @@ fn the_caret_path_stays_cheap_in_large_documents() {
         if reads > 0 {
             failures.push(format!("{language}: {reads} document reads per caret move"));
         }
-        // The best of many runs: a few milliseconds each, and a run on a
-        // loaded machine (parallel test lanes) takes several times as long.
-        let (elapsed, ()) = crate::editor::test_timing::best_of(20, || {
+        // And a caret move's read grows with the text only: the sample four
+        // times over, the caret as far into it, about four times as long.
+        let large = text.repeat(4);
+        let growth = crate::editor::test_timing::growth(10, (text, large.as_str()), |text| {
+            let lines = text.split('\n').count();
             for line in [lines / 2, lines - 2] {
                 let _ = language.path_at(text, TextPosition::new(line, 5));
             }
         });
-        let elapsed = elapsed / 2;
-        // About 1-2 ms here, XML (a markup walk) about 5.
-        let budget = if language == Language::XML { 25 } else { 15 };
-        if elapsed > std::time::Duration::from_millis(budget) {
-            failures.push(format!("{language}: {elapsed:?} per caret move"));
+        if growth.ratio() > 10.0 {
+            failures.push(format!(
+                "{language}: caret moves at four times the text: {growth}"
+            ));
         }
     }
     report(failures);

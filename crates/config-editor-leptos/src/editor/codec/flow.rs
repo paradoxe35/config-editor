@@ -6,6 +6,8 @@
 use super::super::flow_syntax::Flow;
 use super::super::language::ConfigLanguage;
 use super::comparable;
+use super::compare::{leading_space, trailing_space};
+use crate::editor::text::{TextRange, TextSize, slice, text_size};
 use serde_json::Value;
 
 /// `value` written where `written` (one `{…}` or `[…]`) was, or `None` when
@@ -31,30 +33,34 @@ pub(super) fn restyle(
     // Each item with the spacing written around it; the space just inside
     // the brackets stays there.
     let last = raw.len() - 1;
-    let lead = &raw[0][..raw[0].len() - raw[0].trim_start().len()];
-    let trail = &raw[last][raw[last].trim_end().len()..];
+    let lead = leading_space(raw[0]);
+    let trail = trailing_space(raw[last]);
     let items: Vec<(&str, &str, &str)> = raw
         .iter()
         .enumerate()
         .map(|(index, item)| {
-            let text = item.trim();
-            let start = item.len() - item.trim_start().len();
-            let end = item.trim_end().len();
-            let before = if index == 0 { "" } else { &item[..start] };
-            let after = if index == last { "" } else { &item[end..] };
-            (before, text, after)
+            let before = if index == 0 { "" } else { leading_space(item) };
+            let after = if index == last {
+                ""
+            } else {
+                trailing_space(item)
+            };
+            (before, item.trim(), after)
         })
         .collect();
-    // The spacing a new item takes: the item before it's, else none in a
-    // compact container (`{"a":1}`), else one space.
+    // The spacing a new item takes: the item before it's, else in a
+    // container over lines a line of its own at the first item's indent,
+    // else none in a compact container (`{"a":1}`), else one space (a
+    // lone list item, `[1]`, tells no spacing).
     let compact = lead.is_empty()
-        && !flow
+        && flow
             .entry_parts(items[0].1)
-            .is_some_and(|(_, head, _)| flow.separator_of(head).contains([' ', '\t']));
+            .is_some_and(|(_, head, _)| !flow.separator_of(head).contains([' ', '\t']));
     let gap = |position: usize| -> &str {
         match items.get(position.min(last)) {
             Some((before, _, _)) if position > 0 && !before.is_empty() => before,
             _ if items.len() > 1 => items[1].0,
+            _ if lead.contains('\n') => lead,
             _ if compact => "",
             _ => " ",
         }
@@ -99,13 +105,30 @@ pub(super) fn restyle(
             }
         }
         Value::Array(values) => {
+            // Every item still written keeps its text, matched in order
+            // before any is written anew: an item added before others
+            // takes none of their places (`[0x50, 0x1bb]` with 99 added
+            // between keeps `0x1bb`, not `[0x50, 99, 443]`).
             let mut used = vec![false; items.len()];
+            let mut matches = vec![None; values.len()];
+            let mut from = 0;
             for (index, child) in values.iter().enumerate() {
-                let reused = (0..items.len())
+                let found = (from..items.len())
+                    .chain(0..from)
                     .find(|at| !used[*at] && same_written(language, items[*at].1, child));
-                match reused {
+                if let Some(at) = found {
+                    used[at] = true;
+                    matches[index] = Some(at);
+                    from = at + 1;
+                }
+            }
+            let mut used = vec![false; items.len()];
+            for at in matches.iter().flatten() {
+                used[*at] = true;
+            }
+            for (index, child) in values.iter().enumerate() {
+                match matches[index] {
                     Some(at) => {
-                        used[at] = true;
                         let (before, text, after) = items[at];
                         place(&mut out, before, text.to_string(), after);
                     }
@@ -156,13 +179,13 @@ fn item_text(language: &dyn ConfigLanguage, value: &Value, written: &str) -> Str
     if same_written(language, written, value) {
         return written.to_string();
     }
-    restyle(language, value, written).unwrap_or_else(|| language.format_value_like(value, written))
+    restyle(language, value, written).unwrap_or_else(|| language.write_value_like(value, written))
 }
 
 /// Whether `written` already writes `value` (however a number is spelled:
 /// `7.835e3` for 7835).
-fn same_written(language: &dyn ConfigLanguage, written: &str, value: &Value) -> bool {
-    let formatted = language.format_value(value);
+pub(super) fn same_written(language: &dyn ConfigLanguage, written: &str, value: &Value) -> bool {
+    let formatted = language.write_value(value);
     comparable(language, written) == comparable(language, &formatted)
         || (!value.is_object() && !value.is_array() && language.scalar_reads_as(written, value))
         || value.is_number()
@@ -184,9 +207,9 @@ fn fresh_text(
         .next()
         .is_some_and(|first| flow.closer_of(first).is_some());
     if value.is_object() || value.is_array() || model_is_container {
-        language.format_value_like(value, container)
+        language.write_value_like(value, container)
     } else {
-        language.format_value_like(value, model)
+        language.write_value_like(value, model)
     }
 }
 
@@ -197,29 +220,34 @@ pub(super) fn writes_filled_on_one_line(
     language: &dyn ConfigLanguage,
     previous: &str,
     close: char,
-    skip: std::ops::Range<usize>,
+    skip: TextRange,
 ) -> bool {
     let flow = Flow::of(language);
     let Some(open) = flow.opener_of(close) else {
         return false;
     };
-    let mut offset = 0;
+    let mut offset = TextSize::default();
     for line in previous.split_inclusive('\n') {
-        let code = &line[..super::comment_start(language, line)];
+        let code = super::code_of(language, line);
         let filled = code.char_indices().any(|(at, character)| {
-            let start = offset + at;
             character == open
-                && !skip.contains(&start)
-                && flow
-                    .matching_close(&code[at..])
-                    .is_some_and(|end| !code[at + open.len_utf8()..at + end].trim().is_empty())
+                && !skip.contains(offset + text_size(at))
+                && holds_on_line(&flow, code, text_size(at), open)
         });
         if filled {
             return true;
         }
-        offset += line.len();
+        offset += TextSize::of(line);
     }
     false
+}
+
+/// Whether the container `open` opens at byte `at` of `code` closes there
+/// with something inside (`[a]`, not `[]` or `[` alone).
+fn holds_on_line(flow: &Flow, code: &str, at: TextSize, open: char) -> bool {
+    slice::after(code, at)
+        .and_then(|rest| rest.get(open.len_utf8()..flow.matching_close(rest)?))
+        .is_some_and(|inside| !inside.trim().is_empty())
 }
 
 /// Whether `after` (a map or list `written` one entry per line) adds or
@@ -243,18 +271,10 @@ pub(super) fn adds_containers_over_lines(
     let inner = lines
         .get(1..lines.len().saturating_sub(1))
         .unwrap_or_default();
-    let code = |line: &&str| {
-        line[..super::comment_start(language, line)]
-            .trim()
-            .to_string()
-    };
+    let code = |line: &&str| super::code_of(language, line).trim().to_string();
     let one_line = inner.iter().map(code).any(|code| {
         code.char_indices().any(|(at, character)| {
-            if closer_of(character).is_none() {
-                return false;
-            }
-            flow.matching_close(&code[at..])
-                .is_some_and(|end| !code[at + character.len_utf8()..at + end].trim().is_empty())
+            closer_of(character).is_some() && holds_on_line(&flow, &code, text_size(at), character)
         })
     });
     let opened = inner.iter().map(code).any(|code| {

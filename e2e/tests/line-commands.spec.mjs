@@ -340,7 +340,7 @@ test.describe("the caret and the last line", () => {
   });
 });
 
-// H29-A1: two lines swapped share their last characters (`»`, a token's
+// Two lines swapped share their last characters (`»`, a token's
 // last digits); read as an edit cutting a placeholder, the swap took them
 // (`key: «secret 3f2a`), and the host got it.
 test.describe("placeholders", () => {

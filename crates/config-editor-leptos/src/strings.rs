@@ -100,6 +100,10 @@ pub struct EditorStrings {
     pub problems_cut: String,
     /// The problem that says the list was cut, after `{count}` problems.
     pub problems_more: String,
+    /// The problem that says the schema check stopped early, so more
+    /// problems may follow than are listed (a schema whose explanation
+    /// would grow faster than the document).
+    pub problems_incomplete: String,
     /// After the problem count when the problems have more underlines
     /// than are drawn; `{count}` is how many are (the most serious first).
     pub underlines_cut: String,
@@ -405,15 +409,42 @@ pub struct EditorStrings {
     /// where the read-only field at `{pointer}` is written, so its value is
     /// checked only in a text that parses.
     pub save_waits: String,
-    /// An edit refused because it makes a text that did not parse parse
-    /// with the read-only field at `{pointer}` reading otherwise than in
-    /// the host's text, and why the field is read-only (`{reason}`).
-    pub read_only_changed: String,
-    /// An edit refused because it makes a text that did not parse parse
-    /// after more lines that may hold the read-only field at `{pointer}`
-    /// were deleted from the host's text than can be checked through, and
-    /// why the field is read-only (`{reason}`).
-    pub read_only_unchecked: String,
+    /// A save waiting because the read-only field at `{pointer}` no longer
+    /// reads as the host gave it, held where the editor cannot tell why, and
+    /// why the field is read-only (`{reason}`). The texts after it name
+    /// each cause a hold records.
+    pub save_held: String,
+    /// The same, because its key or a block holding it is written twice,
+    /// and the other copy is read in its place.
+    pub save_held_duplicate: String,
+    /// The same, because a key on its path was renamed (by an edit or an
+    /// undo).
+    pub save_held_renamed: String,
+    /// The same, because its text now sits under another parent.
+    pub save_held_moved: String,
+    /// The same, for a list item whose place in its list now holds another
+    /// item (items were added, removed or moved before it).
+    pub save_held_list_item: String,
+    /// The same, because its line is commented out.
+    pub save_held_commented: String,
+    /// The same, because the text no longer has it.
+    pub save_held_removed: String,
+    /// The same, because text was added into it or beside it (a key in its
+    /// block, a line taken into its value).
+    pub save_held_added: String,
+    /// The same, in a language that cannot say where the field is written:
+    /// its value reads otherwise.
+    pub save_held_spanless: String,
+    /// The same, for a field in a read-only range the host gave: the
+    /// range's text no longer reads as that field.
+    pub save_held_range: String,
+    /// The same, for a field the host made read-only after it was
+    /// changed: the text reads it otherwise than the host's text does.
+    pub save_held_before_lock: String,
+    /// A save waiting because the secret field at `{pointer}` now reads
+    /// text beside a placeholder the host gave as its whole value (an edit
+    /// beside it, or an undo, made the parse read them together).
+    pub save_held_placeholder: String,
     /// The gutter lock's label, before the reason.
     pub read_only_label: String,
     /// The gutter key's label, before the hint.
@@ -426,6 +457,9 @@ pub struct EditorStrings {
     pub unknown_placeholder: String,
     /// One of the host's placeholders outside the field it stands in.
     pub moved_placeholder: String,
+    /// One of another document's placeholders (in a documents view),
+    /// `{source}` its file name.
+    pub foreign_placeholder: String,
     /// One of the host's placeholders written in its own field more often
     /// than the host gave it there: a copy of it.
     pub extra_placeholder: String,
@@ -610,6 +644,7 @@ impl Default for EditorStrings {
             problems_hint_touch: text("tap underlined text"),
             problems_cut: text("only the editor's first {count} are shown"),
             problems_more: text("Only the first {count} problems are shown; more follow."),
+            problems_incomplete: text("The schema check stopped early; more problems may follow."),
             underlines_cut: text("only {count} underlines are drawn, the most serious first"),
             changes_one: text("{count} change"),
             changes_other: text("{count} changes"),
@@ -765,11 +800,41 @@ impl Default for EditorStrings {
             save_waits: text(
                 "Not saved: {pointer} is read-only, and it can be checked only once the text is valid",
             ),
-            read_only_changed: text(
-                "This edit makes the text valid, but {pointer} would no longer read as the host gave it ({reason}): undo the change to it first",
+            save_held: text(
+                "Not saved: {pointer} no longer reads as the host gave it ({reason}); put it back as it was to save",
             ),
-            read_only_unchecked: text(
-                "Too many lines were deleted while the text was invalid to check {pointer} ({reason}): undo deleting the lines that held it first",
+            save_held_duplicate: text(
+                "Not saved: {pointer} is written twice, and the other copy is read in its place ({reason}); remove the copy to save",
+            ),
+            save_held_renamed: text(
+                "Not saved: a key of {pointer} was renamed ({reason}); give the key its old name back to save",
+            ),
+            save_held_moved: text(
+                "Not saved: {pointer} moved under another parent ({reason}); move it back to save",
+            ),
+            save_held_list_item: text(
+                "Not saved: {pointer} is now another item of its list, because items were added, removed or moved before it ({reason}); put the items back in order to save",
+            ),
+            save_held_commented: text(
+                "Not saved: {pointer} is commented out ({reason}); remove the comment mark to save",
+            ),
+            save_held_removed: text(
+                "Not saved: {pointer} is no longer in the text ({reason}); write it back as the host gave it to save",
+            ),
+            save_held_added: text(
+                "Not saved: {pointer} now reads text that was added into it or beside it ({reason}); remove that text to save",
+            ),
+            save_held_spanless: text(
+                "Not saved: {pointer} now reads another value than the host gave ({reason}); put its value back as it was to save",
+            ),
+            save_held_range: text(
+                "Not saved: the read-only text the host gave no longer reads as {pointer} ({reason}); put that text back where it was to save",
+            ),
+            save_held_before_lock: text(
+                "Not saved: {pointer} was changed before the host made it read-only ({reason}); put it back as the host gave it to save",
+            ),
+            save_held_placeholder: text(
+                "Not saved: {pointer} now reads other text beside its secret placeholder; remove that text so the placeholder stands alone to save",
             ),
             read_only_label: text("Read-only"),
             secret_label: text("Secret placeholder"),
@@ -780,6 +845,9 @@ impl Default for EditorStrings {
             ),
             moved_placeholder: text(
                 "{pointer}: this placeholder stands for the secret of {owner}, not this field's; here it is plain text",
+            ),
+            foreign_placeholder: text(
+                "This placeholder stands for a secret of {source}, not of this document; here it is plain text",
             ),
             extra_placeholder: text(
                 "{pointer}: this placeholder is in this field already; another copy of it is plain text",

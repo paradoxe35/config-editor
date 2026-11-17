@@ -3,8 +3,8 @@
 //! language and form: beside an XML attribute as beside an element, and
 //! with a syntax error above the caret.
 
-use crate::editor::diagnostics::Schema;
 use crate::editor::languages::Language;
+use crate::editor::schema::Schema;
 use crate::editor::work_count::{Work, counted};
 
 const SCHEMA: &str = r#"{"type": "object", "properties": {

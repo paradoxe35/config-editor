@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
 
-use super::super::super::super::diagnostics::SchemaError;
+use super::super::super::super::schema::SchemaError;
 use super::super::super::LossEffect;
 use super::super::simple::{Kind, Simple, built_in};
 use super::super::tree::{Node, XSD_NS};

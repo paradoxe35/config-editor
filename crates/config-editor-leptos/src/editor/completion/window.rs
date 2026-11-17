@@ -91,8 +91,8 @@ mod tests {
 
     use leptos::prelude::*;
 
-    use super::super::super::diagnostics::build_schema;
     use super::super::super::languages::Language;
+    use super::super::super::schema::build_schema;
     use super::super::super::test_state::TestEditor;
     use super::super::super::work_count::{Work, counted};
     use super::super::RowSize;
@@ -123,8 +123,10 @@ mod tests {
         let mut editor = TestEditor::new(Language::YAML, "");
         editor.schema = Some(Arc::new(build_schema(&schema).expect("the schema")));
         let (owner, state) = editor.mount();
-        state.completion().explicit.set(true);
-        state.completion().requested.set(true);
+        state.set_list_mode(crate::editor::completion::ListMode::Asked {
+            replace_word: false,
+            heeded: false,
+        });
         assert_eq!(
             state.completion().suggestions.with_untracked(Vec::len),
             count
@@ -132,9 +134,9 @@ mod tests {
         (owner, state)
     }
 
-    /// D5.perf-3: 1,200 keys in scope built 1,200 options on every open
-    /// and filter. The rows built stay those of one window, however many
-    /// there are, wherever the list is scrolled and the highlight is.
+    /// The rows built stay those of one window, however many suggestions
+    /// there are (1,200 keys in scope), wherever the list is scrolled and
+    /// the highlight is, on every open and filter (P5).
     #[test]
     fn the_rows_built_do_not_grow_with_the_suggestions() {
         let built = |count: usize, top: f64, active: usize| {
@@ -164,7 +166,7 @@ mod tests {
         assert_eq!(rows.last(), Some(&49));
     }
 
-    /// D12.a11y-1: each rendered option knows its place among all of them.
+    /// Each rendered option knows its place among all of them.
     #[test]
     fn each_shown_option_knows_its_place_and_the_count() {
         let (_owner, state) = open_with(1200);

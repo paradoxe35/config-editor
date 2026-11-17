@@ -90,7 +90,10 @@
 //! as do the [`language::ConfigLanguage`] hooks. The README's "Cargo
 //! features" section lists the sizes.
 
-#![forbid(unsafe_code)]
+// The test build's allocation counter (`live_allocations`) is the one
+// unsafe code, and only in tests.
+#![cfg_attr(not(test), forbid(unsafe_code))]
+#![cfg_attr(test, deny(unsafe_code))]
 #![warn(missing_docs, rust_2018_idioms)]
 
 mod cssom;
@@ -98,6 +101,8 @@ mod documents;
 mod editor;
 mod focus;
 mod ime;
+#[cfg(test)]
+mod live_allocations;
 mod live_region;
 mod page_scroll;
 mod preset_style;
@@ -128,7 +133,7 @@ pub use editor::{
 /// Rust API: no stability promise, and not for other crates.
 #[doc(hidden)]
 pub mod js_support {
-    pub use crate::editor::{flush_pending_input, is_web_url};
+    pub use crate::editor::{Echo, Echoes, SETTLE_MS, echo_clock, flush_pending_input, is_web_url};
 
     /// A timer [`after`] set, to [`cancel`](Self::cancel) it.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -185,14 +190,6 @@ pub mod js_support {
     /// no copy of the text, and no read of it up to the offset, per call.
     pub fn path_at_offset(handle: &crate::EditorHandle, offset: usize) -> Option<crate::FieldPath> {
         handle.path_at_offset(offset)
-    }
-
-    /// The read-only ranges of the editor of `handle` where the edits since
-    /// they were given moved them, as positions in the host's text; `None`
-    /// before it mounts. A host text that replaces the document without
-    /// new ranges (`replaceValue`) gets them moved from there.
-    pub fn read_only_ranges_now(handle: &crate::EditorHandle) -> Option<Vec<crate::TextRange>> {
-        handle.read_only_ranges_now()
     }
 
     /// Makes the view of `handle` take `documents` (the list just given to

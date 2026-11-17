@@ -1,11 +1,12 @@
 //! A schema text that is empty, or only white space (a byte order mark
 //! too), says so, in the `emptySchema` text, not with a JSON reader's
 //! words ("EOF while parsing a value"): thrown by `Schema::compile` and
-//! shown inline (QA 33, FW33-2).
+//! shown inline.
 
 use crate::EditorStrings;
 use crate::editor::Language;
-use crate::editor::diagnostics::{Schema, SchemaFailure, build_schema, validate_with};
+use crate::editor::diagnostics::validate_with;
+use crate::editor::schema::{Schema, SchemaFailure, build_schema};
 
 const EMPTY: [&str; 6] = ["", " ", "\n", " \t\r\n ", "\u{feff}", "\u{feff}\n  "];
 

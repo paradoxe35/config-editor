@@ -3,39 +3,40 @@
 //! with one, and the region is widened as comparing each token's text
 //! everywhere does.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use std::ops::Range;
 
-use super::super::keyboard::utf16_to_byte_index;
+use super::super::text::{TextRange, TextSize, byte_range, text_size};
 use super::super::work_count::{Work, counted};
 use super::rewritten::around_written;
 
-/// Each token's text compared at every place (the reference).
+/// Each token's text compared at every place (the reference), in bytes:
+/// a token's text starts on a character, so its bytes are found only at
+/// whole characters.
 fn compared_everywhere(
     texts: &[&str],
     before: &str,
     after: &str,
     region: &Range<usize>,
 ) -> Range<usize> {
-    let texts: Vec<Vec<u16>> = texts
+    let texts: Vec<&[u8]> = texts
         .iter()
         .filter(|text| !text.is_empty())
-        .map(|text| text.encode_utf16().collect())
+        .map(|text| text.as_bytes())
         .collect();
-    let Some(longest) = texts.iter().map(Vec::len).max() else {
+    let Some(longest) = texts.iter().map(|text| text.len()).max() else {
         return region.clone();
     };
-    let new: Vec<u16> = after.encode_utf16().collect();
-    let old_len = before.encode_utf16().count();
+    let new = after.as_bytes();
+    let old_len = before.len();
     let Some(inserted) = (new.len() + region.len()).checked_sub(old_len) else {
         return region.clone();
     };
     let across = |edge: usize, start: bool| {
         let from = edge.saturating_sub(longest);
         let to = (edge + longest).min(new.len());
-        // As the text between UTF-16 offsets (`rewritten::utf16_slice`).
-        let first = utf16_to_byte_index(after, from);
-        let last = utf16_to_byte_index(after, to).max(first);
-        let window: Vec<u16> = after[first..last].encode_utf16().collect();
+        let window = &new[from..to];
         texts
             .iter()
             .filter_map(|text| {
@@ -77,7 +78,7 @@ impl Random {
             .0
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1);
-        ((self.0 >> 33) % bound as u64) as usize
+        usize::try_from((self.0 >> 33) % bound as u64).expect("below a usize bound")
     }
 
     fn text(&mut self, max: usize) -> String {
@@ -100,10 +101,10 @@ fn widens_as_comparing_every_token_everywhere_does() {
         let inserted = random.text(3);
         let before = format!("{head}{removed}{tail}");
         let after = format!("{head}{inserted}{tail}");
-        let start = head.encode_utf16().count();
-        let region = start..start + removed.encode_utf16().count();
+        let region = head.len()..head.len() + removed.len();
+        let widened = around_written(&texts, &before, &after, &byte_range(region.clone()));
         assert_eq!(
-            around_written(&texts, &before, &after, &region),
+            Range::<usize>::from(widened),
             compared_everywhere(&texts, &before, &after, &region),
             "{texts:?}: {before:?} → {after:?} over {region:?}"
         );
@@ -124,12 +125,13 @@ fn a_keystroke_looks_up_the_text_around_it_once_however_many_placeholders() {
     let at = at + before[at..].find('\n').unwrap();
     let mut after = before.clone();
     after.insert(at, 'x');
-    let start = before[..at].encode_utf16().count();
+    let start = TextRange::empty(text_size(at));
     let (widened, lookups) = counted(Work::TokenScan, || {
-        around_written(&texts, &before, &after, &(start..start))
+        around_written(&texts, &before, &after, &start)
     });
-    assert_eq!(widened, start..start);
-    // A place on each side of the edit within the longest token's reach,
-    // one lookup each: not a pass over the 3,000 tokens.
-    assert!(lookups <= 2 * 18, "{lookups} lookups");
+    assert_eq!(widened, start);
+    // A place on each side of the edit within the longest token's reach
+    // (its bytes), one lookup each: not a pass over the 3,000 tokens.
+    let longest = usize::from(TextSize::of(texts[0]));
+    assert!(lookups <= 2 * longest, "{lookups} lookups");
 }

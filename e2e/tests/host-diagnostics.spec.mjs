@@ -211,7 +211,7 @@ test.describe('vanilla.html', () => {
     await expect(setHost(browserPage, [{ message: 'x', severity: 'fatal' }])).rejects.toThrow(/unknown severity "fatal"/);
     await expect(setHost(browserPage, [{ message: 'x', range: { line: 1 } }])).rejects.toThrow(/range must be/);
     await expect(setHost(browserPage, {})).rejects.toThrow(/must be an array/);
-    // Round 16-18 leftovers: each mistake throws, saying why.
+    // Each mistake throws, saying why.
     await expect(setHost(browserPage, [{ message: 'x', docsUrl: 'http://' }])).rejects.toThrow(/docsUrl must be an http\(s\) URL with a host/);
     await expect(setHost(browserPage, [{ message: 'x', docsUrl: 'https:///docs' }])).rejects.toThrow(/docsUrl must be/);
     await expect(setHost(browserPage, [{ message: 'x', severity: 'ERROR' }])).rejects.toThrow(/unknown severity "ERROR" \(expected "error", "warning", "info" or "hint", lower-case\)/);

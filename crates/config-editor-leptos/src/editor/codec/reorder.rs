@@ -3,8 +3,11 @@
 //! being rewritten in place under the comments of others.
 
 use super::super::flow_syntax::Flow;
-use super::super::language::ConfigLanguage;
-use super::{byte_range, comment_start, escape, inline_location, reads_as};
+use super::super::item_sources::SaveTold;
+use super::super::language::{ConfigLanguage, pointer_key};
+use super::{code_of, comment_start, inline_location, reads_as, span_text_range};
+use crate::editor::paths::FieldPath;
+use crate::editor::text::{TextRange, TextSize, checked_range, slice};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -19,6 +22,7 @@ pub(in super::super) fn patch_reorder(
     old: &Value,
     new: &Value,
     schema: Option<&Value>,
+    _told: SaveTold<'_>,
 ) -> Option<String> {
     let mut lists = Vec::new();
     permuted_lists(old, new, String::new(), &mut lists)?;
@@ -85,7 +89,7 @@ fn line_items(
     pointer: &str,
     before: &[Value],
 ) -> Option<Vec<(usize, usize, usize)>> {
-    let line_of = |byte: usize| super::super::paths::line_column(previous, byte).0 - 1;
+    let line_of = |byte: TextSize| super::super::paths::line_column(previous, byte).0 - 1;
     let flow = Flow::of(language);
     let mut slots: Vec<(usize, usize, usize)> = Vec::new();
     // The last line an item before ends on.
@@ -93,8 +97,10 @@ fn line_items(
     for (index, item) in before.iter().enumerate() {
         let item_pointer = format!("{pointer}/{index}");
         let container = item.is_object() || item.is_array();
+        // The language's item lines are a `usize` byte range.
         let own_lines = language
-            .item_lines(previous, &item_pointer)
+            .item_lines(previous, &FieldPath::from(&item_pointer))
+            .and_then(|range| checked_range(&range))
             .or_else(|| element_lines(language, previous, &item_pointer));
         let (range, own) = match own_lines {
             Some(range) if container => (range, true),
@@ -104,29 +110,35 @@ fn line_items(
                     inline_location(language, previous, &item_pointer, false)?
                 } else {
                     language
-                        .value_span(previous, &item_pointer)
+                        .value_span(previous, &FieldPath::from(&item_pointer))
                         .or_else(|| inline_location(language, previous, &item_pointer, false))?
                 };
-                (byte_range(previous, span)?, false)
+                (span_text_range(previous, span)?, false)
             }
         };
-        let (line, last) = (line_of(range.start), line_of(range.end));
+        let (line, last) = (line_of(range.start()), line_of(range.end()));
         if (!own && line != last) || ended.is_some_and(|end| end >= line) {
             return None;
         }
         ended = Some(ended.map_or(last, |end| end.max(last)));
-        let line_start = previous[..range.start].rfind('\n').map_or(0, |at| at + 1);
-        let last_start = previous[..range.end].rfind('\n').map_or(0, |at| at + 1);
-        let before_value = previous[line_start..range.start].trim();
-        let after_value = &lines[last][range.end - last_start..];
-        let after_code = after_value[..comment_start(language, after_value)].trim();
+        let line_start = slice::line_start_of(previous, range.start());
+        let before_value =
+            slice::slice(previous, TextRange::new(line_start, range.start()))?.trim();
+        let after_value = slice::slice(
+            previous,
+            TextRange::new(range.end(), slice::line_end_of(previous, range.end())),
+        )?;
+        let after_code = code_of(language, after_value).trim();
         let marker_only = before_value.is_empty()
             || flow
                 .after_item_marker(before_value)
                 .is_some_and(|rest| rest.trim().is_empty());
         let separator_only = after_code.is_empty() || after_code.chars().eq(flow.separator());
         let alone = marker_only && separator_only;
-        let whole = format!("{before_value}{}{after_code}", &previous[range.clone()]);
+        let whole = format!(
+            "{before_value}{}{after_code}",
+            slice::slice(previous, range)?
+        );
         if !alone && (own || !in_own_element(language, before_value, &whole)) {
             return None;
         }
@@ -147,10 +159,14 @@ fn element_lines(
     language: &dyn ConfigLanguage,
     previous: &str,
     pointer: &str,
-) -> Option<Range<usize>> {
-    let name = byte_range(previous, language.key_span(previous, pointer)?)?;
-    let open = super::key_markup_start(language, previous, name.start)?;
-    Some(open..language.element_end(previous, open)?)
+) -> Option<TextRange> {
+    let name = span_text_range(
+        previous,
+        language.key_span(previous, &FieldPath::from(pointer))?,
+    )?;
+    // The language's markup hooks count in `usize` bytes.
+    let open = super::key_markup_start(language, previous, usize::from(name.start()))?;
+    checked_range(&(open..language.element_end(previous, open)?))
 }
 
 /// Whether a value is alone in its element on its line: `whole` (the
@@ -164,18 +180,17 @@ fn in_own_element(language: &dyn ConfigLanguage, before: &str, whole: &str) -> b
 
 /// The item line `moved`, with a comma after its value exactly when the
 /// line of the place it moves to (`slot`) has one.
-pub(super) fn with_comma_of(language: &dyn ConfigLanguage, moved: &str, slot: &str) -> String {
+pub(in super::super) fn with_comma_of(
+    language: &dyn ConfigLanguage,
+    moved: &str,
+    slot: &str,
+) -> String {
     let Some(separator) = Flow::of(language).separator() else {
         return moved.to_string();
     };
-    let has_comma = |line: &str| {
-        line[..comment_start(language, line)]
-            .trim_end()
-            .ends_with(separator)
-    };
-    let code_end = comment_start(language, moved);
-    let code = moved[..code_end].trim_end();
-    let rest = &moved[code.len()..];
+    let has_comma = |line: &str| code_of(language, line).trim_end().ends_with(separator);
+    let code = code_of(language, moved).trim_end();
+    let rest = moved.strip_prefix(code).unwrap_or("");
     let code = code.strip_suffix(separator).unwrap_or(code);
     let comma = if has_comma(slot) {
         separator.to_string()
@@ -206,7 +221,7 @@ fn permuted_lists<'a>(
                 permuted_lists(
                     value,
                     &right[key],
-                    format!("{pointer}/{}", escape(key)),
+                    format!("{pointer}/{}", pointer_key(key)),
                     out,
                 )?;
             }
@@ -267,7 +282,7 @@ fn item_text(value: &Value) -> String {
 
 /// Whether `line` holds only a comment.
 pub(super) fn comment_only(language: &dyn ConfigLanguage, line: &str) -> bool {
-    !line.trim().is_empty() && line[..comment_start(language, line)].trim().is_empty()
+    !line.trim().is_empty() && code_of(language, line).trim().is_empty()
 }
 
 pub(super) fn indent_of(line: &str) -> usize {
@@ -288,7 +303,7 @@ pub(super) fn block_items(
 ) -> Option<Vec<(usize, usize, usize)>> {
     let flow = Flow::of(language);
     flow.item_marker()?;
-    let code = |line: &str| line[..comment_start(language, line)].trim_end().to_string();
+    let code = |line: &str| code_of(language, line).trim_end().to_string();
     // Where the list starts: after its key's line, which ends at its `:`;
     // the document's own list after the document's start (`---`, a
     // directive) when it has one.
@@ -302,7 +317,7 @@ pub(super) fn block_items(
             .unwrap_or(lines.len());
         (start, 0)
     } else {
-        let key = language.key_span(previous, pointer)?;
+        let key = language.key_span(previous, &FieldPath::from(pointer))?;
         let key_line = key.line.checked_sub(1)?;
         let key_indent = indent_of(lines.get(key_line)?);
         let key_code = code(lines[key_line]);
@@ -371,11 +386,13 @@ pub(in super::super) fn unmoved_comments(
 ) -> Option<String> {
     let mut lists = Vec::new();
     permuted_lists(old, new, String::new(), &mut lists)?;
-    if lists.is_empty() || patch_reorder(language, previous, old, new, None).is_some() {
+    if lists.is_empty()
+        || patch_reorder(language, previous, old, new, None, SaveTold::default()).is_some()
+    {
         return None;
     }
     let lines: Vec<&str> = previous.split('\n').collect();
-    let line_of = |byte: usize| super::super::paths::line_column(previous, byte).0 - 1;
+    let line_of = |byte: TextSize| super::super::paths::line_column(previous, byte).0 - 1;
     lists.into_iter().find_map(|(pointer, before, _)| {
         // The lines from the first item to the end of the last.
         let span: Range<usize> = match block_items(language, previous, &lines, &pointer) {
@@ -384,13 +401,13 @@ pub(in super::super) fn unmoved_comments(
                 let range = |index: usize| {
                     let item = format!("{pointer}/{index}");
                     let span = language
-                        .value_span(previous, &item)
+                        .value_span(previous, &FieldPath::from(&item))
                         .or_else(|| inline_location(language, previous, &item, false))?;
-                    byte_range(previous, span)
+                    span_text_range(previous, span)
                 };
                 match (range(0), range(before.len().checked_sub(1)?)) {
                     (Some(first), Some(last)) => {
-                        line_of(first.start)..line_of(last.end.max(first.start)) + 1
+                        line_of(first.start())..line_of(last.end().max(first.start())) + 1
                     }
                     // Items the language cannot place (it declares no item
                     // marker): the lines under the list's key.
@@ -419,9 +436,12 @@ fn lines_under_key(
     lines: &[&str],
     pointer: &str,
 ) -> Option<Range<usize>> {
-    let key_line = language.key_span(previous, pointer)?.line.checked_sub(1)?;
+    let key_line = language
+        .key_span(previous, &FieldPath::from(pointer))?
+        .line
+        .checked_sub(1)?;
     let key = lines.get(key_line)?;
-    let code = key[..comment_start(language, key)].trim_end();
+    let code = code_of(language, key).trim_end();
     if !language
         .config()
         .separators

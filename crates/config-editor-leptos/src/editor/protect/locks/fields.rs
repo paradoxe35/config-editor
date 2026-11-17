@@ -2,14 +2,14 @@
 //! (in the parsed text, carried from the text before, or read from a text
 //! that does not parse), the host's read-only paths, and the secret fields.
 
+use super::super::super::text::TextRange;
 use std::collections::{HashMap, HashSet};
-use std::ops::Range;
 
 use serde_json::Value;
 
 use super::super::super::codec::read_aside;
+use super::super::super::data_reading::lone_spelling;
 use super::super::super::language::ConfigLanguage;
-use super::super::super::paths::lone_spelling;
 use super::super::locate::{lookup, plain};
 use super::super::save::range_pointers;
 use super::super::scan;
@@ -46,10 +46,10 @@ pub(super) fn marked(
 /// host gave so, read off its stand-in (the same places, its breaking
 /// lines blanked), with the values there to pin.
 pub(super) fn covered(reading: &Reading<'_>, ranges: &[Lock]) -> Covered {
-    let stretches: Vec<Range<usize>> = ranges
+    let stretches: Vec<TextRange> = ranges
         .iter()
         .filter(|lock| lock.pointer.is_none())
-        .flat_map(|lock| lock.ranges.iter().cloned())
+        .flat_map(|lock| lock.ranges.iter().copied())
         .collect();
     if stretches.is_empty() {
         return Covered::default();
@@ -151,7 +151,7 @@ pub(super) fn outermost(
 
 /// A host's path as the parsed text has it: an index on a lone XML element
 /// or HCL block (`…/0`, a one-item list) is the field written without it,
-/// where the paths' places find it (`paths::lone_spelling`).
+/// where the paths' places find it (`data_reading::lone_spelling`).
 fn written_spelling(reading: &Reading<'_>, pointer: String) -> String {
     match &reading.document {
         Some(document) if lookup(document, &pointer).is_none() => {
@@ -177,15 +177,34 @@ fn outer_only(behavior: &dyn ConfigLanguage, fields: &[(String, Reason)]) -> Vec
     }
     let inside_another = |pointer: &str| {
         let form = plain(behavior, pointer);
-        // Another spelling of the same field, or of the whole document.
-        if forms.get(&form).is_some_and(|known| known.len() > 1)
-            || (!form.is_empty() && forms.contains_key(""))
+        // Another spelling of the same field (a lone element written
+        // without the index another spelling gives it), or the whole
+        // document. Two items of one list (`/key/0`, `/key/1`) are two
+        // fields.
+        let indices = |pointer: &str| {
+            pointer
+                .split('/')
+                .filter(|segment| segment.parse::<usize>().is_ok())
+                .count()
+        };
+        if forms.get(&form).is_some_and(|known| {
+            known
+                .iter()
+                .any(|other| *other != pointer && indices(other) > indices(pointer))
+        }) || (!form.is_empty() && forms.contains_key(""))
         {
             return true;
         }
+        // A field above it: one written so, not only a list's first item
+        // spelled as the lone element (`/key/0` is no parent of `/key/1`).
+        let holds = |above: &str| {
+            forms
+                .get(above)
+                .is_some_and(|spellings| spellings.contains(&above))
+        };
         let mut end = form.len();
-        while let Some(cut) = form[..end].rfind('/') {
-            if cut > 0 && forms.contains_key(&form[..cut]) {
+        while let Some(cut) = form.get(..end).unwrap_or_default().rfind('/') {
+            if cut > 0 && holds(form.get(..cut).unwrap_or_default()) {
                 return true;
             }
             end = cut;

@@ -56,7 +56,10 @@ export interface ConfigEditorProps extends EditorSettings {
   /** The initial document when uncontrolled. */
   defaultValue?: string;
   /** Called with the document, in `language`, after every edit. */
-  onChange?: (value: string) => void;
+  /** Called with the document after every edit, and its `revision`: store both and pass the revision back as `valueRevision` for an exact echo match. */
+  onChange?: (value: string, revision: number) => void;
+  /** The `revision` `onChange` gave `value` with (see `onChange`): with it, a late echo is matched exactly, with no pause. Keep the newest revision you were given and never go back to an older one. Leave it out for a value of your own. */
+  valueRevision?: number;
   /** Language of the document. Default `"yaml"`. Changing it re-mounts. */
   language?: LanguageName;
   /** Edit in another language; switches live. */
@@ -150,7 +153,7 @@ export interface ConfigEditorProps extends EditorSettings {
 export const ConfigEditor = forwardRef<ConfigEditorHandle, ConfigEditorProps>(function ConfigEditor(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   // Everything an editor needs from a component (live props, re-mounts,
-  // the bound value through `ValueSync`), shared with the Vue and Svelte
+  // the bound value through the editor's `echoes`), shared with the Vue and Svelte
   // packages: `EditorBinding` from `@pngwasi/config-editor/binding`.
   const binding = useRef<EditorBinding | null>(null);
   binding.current ??= new EditorBinding("config-editor-react", props);

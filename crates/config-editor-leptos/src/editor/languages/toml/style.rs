@@ -192,12 +192,16 @@ pub(super) fn toml_key_renames(source: &str, pointer: &str, new_key: &str) -> Op
     if edits.is_empty() {
         return None;
     }
+    // The host's quotes are its style only on a key that needs none: a
+    // key quoted for its characters (`"a:"`) renamed to one that needs
+    // none is written in the default form, bare.
+    let styled = wanted.last().is_some_and(|old| !super::suggestions::toml_key(old).starts_with('"'));
     Some(
         edits
             .into_iter()
             .map(|(start, end)| {
                 // A bare new key in the host's quotes.
-                let quoted = source[start..end].starts_with(['"', '\'']) && !new_key.starts_with(['"', '\'']);
+                let quoted = styled && source[start..end].starts_with(['"', '\'']) && !new_key.starts_with(['"', '\'']);
                 (start..end, if quoted { format!("\"{new_key}\"") } else { new_key.to_string() })
             })
             .collect(),
@@ -225,9 +229,11 @@ fn key_places(source: &str) -> KeyPlaces {
         if let Some((segments, _)) = parse_header(code) {
             if let Some(open) = code.find(|character: char| character != '[' && !character.is_whitespace())
                 && let Some(close) = code.rfind(|character: char| character != ']' && !character.is_whitespace())
+                // Through the last character, whole (`[clients.acmé]`).
+                && let Some(inner) = code.get(open..close + code[close..].chars().next().map_or(0, char::len_utf8))
             {
                 for depth in 0..segments.len() {
-                    if let Some((start, end)) = segment_range(&code[open..close + 1], depth) {
+                    if let Some((start, end)) = segment_range(inner, depth) {
                         found.entry(segments[..=depth].to_vec()).or_default().push((offset + open + start, offset + open + end));
                     }
                 }

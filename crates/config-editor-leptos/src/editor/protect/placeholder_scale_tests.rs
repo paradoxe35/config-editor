@@ -3,6 +3,8 @@
 //! one parse (not one per token), and the real placeholders of a text that
 //! does not parse (mid-typing) kept real without a lookup each.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use serde_json::{Value, json};
 
 use super::super::Language;
@@ -13,6 +15,11 @@ use super::marks::marks_at;
 use super::problems::unknown_placeholders;
 use super::texts;
 use super::tokens::{SecretMatcher, locate_written};
+use crate::editor::work_count::whole_reads;
+
+/// The most whole reads of a text a check of all its placeholders makes:
+/// a lookup for each token reads it thousands of times.
+const MOST_READS: usize = 8;
 
 /// `clients` placeholders in secret fields (one in a list) and in plain
 /// names, each token once.
@@ -144,12 +151,11 @@ fn thousands_of_placeholders_are_checked_in_one_parse_in_every_language() {
     let mut failures = Vec::new();
     for language in languages() {
         let text = written(language, 2_000);
-        let (took, flagged) =
-            crate::editor::test_timing::best_of(3, || found(language, &text, &schema));
+        let (flagged, reads) = whole_reads(&text, || found(language, &text, &schema));
         // A path lookup for each token reads the whole document 6,000 times.
-        if flagged.len() != 4_000 || took.as_millis() > 400 {
+        if flagged.len() != 4_000 || reads > MOST_READS {
             failures.push(format!(
-                "{language}: {} flagged in {took:?} ({} lines)",
+                "{language}: {} flagged in {reads} reads ({} lines)",
                 flagged.len(),
                 text.lines().count()
             ));
@@ -173,7 +179,7 @@ fn real_placeholders_stay_real_while_a_large_text_does_not_parse_in_every_langua
             continue;
         }
         let followed = locate_written(&matcher, &typing, &known);
-        let (took, flagged) = crate::editor::test_timing::best_of(3, || {
+        let (flagged, reads) = whole_reads(&typing, || {
             unknown_placeholders(
                 behavior,
                 &typing,
@@ -184,9 +190,9 @@ fn real_placeholders_stay_real_while_a_large_text_does_not_parse_in_every_langua
                 crate::strings::default_strings(),
             )
         });
-        if !flagged.is_empty() || took.as_millis() > 400 {
+        if !flagged.is_empty() || reads > MOST_READS {
             failures.push(format!(
-                "{language}: {} flagged in {took:?}: {:?}",
+                "{language}: {} flagged in {reads} reads: {:?}",
                 flagged.len(),
                 flagged.first()
             ));
@@ -206,7 +212,7 @@ fn a_large_document_pasted_again_is_checked_without_a_lookup_per_copy_in_every_l
         // Pasted at the end: each token written twice, the copies not real.
         let twice = format!("{host}\n{host}");
         let followed = locate_written(&matcher, &twice, &known);
-        let (took, _) = crate::editor::test_timing::best_of(3, || {
+        let (_, reads) = whole_reads(&twice, || {
             unknown_placeholders(
                 behavior,
                 &twice,
@@ -217,8 +223,8 @@ fn a_large_document_pasted_again_is_checked_without_a_lookup_per_copy_in_every_l
                 crate::strings::default_strings(),
             )
         });
-        if took.as_millis() > 400 {
-            failures.push(format!("{language}: checked in {took:?}"));
+        if reads > MOST_READS {
+            failures.push(format!("{language}: checked in {reads} reads"));
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
@@ -234,12 +240,11 @@ fn thousands_of_placeholders_are_found_again_in_one_parse_in_every_language() {
         let behavior = language.behavior();
         let host = written(language, 2_000);
         let known = matcher.known(behavior, &host, None);
-        let (took, found) =
-            crate::editor::test_timing::best_of(3, || matcher.locate(behavior, &host, &known));
+        let (found, reads) = whole_reads(&host, || matcher.locate(behavior, &host, &known));
         let expected = locate_written(&matcher, &host, &known);
-        if found != expected || found.len() != 6_000 || took.as_millis() > 400 {
+        if found != expected || found.len() != 6_000 || reads > MOST_READS {
             failures.push(format!(
-                "{language}: {} of {} found in {took:?}",
+                "{language}: {} of {} found in {reads} reads",
                 found.len(),
                 expected.len()
             ));
@@ -261,13 +266,16 @@ fn thousands_of_commented_placeholders_are_found_unreal_in_one_parse_in_every_la
         let host = written(language, 2_000);
         let known = matcher.known(behavior, &host, None);
         let end = host.encode_utf16().count();
-        let Some((commented, ..)) = behavior.toggle_comments(&host, 0, end) else {
+        let Some((commented, ..)) = behavior.toggled_text(&host, 0, end) else {
             continue;
         };
-        let (took, found) =
-            crate::editor::test_timing::best_of(3, || matcher.locate(behavior, &commented, &known));
-        if !found.is_empty() || took.as_millis() > 200 {
-            failures.push(format!("{language}: {} found in {took:?}", found.len()));
+        let (found, reads) =
+            whole_reads(&commented, || matcher.locate(behavior, &commented, &known));
+        if !found.is_empty() || reads > MOST_READS {
+            failures.push(format!(
+                "{language}: {} found in {reads} reads",
+                found.len()
+            ));
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
@@ -287,15 +295,12 @@ fn placeholders_also_written_in_comments_are_placed_in_one_parse_in_every_langua
         let host = written(language, 300);
         let known = matcher.known(behavior, &host, None);
         let end = host.encode_utf16().count();
-        let Some((commented, ..)) = behavior.toggle_comments(&host, 0, end) else {
+        let Some((commented, ..)) = behavior.toggled_text(&host, 0, end) else {
             continue;
         };
         let real = locate_written(&matcher, &host, &known);
-        let shift = commented.encode_utf16().count() + 1;
-        let shifted = real
-            .iter()
-            .map(|range| range.start + shift..range.end + shift)
-            .collect();
+        let shift = super::super::text::text_size(commented.len() + 1);
+        let shifted = real.iter().map(|range| *range + shift).collect();
         for (case, text, expected) in [
             ("copy below", format!("{host}\n{commented}"), real.clone()),
             ("copy above", format!("{commented}\n{host}"), shifted),
@@ -304,11 +309,10 @@ fn placeholders_also_written_in_comments_are_placed_in_one_parse_in_every_langua
                 failures.push(format!("{language} {case}: does not parse"));
                 continue;
             }
-            let (took, found) =
-                crate::editor::test_timing::best_of(3, || matcher.locate(behavior, &text, &known));
-            if found != expected || took.as_millis() > 150 {
+            let (found, reads) = whole_reads(&text, || matcher.locate(behavior, &text, &known));
+            if found != expected || reads > MOST_READS {
                 failures.push(format!(
-                    "{language} {case}: {} found ({} expected, same {}) in {took:?}",
+                    "{language} {case}: {} found ({} expected, same {}) in {reads} reads",
                     found.len(),
                     expected.len(),
                     found == expected
@@ -358,7 +362,7 @@ fn placeholders_of_a_text_that_does_not_parse_cost_one_reading() {
 }
 
 /// One placeholder held in many fields is read and found looking each of
-/// its places up once (hard round 23's `D23.perf-1`: each held place was
+/// its places up once (each held place was
 /// compared with every place found before it, 2 s to mount at 2,098
 /// fields).
 #[test]

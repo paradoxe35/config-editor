@@ -8,7 +8,7 @@
 
 use serde_json::{Map, Value, json};
 
-use super::super::diagnostics::SchemaError;
+use super::super::schema::SchemaError;
 use super::{
     CompiledSchema, LossEffect, SchemaCompiler, SchemaFormatInfo, SchemaInput, SchemaLoss,
 };

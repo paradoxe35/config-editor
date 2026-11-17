@@ -8,11 +8,11 @@
 use super::super::Language;
 use super::super::codec;
 use super::super::paths::FieldPath;
-use super::super::work_count::{Work, counted};
+use super::super::work_count::{Work, counted, whole_reads};
 use super::broken_tests::breaks;
 use super::guard::check;
 use super::locks::{Protected, Sources, protect};
-use super::tests::{PIECES, Random, WORDS, documents, edits, schema, words};
+use super::tests::{PIECES, Random, WORDS, documents, edits, refused_while_broken, schema, words};
 
 /// Where the locks come from.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -135,6 +135,7 @@ fn refusals(case: &Case<'_>, protected: &Protected, tag: &str, failures: &mut Ve
     }
     for (what, edited, refused) in edits(language, &broken) {
         let Some(edited) = edited else { continue };
+        let refused = refused_while_broken(what, refused);
         if !refused || !allowed(language, &broken, &edited, protected) {
             continue;
         }
@@ -150,7 +151,12 @@ fn refusals(case: &Case<'_>, protected: &Protected, tag: &str, failures: &mut Ve
                     .iter()
                     .any(|pointer| read.pointer(pointer) != original.pointer(pointer))
             });
-        if changed && allowed(language, &edited, &repaired, &carried) {
+        let held = || {
+            !locks(language, &repaired, from, true, Some(&carried))
+                .held
+                .is_empty()
+        };
+        if changed && allowed(language, &edited, &repaired, &carried) && !held() {
             failures.push(format!(
                 "{tag}: {what} allowed, and its repair: {repaired:?}"
             ));
@@ -281,8 +287,9 @@ enum Step {
 
 /// Random sessions in every language, the text and the locks arriving in
 /// any order: every text the editor sends that parses (and each repair of
-/// its break it would send next) holds the locked values as the host had them
-/// (I1), and every repair keeping them goes through (I2).
+/// its break it would send next) holds the locked values as the host had
+/// them, or holds the save for the field reading otherwise (I1), and every
+/// repair keeping them goes through (I2).
 #[test]
 fn locked_values_hold_whatever_order_text_and_locks_arrive_in() {
     let schema = schema();
@@ -397,8 +404,16 @@ fn locked_values_hold_whatever_order_text_and_locks_arrive_in() {
                         if !locked {
                             continue;
                         }
+                        // A field reading otherwise is held: never saved so.
+                        let held = if candidate == &edited {
+                            protected.held.clone()
+                        } else {
+                            locks(language, candidate, from, paths_given, Some(&protected)).held
+                        };
                         for pointer in LOCKED {
-                            if read.pointer(pointer) != original.pointer(pointer) {
+                            if read.pointer(pointer) != original.pointer(pointer)
+                                && !held.iter().any(|known| known == pointer)
+                            {
                                 failures.push(format!(
                                     "{language} ({from:?}) session {session}: {pointer} changed in {candidate:?}\n{}",
                                     trail.join("\n")
@@ -428,11 +443,18 @@ fn locked_values_hold_whatever_order_text_and_locks_arrive_in() {
     );
 }
 
+/// How many more whole reads (parses, path lookups from the top) a large
+/// text read for its locks may take at 3000 lines than at 1400: a read
+/// per line is 1600 more.
+const GROWN_READS: usize = 4;
+
 /// A large text from the host that does not parse is read for its locks in
 /// a moment, in every language (each break, and a second one near the top).
 #[test]
 fn a_large_text_that_never_parsed_is_locked_quickly() {
     let mut slow = Vec::new();
+    // Each case's whole reads at the size measured first.
+    let mut reads_at = std::collections::HashMap::new();
     // Past the lines read one by one, and just under them.
     for (language, text, size) in documents()
         .into_iter()
@@ -457,7 +479,7 @@ fn a_large_text_that_never_parsed_is_locked_quickly() {
                 .replacen("k1 = 1\n", "k1 = [\n", 1)
                 .replacen("\"k1\": 1,", "\"k1\": [", 1)
                 .replacen("<k1>1</k1>", "<k1>1</k", 1);
-            for text in [&broken, &twice] {
+            for (break_count, text) in [(1, &broken), (2, &twice)] {
                 for from in [From::Schema, From::Paths] {
                     // A few lines' paths read (each a read from the top),
                     // not every line's: read line by line, thousands.
@@ -468,12 +490,17 @@ fn a_large_text_that_never_parsed_is_locked_quickly() {
                             "{language} {size} ({from:?}, {bad:?}): {lookups} path lookups"
                         ));
                     }
-                    // The stand-in's parses: up to about 150 ms here.
-                    let (took, _) = crate::editor::test_timing::best_of(2, || {
-                        locks(language, text, from, true, None)
-                    });
-                    if took > std::time::Duration::from_millis(700) {
-                        slow.push(format!("{language} {size} ({from:?}, {bad:?}): {took:?}"));
+                    // And the whole reads (the stand-in's parses) the
+                    // same at either size: one per line grows with it.
+                    let (_, reads) = whole_reads(text, || locks(language, text, from, true, None));
+                    let case = format!("{language} ({from:?}, {bad:?}, {break_count} breaks)");
+                    match reads_at.insert(case.clone(), reads) {
+                        Some(other) if reads.abs_diff(other) > GROWN_READS => {
+                            slow.push(format!(
+                                "{case}: {other} whole reads at one size, {reads} at the other"
+                            ));
+                        }
+                        _ => {}
                     }
                 }
             }

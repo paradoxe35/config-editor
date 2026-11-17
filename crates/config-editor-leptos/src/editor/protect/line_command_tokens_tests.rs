@@ -5,6 +5,8 @@
 //! cutting it (which took the shared characters away: `«secret 3f2a`).
 //! And the placeholders stay real where they moved.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
@@ -47,7 +49,7 @@ fn run(
     let edit = line_edit(&before, selection, command, none)?;
     let (anchor, caret) = edit.selection;
     state.commit(
-        Edit::new(before.clone(), selection, edit.text.clone(), caret)
+        Edit::new_units(before.clone(), selection, edit.text.clone(), caret)
             .selecting_from(anchor)
             .folding(edit.folds),
     );
@@ -201,20 +203,12 @@ fn random_line_commands_write_the_text_they_mean() {
 /// (the token then goes whole, see `tokens::widen`).
 #[test]
 fn a_token_written_whole_is_told_from_one_cut() {
+    use super::super::text::{TextRange, text_size};
     use super::rewritten::rewritten_region;
-    let units = |text: &str| text.encode_utf16().count();
-    // The diff of `before` and `after` (UTF-16 in `before`).
+    // The diff of `before` and `after` (in `before`).
     let diff = |before: &str, after: &str| {
-        let old: Vec<u16> = before.encode_utf16().collect();
-        let new: Vec<u16> = after.encode_utf16().collect();
-        let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-        let suffix = old[prefix..]
-            .iter()
-            .rev()
-            .zip(new[prefix..].iter().rev())
-            .take_while(|(a, b)| a == b)
-            .count();
-        prefix..old.len() - suffix
+        let (start, end, _) = super::super::text_change::changed_bytes(before, after);
+        TextRange::new(text_size(start), text_size(end))
     };
     let tokens_of = |text: &str| {
         let mut tokens = Vec::new();
@@ -222,7 +216,7 @@ fn a_token_written_whole_is_told_from_one_cut() {
         while let Some(at) = text[from..].find('«') {
             let start = from + at;
             let end = start + text[start..].find('»').unwrap() + '»'.len_utf8();
-            tokens.push(units(&text[..start])..units(&text[..end]));
+            tokens.push(TextRange::new(text_size(start), text_size(end)));
             from = end;
         }
         tokens

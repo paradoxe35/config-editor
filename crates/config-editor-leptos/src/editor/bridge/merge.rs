@@ -2,7 +2,9 @@
 //! language showed of it.
 
 use super::super::codec::{canonical, same_order};
-use super::super::language::{ConfigLanguage, Repetition};
+use super::super::data_reading::{DataReading, Occurs};
+use super::super::item_sources::{ItemSource, ItemSources};
+use super::super::language::{ConfigLanguage, Repetition, pointer_key};
 use serde_json::{Map, Value};
 
 use super::super::work_count::{Work, note};
@@ -41,6 +43,11 @@ pub(super) struct View<'a> {
     /// Whether keys the edit holds in another order than it showed them
     /// were moved by the user, not by the edit language's writer.
     pub(super) moves: bool,
+    /// How the host's last text reads (see `data_reading`): which of its
+    /// lists are a value written once that its schema reads as a list.
+    pub(super) host_reading: Option<&'a DataReading>,
+    /// Which host item each item is, when the edit's links tell it.
+    pub(super) told: Option<&'a ItemSources>,
 }
 
 /// Whether the keys `edited` holds in another order than `seen` were moved
@@ -109,7 +116,7 @@ fn merge_at(
     if seen == edited && (!view.moves || same_order(seen, edited)) {
         return Ok(host.clone());
     }
-    let child = |key: &str| format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+    let child = |key: &str| format!("{at}/{}", pointer_key(key));
     // The edit replaces the host's value whole: only where the view showed
     // all of it.
     let replaced = || {
@@ -138,22 +145,49 @@ fn merge_at(
             // map of thousands is no pass over all of them per key.)
             // The host's keys the edit no longer has, by what the edit
             // language showed for them (its text), in the host's order.
+            let mut renamed_to: std::collections::HashMap<&String, &String> =
+                std::collections::HashMap::new();
+            let mut renamed_keys: std::collections::HashSet<&String> =
+                std::collections::HashSet::new();
+            // A key the links tell is a host key of this map the edit no
+            // longer has: that key renamed, whatever it holds.
+            if let Some(told) = view.told {
+                for key in edited.keys().filter(|key| !host.contains_key(*key)) {
+                    note(Work::MergeKeyVisit);
+                    let Some(ItemSource::Previous(from)) = told.items.get(&child(key)) else {
+                        continue;
+                    };
+                    let Some((parent, name)) = from.rsplit_once('/') else {
+                        continue;
+                    };
+                    let name = crate::editor::language::unescaped_key(name);
+                    if parent == at
+                        && !edited.contains_key(&name)
+                        && let Some((old, _)) = host.get_key_value(&name)
+                        && !renamed_to.contains_key(old)
+                    {
+                        renamed_to.insert(old, key);
+                        renamed_keys.insert(key);
+                    }
+                }
+            }
             let mut gone: std::collections::HashMap<String, std::collections::VecDeque<&String>> =
                 std::collections::HashMap::new();
-            if edited.keys().any(|key| !host.contains_key(key)) {
-                for old in host.keys().filter(|old| visit(!edited.contains_key(*old))) {
+            if edited
+                .keys()
+                .any(|key| !host.contains_key(key) && !renamed_keys.contains(key))
+            {
+                for old in host.keys().filter(|old| {
+                    visit(!edited.contains_key(*old) && !renamed_to.contains_key(*old))
+                }) {
                     if let Some(shown) = seen.get(old) {
                         gone.entry(canonical(shown)).or_default().push_back(old);
                     }
                 }
             }
-            let mut renamed_to: std::collections::HashMap<&String, &String> =
-                std::collections::HashMap::new();
-            let mut renamed_keys: std::collections::HashSet<&String> =
-                std::collections::HashSet::new();
             for (key, value) in edited {
                 note(Work::MergeKeyVisit);
-                if host.contains_key(key) || gone.is_empty() {
+                if host.contains_key(key) || gone.is_empty() || renamed_keys.contains(key) {
                     continue;
                 }
                 let from = gone
@@ -166,12 +200,25 @@ fn merge_at(
             }
             // A key gone and a new one in its place, its value changed
             // too (a Replace All over a key and the values inside it): the
-            // same entry renamed, its values merged as the host holds them
-            // (QA `E33-2`).
+            // same entry renamed, its values merged as the host holds them.
+            // Not where the links tell the old entry went inside the new
+            // one (a block's label typed before its body: a level added,
+            // no rename).
+            let told = view.told;
+            let nested = |old: &str, key: &str| {
+                told.as_ref().is_some_and(|told| {
+                    let (old, key) = (child(old), format!("{}/", child(key)));
+                    told.items.iter().any(|(to, source)| {
+                        matches!(source, ItemSource::Previous(from) if *from == old)
+                            && to.starts_with(&key)
+                    })
+                })
+            };
             if seen.len() == edited.len() && !gone.is_empty() {
                 for ((old, _), (key, _)) in seen.iter().zip(edited) {
                     note(Work::MergeKeyVisit);
-                    let renames = host.contains_key(old)
+                    let renames = !nested(old, key)
+                        && host.contains_key(old)
                         && !edited.contains_key(old)
                         && !host.contains_key(key)
                         && !renamed_to.contains_key(old)
@@ -197,6 +244,22 @@ fn merge_at(
                             host_value.clone()
                         } else {
                             merge_at(host_value, seen_value, value, &child(to), view)?
+                        };
+                        // A value the host writes once (an HCL block) that
+                        // the old key's schema reads as a list of one is
+                        // the item under the new key, where the edit holds
+                        // no list. A list the host writes as one stays one.
+                        let merged = match merged {
+                            Value::Array(mut items)
+                                if items.len() == 1
+                                    && !value.is_array()
+                                    && view.host_reading.is_some_and(|reading| {
+                                        reading.node(&child(key)).occurs == Occurs::ListOfOne
+                                    }) =>
+                            {
+                                items.remove(0)
+                            }
+                            merged => merged,
                         };
                         entries.push(((*to).clone(), merged));
                     }

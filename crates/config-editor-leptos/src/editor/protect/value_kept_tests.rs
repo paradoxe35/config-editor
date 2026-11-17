@@ -1,7 +1,8 @@
 //! One promise, whatever edit makes the change: a placeholder the host gave
 //! as a field's whole value never has text beside it in anything the host
 //! hears, and a read-only field (a path, or a host range over its value)
-//! never changes. Checked in every language, for each way a value is
+//! is never saved changed (it keeps its text, and a text reading it
+//! otherwise holds the save). Checked in every language, for each way a value is
 //! written (on one line, quoted, YAML block scalars of each chomping, TOML
 //! `'''` and `"""`, HCL heredocs, XML text on one line and over lines), by
 //! every route an edit takes (typing beside it, Enter and typing, indenting
@@ -9,13 +10,15 @@
 //! lines, deleting, cutting and selecting away the line between, a closing
 //! line deleted, Replace All, a paste, a drag, undo and redo), both while
 //! the text parses and while it has a syntax error elsewhere (the error
-//! then repaired: the repair is never refused, and what it lets the host
-//! hear keeps the promise).
+//! then repaired: the repair is refused only where it would let the host
+//! hear a secret glued, and what it lets the host hear keeps the promise).
 //!
 //! The text-level check went by the shape of the edit and only while the
 //! text parsed: a line indented into a block scalar or heredoc holding a
 //! placeholder, or text typed beside it while the text did not parse, gave
 //! the host `«secret 3f2a»\nb: y\n` or `«secret 3f2a»MYPASS`.
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use leptos::prelude::*;
 use serde_json::Value;
@@ -24,7 +27,7 @@ use super::super::Language;
 use super::super::codec;
 use super::super::edit::Edit;
 use super::super::keys::line_edit::LineCommand;
-use super::super::keys::lines::{Command, run};
+use super::super::keys::lines::{Command, run_units as run};
 use super::super::paths::{FieldPath, TextPosition, TextRange};
 use super::super::save_matrix::report;
 use super::super::secret_options::SecretOptions;
@@ -201,6 +204,9 @@ fn mount(
     editor.on_change = Some(Callback::new(move |text| {
         heard.update(|heard| heard.push(text));
     }));
+    editor.on_save = Some(Callback::new(
+        |_: super::super::host_editing::SaveRequest| {},
+    ));
     let (owner, state) = editor.mount();
     (owner, state, heard)
 }
@@ -216,7 +222,7 @@ fn input(state: EditorState, range: std::ops::Range<usize>, with: &str, kind: &s
     let after = format!("{}{with}{}", &before[..range.start], &before[range.end..]);
     let (start, end) = (utf16(&before, range.start), utf16(&before, range.end));
     let caret = start + with.encode_utf16().count();
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (start, end),
         after,
@@ -426,7 +432,7 @@ fn routes() -> Vec<(&'static str, Route)> {
             let needle = format!("\n{}", sibling(language));
             let replaced = before.replace(&needle, &format!("\n    {}", sibling(language)));
             let caret = utf16(&before, 0);
-            state.commit(Edit::new(before, (caret, caret), replaced, caret));
+            state.commit(Edit::new_units(before, (caret, caret), replaced, caret));
         }),
         ("a line pasted after it", |state, language| {
             let text = shown(state);
@@ -457,6 +463,13 @@ fn broken_promise(language: Language, kind: Kind, given: &Value, text: &str) -> 
     let now = field_a(language, text)?;
     match kind {
         Kind::Secret => {
+            // Made a map holding it (an XML element given a child): the
+            // token has something beside it too.
+            if let Some(container @ Value::Object(_)) = now.as_ref()
+                && container.to_string().contains(TOKEN)
+            {
+                return Some(format!("glued into {container}"));
+            }
             let value = now.as_ref().and_then(Value::as_str)?;
             let whole = given.as_str().unwrap_or_default();
             (value.contains(TOKEN) && value != whole && value != TOKEN)
@@ -468,7 +481,10 @@ fn broken_promise(language: Language, kind: Kind, given: &Value, text: &str) -> 
     }
 }
 
-/// Every text the host heard, and the text on screen, keep the promise.
+/// Every text the host heard, and the text on screen, keep the promise:
+/// a secret is never heard glued; a locked value is never saved changed
+/// (a text where it reads otherwise, the locked text kept, holds the
+/// save: a line indented under it while the text was broken).
 fn check(
     failures: &mut Vec<String>,
     case: &str,
@@ -480,23 +496,43 @@ fn check(
     let given = field_a(form.language, &form.text)
         .flatten()
         .expect("the form parses");
-    for text in heard.get_untracked().iter().chain([&shown(state)]) {
-        if let Some(broken) = broken_promise(form.language, kind, &given, text) {
-            failures.push(format!("{case}: {broken} in {text:?}"));
-            return;
+    if matches!(kind, Kind::Secret) {
+        for text in heard.get_untracked().iter().chain([&shown(state)]) {
+            if let Some(broken) = broken_promise(form.language, kind, &given, text) {
+                failures.push(format!("{case}: {broken} in {text:?}"));
+                return;
+            }
         }
+        return;
+    }
+    let text = shown(state);
+    if let Some(broken) = broken_promise(form.language, kind, &given, &text)
+        && state.save()
+    {
+        failures.push(format!("{case}: {broken}, saved: {text:?}"));
     }
 }
 
-/// Removes the syntax error appended to the text: never refused.
-fn repair(failures: &mut Vec<String>, case: &str, state: EditorState, language: Language) {
+/// Removes the syntax error appended to the text: refused only when the
+/// repaired text would let the host hear a secret glued (the text written
+/// beside it while the text was broken is taken out first).
+fn repair(
+    failures: &mut Vec<String>,
+    case: &str,
+    state: EditorState,
+    (language, kind, given): (Language, Kind, &Value),
+) {
     let text = shown(state);
     let error = breaking(language);
     let Some(at) = text.rfind(error) else {
         failures.push(format!("{case}: the syntax error is gone: {text:?}"));
         return;
     };
-    if !input(state, at..at + error.len(), "", "deleteContentBackward") {
+    let repaired = format!("{}{}", &text[..at], &text[at + error.len()..]);
+    // The value is a placeholder of the default pattern in every kind.
+    let _ = kind;
+    let glued = broken_promise(language, Kind::Secret, given, &repaired).is_some();
+    if !input(state, at..at + error.len(), "", "deleteContentBackward") && !glued {
         failures.push(format!("{case}: the repair was refused: {text:?}"));
     }
 }
@@ -532,7 +568,10 @@ fn no_edit_glues_a_placeholder_or_changes_a_locked_value_in_any_form_or_state() 
                     act(state, language);
                     undo_redo(state);
                     if broken {
-                        repair(&mut failures, &case, state, language);
+                        let given = field_a(language, &form.text)
+                            .flatten()
+                            .expect("the form parses");
+                        repair(&mut failures, &case, state, (language, kind, &given));
                     }
                     check(&mut failures, &case, &form, kind, state, heard);
                 }

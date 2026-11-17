@@ -1,12 +1,14 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
+use super::words;
+use crate::editor::text::{text_size};
 
 pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
     let mut parser_config = match super::limits::parser_config(source) {
         Ok(config) => config.duplicate_key_policy(DuplicateKeyPolicy::Error),
         Err(alias) => {
-            let (line, column) = crate::editor::paths::line_column(source, alias);
+            let (line, column) = crate::editor::paths::line_column(source, text_size(alias));
             return Err(ParseError {
                 message: super::limits::EXPANSION_REFUSED.to_string(),
                 line: Some(line),
@@ -29,7 +31,7 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
                 noyalib::from_str_with_config::<noyalib::Value>(prefix, &parser_config).map(drop)
             });
             let (line, column) = at.map_or((None, None), |at| {
-                let (line, column) = crate::editor::paths::line_column(source, at);
+                let (line, column) = crate::editor::paths::line_column(source, text_size(at));
                 (Some(line), Some(column))
             });
             return ParseError {
@@ -81,6 +83,11 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
                 }
             }
         }
+        // A value its tag cannot hold has no place of its own: the tag's.
+        let (line, column) = match (line, column, words::tag_place(source, &message)) {
+            (None, None, Some((line, column))) => (Some(line), Some(column)),
+            (line, column, _) => (line, column),
+        };
         ParseError {
             message,
             line,
@@ -183,7 +190,7 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
             .and_then(|indicator| Some((indicator, block_scalar_text(indicator, &all_lines[index + 1..], content_indent)?)));
         let is_block_key = block_key.is_some();
         if let Some((key_raw, name)) =
-            block_key.or_else(|| explicit_key(rest).map(|key| (key, key.trim_matches(['\'', '"']).to_string())))
+            block_key.or_else(|| explicit_key(rest).map(|key| (key, key_name(key).to_string())))
         {
             if let Some(path) = array_item_path {
                 entries.push((path, index + 1, dash_column, dash_column + 1));
@@ -231,11 +238,10 @@ pub(super) fn yaml_path_lines(source: &str) -> Vec<(Vec<String>, usize, usize, u
         // A key's own anchor or tag (`&k b: 1`) is no part of its name.
         let written = without_node_properties(&rest[..colon]);
         let key_raw = &rest[colon - written.len()..colon];
-        let key = key_raw.trim().trim_matches(['\'', '"']);
-        // A quoted empty key (`"": x`) is a key; nothing before `:` is not.
-        if key_raw.trim().is_empty() {
-            continue;
-        }
+        let key = key_name(key_raw);
+        // Nothing before `:` (`: x`) is the empty key, as the parser reads
+        // it: written at its `:`, holding no characters.
+        let key = if key_raw.trim().is_empty() { "" } else { key };
         // An item holding a mapping (`- name: web`) is written at its dash.
         if let Some(path) = array_item_path {
             entries.push((path, index + 1, dash_column, dash_column + 1));
@@ -353,32 +359,13 @@ fn continues_as_text(value: &str) -> bool {
 /// past `owner_indent`; the column counts on past this line, as a block
 /// scalar's does. `None` when it ends on its line.
 fn multi_line_scalar_end(source: &str, line_number: usize, column: usize, value: &str, owner_indent: usize) -> Option<usize> {
-    let line_start = crate::editor::paths::line_start(source, line_number - 1);
+    let line_start = usize::from(crate::editor::paths::line_start(source, line_number - 1));
     let full_line = source[line_start..].split('\n').next()?;
     let start = line_start + full_line.char_indices().nth(column - 1)?.0;
     let line_end = line_start + full_line.len();
     let text = &source[start..];
     let end = match value.chars().next()? {
-        quote @ ('"' | '\'') => {
-            let mut escaped = false;
-            let mut chars = text.char_indices().skip(1).peekable();
-            let mut close = None;
-            while let Some((at, character)) = chars.next() {
-                if escaped {
-                    escaped = false;
-                } else if quote == '"' && character == '\\' {
-                    escaped = true;
-                } else if character == quote {
-                    if quote == '\'' && chars.peek().is_some_and(|(_, next)| *next == '\'') {
-                        chars.next();
-                        continue;
-                    }
-                    close = Some(start + at + 1);
-                    break;
-                }
-            }
-            close?
-        }
+        '"' | '\'' => start + super::lexical::quoted_close(text, 0)?,
         // A comment ends a plain scalar.
         _ if continues_as_text(value) && line_comment_start(&full_line[start - line_start..]).is_none() => {
             let mut end = start + value.len();
@@ -399,6 +386,19 @@ fn multi_line_scalar_end(source: &str, line_number: usize, column: usize, value:
         _ => return None,
     };
     (end > line_end).then(|| column + source[start..end].chars().count())
+}
+
+/// A key's name as written (`raw`, before its colon): a quoted key's
+/// text inside its quotes; a plain key as it is, a quote in it too
+/// (`alpha"` names `alpha"`).
+fn key_name(raw: &str) -> &str {
+    let key = raw.trim();
+    match key.chars().next() {
+        Some(quote @ ('"' | '\'')) if key.len() >= 2 && key.ends_with(quote) => {
+            &key[1..key.len() - 1]
+        }
+        _ => key,
+    }
 }
 
 /// The colon after a mapping key in `rest` (a line's content after its
@@ -604,6 +604,68 @@ pub(super) fn yaml_value_span_for_path(source: &str, path: &str) -> Option<(usiz
     Some((line_number, column, column + value.chars().count()))
 }
 
+/// The byte range of a scalar written on the lines below its key, nothing
+/// but node properties after the key's colon (`port:` then `  8080`,
+/// `port: &p` then `  8080`): from its first character through its closing
+/// quote, or its last line indented past the key. `None` when the value
+/// starts on the key's line, or below it is a collection or a block.
+pub(super) fn yaml_scalar_below_key(source: &str, path: &str) -> Option<std::ops::Range<usize>> {
+    let wanted = crate::editor::language::pointer_segments(path);
+    let (line_number, key_column, _) = path_line(source, &wanted)?;
+    let line = crate::editor::paths::text_line(source, line_number - 1)?;
+    let key_start = line.char_indices().nth(key_column - 1)?.0;
+    let mut offset = usize::from(crate::editor::paths::line_start(source, line_number));
+    // An explicit key (`? port`): its value follows the `:` starting a
+    // line of its own below it.
+    if line[..key_start].trim_end().ends_with('?') {
+        for next in source.get(offset..)?.split_inclusive('\n') {
+            let code = code_before_comment(next.trim_end_matches(['\n', '\r']));
+            if let Some(rest) = code.trim_start().strip_prefix(':') {
+                let value = rest.trim();
+                if value.is_empty() || !continues_as_text(value) && !value.starts_with(['"', '\'']) {
+                    return None;
+                }
+                let start = offset + code.len() - rest.trim_start().len();
+                return Some(start..offset + code.trim_end().len());
+            }
+            offset += next.len();
+        }
+        return None;
+    }
+    let colon = key_start + key_colon(&line[key_start..])?;
+    let code = code_before_comment(line);
+    if !without_node_properties(code.get(colon + 1..)?.trim()).is_empty() {
+        return None;
+    }
+    let mut found: Option<std::ops::Range<usize>> = None;
+    for next in source.get(offset..)?.split_inclusive('\n') {
+        let code = code_before_comment(next.trim_end_matches(['\n', '\r']));
+        let indent = code.len() - code.trim_start().len();
+        if !code.trim().is_empty() {
+            if indent <= key_start {
+                break;
+            }
+            let first = offset + indent;
+            match &mut found {
+                Some(range) => range.end = offset + code.trim_end().len(),
+                None => {
+                    let value = code.trim();
+                    if value.starts_with(['"', '\'']) {
+                        let close = super::lexical::quoted_close(&source[first..], 0)?;
+                        return Some(first..first + close);
+                    }
+                    if !continues_as_text(value) {
+                        return None;
+                    }
+                    found = Some(first..offset + code.trim_end().len());
+                }
+            }
+        }
+        offset += next.len();
+    }
+    found
+}
+
 /// The end column of a block scalar (`|`, `>-`, `&a |2`) opened by `value`
 /// on line `line_number`: it runs through its lines below indented past
 /// `owner_indent` (its key's or its dash's column), the column counting on
@@ -615,7 +677,7 @@ fn block_scalar_end(source: &str, line_number: usize, value: &str, owner_indent:
     let full_line = crate::editor::paths::text_line(source, line_number - 1)?;
     let mut end_chars = full_line.chars().count() + 1;
     let mut text_end = full_line.chars().count();
-    let below = crate::editor::paths::line_start(source, line_number);
+    let below = usize::from(crate::editor::paths::line_start(source, line_number));
     for next in source[below..].lines() {
         let indent = next.len() - next.trim_start().len();
         if !next.trim().is_empty() && indent <= owner_indent {

@@ -21,7 +21,7 @@ const PERSONAL: [&str; 4] = ["pngwasi.me", "gracecarry.shop", "paradoxe-", "gaby
 /// Real infrastructure the large sample's machines were once named after
 /// (hosting companies, their data centres, a private site, a hypervisor
 /// product, and a typo of "staging"); the samples use placeholders
-/// (`site-a-node`, `edge`) instead (QA 28).
+/// (`site-a-node`, `edge`) instead.
 const INFRASTRUCTURE: [&str; 16] = [
     "etiolles",
     "hetzner",
@@ -297,7 +297,7 @@ fn no_doc_assumes_the_host_has_a_server_or_a_disk() {
 
 /// The sample schema (the demo's and the examples', and its copy the tests
 /// read) describes a sample service: its descriptions name none of the
-/// commands or the admin UI of the product it came from (QA 27).
+/// commands or the admin UI of the product it came from.
 #[test]
 fn the_sample_schema_describes_a_neutral_service() {
     const PRODUCT_WORDS: [&str; 9] = [

@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use serde_json::{Map, Value};
 
 use crate::editor::language::{ParseError, Span};
+use crate::string_value;
 
 /// A document read: its value and the spans of its keys and values.
 pub(super) struct Read {
@@ -66,8 +67,13 @@ fn error(message: impl Into<String>, line: usize, column: usize) -> ParseError {
     }
 }
 
-fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
+/// The one-based character column of byte `at` of `line`.
+fn columns(line: &str, at: usize) -> usize {
+    let mut at = at.min(line.len());
+    while !line.is_char_boundary(at) {
+        at -= 1;
+    }
+    line[..at].chars().count() + 1
 }
 
 pub(super) fn read(source: &str) -> Result<Read, ParseError> {
@@ -156,9 +162,13 @@ impl Reader<'_> {
                     .ok_or_else(|| error("expected `key := value`", number, indent + 1))?;
                 let after = rest[key_end..].trim_start();
                 let Some(after) = after.strip_prefix(":=") else {
-                    return Err(error("expected `:=`", number, indent + key_end + 1));
+                    return Err(error(
+                        "expected `:=`",
+                        number,
+                        indent + rest[..key_end].chars().count() + 1,
+                    ));
                 };
-                let child = format!("{pointer}/{}", escape(&key));
+                let child = format!("{pointer}/{}", crate::editor::language::pointer_key(&key));
                 let span = self.span(self.at, indent, indent + key_end);
                 self.keys.insert(child.clone(), span);
                 if map.contains_key(&key) {
@@ -196,7 +206,7 @@ impl Reader<'_> {
                     ..problem
                 })?;
                 if inline.at < code.len() {
-                    return Err(error("unexpected text", number, inline.at + 1));
+                    return Err(error("unexpected text", number, columns(code, inline.at)));
                 }
                 for (pointer, from, to) in inline.found {
                     let span = self.span(line, from, to);
@@ -272,7 +282,7 @@ impl Inline<'_> {
         ParseError {
             message: message.to_string(),
             line: None,
-            column: Some(self.at + 1),
+            column: Some(columns(self.text, self.at)),
         }
     }
 
@@ -312,7 +322,10 @@ impl Inline<'_> {
                         return Err(self.fail("expected `:=`"));
                     }
                     self.at += 2;
-                    let child = self.value(&format!("{pointer}/{}", escape(&key)))?;
+                    let child = self.value(&format!(
+                        "{pointer}/{}",
+                        crate::editor::language::pointer_key(&key)
+                    ))?;
                     map.insert(key, child);
                     self.skip_space();
                     match self.text[self.at..].chars().next() {
@@ -328,7 +341,7 @@ impl Inline<'_> {
             let (text, end) =
                 quoted(self.text, self.at).map_err(|_| self.fail("unclosed string"))?;
             self.at = end;
-            Value::String(text)
+            string_value(text)
         } else {
             let end = rest.find(['|', ')', '>']).unwrap_or(rest.len());
             let word = rest[..end].trim_end();
@@ -362,8 +375,8 @@ pub(super) fn scalar(word: &str) -> Value {
                     .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-'));
             match word.parse::<f64>() {
                 Ok(number) if float => serde_json::Number::from_f64(number)
-                    .map_or_else(|| Value::String(word.to_string()), Value::Number),
-                _ => Value::String(word.to_string()),
+                    .map_or_else(|| string_value(word), Value::Number),
+                _ => string_value(word),
             }
         }
     }

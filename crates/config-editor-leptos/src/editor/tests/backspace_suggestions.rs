@@ -1,8 +1,8 @@
 //! Backspace asks for the suggestions again only when the list showed
 //! options since it was asked for: taking back what the filter emptied it
-//! with brings them back (`D13.a11y-1`), while a list that showed none has
+//! with brings them back, while a list that showed none has
 //! none to bring back, and working it out again cost each Backspace in a
-//! large HCL or XML text a read of the whole text (QA `L30-P2`).
+//! large HCL or XML text a read of the whole text.
 
 use leptos::prelude::*;
 
@@ -65,9 +65,9 @@ fn with_protocol(text: &str, value: &str) -> (String, usize) {
     (written, caret)
 }
 
-fn schema() -> std::sync::Arc<crate::editor::diagnostics::SchemaBundle> {
+fn schema() -> std::sync::Arc<crate::editor::schema::SchemaBundle> {
     std::sync::Arc::new(
-        crate::editor::diagnostics::build_schema(include_str!(
+        crate::editor::schema::build_schema(include_str!(
             "../../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap(),
@@ -91,7 +91,7 @@ fn input(state: EditorState, at: usize, typed: Option<char>) {
             ("deleteContentBackward", at - 1)
         }
     };
-    let edit = Edit::input(
+    let edit = Edit::input_units(
         before.clone(),
         (at, at),
         text,
@@ -120,7 +120,7 @@ fn backspace_reads_no_list_that_showed_nothing() {
         assert!(!state.suggestions_showing(), "{label}: udpq");
         let ((), read) = counted(Work::CompletionContext, || input(state, at + 1, None));
         assert_eq!(read, 0, "{label}: the caret's place read for a list");
-        assert!(!state.completion().requested.get_untracked(), "{label}");
+        assert!(!state.list_mode().is_open(), "{label}");
     }
     crate::editor::parse_cache::release();
 }

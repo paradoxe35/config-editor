@@ -5,6 +5,8 @@
 //! pause or not. The range was read again at its first positions in each
 //! new host text, so after the second edit it locked the field above.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
@@ -90,7 +92,7 @@ fn input(state: EditorState, range: std::ops::Range<usize>, with: &str, kind: &s
     let after = format!("{}{with}{}", &before[..range.start], &before[range.end..]);
     let (start, end) = (utf16(&before, range.start), utf16(&before, range.end));
     let caret = start + with.encode_utf16().count();
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         before,
         (start, end),
         after,
@@ -355,4 +357,135 @@ fn a_hosts_ranges_are_followed_once_per_host_text() {
     // Two host texts written: at most one following into each, at any size.
     let (few, many) = (followed(50), followed(1_000));
     assert!(few <= 2 && many <= 2, "{few} and {many}");
+}
+
+/// P1: a range on a JSON field written last in its object keeps locking
+/// that field once a view's reorder makes the conversion write it with a
+/// comma after it (its line written anew, not kept): the range is placed
+/// again at the field, not left as one character of the line below.
+#[test]
+fn a_hosts_range_follows_its_field_through_a_reorder_rewriting_its_line() {
+    let host_json = "{\n  \"db\": {\n    \"user\": \"app\",\n    \"password\": \"hunter2\"\n  },\n  \"port\": 1\n}\n";
+    let line = "    \"password\": \"hunter2\"";
+    for view in [Language::YAML, Language::TOML] {
+        let (_owner, state) = TestEditor {
+            edit_as: Some(view),
+            read_only_ranges: vec![TextRange::new(
+                TextPosition::new(4, 1),
+                TextPosition::new(4, line.len() + 1),
+            )],
+            ..TestEditor::new(Language::JSON, host_json)
+        }
+        .mount();
+        let text = shown(state);
+        let (first, second) = if view == Language::YAML {
+            ("  user: app\n", "  password: hunter2\n")
+        } else {
+            ("user = \"app\"\n", "password = \"hunter2\"\n")
+        };
+        let at = text.find(first).expect("the user line");
+        let end = at + first.len() + second.len();
+        assert_eq!(&text[at + first.len()..end], second, "{text}");
+        let reordered = format!("{second}{first}");
+        assert!(
+            input(state, at..end, &reordered, "insertFromPaste"),
+            "the reorder is taken in {view:?}"
+        );
+        pause(state);
+        assert!(
+            host(state).contains("\"password\": \"hunter2\","),
+            "{}",
+            host(state)
+        );
+        // The locks are read again for the next text on screen: the line
+        // the range was left on cut.
+        let text = shown(state);
+        let at = text.find(first).expect("the user line");
+        assert!(input(state, at..at + first.len(), "", "deleteContent"));
+        assert_eq!(
+            locked(state),
+            ["/db/password"],
+            "{view:?} after the reorder"
+        );
+        let value = value_end(state, "password");
+        assert!(!type_at(state, value, "x"), "{view:?}: {}", shown(state));
+    }
+}
+
+/// P1: a host range over text that is no field (in a comment) holds in an
+/// Edit-as view, where nothing on screen locks it: a view emptied (all
+/// selected, the clipboard pasted over it) never takes the range's text
+/// from the host.
+#[test]
+fn a_range_over_a_comment_keeps_its_text_through_an_edit_as_view() {
+    let text = "# Tunnel server configuration\nlisten: 7835\n";
+    let mut failures = Vec::new();
+    for view in [Language::JSON, Language::TOML, Language::XML] {
+        let (_owner, state) = TestEditor {
+            edit_as: Some(view),
+            read_only_ranges: vec![TextRange::new(
+                TextPosition::new(1, 10),
+                TextPosition::new(1, 15),
+            )],
+            ..TestEditor::new(Language::YAML, text)
+        }
+        .mount();
+        let all = shown(state).len();
+        input(state, 0..all, "", "insertFromPaste");
+        pause(state);
+        let host = host(state);
+        if !host.contains("serve") {
+            failures.push(format!("{view}: {host:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// P1: a host range holding a line break keeps its text through an Edit-as
+/// view, also where it covers a field: the line above it deleted, or the
+/// whole view written over, never takes the range's text from the host
+/// (the range over `\npubl`, and one that is only the last line break).
+#[test]
+fn a_range_holding_a_line_break_keeps_its_text_through_an_edit_as_view() {
+    let text = "listen: 7835\npublic_address: tunnel.example.com\n";
+    let ranges = [
+        (
+            "\npubl",
+            TextRange::new(TextPosition::new(1, 13), TextPosition::new(2, 5)),
+        ),
+        (
+            "\n",
+            TextRange::new(TextPosition::new(2, 35), TextPosition::new(3, 1)),
+        ),
+    ];
+    let mut failures = Vec::new();
+    for view in [Language::JSON, Language::TOML, Language::XML, Language::HCL] {
+        for (locked, range) in &ranges {
+            for whole in [false, true] {
+                let (_owner, state) = TestEditor {
+                    edit_as: Some(view),
+                    read_only_ranges: vec![*range],
+                    ..TestEditor::new(Language::YAML, text)
+                }
+                .mount();
+                let shown_text = shown(state);
+                if whole {
+                    // All selected, a line break typed over it.
+                    input(state, 0..shown_text.len(), "\n", "insertLineBreak");
+                } else {
+                    // The line holding `listen` deleted.
+                    let at = shown_text.find("listen").expect("listen");
+                    let start = shown_text[..at].rfind('\n').map_or(0, |at| at + 1);
+                    let end = line_end(state, "listen") + 1;
+                    input(state, start..end, "", "deleteByCut");
+                }
+                pause(state);
+                let host = host(state);
+                if !host.contains(locked) {
+                    failures.push(format!("{view} {locked:?} whole {whole}: {host:?}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

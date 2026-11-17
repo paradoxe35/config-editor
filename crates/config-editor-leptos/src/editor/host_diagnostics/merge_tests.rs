@@ -1,4 +1,4 @@
-//! QA 23 (M23-U2): a host problem whose range covered one of the editor's
+//! A host problem whose range covered one of the editor's
 //! own hid it whatever it said (a whole-line or multi-line range, one on
 //! the key): the footer, F8 and screen readers never reached the editor's.
 //! Only the same message on the same text shows once.
@@ -139,7 +139,7 @@ fn a_host_problem_hides_the_editors_own_only_when_it_says_the_same() {
                 ));
             }
         }
-        // QA 24 (L24-U5): the same message, less serious from the host (a
+        // The same message, less serious from the host (a
         // warning for the schema's error) showed twice; the more serious,
         // the editor's, shows once.
         for severity in [Severity::Warning, Severity::Hint] {
@@ -169,7 +169,7 @@ fn a_host_problem_hides_the_editors_own_only_when_it_says_the_same() {
     report(failures);
 }
 
-/// QA 25 (U25-5): the host repeating a schema error less seriously showed
+/// The host repeating a schema error less seriously showed
 /// the schema's alone, the host's docs link and name lost; the host saying
 /// one message at several severities on the same text showed (and counted)
 /// it once per severity. Each shows once, the most serious, with the

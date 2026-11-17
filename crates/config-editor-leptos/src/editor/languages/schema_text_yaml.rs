@@ -3,7 +3,8 @@
 use serde_json::Value;
 
 use super::super::super::codec::non_finite;
-use super::super::super::language::{ConfigLanguage, ParseError};
+use super::super::super::language::ParseError;
+use super::super::super::schema::{Holds, holds};
 use super::super::wide_integers::unheld_all;
 use super::super::yaml::YamlBehavior;
 
@@ -15,11 +16,11 @@ pub(super) fn read(text: &str) -> Result<Value, String> {
         return Err(format!("{}, only comments", super::NO_SCHEMA));
     }
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let value = match YamlBehavior.parse(&normalized) {
+    let value = match YamlBehavior.parse_raw(&normalized) {
         Ok(value) => value,
         Err(error) => match as_floats(&normalized, &error) {
             Some(widened) => YamlBehavior
-                .parse(&widened)
+                .parse_raw(&widened)
                 .map_err(|error| worded(&normalized, &error))?,
             None => return Err(worded(&normalized, &error)),
         },
@@ -87,7 +88,9 @@ fn worded(text: &str, error: &ParseError) -> String {
         Some(name) => format!(
             "no anchor &{name} for the alias *{name}: a plain * starts an alias in YAML, so quote a key or value that starts with *"
         ),
-        None => hinted(message, line_of(text, error.line)).unwrap_or_else(|| lower_first(message)),
+        None if message.starts_with("duplicate key ") => message.to_string(),
+        None => hinted(message, line_of(text, error.line))
+            .unwrap_or_else(|| lower_first(&super::super::yaml::words::plain(message))),
     };
     match (error.line, error.column) {
         (Some(line), Some(column)) => super::located(&message, line, column),
@@ -217,13 +220,13 @@ fn plain(value: Value, at: &str, data: bool) -> Result<Value, String> {
         Value::Object(map) => Value::Object(
             map.into_iter()
                 .map(|(key, child)| {
-                    let place = format!("{at}/{}", escape(&key));
+                    let place = format!("{at}/{}", crate::editor::language::pointer_key(&key));
                     if !data {
                         read_as_null(&key, &child, &place)?;
                     }
                     // A value a schema holds as data (`const: {type: ~}`)
                     // may be null anywhere.
-                    let data = data || DATA_KEYWORDS.contains(&key.as_str());
+                    let data = data || holds(&key) == Holds::Data;
                     plain(child, &place, data).map(|child| (key, child))
                 })
                 .collect::<Result<_, _>>()?,
@@ -251,9 +254,6 @@ fn plain(value: Value, at: &str, data: bool) -> Result<Value, String> {
     })
 }
 
-/// The keywords whose values are data, not schemas.
-const DATA_KEYWORDS: [&str; 5] = ["const", "default", "enum", "examples", "example"];
-
 /// Refuses a `$ref` or a `type` (or one of its list) that YAML read as
 /// null, at `place`.
 fn read_as_null(key: &str, child: &Value, place: &str) -> Result<(), String> {
@@ -271,9 +271,4 @@ fn read_as_null(key: &str, child: &Value, place: &str) -> Result<(), String> {
         )),
         _ => Ok(()),
     }
-}
-
-/// A JSON pointer segment for `key`.
-fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
 }

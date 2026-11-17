@@ -6,13 +6,13 @@ use leptos::prelude::*;
 
 use super::super::edit::Edit;
 use super::super::input::flush_input;
-use super::super::keyboard::utf16_to_byte_index;
-use super::super::state::{EditorState, textarea_selection};
+use super::super::state::{EditorState, directed_selection, textarea_selection};
 use super::matcher::MAX_MATCHES;
 use super::replace;
 use super::reveal::reveal_centered;
 use super::{SearchOptions, SearchResults};
 use crate::EditorStrings;
+use crate::editor::text::{TextRange, byte_range, slice};
 use crate::strings::{counted, fill};
 
 /// What Replace All adds when it left `count` matches in protected text
@@ -84,7 +84,7 @@ pub(in crate::editor) fn dismiss(state: EditorState) {
     let search = state.search();
     search.open.set(false);
     search.replacing.set(false);
-    search.current.set(None);
+    search.set_current(None);
     if let Some(widget) = search.widget_ref.get_untracked() {
         widget.set_hidden(true);
     }
@@ -100,15 +100,13 @@ pub(in crate::editor) fn select_nearest(state: EditorState, reveal: bool) {
         return;
     };
     let (start, _) = textarea_selection(&element);
-    let from = state
-        .doc()
-        .text
-        .with_untracked(|text| utf16_to_byte_index(text, start));
     let current = search.results.with_untracked(|results| {
-        let index = results.matches.partition_point(|found| found.start < from);
+        let index = results
+            .matches
+            .partition_point(|found| found.range.start() < start);
         (!results.matches.is_empty()).then(|| index % results.matches.len())
     });
-    search.current.set(current);
+    search.set_current(current);
     if reveal && current.is_some() {
         show_current(state);
     }
@@ -144,11 +142,7 @@ pub(in crate::editor) fn step(state: EditorState, backward: bool) {
         return;
     };
     let (start, end) = textarea_selection(&element);
-    let next = state.doc().text.with_untracked(|text| {
-        let (start, end) = (
-            utf16_to_byte_index(text, start),
-            utf16_to_byte_index(text, end),
-        );
+    let next = {
         search.results.with_untracked(|results| {
             let matches = &results.matches;
             if matches.is_empty() {
@@ -160,22 +154,22 @@ pub(in crate::editor) fn step(state: EditorState, backward: bool) {
                 .current
                 .get_untracked()
                 .and_then(|index| matches.get(index).map(|found| (index, found)))
-                .filter(|(_, found)| found.start == start && found.end == end)
+                .filter(|(_, found)| (found.range.start(), found.range.end()) == (start, end))
                 .map(|(index, _)| index);
             let count = matches.len();
             Some(match (on_current, backward) {
                 (Some(index), false) => (index + 1) % count,
                 (Some(index), true) => (index + count - 1) % count,
-                (None, false) => matches.partition_point(|found| found.start < end) % count,
+                (None, false) => matches.partition_point(|found| found.range.start() < end) % count,
                 (None, true) => matches
-                    .partition_point(|found| found.start < start)
+                    .partition_point(|found| found.range.start() < start)
                     .checked_sub(1)
                     .unwrap_or(count - 1),
             })
         })
-    });
+    };
     if next.is_some() {
-        search.current.set(next);
+        search.set_current(next);
         show_current(state);
     }
 }
@@ -205,18 +199,17 @@ pub(in crate::editor) fn replace_current(state: EditorState) {
     };
     let before = state.doc().text.get_untracked();
     let replacement = search.replacement.get_untracked();
-    let (updated, inserted) =
-        replace::replace_one(&before, &matcher, found.start..found.end, &replacement);
-    let selection = (utf16(&before, found.start), utf16(&before, found.end));
-    let caret = utf16(&updated, inserted.end);
-    state.commit(Edit::new(before, selection, updated, caret));
+    let (change, inserted) = replace::replace_one(&before, &matcher, found.range, &replacement);
+    let selection = (found.range.start(), found.range.end());
+    state.commit(Edit::command(before, change, selection));
     // The next match after the replacement, wrapping around.
     let next = search.results.with_untracked(|results| {
         let matches = &results.matches;
-        (!matches.is_empty())
-            .then(|| matches.partition_point(|found| found.start < inserted.end) % matches.len())
+        (!matches.is_empty()).then(|| {
+            matches.partition_point(|found| found.range.start() < inserted.end()) % matches.len()
+        })
     });
-    search.current.set(next);
+    search.set_current(next);
     if next.is_some() {
         show_current(state);
     }
@@ -234,28 +227,36 @@ pub(in crate::editor) fn replace_all(state: EditorState) {
     };
     let before = state.doc().text.get_untracked();
     let replacement = search.replacement.get_untracked();
-    // Matches in read-only text are left as they are, and counted.
-    let protected = state.protected_bytes(&before);
-    let skip = |found: &std::ops::Range<usize>| {
+    // Matches in read-only text are left as they are, and counted (the
+    // protect area gives them as `usize` byte ranges).
+    let protected: Vec<TextRange> = state
+        .protected_bytes(&before)
+        .into_iter()
+        .map(byte_range)
+        .collect();
+    let skip = |found: TextRange| {
         protected
             .iter()
-            .any(|range| range.start < found.end && found.start < range.end)
+            .any(|range| range.start() < found.end() && found.start() < range.end())
     };
     let Some(replaced) = replace::replace_all_except(&before, &matcher, &replacement, &skip) else {
-        if matcher.find_from(&before, 0).is_some() {
+        if matcher.find_from(&before, 0.into()).is_some() {
             search.notice.set(Some(SearchNotice::NothingReplaced));
         }
         return;
     };
     let selection = state
         .textarea()
-        .map_or((0, 0), |element| textarea_selection(&element));
-    let caret = utf16(&replaced.text, replaced.first.end);
-    if !state.commit(Edit::new(before, selection, replaced.text, caret)) {
+        .map_or(Default::default(), |element| directed_selection(&element));
+    // Each match its own replacement (an Edit-as view's items keep their
+    // links), the caret after the first.
+    let edit = Edit::command(before, replaced.change, selection);
+    let caret = replaced.first.end();
+    if !state.commit(edit.caret_at(caret)) {
         return;
     }
     let count = replaced.count;
-    search.current.set(None);
+    search.set_current(None);
     search.notice.set(Some(SearchNotice::Replaced {
         count,
         skipped: replaced.skipped,
@@ -331,36 +332,24 @@ fn show_current(state: EditorState) {
     let Some(element) = state.textarea() else {
         return;
     };
-    let (start, end) = state
-        .doc()
-        .text
-        .with_untracked(|text| (utf16(text, found.start), utf16(text, found.end)));
-    let _ = element.set_selection_range(start as u32, end as u32);
+    let (start, end) = (found.range.start(), found.range.end());
+    let _ = element.set_selection_range(start, end);
     let inset = search
         .widget_ref
         .get_untracked()
         .map_or(0.0, |widget| f64::from(widget.offset_height()));
-    state.doc().text.with_untracked(|text| {
-        reveal_centered(&element, text, start, state.view().scroll_y, inset)
-    });
+    state
+        .doc()
+        .text
+        .with_untracked(|text| reveal_centered(&element, text, start, inset));
     state.forget_typing_aids();
     state.close_suggestions();
-    state.note_caret(end);
 }
 
 fn selected_text(state: EditorState) -> Option<String> {
     let element = state.textarea()?;
     let (start, end) = textarea_selection(&element);
     state.doc().text.with_untracked(|text| {
-        let (start, end) = (
-            utf16_to_byte_index(text, start),
-            utf16_to_byte_index(text, end),
-        );
-        text.get(start..end).map(str::to_string)
+        slice::slice(text, TextRange::new(start, end.max(start))).map(str::to_string)
     })
-}
-
-/// UTF-16 offset (as the textarea counts) of byte `index`.
-fn utf16(text: &str, index: usize) -> usize {
-    text[..index].encode_utf16().count()
 }

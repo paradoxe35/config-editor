@@ -199,8 +199,8 @@ fn an_expression_in_an_object_entry_is_saved_like_one_at_the_top() {
 /// An expression moved from one block to another in a view (cut and
 /// pasted, or moved by lines) stays an expression there, as one moved
 /// within its block does: a reference, an interpolated string, a call, a
-/// heredoc holding an interpolation (round 29 wrote each as the escaped
-/// literal `"$${…}"`, the save reported done).
+/// heredoc holding an interpolation (each was once written as the
+/// escaped literal `"$${…}"`, the save reported done).
 #[test]
 fn an_expression_moved_to_another_block_stays_an_expression() {
     let mut failures = Vec::new();

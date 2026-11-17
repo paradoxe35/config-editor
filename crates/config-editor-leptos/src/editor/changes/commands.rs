@@ -7,9 +7,9 @@ use super::super::change_summary::ChangeSummary;
 use super::super::edit::Edit;
 use super::super::line_rows::row_state;
 use super::super::readings::Readings;
-use super::super::state::{EditorState, textarea_selection};
+use super::super::state::{EditorState, directed_selection};
 use super::line_diff::{DiffPeek, LineDiff, diff_lines};
-use super::{adjacent_change, change_line, hunk_for_peek, revert_hunk};
+use super::{adjacent_change, change_line, hunk_for_peek, reverting};
 use crate::strings::fill;
 
 /// The changes part of the editor state.
@@ -72,14 +72,14 @@ impl EditorState {
             return;
         };
         let before = self.doc().text.get_untracked();
-        let (text, caret) = revert_hunk(&before, &hunk);
+        let (change, caret) = reverting(&before, &hunk);
         let element = self.textarea();
         let selection = element.as_ref().map_or_else(
             || {
                 let at = self.doc().caret.get_untracked();
                 (at, at)
             },
-            textarea_selection,
+            directed_selection,
         );
         self.changes().peek.set(None);
         self.close_suggestions();
@@ -93,7 +93,8 @@ impl EditorState {
             element.set_scroll_top(top);
             element.set_scroll_left(left);
         }
-        if self.commit(Edit::new(before, selection, text, caret)) {
+        let edit = Edit::command(before, change, selection).caret_at(caret);
+        if self.commit(edit) {
             let said = self.strings_untracked(|strings| strings.reverted.clone());
             self.a11y().announce(said);
         }

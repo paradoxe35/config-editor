@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 
 use super::super::{LossEffect, SchemaFormat, SchemaInput};
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 
 /// `body` inside an `xs:schema` element (on line 2 on: line 1 is the
 /// schema's start tag).

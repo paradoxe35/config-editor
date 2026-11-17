@@ -6,7 +6,7 @@
 use config_editor_leptos::js_support::{Timer, after};
 use leptos::prelude::{GetValue, LocalStorage, SetValue, StoredValue};
 
-use crate::echoes::SETTLE_MS;
+use config_editor_leptos::js_support::SETTLE_MS;
 
 /// Where an editor or a documents view keeps its pending check.
 pub(crate) type Slot = StoredValue<Timer, LocalStorage>;

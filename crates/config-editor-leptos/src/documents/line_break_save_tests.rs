@@ -2,7 +2,7 @@
 //! does: as LF (the editor's text), so a lone CR that TOML or HCL does not
 //! read as a line break saves unshown exactly as shown, in every language,
 //! with each kind of line break and a mix of them; the text sent is the
-//! host's as given (QA 33, FW32-3).
+//! host's as given.
 
 use leptos::prelude::*;
 

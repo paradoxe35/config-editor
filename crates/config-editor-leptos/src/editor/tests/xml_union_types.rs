@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
-use crate::editor::diagnostics::{Schema, build_schema};
+use crate::editor::schema::{Schema, build_schema};
 
 const SCHEMA: &str = r##"{"type":"object","properties":{"r":{"type":"object","properties":{
     "k":{"type":"string"},
@@ -220,7 +220,7 @@ fn a_host_edited_as_xml_reads_its_types_back() {
 /// any size: walks grow with the values, not faster.
 #[test]
 fn typing_xml_text_by_the_options_walks_each_value_s_schemas_once() {
-    use crate::editor::completion::conform_arrays;
+    use crate::editor::data_reading::conform_arrays;
     use crate::editor::language::Repetition;
     use crate::editor::work_count::{Work, counted};
     let bundle = build_schema(SCHEMA).unwrap();

@@ -4,8 +4,8 @@
 //! them all (thousands of fields holding one fixed mask cost every key a
 //! pass over each field for each place the mask is written).
 
+use super::super::super::text::TextRange;
 use std::collections::HashMap;
-use std::ops::Range;
 
 use super::super::super::language::{ConfigLanguage, Repetition};
 use super::super::super::paths::field_key;
@@ -112,7 +112,7 @@ impl WholeIndex {
                     .filter(|at| *at > 0),
             )
             .chain(std::iter::once(path.len()))
-            .any(|end| has(&path[..end]));
+            .any(|end| has(path.get(..end).unwrap_or_default()));
         if holding {
             return true;
         }
@@ -126,11 +126,11 @@ impl WholeIndex {
     }
 }
 
-/// Whether one of `tokens` (UTF-16 ranges, in order and apart) is on the
-/// UTF-16 `lines` (ends included).
-pub(super) fn on_lines(tokens: &[Range<usize>], lines: &Range<usize>) -> bool {
-    let next = tokens.partition_point(|token| token.end < lines.start);
+/// Whether one of `tokens` (in order and apart) is on the
+/// `lines` (ends included).
+pub(super) fn on_lines(tokens: &[TextRange], lines: &TextRange) -> bool {
+    let next = tokens.partition_point(|token| token.end() < lines.start());
     tokens
         .get(next)
-        .is_some_and(|token| token.start <= lines.end)
+        .is_some_and(|token| token.start() <= lines.end())
 }

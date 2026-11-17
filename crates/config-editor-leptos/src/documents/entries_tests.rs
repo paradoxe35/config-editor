@@ -157,7 +157,7 @@ fn the_plus_only_asks_and_the_document_the_host_adds_is_selected_and_focused() {
     });
 }
 
-/// QA 23: a "+" the host did not answer stayed armed, and a document the
+/// A "+" the host did not answer stayed armed, and a document the
 /// host added on its own much later took the selection and the focus.
 #[test]
 fn a_plus_the_host_does_not_answer_in_time_selects_nothing_added_later() {
@@ -211,7 +211,7 @@ fn without_on_add_nothing_is_asked() {
     assert_eq!(documents.active_id().as_deref(), Some("main"));
 }
 
-/// QA 23: closing the active tab with `Delete` sent the focus into the next
+/// Closing the active tab with `Delete` sent the focus into the next
 /// document's editor, so a second `Delete` edited its text. From the tab
 /// list the focus stays on the tabs (the one now selected); from the
 /// closed editor it goes into the next one; from outside it stays there.
@@ -222,7 +222,7 @@ fn closing_the_active_document_keeps_the_focus_where_it_was() {
     assert_eq!(focus_place(false, false), Focus::Keep);
 }
 
-/// QA 27: a host selecting another document from `on_select` lost it: the
+/// A host selecting another document from `on_select` lost it: the
 /// outer selection's focus went to its own document afterwards.
 #[test]
 fn a_document_the_host_selects_in_answer_to_a_selection_stands() {
@@ -322,4 +322,29 @@ fn a_closed_document_unmounts_its_editor_before_its_signals_go() {
         *seen.lock().expect("not poisoned"),
         [Some("cert: a.pem\n".to_owned())]
     );
+}
+
+/// A document is dirty by the editor's own rule before its editor mounts:
+/// a text and a baseline that differ only by a byte order mark or their
+/// line breaks (CRLF, a lone CR) are the same document, as its editor reads
+/// them, so mounting it never turns it clean.
+#[test]
+fn a_document_not_shown_is_dirty_by_the_editors_rule() {
+    let owner = Owner::new();
+    owner.set();
+    let list = [
+        ("bom", "\u{feff}a: 1\n", "a: 1\n", false),
+        ("crlf", "a: 1\r\nb: 2\r\n", "a: 1\nb: 2\n", false),
+        ("lone cr", "a: 1\rb: 2\r", "a: 1\nb: 2\n", false),
+        ("edited", "a: 2\n", "a: 1\n", true),
+    ];
+    let documents: Vec<Document> = list
+        .iter()
+        .map(|(id, value, baseline, _)| Document::new(*id, "a.yaml", *value).baseline(*baseline))
+        .collect();
+    let (view, _) = view(&documents, false, false);
+    for (id, _, _, dirty) in list {
+        let entry = view.entry(id).expect("listed");
+        assert_eq!(entry.dirty.get_untracked(), dirty, "{id}");
+    }
 }

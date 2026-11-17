@@ -1,4 +1,4 @@
-//! QA `E37-1`/`E37-5`: an HCL object attribute (`tags = { … }`) moved or
+//! An HCL object attribute (`tags = { … }`) moved or
 //! copied in an Edit-as view into a nested block, or another resource,
 //! stays an object attribute (Terraform rejects a `tags` block), in the
 //! views that write it over lines of its own, pasted at its own indent or
@@ -7,7 +7,7 @@
 use super::super::languages::Language;
 use super::super::test_state::TestEditor;
 use super::moved_forms::{line_offset, pause};
-use super::moved_forms_again::{entry_range, replace};
+use super::moved_forms_again::{copy, entry_range, replace};
 use crate::editor::save_matrix::report;
 use leptos::prelude::*;
 
@@ -48,13 +48,10 @@ fn moved(view: Language, how: How, into: Target) -> Result<(), String> {
     let (_owner, state) = editor.mount();
     let text = state.doc().text.get_untracked();
     let (from, to) = entry_range(&text, "tags");
-    let mut lines = text[from..to].to_string();
-    // A JSON view's last entry has no comma: one is typed, as pasted
-    // before another entry.
-    if view == Language::JSON && !lines.trim_end().ends_with(',') {
-        lines = format!("{},\n", lines.trim_end());
-    }
-    if !matches!(how, How::Copied) {
+    let lines = text[from..to].to_string();
+    if matches!(how, How::Copied) {
+        copy(state, (from, to));
+    } else {
         replace(state, (from, to), "");
         // The comma before it left over in a JSON view.
         let text = state.doc().text.get_untracked();
@@ -94,6 +91,13 @@ fn moved(view: Language, how: How, into: Target) -> Result<(), String> {
             replace(state, (at, at + lines.len()), &indented(&lines, &deeper));
         }
         _ => replace(state, (at, at), &indented(&lines, &deeper)),
+    }
+    // A JSON view's last entry has no comma: one is typed after it, as
+    // pasted before another entry.
+    let pasted = indented(&lines, &deeper);
+    if view == Language::JSON && !lines.trim_end().ends_with(',') {
+        let end = at + pasted.trim_end().len();
+        replace(state, (end, end), ",");
     }
     pause(state);
     let saved = state.sync().host_text.get_value();

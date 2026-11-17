@@ -101,7 +101,7 @@ test.describe('secret placeholders', () => {
     expect(await ed.value()).not.toContain('secret 3f2a');
   });
 
-  test('copying keeps the token text; a pasted copy stays plain text', async ({ page, context }) => {
+  test('copying keeps the token text; a pasted copy is no placeholder but stays whole', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     const ed = editor(page);
     const start = await offsetOf(page, KEY);
@@ -115,11 +115,17 @@ test.describe('secret placeholders', () => {
     await page.keyboard.press('Control+V');
     // The copy took the whole token, as it is.
     await expect.poll(ed.value).toContain(`name2: ${KEY}`);
-    // It is not a placeholder: no chip, and the caret can enter it.
+    // It is not a placeholder (no chip), and it saves as its text; but it
+    // is one span, as every copy of a token is (P1: no edit breaks it into
+    // a token the host never gave): the caret steps over it whole, and
+    // Backspace at its end takes it whole.
     await expect(chips(page)).toHaveCount(2);
     await page.keyboard.press('ArrowLeft');
     const value = await ed.value();
-    expect(await selection(page)).toEqual([value.length - 1, value.length - 1]);
+    expect(await selection(page)).toEqual([value.length - KEY.length, value.length - KEY.length]);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Backspace');
+    await expect.poll(ed.value).toBe(value.slice(0, value.length - KEY.length));
   });
 
   test('a placeholder pasted from the clipboard stays whole: over another, into an empty value, over a cut', async ({ page, context }) => {

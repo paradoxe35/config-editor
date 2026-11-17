@@ -4,14 +4,14 @@
 //! replaced in a list of the same items) that replaced as many lines as it
 //! had, each line by one alike (the same text around what changed), is
 //! narrowed line by line, so a range on one of its lines stays on that
-//! line (QA 32: such a list was one stretch, and every range in it grew
+//! line (such a list was one stretch, and every range in it grew
 //! over all of it). Any other run stays one stretch: its lines tell where
 //! their characters went, and a range over it only grows.
 
 use std::ops::Range;
 
 #[path = "line_runs.rs"]
-pub(super) mod line_runs;
+pub(in crate::remap) mod line_runs;
 
 /// One stretch two texts differ in, as UTF-16 offsets: `from` in the first
 /// text became `to` in the second. Stretches come in text order, with

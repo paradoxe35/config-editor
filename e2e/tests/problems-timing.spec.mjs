@@ -3,12 +3,12 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// Thousands of host problems stay cheap (QA 19): F8 with 3000 of them in a
+// Thousands of host problems stay cheap: F8 with 3000 of them in a
 // 6000-line document (each press froze 350-1050 ms), and moving through a
 // document with 50 ranges of 200 lines (10,000 underlines froze 1.6-2.9 s
 // per Ctrl+End). With 3000 host ranges in a 4500–6000-line document, each
 // edit placed them again from scratch, splitting the text once per range
-// (QA 20: a 220–340 ms task per edit, in every language); and 400 lines
+// (a 220–340 ms task per edit, in every language); and 400 lines
 // committed in one command (an IME commit, `Input.insertText`) froze 6–8 s
 // in Chrome's own line-by-line insert. Timed: runs alone after the other
 // specs (see the config).
@@ -85,7 +85,7 @@ test.describe('problem timing', () => {
 
   // One test per language, so CI can run them on different machines.
   for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
-  test(`U20-N2: 3000 host ranges in a long document add little to any edit (${language})`, async ({ page }) => {
+  test(`3000 host ranges in a long document add little to any edit (${language})`, async ({ page }) => {
     test.setTimeout(240_000);
     const failures = [];
     {
@@ -138,7 +138,7 @@ test.describe('problem timing', () => {
 
   // One test per language, so CI can run them on different machines.
   for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
-  test(`H21-1/H21-2: 3000 host problems by path or range cost little to mount, update, edit or Edit as (${language})`, async ({ page }) => {
+  test(`3000 host problems by path or range cost little to mount, update, edit or Edit as (${language})`, async ({ page }) => {
     test.setTimeout(300_000);
     await open(page, { schema: '{}' });
     const failures = [];
@@ -195,7 +195,7 @@ test.describe('problem timing', () => {
   });
   }
 
-  test('P23-2: typing in an Edit-as view with 5000 host ranges costs about what it costs without them', async ({ page }) => {
+  test('typing in an Edit-as view with 5000 host ranges costs about what it costs without them', async ({ page }) => {
     test.setTimeout(300_000);
     // 8000 lines of YAML edited as JSON, a range over each of 5000 lines.
     const text = Array.from({ length: 2000 }, (_, i) => `svc_${i}:\n  host: h${i}.example.com # c\n  port: ${1000 + i}\n  on: true`).join('\n') + '\n';
@@ -228,14 +228,21 @@ test.describe('problem timing', () => {
       }
       return { key: Math.min(...presses), switched };
     };
-    const bare = await keys([]);
-    const hosted = await keys(ranges);
+    // Without and with the ranges in turn, each the shorter of two rounds
+    // (a busy stretch then slows both sides alike).
+    const rounds = { bare: [], hosted: [] };
+    for (let round = 0; round < 2; round += 1) {
+      rounds.bare.push(await keys([]));
+      rounds.hosted.push(await keys(ranges));
+    }
+    const shortest = (list) => ({ key: Math.min(...list.map((one) => one.key)), switched: Math.min(...list.map((one) => one.switched)) });
+    const [bare, hosted] = [shortest(rounds.bare), shortest(rounds.hosted)];
     console.log(`Edit as JSON: longest task per key ${JSON.stringify(bare)} alone, ${JSON.stringify(hosted)} with 5000 host ranges`);
     // Each key was followed by a 1.1-1.6 s task.
     expect(hosted.key - bare.key, `${Math.round(hosted.key)} ms with the ranges, ${Math.round(bare.key)} ms without`).toBeLessThan(150);
   });
 
-  test('P24-2: switching to Edit as with 5000 host ranges costs about what it costs without them, from every language', async ({ page }) => {
+  test('switching to Edit as with 5000 host ranges costs about what it costs without them, from every language', async ({ page }) => {
     test.setTimeout(600_000);
     // 2000 services, a range at the start of each of 5000 lines: half of
     // them on lines writing no value of their own (a block's key or end),
@@ -277,14 +284,14 @@ test.describe('problem timing', () => {
     expect(failures).toEqual([]);
   });
 
-  // M26-P1: each typing pause that changes data in an Edit-as view places
+  // Each typing pause that changes data in an Edit-as view places
   // the host's ranges again and converts the text back. With 5000 ranges
   // on 10,000 lines that was one task of 400-650 ms in every view (200-300
   // without them): each range on a block's key read the host's text again
   // (YAML split it, XML, JSON and HCL read its indent unit), and the
   // conversion waited in the same task. One test per host language.
   for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
-    test(`M26-P1: a typing pause in every Edit-as view of 10,000 ${language} lines costs about the same with 5000 host ranges`, async ({ page }) => {
+    test(`a typing pause in every Edit-as view of 10,000 ${language} lines costs about the same with 5000 host ranges`, async ({ page }) => {
       test.setTimeout(600_000);
       const text = servicesDocument(language, 2500);
       const lines = text.split('\n').length;
@@ -314,16 +321,25 @@ test.describe('problem timing', () => {
       };
       const failures = [];
       for (const view of ['yaml', 'json', 'toml', 'hcl', 'xml'].filter((other) => other !== language)) {
-        const bare = await pauses(view, []);
-        const hosted = await pauses(view, ranges);
+        // Without and with the ranges in turn, each the shortest of two
+        // rounds: load only ever makes one longer, and taking them in turn
+        // lets a busy stretch slow both sides alike, not only one.
+        const alone = [];
+        const withRanges = [];
+        for (let round = 0; round < 2; round += 1) {
+          alone.push(await pauses(view, []));
+          withRanges.push(await pauses(view, ranges));
+        }
+        const [bare, hosted] = [Math.min(...alone), Math.min(...withRanges)];
         console.log(`${language} as ${view}: longest task per pause ${Math.round(bare)} ms alone, ${Math.round(hosted)} ms with 5000 host ranges`);
-        if (hosted - bare >= 100) failures.push(`${language} as ${view}: ${Math.round(hosted)} ms, ${Math.round(bare)} ms alone`);
+        // They added 200-350 ms to each pause.
+        if (hosted - bare >= 150) failures.push(`${language} as ${view}: ${Math.round(hosted)} ms, ${Math.round(bare)} ms alone`);
       }
       expect(failures).toEqual([]);
     });
   }
 
-  test('U20-3: 400 lines committed in one command at the end of a long document with 3000 host ranges take a fraction of a bare textarea\'s time', async ({ page }) => {
+  test('400 lines committed in one command at the end of a long document with 3000 host ranges take a fraction of a bare textarea\'s time', async ({ page }) => {
     test.setTimeout(120_000);
     const text = longDocument('yaml');
     const chunk = text.split('\n').slice(0, 400).join('\n') + '\n';

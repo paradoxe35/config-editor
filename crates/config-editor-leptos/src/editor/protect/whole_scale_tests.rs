@@ -3,9 +3,11 @@
 //! of every placeholder's reach looks up no more fields for more of them,
 //! and one beside a
 //! placeholder judges each field once, never each place the mask is
-//! written against each field holding it (QA 32: XML with 1000 such
+//! written against each field holding it (XML with 1000 such
 //! fields took 1.2 s a key, YAML with 4000 1.8 s), in every language,
 //! while the text parses and while it has a syntax error.
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use leptos::prelude::*;
 
@@ -39,7 +41,7 @@ fn insert(state: EditorState, byte: usize, typed: char) {
     let at = before[..byte].encode_utf16().count();
     let mut text = before.clone();
     text.insert(byte, typed);
-    let _ = state.commit(Edit::input(
+    let _ = state.commit(Edit::input_units(
         before,
         (at, at),
         text,

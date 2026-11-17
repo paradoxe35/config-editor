@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// The host shield (QA 31, L31-1, L31-2, FW31-2): a page's rules for bare
+// The host shield: a page's rules for bare
 // elements (`input { width: 100% }`, `span { margin: 2px }`), a framework's
 // higher-weight `:not()` rules (Pico) and its equal-weight attribute rules
 // loaded after the editor (Tailwind forms) leave every control and text
@@ -34,7 +34,7 @@ const HOSTILE = {
     :is(button,[type=submit],[type=button],[role=button]) { padding: 12px 24px; border: 2px solid #09f; border-radius: 8px;
       background-color: #09f; color: #fff; font-size: 18px; line-height: 1.5; }
     :is(button,[type=submit],[type=button],[role=button]):is(:hover,:active,:focus) { background-color: #07c; box-shadow: 0 0 0 4px #09f; }`,
-  // QA 32, UX32-3: every element the editor draws, not only its controls
+  // Every element the editor draws, not only its controls
   // and inline text (the frame, the gutter, the highlighted text, the
   // footer and the tabs are `div`s, `section`s and `pre`s).
   // The roots' own boxes (and the element the editor is in) are the
@@ -47,16 +47,16 @@ const HOSTILE = {
     div:where(:not(#host, .config-editor, .config-editor-documents))::before,
     div:where(:not(#host, .config-editor, .config-editor-documents))::after, span::after { content: "x"; margin: 2px; }
     ::placeholder { color: #f00; letter-spacing: 3px; }`,
-  // QA 32, UX32-2: the built-in toolbar's own elements too.
+  // The built-in toolbar's own elements too.
   'toolbar elements': `
     span { margin: 3px; padding: 3px; letter-spacing: 2px; background: #ff0; color: #f00; font-size: 18px; }
     span, div { display: block; }`,
-  // QA 32, CSS32-1 and CSS32-2: universal and attribute rules reach the
+  // Universal and attribute rules reach the
   // textarea and the drawn text alike, or neither (here: neither).
   'universal rules': `
     * { letter-spacing: 1px; word-spacing: 4px; line-height: 2; font-family: Georgia, serif; font-size: 15px;
       text-transform: uppercase; font-weight: 700; tab-size: 8; font-variant-ligatures: none; margin: 0; padding: 0; }`,
-  // QA 34, FW34-1: rules scoped by an id around the editor (`#app div`,
+  // Rules scoped by an id around the editor (`#app div`,
   // one id's weight) reach nothing inside it either.
   'id-scoped rules': `
     #host div:where(:not(.config-editor, .config-editor-documents)), #host span, #host textarea, #host button {
@@ -117,7 +117,7 @@ function alignment(page) {
 }
 
 /**
- * Where a click on drawn characters puts the caret (QA 32, CSS32-1): on
+ * Where a click on drawn characters puts the caret: on
  * the last character of each word, the textarea's offset, and the offset
  * of that character in the text.
  */
@@ -278,7 +278,7 @@ test.describe('the editor under hostile host stylesheets', () => {
   }
 });
 
-// --- Inherited text properties (QA 32, UX32-1). -------------------------------
+// --- Inherited text properties. -------------------------------
 
 // Each inherited property that changes where glyphs go or what they look
 // like, at a value other than its initial one, as a page sets it on `body`
@@ -388,7 +388,7 @@ test.describe('the editor under inherited text properties', () => {
   }
 });
 
-// --- The roots' own box (QA 33, CSS33-1). -------------------------------------
+// --- The roots' own box. -------------------------------------
 
 // A page's rules for bare elements (`div { padding; margin }`, here `div
 // div` and `div > div`, which leave out the page's own element the editor
@@ -457,7 +457,7 @@ test.describe('the roots under a page\'s box rules', () => {
   }
 });
 
-// --- Text properties set by rules for bare elements (QA 35, FW34-1). ----------
+// --- Text properties set by rules for bare elements. ----------
 
 // `#host div { letter-spacing; word-spacing }` and `#host * { text-transform }`
 // reach the root's own element; the drawn text and the textarea both read

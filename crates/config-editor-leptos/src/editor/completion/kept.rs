@@ -16,49 +16,34 @@ pub fn language_keeps(
     root: &Value,
 ) -> bool {
     let document = serde_json::json!({ "r": { "k": value } });
-    let Ok(text) = language.serialize(&document, None) else {
+    let Ok(text) = language.write_document(&document, None) else {
         // Refused: the value, unless the language writes nothing.
         let empty = serde_json::json!({ "r": {} });
-        return language.serialize(&empty, None).is_err();
+        return language.write_document(&empty, None).is_err();
     };
-    let text_scalars = language.scalars() == Scalars::Text;
-    let read = if text_scalars {
-        language.parse_text(&text)
-    } else {
-        language.parse(&text)
-    };
-    let Ok(mut read) = read else {
+    let Ok(mut read) = language.parse(&text) else {
         return false;
     };
     let Some(read) = read.pointer_mut("/r/k").map(Value::take) else {
         return false;
     };
-    let mut read = read;
-    // Read as the schema types it there.
-    if text_scalars {
-        super::text_typing::type_texts(&mut read, property, root, language);
-    }
-    if language.repetition() != Repetition::None {
-        conform(
-            &mut read,
-            &[property],
-            root,
-            language.repetition(),
-            0,
-            text_scalars,
-        );
-    }
-    read == *value
+    super::super::data_reading::value_under(language, read, &Entry::schema(property), root)
+        == *value
 }
 
 /// The `default` of `property` ([`schema_default`]) when `language` keeps
-/// it ([`language_keeps`]); a suggestion writes it, else nothing.
+/// it ([`language_keeps`]) and the schemas applying to the value do not
+/// refuse it (a `default` beside an `allOf` asking another type); a
+/// suggestion writes it, else nothing.
 pub fn kept_default<'a>(
     language: &dyn ConfigLanguage,
     property: &'a Value,
     root: &'a Value,
 ) -> Option<&'a Value> {
-    schema_default(property, root).filter(|value| language_keeps(language, value, property, root))
+    schema_default(property, root).filter(|value| {
+        decides(property, value, root) != Some(false)
+            && language_keeps(language, value, property, root)
+    })
 }
 
 /// The `const` of `property` ([`schema_const`]) when `language` keeps it.
@@ -67,7 +52,10 @@ pub fn kept_const<'a>(
     property: &'a Value,
     root: &'a Value,
 ) -> Option<&'a Value> {
-    schema_const(property, root).filter(|value| language_keeps(language, value, property, root))
+    schema_const(property, root).filter(|value| {
+        decides(property, value, root) != Some(false)
+            && language_keeps(language, value, property, root)
+    })
 }
 
 /// What a required child past the one the caret goes to gets: its
@@ -76,9 +64,10 @@ pub fn kept_const<'a>(
 pub(super) fn filled_past_caret(
     language: &dyn ConfigLanguage,
     schema: &Value,
+    at: &Entry<'_>,
     root: &Value,
 ) -> Option<Value> {
-    fill_value(language, schema, root).filter(|value| match value {
+    super::fill::fill_value_at(language, schema, at, root).filter(|value| match value {
         Value::Null => false,
         Value::String(text) => !text.is_empty(),
         Value::Object(members) => !members.is_empty(),

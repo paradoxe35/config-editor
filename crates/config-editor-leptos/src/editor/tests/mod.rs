@@ -25,6 +25,8 @@ mod bom_edits;
     feature = "xml"
 ))]
 mod broken_document_suggestions;
+#[cfg(feature = "yaml")]
+mod caret_through_host_values;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -63,6 +65,7 @@ mod item_trail_switches;
     feature = "xml"
 ))]
 mod key_trail_switches;
+mod schema_checks;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -116,7 +119,39 @@ mod line_breaks;
     feature = "hcl",
     feature = "xml"
 ))]
+mod copied_items;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod inline_forms_moved;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod inline_items_kept;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod large_edit_work;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod link_costs;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -133,6 +168,15 @@ mod moved_form_checks;
     feature = "xml"
 ))]
 mod moved_forms;
+// Random editing sessions checked against the save promise.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod fuzz_save;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -151,6 +195,22 @@ mod moved_into_items;
     feature = "xml"
 ))]
 mod moved_maps_nested;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod moved_through_text;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod renamed_moves_memory;
 // Observes what every setting switches, so it needs every optional feature.
 #[cfg(all(feature = "yaml", feature = "toml", feature = "schema-validation"))]
 mod hover_look_back;
@@ -162,6 +222,8 @@ mod hover_look_back;
     feature = "protect"
 ))]
 mod live_settings;
+#[cfg(all(feature = "yaml", feature = "schema-validation"))]
+mod markers_through_edits;
 #[cfg(feature = "yaml")]
 mod nesting_limits;
 #[cfg(all(feature = "yaml", feature = "folding"))]
@@ -170,6 +232,17 @@ mod nothing_to_fold;
 mod own_problems;
 #[cfg(all(feature = "yaml", feature = "protect"))]
 mod problem_cap;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "protect",
+    feature = "search",
+    feature = "schema-validation"
+))]
+mod protect_fuzz;
 #[cfg(feature = "yaml")]
 mod reveal_range;
 // Counts every kind of edit in every language and view, so it needs every
@@ -233,16 +306,54 @@ mod secret_inside_messages;
     feature = "xml"
 ))]
 mod kept_defaults;
-#[cfg(feature = "xml")]
-mod one_reading;
+// Random edit sequences reach every optional feature but diffs and
+// schema validation.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "folding",
+    feature = "search",
+    feature = "protect"
+))]
+mod fuzz_edit;
+// Hostile texts, diffs, live props and line endings reach every optional
+// feature.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "folding",
+    feature = "search",
+    feature = "protect",
+    feature = "diff",
+    feature = "schema-validation"
+))]
+mod fuzz_hostile;
 mod save;
-#[cfg(feature = "yaml")]
-mod schema_checks;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_options;
 #[cfg(all(feature = "yaml", feature = "schema-validation"))]
 mod schema_walk;
 // Counts the suggestions' work in every language.
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod deep_option_completion_work;
+#[cfg(all(feature = "yaml", feature = "json"))]
+mod drag_under_switch;
+#[cfg(all(feature = "yaml", feature = "json", feature = "toml"))]
+mod duplicate_parent_suggestions;
+#[cfg(all(feature = "json", feature = "xml", feature = "schema-validation"))]
+mod edit_as_host_problems;
 #[cfg(all(
     feature = "folding",
     feature = "yaml",
@@ -287,7 +398,21 @@ mod option_document_reads;
 ))]
 mod option_nested_keys_work;
 #[cfg(all(feature = "json", feature = "schema-validation"))]
+mod schema_error_bound;
+#[cfg(all(feature = "json", feature = "schema-validation"))]
+mod schema_error_collection;
+#[cfg(all(feature = "json", feature = "schema-validation"))]
 mod schema_error_cost;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "protect",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod schema_fuzz;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -306,6 +431,26 @@ mod suggestion_scale;
 ))]
 mod unevaluated_beside_errors;
 mod utf16_offsets;
+#[cfg(all(feature = "yaml", feature = "hcl"))]
+mod walk_after_keys;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_applied_readings;
+#[cfg(all(
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_edited_numbers;
 #[cfg(all(
     feature = "schema-validation",
     feature = "yaml",

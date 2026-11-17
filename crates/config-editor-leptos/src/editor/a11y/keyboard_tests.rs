@@ -167,7 +167,7 @@ fn every_documented_single_chord_is_named_while_its_setting_is_on() {
             }
         }
     }
-    // The ones QA 31 found missing (A31-2), among them.
+    // Among them the ones once found missing.
     for spelled in [
         "Control+Shift+[",
         "Control+/",
@@ -180,7 +180,7 @@ fn every_documented_single_chord_is_named_while_its_setting_is_on() {
     }
 }
 
-/// QA 32, A32-1: a read-only editor's Tab always leaves, so `Ctrl+M` has
+/// A read-only editor's Tab always leaves, so `Ctrl+M` has
 /// nothing to switch: it is not named there (nor taken, see `focus`).
 #[test]
 fn ctrl_m_is_named_only_while_the_text_can_be_edited() {

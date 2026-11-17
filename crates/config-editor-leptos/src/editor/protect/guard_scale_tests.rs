@@ -3,6 +3,8 @@
 //! and the paths of the lines it touches as many times with 200 locks as
 //! with 2, never once per lock.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::paths::FieldPath;
 use super::super::work_count::{Work, counted};
@@ -195,7 +197,7 @@ fn enter_in_broken_text(language: Language, blocks: usize, present: bool) -> (us
 /// Each Enter in a long text that does not parse, with read-only paths
 /// (one it has, or only ones it does not have), is checked in work growing
 /// with the text, in every language: four times the text, about four
-/// times the bytes read to place offsets (QA 26 and 27: XML counted each
+/// times the bytes read to place offsets (XML once counted each
 /// element's text from the top, 0.5 s per Enter at 8,000 lines with one
 /// lock once a tag name was typed into, 5.6 s at 20,000).
 #[test]

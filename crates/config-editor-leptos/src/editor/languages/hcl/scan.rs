@@ -186,45 +186,11 @@ pub(super) fn take_snapshot(
     }
 }
 
-/// A text's hash and length, a cursor, and the scan there.
-type RememberedScan = (u64, usize, usize, std::rc::Rc<Scan>);
-
-thread_local! {
-    /// The last scan: a check's problem spans, and one keystroke's
-    /// suggestions and their read-only check, each read the same text at
-    /// the same place.
-    static LAST_SCAN: std::cell::RefCell<Option<RememberedScan>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Forgets the last scan.
-pub(super) fn forget_scan() {
-    let _ = LAST_SCAN.try_with(|last| last.borrow_mut().take());
-}
-
-#[cfg(test)]
-pub(super) fn scan_kept() -> bool {
-    LAST_SCAN.with(|last| last.borrow().is_some())
-}
-
-/// [`scan_text`] of `source` at `cursor`, remembered for the last text and
-/// cursor.
+/// [`scan_text`] of `source` at `cursor`, shared through the parse cache:
+/// a check's problem spans, and one keystroke's suggestions and their
+/// read-only check, each read the same text at the same place.
 pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let key = (hasher.finish(), source.len(), cursor);
-    let remembered = LAST_SCAN.with(|last| {
-        last.borrow()
-            .as_ref()
-            .filter(|(hash, len, at, _)| (*hash, *len, *at) == key)
-            .map(|(.., scan)| scan.clone())
-    });
-    if let Some(scan) = remembered {
-        return scan;
-    }
-    let scan = std::rc::Rc::new(scan_text(source, cursor));
-    LAST_SCAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, key.2, scan.clone())));
-    scan
+    crate::editor::parse_cache::reading(source, cursor, || scan_text(source, cursor))
 }
 
 /// Walks the whole document, tolerating invalid syntax, and captures the
@@ -301,6 +267,9 @@ struct Walk {
     stack: Vec<usize>,
     open: Option<OpenValue>,
     attributes: usize,
+    /// The last header read ([`Walk::header_at`]): from which name, the
+    /// token it was read at, and its answer.
+    header: Option<(usize, usize, Option<usize>)>,
 }
 
 impl Walk {
@@ -311,7 +280,24 @@ impl Walk {
             stack: vec![0],
             open: None,
             attributes: 0,
+            header: None,
         }
+    }
+
+    /// [`classify_header`] at name `index`. A run of names read before for
+    /// an earlier name gives the same answer for every name inside it (it
+    /// reads on to the same token), so a long line of names is read once,
+    /// not once from each of them.
+    fn header_at(&mut self, tokens: &[Token], index: usize) -> Option<usize> {
+        if let Some((from, stop, found)) = self.header
+            && from < index
+            && index < stop
+        {
+            return found;
+        }
+        let (found, stop) = header_from(tokens, index);
+        self.header = Some((index, stop, found));
+        found
     }
 
     /// A line break at bracket depth zero before `token` ends the value
@@ -488,7 +474,7 @@ impl Walk {
                     });
                     self.index = equals + 1;
                     return;
-                } else if let Some(brace) = classify_header(tokens, index) {
+                } else if let Some(brace) = self.header_at(tokens, index) {
                     let names: Vec<&Token> = tokens[index..brace]
                         .iter()
                         .filter(|name_token| token_name(source, name_token).is_some())
@@ -624,21 +610,27 @@ pub(super) fn analyze_at(source: &str, cursor: usize) -> (std::rc::Rc<Scan>, Sna
 /// `None` when the tokens do not form one. A header is one or more names on a
 /// single line followed by `{` on that same line.
 pub(super) fn classify_header(tokens: &[Token], index: usize) -> Option<usize> {
+    header_from(tokens, index).0
+}
+
+/// [`classify_header`], and the index of the token its answer was read at
+/// (the `{`, the token ending the names, or the end).
+fn header_from(tokens: &[Token], index: usize) -> (Option<usize>, usize) {
     let mut names = 0;
     for (offset, token) in tokens[index..].iter().enumerate() {
         match token.kind {
             Kind::Comment => {}
             Kind::Ident | Kind::Str { .. } => {
                 if names > 0 && token.nl_before {
-                    return None;
+                    return (None, index + offset);
                 }
                 names += 1;
             }
             Kind::Punct('{') => {
-                return (names > 0 && !token.nl_before).then_some(index + offset);
+                return ((names > 0 && !token.nl_before).then_some(index + offset), index + offset);
             }
-            _ => return None,
+            _ => return (None, index + offset),
         }
     }
-    None
+    (None, tokens.len())
 }

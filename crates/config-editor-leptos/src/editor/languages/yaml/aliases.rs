@@ -4,6 +4,7 @@
 
 use super::*;
 use std::collections::HashMap;
+use crate::editor::text::{text_size};
 
 /// An anchor (`&name`) or alias (`*name`) token on a line.
 pub(super) struct Shared {
@@ -44,7 +45,7 @@ pub(super) fn shared_of(source: &str) -> (HashMap<String, String>, Vec<Shared>) 
             let pointer = segments
                 .iter()
                 .map(|segment| match segment {
-                    SchemaPathSegment::Key(key) => format!("/{}", key.replace('~', "~0").replace('/', "~1")),
+                    SchemaPathSegment::Key(key) => format!("/{}", crate::editor::language::pointer_key(key)),
                     SchemaPathSegment::ArrayItem(index) => format!("/{index}"),
                 })
                 .collect::<String>();
@@ -64,34 +65,46 @@ pub(super) fn shared_of(source: &str) -> (HashMap<String, String>, Vec<Shared>) 
 struct Sharing {
     anchors: HashMap<String, String>,
     aliases: Vec<Shared>,
-    value: Option<Value>,
+    value: std::rc::Rc<Result<Value, ParseError>>,
 }
 
 fn sharing(source: &str) -> std::rc::Rc<Sharing> {
     crate::editor::paths::batch_cached(source, || {
         let (anchors, aliases) = shared_of(source);
-        Sharing { anchors, aliases, value: YamlBehavior.parse(source).ok() }
+        Sharing { anchors, aliases, value: crate::editor::parse_cache::parsed(&YamlBehavior, source) }
     })
+}
+
+/// Whether `source` writes an alias (`*`) anywhere: a scan of the whole
+/// text, made once for a batch of lookups (each key's or value's lookup
+/// asks it, see `paths::batch_kept`).
+fn may_alias(source: &str) -> bool {
+    struct MayAlias(bool);
+    crate::editor::paths::batch_kept(source, || {
+        crate::editor::work_count::note_many(crate::editor::work_count::Work::AliasScan, source.len());
+        MayAlias(source.contains('*'))
+    })
+    .0
 }
 
 /// Where the key `pointer` names is written as an alias (`*k : 1`, `k`
 /// anchoring the key's text): the alias, in its map.
 pub(super) fn alias_key_span(source: &str, pointer: &str) -> Option<Span> {
-    if !source.contains('*') {
+    if !may_alias(source) {
         return None;
     }
     let (map, key) = pointer.rsplit_once('/')?;
-    let key = key.replace("~1", "/").replace("~0", "~");
+    let key = crate::editor::language::unescaped_key(key);
     let sharing = sharing(source);
     let Sharing { anchors, aliases, value } = &*sharing;
-    let value = value.as_ref()?;
+    let value = value.as_ref().as_ref().ok()?;
     let alias = aliases.iter().find(|alias| {
         let in_key = source[alias.end..].trim_start_matches(' ').starts_with(':');
         in_key
             && alias.pointer == map
             && anchors.get(&alias.name).and_then(|anchor| value.pointer(anchor)).and_then(Value::as_str) == Some(key.as_str())
     })?;
-    let (line, column) = crate::editor::paths::line_column(source, alias.start);
+    let (line, column) = crate::editor::paths::line_column(source, text_size(alias.start));
     let width = source[alias.start..alias.end].chars().count();
     Some(Span { line, start_column: column, end_column: column + width })
 }
@@ -101,12 +114,12 @@ pub(super) fn alias_key_span(source: &str, pointer: &str) -> Option<Span> {
 /// merge (`<<: *x`), through several in turn; `None` when it reads through
 /// none.
 pub(super) fn written_at(source: &str, pointer: &str) -> Option<String> {
-    if !source.contains('*') {
+    if !may_alias(source) {
         return None;
     }
     let sharing = sharing(source);
     let Sharing { anchors, aliases, value } = &*sharing;
-    let value = value.as_ref()?;
+    let value = value.as_ref().as_ref().ok()?;
     let mut at = pointer.to_string();
     let mut moved = false;
     // Each alias or merge passed on the way, at most once; of several
@@ -168,7 +181,7 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
             return None;
         };
         let entry = |key: &String, value: &Value| {
-            let pointer = format!("{anchor}/{}", key.replace('~', "~0").replace('/', "~1"));
+            let pointer = format!("{anchor}/{}", crate::editor::language::pointer_key(key));
             format!("{}: {}", yaml_key(key), written_value(previous, &pointer, value))
         };
         let lone = lone_merge(&previous[line_start..line_end], &alias.name);
@@ -355,16 +368,7 @@ fn merge_layout(source: &str, line_start: usize) -> (String, usize) {
 
 /// Whether byte `at` of `code` sits inside a quoted string.
 pub(super) fn in_quotes(code: &str, at: usize) -> bool {
-    let mut quote = None;
-    for character in code[..at].chars() {
-        match quote {
-            Some(open) if character == open => quote = None,
-            Some(_) => {}
-            None if matches!(character, '"' | '\'') => quote = Some(character),
-            None => {}
-        }
-    }
-    quote.is_some()
+    super::lexical::read(code, at, super::lexical::Comments::AsCode, |_, _| false).0.quote.is_some()
 }
 
 /// The keys written at column `indent` in the block holding the line at

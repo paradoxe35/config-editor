@@ -5,8 +5,8 @@
 //! the keyword exists in both.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::Schema;
 use crate::editor::paths::TextPosition;
+use crate::editor::schema::Schema;
 use serde_json::{Value, json};
 
 const DRAFT_07: &str = "http://json-schema.org/draft-07/schema#";

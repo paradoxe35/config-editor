@@ -17,18 +17,15 @@ pub(super) fn inline_table_exit(source: &str, cursor: usize) -> Option<Newline> 
     // (`{ a = 1,| b = 2 }`): TOML keeps inline tables on one line, so the
     // new line starts after the whole line's code.
     let mut depth = 0i32;
-    let mut quote: Option<char> = None;
-    for character in before.chars() {
-        match (quote, character) {
-            (Some(open), _) if character == open => quote = None,
-            (Some(_), _) => {}
-            (None, '"' | '\'') => quote = Some(character),
-            (None, '{') => depth += 1,
-            (None, '}') => depth -= 1,
+    let (read, _) = super::lexical::read(before, before.len(), |at| {
+        match before.as_bytes()[at] {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
             _ => {}
         }
-    }
-    if depth > 0 && quote.is_none() && closers.contains('}') {
+        false
+    });
+    if depth > 0 && read.quote.is_none() && read.comment.is_none() && closers.contains('}') {
         let line = &source[line_start..];
         let indent = &line[..line.len() - line.trim_start_matches([' ', '\t']).len()];
         return Some(Newline {
@@ -60,32 +57,9 @@ pub(super) fn toml_lexical_state(source: &str, cursor: usize) -> (Option<char>, 
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let line = &source[line_start..byte];
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    for (index, character) in line.char_indices() {
-        if let Some(active) = quote {
-            if active == '"' && escaped {
-                escaped = false;
-            } else if active == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active {
-                quote = None;
-            }
-        } else if matches!(character, '"' | '\'') {
-            quote = Some(character);
-        } else if character == '#'
-            && (index == 0
-                || line[..index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace))
-        {
-            return (None, true);
-        }
-    }
-    (quote, false)
+    let read = super::lexical::read_line(line, line.len());
+    (read.quote, read.comment.is_some())
 }
-
 
 /// Lines inside multi-line strings' bodies: between a line that leaves a
 /// triple-quoted string open and the line that closes it.
@@ -116,34 +90,32 @@ pub(super) fn multi_line_string_bodies(source: &str) -> Vec<std::ops::Range<usiz
     bodies
 }
 
-/// The delimiter of a triple-quoted string `code` opens and leaves open.
-fn opens_unclosed_string(code: &str) -> Option<&'static str> {
-    let mut quote: Option<char> = None;
-    let mut skip_until = 0;
-    for (index, character) in code.char_indices() {
-        if index < skip_until {
-            continue;
-        }
-        match quote {
-            Some('"') if character == '\\' => skip_until = index + 2,
-            Some(open) if character == open => quote = None,
-            Some(_) => {}
-            None if character == '#' => return None,
-            None if matches!(character, '"' | '\'') => {
-                let delimiter = if character == '"' { "\"\"\"" } else { "'''" };
-                if code[index..].starts_with(delimiter) {
-                    match closing_delimiter(&code[index + 3..], delimiter) {
-                        Some(at) => skip_until = index + 3 + at + 3,
-                        None => return Some(delimiter),
-                    }
-                } else {
-                    quote = Some(character);
+/// For each of `lines`, whether it is text of a multi-line string (after
+/// the line opening it, through the line closing it): no header or key is
+/// written there (`[alpha]` moved into a `"""` string is text).
+pub(super) fn in_string_lines(lines: &[&str]) -> Vec<bool> {
+    let mut inside = Vec::with_capacity(lines.len());
+    let mut open: Option<&'static str> = None;
+    for line in lines {
+        match open {
+            Some(delimiter) => {
+                inside.push(true);
+                if let Some(at) = closing_delimiter(line, delimiter) {
+                    open = opens_unclosed_string(&line[at + 3..]);
                 }
             }
-            None => {}
+            None => {
+                inside.push(false);
+                open = opens_unclosed_string(line);
+            }
         }
     }
-    None
+    inside
+}
+
+/// The delimiter of a triple-quoted string `code` opens and leaves open.
+fn opens_unclosed_string(code: &str) -> Option<&'static str> {
+    super::lexical::read_line(code, code.len()).multi_line
 }
 
 /// The UTF-16 selection `start..end` widened over the keys of the table
@@ -157,7 +129,7 @@ pub(super) fn table_of_selected_header(source: &str, start: usize, end: usize) -
         return (start, end);
     };
     let last_end = table_end(source, line_end, &segments, is_array);
-    (start, end.max(crate::editor::paths::units_at(source, last_end)))
+    (start, end.max(crate::editor::paths::api_units(source, last_end)))
 }
 
 /// The end of the last line with code of the table whose header `segments`
@@ -191,18 +163,35 @@ fn table_end(source: &str, line_end: usize, segments: &[String], is_array: bool)
 /// sub-tables it owns; of the table at `pointer` (`/s`, `[s]`) the same
 /// way, the sub-tables right after it (`[s.sub]`) with it.
 pub(super) fn table_lines(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-    let wanted = pointer_segments(pointer);
-    let lines: Vec<&str> = source.split('\n').collect();
-    let paths = table_paths(&lines);
-    let mut start = 0;
-    for (index, line) in lines.iter().enumerate() {
-        let line_end = start + line.len();
-        if let Some((segments, _)) = parse_header(split_toml_comment(line).0)
-            && path_strings(&paths[index + 1]) == wanted
-        {
-            return Some(start..table_end(source, line_end, &segments, true));
+    let headers = table_headers(source);
+    let (start, line_end, segments) = headers.0.get(&pointer_segments(pointer))?;
+    Some(*start..table_end(source, *line_end, segments, true))
+}
+
+/// The first header of each table `source` writes, by its path: where its
+/// line starts and ends, and its segments. Read once while a batch runs
+/// for the text (a save placing every item asks for each).
+struct Headers(std::collections::HashMap<Vec<String>, (usize, usize, Vec<String>)>);
+
+fn table_headers(source: &str) -> std::rc::Rc<Headers> {
+    crate::editor::paths::batch_kept(source, || {
+        crate::editor::work_count::note_many(
+            crate::editor::work_count::Work::ItemLinesBytes,
+            source.len(),
+        );
+        let lines: Vec<&str> = source.split('\n').collect();
+        let paths = table_paths(&lines);
+        let mut headers = std::collections::HashMap::new();
+        let mut start = 0;
+        for (index, line) in lines.iter().enumerate() {
+            let line_end = start + line.len();
+            if let Some((segments, _)) = parse_header(split_toml_comment(line).0) {
+                headers
+                    .entry(path_strings(&paths[index + 1]))
+                    .or_insert((start, line_end, segments));
+            }
+            start = line_end + 1;
         }
-        start = line_end + 1;
-    }
-    None
+        Headers(headers)
+    })
 }

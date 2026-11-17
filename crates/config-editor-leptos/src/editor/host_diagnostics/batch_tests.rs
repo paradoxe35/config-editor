@@ -1,11 +1,9 @@
 //! Thousands of host problems by path or range, placed in the host's own
 //! language and through every Edit-as view: each text is read a fixed
-//! number of times however many problems there are (QA 21: each path read
+//! number of times however many problems there are (each path read
 //! the whole document again, and each range read the host's text from the
 //! top and looked its field up in both texts: 3000 problems took 24 s at
 //! mount and seconds after every edit).
-
-use std::time::Duration;
 
 use leptos::prelude::StoredValue;
 
@@ -14,7 +12,7 @@ use serde_json::{Value, json};
 use super::super::Language;
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::paths::{TextPosition, TextRange};
-use super::super::test_timing::best_of;
+use super::super::test_timing::growth;
 use super::super::work_count::{Work, counted};
 use super::tests::report;
 use super::{HostDiagnostic, HostTargets, RangeText, place};
@@ -192,23 +190,28 @@ fn host_ranges_read_each_text_a_fixed_number_of_times_in_every_language_and_view
     reads_do_not_grow(true);
 }
 
-/// And placing them stays linear: 3000 items written in two languages and
-/// their problems placed in 20 to 200 ms here (a debug build; a shared CI
-/// runner took 600), where reading the text again for each took minutes.
-/// The counts above guard the repeated reads; this ceiling only catches a
-/// pass growing many times slower.
+/// And placing them stays linear: four times the items (750, then 3000)
+/// about four times as long, where reading the text again for each took
+/// minutes. The counts above guard the repeated reads; this timing (most
+/// of it the languages' parsers) catches a pass growing with the square.
 #[test]
 fn thousands_of_host_problems_are_placed_in_linear_time_in_every_language_and_view() {
     let mut failures = Vec::new();
     for host in LANGUAGES {
         for view in views(host) {
             for ranges in [false, true] {
-                let (took, (shown, _)) = best_of(2, || placed(host, view, 3000, ranges));
+                let kind = if ranges { "ranges" } else { "paths" };
+                let (shown, _) = placed(host, view, 3000, ranges);
                 let wanted = if ranges { 6000 } else { 3000 };
-                if took > Duration::from_millis(2000) || shown < wanted {
-                    let kind = if ranges { "ranges" } else { "paths" };
+                if shown < wanted {
+                    failures.push(format!("{}: {shown} {kind} placed", name(host, view)));
+                }
+                let growth = growth(3, (&750, &3000), |items: &usize| {
+                    placed(host, view, *items, ranges)
+                });
+                if growth.ratio() > 10.0 {
                     failures.push(format!(
-                        "{}: {shown} {kind} placed in {took:?}",
+                        "{}: {kind} for 750 items, then 3000: {growth}",
                         name(host, view)
                     ));
                 }
@@ -331,7 +334,7 @@ fn found_on_every_line(host: Language, items: usize) -> [usize; 4] {
 
 /// Ranges starting where no field's key or value is written (a block's
 /// key, a closer, a blank line) are read from the text, all in one pass:
-/// none splits the whole text or reads its indent unit again (QA 26: each
+/// none splits the whole text or reads its indent unit again (each
 /// YAML block key's line split the host's text, each XML one read the
 /// indent unit off its first 400 lines: half a second per pause with 5000
 /// ranges on 8000 lines).

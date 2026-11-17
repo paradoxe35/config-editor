@@ -1,9 +1,9 @@
 //! Every kind of edit costs work that grows with the document no faster
 //! than the document: one standing matrix, counted (see `work_count`), so
-//! a slowdown like QA 36's SP36-1 (a secret line's copies, quadratic),
-//! SP36-2 (the suggestions parsing again), QA 37's SP37-1 (a large edit
-//! in an Edit-as view going through the item trail) or SC37-2 (the
-//! validation's error path, exponential in a recursive `anyOf`) fails here
+//! a slowdown such as a secret line's copies (quadratic), the suggestions
+//! parsing again, a large edit in an Edit-as view going through the item
+//! trail, or the validation's error path (exponential in a recursive
+//! `anyOf`) fails here
 //! without a tester.
 //!
 //! The matrix: native editing in every language and Edit-as for every
@@ -104,7 +104,7 @@ fn cases(kind: EditKind) -> Vec<Case> {
 fn work(
     case: &Case,
     size: usize,
-    schema: &std::sync::Arc<crate::editor::diagnostics::SchemaBundle>,
+    schema: &std::sync::Arc<crate::editor::schema::SchemaBundle>,
 ) -> Vec<usize> {
     let mut text = shapes::text(case.host, case.shape, size);
     if case.shape == Shape::Secrets && case.view.is_none() {
@@ -147,7 +147,7 @@ fn work(
 /// unless `whole`.
 fn grown(
     case: &Case,
-    schema: &std::sync::Arc<crate::editor::diagnostics::SchemaBundle>,
+    schema: &std::sync::Arc<crate::editor::schema::SchemaBundle>,
     whole: bool,
 ) -> Vec<String> {
     let sizes = if case.shape == Shape::Deep {
@@ -233,6 +233,7 @@ macro_rules! linear {
 linear! {
     opening_grows_with_the_document: Open,
     typing_grows_with_the_document: Type,
+    retyping_a_value_grows_with_the_document: Retype,
     enter_grows_with_the_document: Enter,
     deleting_a_line_grows_with_the_document: DeleteLine,
     cut_pause_paste_grows_with_the_document: CutPausePaste,

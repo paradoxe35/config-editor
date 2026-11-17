@@ -320,7 +320,7 @@ test.describe('typing triggers', () => {
     await expect.poll(() => e.keys()).toContain('allow');
     await e.clickKey('allow');
     // `allow` has `default: []`: the empty list is written as one, the
-    // caret inside it, so it reads back as the default (SC30-10).
+    // caret inside it, so it reads back as the default.
     await expect(e.input).toHaveValue('self:\n  allow: []');
     expect(await e.isOpen()).toBe(false);
 
@@ -552,7 +552,7 @@ test.describe('diagnostics', () => {
     await e.paste('insecure_plaintext: false\ninsecure_plaintext: true\n');
     await expect.poll(() => e.diagnosticCount()).toBe(1);
     const marker = page.locator('.config-editor__diagnostic-marker').first();
-    await expect(marker).toHaveAttribute('data-message', /duplicate/);
+    await expect(marker).toHaveAttribute('data-message', /written twice/);
     await expect(marker).toHaveAttribute('aria-label', /line 2/);
     await expect(page.locator('.config-editor__line-number-error')).toHaveText(['2']);
   });

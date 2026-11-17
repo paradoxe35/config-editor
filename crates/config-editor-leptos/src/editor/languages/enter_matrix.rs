@@ -1,10 +1,15 @@
 //! Enter in every language on the same kinds of lines, through what the
 //! editor writes (`keys::enter_newline`): after an opener with a trailing
 //! comment, on a blank line of a multi-line string, and before a bracket's
-//! closer after an entry's comma. Each test lists every failing case.
+//! closer after an entry's comma. Each test lists every failing case. What
+//! Enter writes rests on each language's syntax (openers, comments,
+//! strings over lines), so the cases are written by hand; after a plain
+//! entry every language, custom ones too, is checked on what it writes.
 
 use super::super::keys::enter_newline::newline_at;
 use super::Language;
+use super::harness::{At, every_language, report, write};
+use serde_json::json;
 
 /// Where the caret is in a case.
 const CARET: &str = "‸";
@@ -16,8 +21,12 @@ fn entered(language: Language, marked: &str) -> String {
     let behavior = language.behavior();
     let bodies = behavior.string_body_lines(&source);
     let in_body = |line: usize| bodies.iter().any(|lines| lines.contains(&line));
-    let cursor = source[..at].encode_utf16().count();
-    let newline = newline_at(behavior, &source, cursor, &in_body);
+    let newline = newline_at(
+        behavior,
+        &source,
+        crate::editor::text::text_size(at),
+        &in_body,
+    );
     let start = at - newline.replaces_before;
     let end = (at + newline.replaces).min(source.len());
     format!(
@@ -130,7 +139,7 @@ fn enter_before_a_closer_after_a_comma_opens_the_brackets() {
 
 /// After a start tag written over lines (its attributes on lines of their
 /// own): the new line indents from the line the tag starts on, not from
-/// its last attribute line (QA `E32-6`), with tabs or spaces, its `>` at
+/// its last attribute line, with tabs or spaces, its `>` at
 /// the end of an attribute line or on a line of its own, and between the
 /// tag and its end tag.
 #[test]
@@ -165,7 +174,7 @@ fn enter_after_a_tag_over_lines_indents_from_its_first_line() {
 }
 
 /// After a comment or processing instruction written over lines, the new
-/// line indents from the line it starts on (QA `E33-5`), a `<` inside it
+/// line indents from the line it starts on, a `<` inside it
 /// or not. (After CDATA text over lines the element's text may go on: the
 /// line's indentation stays, as inside it.)
 #[test]
@@ -191,7 +200,7 @@ fn enter_after_a_comment_over_lines_indents_from_its_first_line() {
 
 /// After an element on the line where markup written over lines ends
 /// (`b --> <y/>`): the new line indents from the line that markup starts
-/// on, not its continuation (QA `E34-2`), with spaces or tabs, after a
+/// on, not its continuation, with spaces or tabs, after a
 /// comment, a processing instruction or a tag, two such in a row.
 #[test]
 fn enter_after_an_element_ending_a_comment_line_indents_from_the_comment() {
@@ -227,7 +236,7 @@ fn enter_after_an_element_ending_a_comment_line_indents_from_the_comment() {
 /// At the end of a line that closes a construct written over lines (a
 /// block comment, a heredoc, a multi-line string or list, an element's
 /// text): the new line indents from the line the construct starts on, as
-/// after XML markup over lines (QA `E35-2`). A line inside the construct
+/// after XML markup over lines. A line inside the construct
 /// keeps its own indentation.
 #[test]
 fn enter_after_a_construct_over_lines_indents_from_its_first_line() {
@@ -307,7 +316,7 @@ fn enter_after_a_construct_over_lines_indents_from_its_first_line() {
             "<r>\n  <x>a\n   b\n     c</x>‸\n</r>\n",
             "<r>\n  <x>a\n   b\n     c</x>\n  ‸\n</r>\n",
         ),
-        // A YAML quoted scalar closed on a later line (QA `E36`): the
+        // A YAML quoted scalar closed on a later line: the
         // entry it is the value of sets the indentation.
         (
             Language::YAML,
@@ -389,7 +398,7 @@ fn enter_after_a_construct_reads_the_constructs_a_fixed_number_of_times() {
 /// Enter in the middle of a line, right after a complete value, before
 /// what is a key or an item of its own (`port: 1‸host: x`): the rest goes
 /// on at the line's indentation (its item's content column in an item),
-/// not as a continued value (QA `E35-1b`). After a key with no value, or
+/// not as a continued value. After a key with no value, or
 /// before more of a plain value, it goes deeper as before.
 #[test]
 fn enter_between_a_value_and_a_key_keeps_the_lines_indent() {
@@ -472,4 +481,46 @@ fn enter_between_a_value_and_a_key_keeps_the_lines_indent() {
             "<r>\n  <port>1</port>\n  ‸<host>x</host>\n</r>\n",
         ),
     ]);
+}
+
+/// Enter at the end of an entry's line opens a line at the entry's
+/// indentation, the next entry of its object: on the documents every
+/// language writes itself, custom ones too, at each depth.
+#[test]
+fn enter_after_an_entry_keeps_its_indentation_in_every_language() {
+    let document = json!({"a": {"b": 1, "c": {"d": "x", "e": 2}}, "f": 3});
+    let mut failures = Vec::new();
+    for language in every_language() {
+        for pointer in ["/a/b", "/a/c/d", "/f"] {
+            let at = At::LineOfKey { pointer, offset: 0 };
+            let written = match write(language, &document, &[], at) {
+                Ok(written) => written,
+                Err(error) => {
+                    failures.push(error);
+                    continue;
+                }
+            };
+            let text = &written.text;
+            let line_end = text[written.byte..]
+                .find('\n')
+                .map_or(text.len(), |at| written.byte + at);
+            let indent: String = text[written.byte..line_end]
+                .chars()
+                .take_while(|c| c.is_whitespace())
+                .collect();
+            let marked = format!("{}{CARET}{}", &text[..line_end], &text[line_end..]);
+            let expected = format!(
+                "{}\n{indent}{CARET}{}",
+                &text[..line_end],
+                &text[line_end..]
+            );
+            let found = entered(language, &marked);
+            if found != expected {
+                failures.push(format!(
+                    "{language} {pointer}: {found:?}, expected {expected:?}"
+                ));
+            }
+        }
+    }
+    report(&failures);
 }

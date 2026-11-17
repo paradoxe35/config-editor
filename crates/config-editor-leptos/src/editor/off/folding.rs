@@ -5,8 +5,10 @@
 
 use web_sys::KeyboardEvent;
 
+use super::edit::Change;
 use super::fold_ranges::FoldRange;
 use super::state::EditorState;
+use crate::editor::text::TextSize;
 
 impl EditorState {
     pub(super) fn with_closed_folds<R>(&self, f: impl FnOnce(&[FoldRange]) -> R) -> R {
@@ -21,7 +23,7 @@ impl EditorState {
         Vec::new()
     }
 
-    pub(super) fn folds_through(&self, _new: &str) -> Option<Vec<FoldRange>> {
+    pub(super) fn folds_through(&self, _change: &Change, _new: &str) -> Option<Vec<FoldRange>> {
         None
     }
 
@@ -30,17 +32,17 @@ impl EditorState {
         self.show_text()
     }
 
-    pub(super) fn touches_fold(&self, _start: usize, _end: usize) -> bool {
+    pub(super) fn touches_fold(&self, _start: TextSize, _end: TextSize) -> bool {
         false
     }
 
-    pub(super) fn delete_reshapes_folds(&self, _start: usize, _end: usize) -> bool {
+    pub(super) fn delete_reshapes_folds(&self, _start: TextSize, _end: TextSize) -> bool {
         false
     }
 
-    pub(super) fn unfold_touched(&self, _start: usize, _end: usize) {}
+    pub(super) fn unfold_touched(&self, _start: TextSize, _end: TextSize) {}
 
-    pub(super) fn reveal_offsets(&self, _start: usize, _end: usize) {}
+    pub(super) fn reveal_offsets(&self, _start: TextSize, _end: TextSize) {}
 
     pub(super) fn take_opened_folds(&self) -> Option<Vec<FoldRange>> {
         None

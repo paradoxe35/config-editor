@@ -9,9 +9,12 @@ mod read;
 mod save_tests;
 mod write;
 
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
 
-use super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError, Span};
+use super::language::{
+    ConfigLanguage, LanguageConfig, LanguageInfo, LanguageTraits, ParseError, Span,
+};
 
 pub(super) struct Odd;
 
@@ -39,6 +42,10 @@ impl ConfigLanguage for Odd {
             item_separator: Some('|'),
             item_marker: Some("@"),
             written_separator: Some(" := "),
+            traits: LanguageTraits {
+                indent_is_structure: true,
+                ..LanguageTraits::NONE
+            },
         }
     }
 
@@ -54,15 +61,11 @@ impl ConfigLanguage for Odd {
         write::inline(value)
     }
 
-    fn indent_is_structure(&self) -> bool {
-        true
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        read::read(source).ok()?.keys.remove(&path.to_pointer())
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        read::read(source).ok()?.keys.remove(pointer)
-    }
-
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        read::read(source).ok()?.values.remove(pointer)
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        read::read(source).ok()?.values.remove(&path.to_pointer())
     }
 }

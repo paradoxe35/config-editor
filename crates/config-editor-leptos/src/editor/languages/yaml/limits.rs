@@ -113,14 +113,14 @@ mod tests {
         for _ in 0..2_000 {
             text.push_str("  - [*b, *n]\n");
         }
-        let value = YamlBehavior.parse(&text).expect("2000 aliases");
+        let value = (&YamlBehavior as &dyn ConfigLanguage).parse(&text).expect("2000 aliases");
         assert_eq!(value["items"][1999], json!([[1, 2, 3], "x"]));
     }
 
     #[test]
     fn the_tags_of_a_many_alias_document_read() {
         let text = format!("tagged: !Ref x\n{}", compose(50));
-        assert_eq!(YamlBehavior.tags(&text), vec![("/tagged".to_string(), "!Ref".to_string())]);
+        assert_eq!((&YamlBehavior as &dyn ConfigLanguage).tags(&text), vec![("/tagged".to_string(), "!Ref".to_string())]);
     }
 
     fn laughs(levels: usize) -> String {
@@ -135,11 +135,16 @@ mod tests {
     #[test]
     fn a_billion_laughs_is_refused_plainly_and_promptly() {
         for levels in [9, 12, 20] {
-            let started = std::time::Instant::now();
-            let error = YamlBehavior.parse(&laughs(levels)).expect_err("a bomb is refused");
+            let error = (&YamlBehavior as &dyn ConfigLanguage).parse(&laughs(levels)).expect_err("a bomb is refused");
             assert_eq!(error.message, EXPANSION_REFUSED, "{levels} levels");
-            assert!(started.elapsed().as_secs() < 5, "{levels} levels: {:?}", started.elapsed());
         }
+        // Promptly: refused before it is expanded, so 20 levels cost about
+        // what 12 do (expanded, ten times as much per level).
+        let (small, large) = (laughs(12), laughs(20));
+        let growth = crate::editor::test_timing::growth(5, (&small, &large), |text: &String| {
+            (&YamlBehavior as &dyn ConfigLanguage).parse(text).is_err()
+        });
+        assert!(growth.ratio() < 8.0, "12 levels, then 20: {growth}");
     }
 
     /// A Compose file whose `x-defaults` anchor of `options` lines of
@@ -165,10 +170,10 @@ mod tests {
         let under = limit / copy;
         let (text, _) = merged(40, 200, under);
         assert!(under * copy > limit - copy, "{under} copies of {copy} bytes");
-        let value = YamlBehavior.parse(&text).unwrap_or_else(|error| panic!("{} below the limit: {}", under * copy, error.message));
+        let value = (&YamlBehavior as &dyn ConfigLanguage).parse(&text).unwrap_or_else(|error| panic!("{} below the limit: {}", under * copy, error.message));
         assert_eq!(value["services"][format!("s{}", under - 1)]["opt_39"].as_str().map(str::len), Some(209));
         let (text, _) = merged(40, 200, under + 1);
-        let error = YamlBehavior.parse(&text).expect_err("past the limit");
+        let error = (&YamlBehavior as &dyn ConfigLanguage).parse(&text).expect_err("past the limit");
         assert_eq!(error.message, EXPANSION_REFUSED);
         // At the alias taking it past.
         let alias_line = text.lines().position(|line| line == format!("  s{under}:")).expect("written") + 2;
@@ -179,7 +184,7 @@ mod tests {
     fn a_long_anchor_merged_into_hundreds_of_services_reads() {
         let (text, copy) = merged(100, 20, 634);
         assert!(copy * 634 > 2_000_000, "{copy}");
-        let value = YamlBehavior.parse(&text).unwrap_or_else(|error| panic!("{}", error.message));
+        let value = (&YamlBehavior as &dyn ConfigLanguage).parse(&text).unwrap_or_else(|error| panic!("{}", error.message));
         assert_eq!(value["services"]["s633"]["opt_99"], json!(format!("value-99-{}", "x".repeat(20))));
     }
 
@@ -200,7 +205,7 @@ mod tests {
 
     #[test]
     fn a_short_chain_of_laughs_reads() {
-        let value = YamlBehavior.parse(&laughs(4)).expect("1000 copies is data");
+        let value = (&YamlBehavior as &dyn ConfigLanguage).parse(&laughs(4)).expect("1000 copies is data");
         assert_eq!(value["l3"][9][9][9], json!("lol lol lol lol lol lol lol lol"));
     }
 }

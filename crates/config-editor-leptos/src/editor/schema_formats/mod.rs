@@ -15,8 +15,9 @@ use std::sync::{Arc, LazyLock};
 
 use serde_json::{Map, Value};
 
-use super::diagnostics::{SchemaError, Severity};
+use super::diagnostics::Severity;
 use super::language::ConfigLanguage;
+use super::schema::SchemaError;
 
 mod bundle;
 pub(super) mod json;

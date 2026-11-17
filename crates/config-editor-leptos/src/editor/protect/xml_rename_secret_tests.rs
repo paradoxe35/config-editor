@@ -2,7 +2,7 @@
 //! start tag and the end tag), so the text does not parse between the two
 //! renames. As a key renamed in the other languages, the rename is free,
 //! a key at a time, whichever tag goes first, by typing over the name, by
-//! deleting letters, or by typing beside them (QA 36: after the first
+//! deleting letters, or by typing beside them (after the first
 //! letter, the rest was refused as "nothing can be written beside it").
 //! The token stays as it is.
 

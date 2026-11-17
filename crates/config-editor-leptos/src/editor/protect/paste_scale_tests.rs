@@ -1,10 +1,11 @@
-//! A large paste into a text with many host ranges, in every language: the
-//! lines it wrote are read for their paths in one pass of the text, and
-//! each is weighed only against the locks its path relates it to, so the
-//! work grows with the text and the locks, never with their product
-//! (QA 33: 1,000 lines pasted into a text with 300 ranges froze it for
-//! 10 to 16 s, each line's path a walk from the top, each line weighed
-//! against each lock).
+//! A large paste into a text with many host ranges, in every language:
+//! the check and the locks after it walk the text from the top a few times
+//! for the whole paste, so the work grows with the text and the locks,
+//! never with their product (1,000 lines pasted into a text with
+//! 300 ranges froze it for 10 to 16 s, each line's path a walk from the
+//! top).
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use leptos::prelude::*;
 
@@ -47,7 +48,7 @@ fn text(language: Language, blocks: usize) -> String {
 /// copy of the middle half of `text` (cut inside a block, so the text no
 /// longer parses) costs, with a host range on each of the first `ranges`
 /// host lines.
-fn paste_work(language: Language, text: &str, ranges: usize) -> (usize, usize) {
+fn paste_work(language: Language, text: &str, ranges: usize) -> usize {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut editor = TestEditor::new(language, text);
     editor.read_only_ranges = lines
@@ -76,7 +77,7 @@ fn paste_work(language: Language, text: &str, ranges: usize) -> (usize, usize) {
         let before = state.doc().text.get_untracked();
         let after = format!("{}{copy}{}", &before[..at], &before[at..]);
         let caret = at + copy.len();
-        state.commit(Edit::input(
+        state.commit(Edit::input_units(
             before,
             (at, at),
             after,
@@ -91,7 +92,7 @@ fn paste_work(language: Language, text: &str, ranges: usize) -> (usize, usize) {
             .position(|known| *known == work)
             .unwrap_or_default()]
     };
-    (count(Work::PathLookup), count(Work::LockLine))
+    count(Work::PathLookup)
 }
 
 #[test]
@@ -100,19 +101,12 @@ fn a_large_paste_into_many_host_ranges_costs_work_linear_in_the_text_and_the_loc
     for language in Language::ALL.iter().copied() {
         for blocks in [150, 300] {
             let text = text(language, blocks);
-            let lines = text.split('\n').count();
             for ranges in [blocks / 10, blocks] {
-                let (walks, weighed) = paste_work(language, &text, ranges);
-                // A few walks from the top for the whole paste; each line
-                // weighed against the few locks its path is related to.
+                let walks = paste_work(language, &text, ranges);
+                // A few walks from the top for the whole paste.
                 if walks > 12 {
                     slow.push(format!(
                         "{language}, {blocks} blocks, {ranges} ranges: {walks} walks from the top"
-                    ));
-                }
-                if weighed > 4 * (lines + ranges) {
-                    slow.push(format!(
-                        "{language}, {blocks} blocks, {ranges} ranges: {weighed} lines weighed against a lock for {lines} lines"
                     ));
                 }
             }

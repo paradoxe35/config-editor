@@ -4,10 +4,11 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::commands::copied_lines;
-use super::super::edit::Edit;
-use super::super::keyboard::{replace_selection, utf16_to_byte_index};
+use super::super::edit::{Assoc, Change, Edit};
+use super::super::history::Selection;
 use super::super::state::{EditorState, textarea_selection};
 use super::enter_newline::newline_at;
+use crate::editor::text::{TextRange, TextSize, byte_of, slice, text_size, utf16_of};
 
 pub(super) fn enter(state: EditorState, event: &KeyboardEvent) {
     event.prevent_default();
@@ -48,16 +49,20 @@ pub(in crate::editor) enum Pressed {
     LineAbove,
 }
 
-/// The Enter key `pressed` with `selection` (UTF-16, before the edit, for
+/// The Enter key `pressed` with `selection` (bytes, before the edit, for
 /// undo) in the document; typed at `time` (a key event's), a plain Enter
 /// goes on with the typing around it as one undo step.
 pub(in crate::editor) fn enter_at(
     state: EditorState,
-    selection: (usize, usize),
+    selection: Selection,
     pressed: Pressed,
     time: Option<f64>,
 ) {
     let text = state.doc().text.get_untracked();
+    let selection = {
+        let len = TextSize::of(text.as_str());
+        (selection.0.min(len), selection.1.min(len))
+    };
     let typed = |edit: Edit| match time {
         Some(time) if pressed == Pressed::Enter => edit.typed(LINE_BREAK, time),
         _ => edit,
@@ -87,9 +92,10 @@ pub(in crate::editor) fn enter_at(
     // down whole, its indentation kept, and the caret with it.
     if start == end
         && !modified
-        && let Some(updated) = break_in_indentation(&text, start)
+        && let Some(change) = break_in_indentation(&text, start)
     {
-        state.commit(typed(Edit::new(text, selection, updated, start + 1)));
+        let edit = Edit::command(text, change, selection).keeping_caret(start, Assoc::After);
+        state.commit(typed(edit));
         state.close_suggestions();
         return;
     }
@@ -102,16 +108,15 @@ pub(in crate::editor) fn enter_at(
     let newline = newline_at(behavior, &text, start, &in_body);
     // A line of only indentation is left empty, not with trailing spaces.
     let line_start = line_start_of(&text, start);
-    let blank_before = text
-        .encode_utf16()
-        .skip(line_start)
-        .take(start - line_start)
-        .all(|unit| unit == u16::from(b' ') || unit == u16::from(b'\t'));
+    let blank_before = (line_start <= start)
+        .then(|| slice::slice(&text, TextRange::new(line_start, start)))
+        .flatten()
+        .is_some_and(|before| before.bytes().all(|byte| matches!(byte, b' ' | b'\t')));
     if start == end && start > line_start && blank_before && line_end_of(&text, end) == end {
         start = line_start;
     }
-    // `replaces` and `caret` are bytes; the cursor is in UTF-16 units.
-    let end_byte = utf16_to_byte_index(&text, end);
+    // `replaces` and `caret` are bytes of what the language writes.
+    let end_byte = usize::from(end);
     let replaced_byte = (end_byte + newline.replaces).min(text.len());
     // When the new line writes its own indentation (`|    }` moving the
     // closer to its opener's indent), indentation already after the caret is
@@ -126,67 +131,82 @@ pub(in crate::editor) fn enter_at(
     // The spacing before a comment stays (`l2|  # mc`): in YAML it is what
     // makes the comment one once text is typed before it.
     let following = if ends_indented {
-        let rest = &text[replaced_byte..];
+        let rest = slice::after(&text, text_size(replaced_byte)).unwrap_or_default();
         let spacing = rest.len() - rest.trim_start_matches([' ', '\t']).len();
         let before_comment = spacing > 0 && behavior.comment_start(rest) == Some(spacing);
         if before_comment { 0 } else { spacing }
     } else {
         0
     };
-    let replaced_end = end
-        + text[end_byte..replaced_byte + following]
-            .encode_utf16()
-            .count();
-    let start_byte = utf16_to_byte_index(&text, start);
-    let start = start
-        - text[start_byte.saturating_sub(newline.replaces_before)..start_byte]
-            .encode_utf16()
-            .count();
-    let (updated, _) = replace_selection(&text, start, replaced_end, &newline.text);
-    let caret = start + newline.text[..newline.caret].encode_utf16().count();
-    state.commit(typed(Edit::new(text, selection, updated, caret)));
+    let replaced_end = text_size(replaced_byte + following);
+    let start = text_size(usize::from(start).saturating_sub(newline.replaces_before));
+    let change = Change::replace(
+        &text,
+        TextRange::new(start, replaced_end.max(start)),
+        &newline.text,
+    );
+    // Where the language puts the caret in what it writes.
+    let caret = start + text_size(newline.caret.min(newline.text.len()));
+    state.commit(typed(
+        Edit::command(text, change, selection).caret_at(caret),
+    ));
     state.close_suggestions();
 }
 
-/// `text` with a line break before the line whose leading indentation holds
-/// `cursor` (strictly inside it, with text after it), or `None`.
-pub(super) fn break_in_indentation(text: &str, cursor: usize) -> Option<String> {
-    let line_start = line_start_of(text, cursor);
-    let line_end = line_end_of(text, cursor);
-    let units: Vec<u16> = text
-        .encode_utf16()
-        .skip(line_start)
-        .take(line_end - line_start)
-        .collect();
-    let column = cursor - line_start;
-    let indent = units
-        .iter()
-        .take_while(|unit| **unit == u16::from(b' ') || **unit == u16::from(b'\t'))
-        .count();
-    (column > 0 && column < indent && indent < units.len())
-        .then(|| replace_selection(text, line_start, line_start, "\n").0)
+/// [`enter_at`] with `selection` in UTF-16 units, as the tests write it.
+#[cfg(test)]
+#[allow(dead_code, reason = "used by the tests of some builds only")]
+pub(in crate::editor) fn enter_units(
+    state: EditorState,
+    selection: (usize, usize),
+    pressed: Pressed,
+    time: Option<f64>,
+) {
+    let selection = state
+        .doc()
+        .text
+        .with_untracked(|text| (byte_of(text, selection.0), byte_of(text, selection.1)));
+    enter_at(state, selection, pressed, time);
+}
+
+/// A line break before the line whose leading indentation holds byte `at`
+/// (strictly inside it, with text after it), or `None`.
+pub(super) fn break_in_indentation(text: &str, at: TextSize) -> Option<Change> {
+    let line_start = line_start_of(text, at);
+    let line = slice::after(text, line_start)?.split('\n').next()?;
+    let column = at.checked_sub(line_start)?;
+    let indent = TextSize::of(line) - TextSize::of(line.trim_start_matches([' ', '\t']));
+    (column > TextSize::default() && column < indent && indent < TextSize::of(line))
+        .then(|| Change::replace(text, TextRange::empty(line_start), "\n"))
 }
 
 /// Ctrl+Shift+Enter opens a line above, at this line's indent.
-fn open_line_above(state: EditorState, text: String, selection: (usize, usize)) {
+fn open_line_above(state: EditorState, text: String, selection: Selection) {
     let line_start = line_start_of(&text, selection.0);
     let indent = indent_at(&text, line_start);
-    let (updated, _) = replace_selection(&text, line_start, line_start, &format!("{indent}\n"));
-    let caret = line_start + indent.encode_utf16().count();
-    state.commit(Edit::new(text, selection, updated, caret));
+    let change = Change::replace(&text, TextRange::empty(line_start), &format!("{indent}\n"));
+    // On the new line, after its indent.
+    let caret = line_start + TextSize::of(indent.as_str());
+    state.commit(Edit::command(text, change, selection).caret_at(caret));
     state.close_suggestions();
 }
 
 /// Where Ctrl+Enter on a folded line opens its line: after the whole block
 /// the fold closes (its hidden lines and a closing line it leaves shown),
 /// as the other line commands take a fold; `None` on a line not folded.
-fn folded_block_end(state: EditorState, text: &str, caret: usize) -> Option<usize> {
+fn folded_block_end(state: EditorState, text: &str, caret: TextSize) -> Option<TextSize> {
     state.view().projection.with_untracked(|projection| {
         projection.hidden_from(line_end_of(text, caret))?;
-        let (_, end) = copied_lines(state.behavior(), text, caret, projection);
+        // The copied lines are counted in UTF-16 units.
+        let (_, end) = copied_lines(state.behavior(), text, utf16_of(text, caret), projection);
+        let end = byte_of(text, end);
         // Before the line break that ends the block's last line.
-        let byte = utf16_to_byte_index(text, end);
-        Some(end - usize::from(text[..byte].ends_with('\n')))
+        let ends_line = slice::before(text, end).is_some_and(|head| head.ends_with('\n'));
+        Some(if ends_line {
+            end - TextSize::of('\n')
+        } else {
+            end
+        })
     })
 }
 
@@ -196,19 +216,29 @@ fn folded_block_end(state: EditorState, text: &str, caret: usize) -> Option<usiz
 fn open_line_after_fold(
     state: EditorState,
     text: String,
-    selection: (usize, usize),
-    block_end: usize,
+    selection: Selection,
+    block_end: TextSize,
 ) {
     let indent = indent_at(&text, line_start_of(&text, selection.1));
-    let (updated, _) = replace_selection(&text, block_end, block_end, &format!("\n{indent}"));
-    let caret = block_end + 1 + indent.encode_utf16().count();
-    state.commit(Edit::new(text, selection, updated, caret));
+    // Written at the start of the line after the block, not at the end of
+    // its last (hidden) line, which would open the fold.
+    let next_line = block_end + TextSize::of('\n');
+    let edit = if next_line <= TextSize::of(text.as_str()) {
+        let change = Change::replace(&text, TextRange::empty(next_line), &format!("{indent}\n"));
+        let caret = next_line + TextSize::of(indent.as_str());
+        Edit::command(text, change, selection).caret_at(caret)
+    } else {
+        let change = Change::replace(&text, TextRange::empty(block_end), &format!("\n{indent}"));
+        Edit::command(text, change, selection)
+    };
+    state.commit(edit);
     state.close_suggestions();
 }
 
-/// The indentation of the line starting at UTF-16 `line_start`.
-fn indent_at(text: &str, line_start: usize) -> String {
-    text[utf16_to_byte_index(text, line_start)..]
+/// The indentation of the line starting at byte `line_start`.
+fn indent_at(text: &str, line_start: TextSize) -> String {
+    slice::after(text, line_start)
+        .unwrap_or_default()
         .chars()
         .take_while(|character| matches!(character, ' ' | '\t'))
         .collect()
@@ -218,14 +248,14 @@ fn indent_at(text: &str, line_start: usize) -> String {
 /// quote in `["box|"]`, the end tag in `<mode>balance|</mode>`), Enter steps
 /// past it, past brackets it wrote right after, and past the comma ending the
 /// item, instead of splitting the value. An empty value (`"|"`) or bracket pair (`{|}`) still opens.
-fn step_past_inserted_closers(state: EditorState, text: &str, mut start: usize) -> usize {
+fn step_past_inserted_closers(state: EditorState, text: &str, mut start: TextSize) -> TextSize {
     let Some(first) = state.closer_at(start) else {
         return start;
     };
     let Some(opener) = first.opener else {
         return start;
     };
-    if text[..utf16_to_byte_index(text, start)].ends_with(opener) {
+    if slice::before(text, start).is_some_and(|head| head.ends_with(opener)) {
         return start;
     }
     start += first.len;
@@ -236,36 +266,31 @@ fn step_past_inserted_closers(state: EditorState, text: &str, mut start: usize) 
     }
     // The comma ending the item comes along, so the next item starts on the
     // new line (`"cert": "a",|` rather than `"cert": "a"|,`).
-    if text[utf16_to_byte_index(text, start)..].starts_with(',') {
-        start += 1;
+    if slice::after(text, start).is_some_and(|rest| rest.starts_with(',')) {
+        start += TextSize::of(',');
     }
     start
 }
 
-/// The UTF-16 offset where the line holding `offset` starts.
-fn line_start_of(text: &str, offset: usize) -> usize {
-    let byte = utf16_to_byte_index(text, offset);
-    text[..text[..byte].rfind('\n').map_or(0, |index| index + 1)]
-        .encode_utf16()
-        .count()
+/// The byte where the line holding byte `offset` starts.
+fn line_start_of(text: &str, offset: TextSize) -> TextSize {
+    let head = slice::before(text, offset).unwrap_or_default();
+    text_size(head.rfind('\n').map_or(0, |index| index + 1))
 }
 
-/// The UTF-16 offset where the line holding `offset` ends (before its
+/// The byte where the line holding byte `offset` ends (before its
 /// newline).
-fn line_end_of(text: &str, offset: usize) -> usize {
-    let byte = utf16_to_byte_index(text, offset);
-    text[..text[byte..]
-        .find('\n')
-        .map_or(text.len(), |index| byte + index)]
-        .encode_utf16()
-        .count()
+fn line_end_of(text: &str, offset: TextSize) -> TextSize {
+    let rest = slice::after(text, offset).unwrap_or_default();
+    offset + TextSize::of(rest.split('\n').next().unwrap_or_default())
 }
 
 #[cfg(test)]
 mod tests {
     use super::break_in_indentation;
+    use crate::editor::text::TextSize;
 
-    /// Round 11: Enter inside a line's indentation keeps the line's column.
+    /// Enter inside a line's indentation keeps the line's column.
     #[test]
     fn enter_inside_indentation_moves_the_line_down_whole() {
         for (text, cursor, expected) in [
@@ -278,7 +303,9 @@ mod tests {
             ("a:\n    \nb: 1", 5, None),
         ] {
             assert_eq!(
-                break_in_indentation(text, cursor).as_deref(),
+                break_in_indentation(text, TextSize::from(cursor))
+                    .and_then(|change| change.apply(text))
+                    .as_deref(),
                 expected,
                 "{text:?} at {cursor}"
             );

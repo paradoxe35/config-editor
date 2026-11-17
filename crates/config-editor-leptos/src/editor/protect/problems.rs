@@ -10,6 +10,7 @@ use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::language::{ConfigLanguage, Repetition, pointer_segments};
 use super::super::parse_cache;
 use super::super::paths::{FieldPath, path_at};
+use super::super::text::{TextRange, text_size};
 use super::copied::copied_placeholders;
 use super::marks::marks_at;
 use super::moved_off::is_own_field;
@@ -18,7 +19,6 @@ use super::texts;
 use super::tokens::{Known, SecretMatcher, held_in_fields, in_comment};
 use crate::EditorStrings;
 use std::collections::HashMap;
-use std::ops::Range;
 
 /// A warning on each placeholder of `text` that is not real: one of the
 /// host's `known` tokens out of its own field anywhere, and a token the host
@@ -29,7 +29,7 @@ use std::ops::Range;
 /// its own field as often as it is written, and which field holds each
 /// other token; only a token the parse cannot place (written in a comment
 /// or a key too, or in several fields) is looked up by path. While the text
-/// does not parse, the tokens at `followed` (UTF-16 ranges of the real
+/// does not parse, the tokens at `followed` (the ranges of the real
 /// placeholders, followed through the edits) stay real, as they do on
 /// screen, until it parses again.
 pub(crate) fn unknown_placeholders(
@@ -37,7 +37,7 @@ pub(crate) fn unknown_placeholders(
     text: &str,
     matcher: &SecretMatcher,
     known: &[Known],
-    followed: &[Range<usize>],
+    followed: &[TextRange],
     schema: Option<&Value>,
     strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
@@ -50,7 +50,9 @@ pub(crate) fn unknown_placeholders(
     let document = parsed.as_ref().as_ref().ok();
     let mut written: HashMap<&str, usize> = HashMap::new();
     for range in &found {
-        *written.entry(&text[range.clone()]).or_default() += 1;
+        *written
+            .entry(text.get(range.clone()).unwrap_or_default())
+            .or_default() += 1;
     }
     let held = document
         .as_ref()
@@ -91,19 +93,19 @@ pub(crate) fn unknown_placeholders(
     // How many more of each known token may be real: as many as the host
     // wrote. A token followed as real while the text does not parse takes
     // one, so a copy of its line past it is flagged as one, however many
-    // copies there are (QA 36: a line copied once was not flagged, its
+    // copies there are (a line copied once was not flagged, its
     // copy taking the field's place beside the followed token).
     let mut real_left: HashMap<&str, usize> = HashMap::new();
     for known in known {
         *real_left.entry(known.token.as_str()).or_default() += known.count;
     }
     // The tokens needing a verdict, with their one-based line, the byte
-    // their line starts at and their UTF-16 offset (the tokens come in
-    // order: their lines are counted in one pass).
+    // their line starts at and the UTF-16 offset the public language API
+    // takes (the tokens come in order: their lines are counted in one pass).
     let mut lines = LineCounter::new(text);
     let mut open = Vec::new();
     for range in &found {
-        let token = &text[range.clone()];
+        let token = text.get(range.clone()).unwrap_or_default();
         if is_known(token) {
             if *checked.entry(token).or_insert_with(|| settled(token)) {
                 continue;
@@ -115,7 +117,7 @@ pub(crate) fn unknown_placeholders(
         if is_known(token)
             && document.is_none()
             && followed
-                .binary_search_by_key(&at, |real| real.start)
+                .binary_search_by_key(&text_size(range.start), |real| real.start())
                 .is_ok()
         {
             if let Some(left) = real_left.get_mut(token) {
@@ -133,12 +135,14 @@ pub(crate) fn unknown_placeholders(
     let comments = behavior.comments(text);
     let commented: Vec<bool> = open
         .iter()
-        .map(|(range, ..)| in_comment(&comments, range.start))
+        .map(|(range, ..)| in_comment(&comments, text_size(range.start)))
         .collect();
     let mut outside: HashMap<&str, usize> = HashMap::new();
     for ((range, ..), commented) in open.iter().zip(&commented) {
         if !commented {
-            *outside.entry(&text[(*range).clone()]).or_default() += 1;
+            *outside
+                .entry(text.get((*range).clone()).unwrap_or_default())
+                .or_default() += 1;
         }
     }
     // What the parse cannot place (a text that does not parse, mid-typing
@@ -153,7 +157,7 @@ pub(crate) fn unknown_placeholders(
             if *commented {
                 return None;
             }
-            let token = &text[(*range).clone()];
+            let token = text.get((*range).clone()).unwrap_or_default();
             let pointers = holders.get(token)?;
             if Some(&pointers.len()) != outside.get(token) {
                 return None;
@@ -174,7 +178,7 @@ pub(crate) fn unknown_placeholders(
     for (((range, line, line_start, at), field), commented) in
         open.into_iter().zip(fields).zip(commented)
     {
-        let token = &text[range.clone()];
+        let token = text.get(range.clone()).unwrap_or_default();
         let owner = left
             .get(token)
             .and_then(|fields| fields.first())
@@ -198,7 +202,7 @@ pub(crate) fn unknown_placeholders(
             };
             let pointer = path.to_pointer();
             let place = Place {
-                before: &text[line_start..range.start],
+                before: text.get(line_start..range.start).unwrap_or_default(),
                 pointer: &pointer,
             };
             match owner {
@@ -233,7 +237,12 @@ pub(crate) fn unknown_placeholders(
                 None => continue,
             }
         };
-        let column = text[line_start..range.start].chars().count() + 1;
+        let column = text
+            .get(line_start..range.start)
+            .unwrap_or_default()
+            .chars()
+            .count()
+            + 1;
         problems.push(Diagnostic {
             line: Some(line),
             column: Some(column),
@@ -294,7 +303,7 @@ fn moved_or_extra(
 /// (`/b/key/1`, `/b/c/1/key`). The first copy is the field's, the others copies of it.
 /// A block holding the field over other lines that became a list (another
 /// block renamed to its name) moved the field: `/config/db/0/password` is
-/// not `/config/db/password` (QA 37).
+/// not `/config/db/password`.
 fn in_own_field(
     behavior: &dyn ConfigLanguage,
     document: Option<&Value>,
@@ -359,7 +368,7 @@ impl<'a> LineCounter<'a> {
     /// the byte its line starts at, and its UTF-16 offset.
     fn advance(&mut self, to: usize) -> (usize, usize, usize) {
         let to = to.max(self.byte);
-        let passed = &self.text[self.byte..to];
+        let passed = self.text.get(self.byte..to).unwrap_or_default();
         self.units += passed.encode_utf16().count();
         if let Some(last) = passed.rfind('\n') {
             self.line += passed.matches('\n').count();

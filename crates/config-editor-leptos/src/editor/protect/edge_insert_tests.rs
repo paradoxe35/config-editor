@@ -7,7 +7,9 @@
 //!
 //! The range used to take in what was inserted at its start: the new line
 //! joined the lock, the next key went in, and every key after it (Backspace
-//! and undo included) was refused, the text left broken (QA 32, HO32-1).
+//! and undo included) was refused, the text left broken.
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use leptos::prelude::*;
 use serde_json::Value;
@@ -15,7 +17,7 @@ use serde_json::Value;
 use super::super::Language;
 use super::super::codec;
 use super::super::edit::Edit;
-use super::super::keys::enter::{Pressed, enter_at};
+use super::super::keys::enter::{Pressed, enter_units};
 use super::super::paths::{TextPosition, TextRange};
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
@@ -112,9 +114,7 @@ fn locked(state: EditorState) -> Vec<String> {
     state.protect().ranges.with_untracked(|ranges| {
         ranges
             .iter()
-            .map(|range| {
-                String::from_utf16_lossy(&text.encode_utf16().collect::<Vec<_>>()[range.clone()])
-            })
+            .map(|range| text[*range].to_string())
             .collect()
     })
 }
@@ -130,7 +130,7 @@ fn insert(state: EditorState, at: usize, inserted: &str, kind: &str) -> bool {
     let mut after = text.clone();
     after.insert_str(byte, inserted);
     let caret = at + inserted.encode_utf16().count();
-    state.commit(Edit::input(
+    state.commit(Edit::input_units(
         text,
         (at, at),
         after,
@@ -163,14 +163,15 @@ fn case(language: Language, style: Style, open: Open, write: Write) -> Vec<Strin
     let start = state
         .protect()
         .ranges
-        .with_untracked(|ranges| ranges[0].start);
+        .with_untracked(|ranges| ranges[0].start());
+    let start = units(text, usize::from(start));
     let accepted = match open {
         Open::Enter => {
-            enter_at(state, (start, start), Pressed::Enter, None);
+            enter_units(state, (start, start), Pressed::Enter, None);
             state.doc().text.get_untracked() != text
         }
         Open::LineAbove => {
-            enter_at(state, (start, start), Pressed::LineAbove, None);
+            enter_units(state, (start, start), Pressed::LineAbove, None);
             state.doc().text.get_untracked() != text
         }
         // After the line's indentation, the break pasted with it.
@@ -302,7 +303,8 @@ fn a_line_break_at_a_ranges_end_stays_outside_it_in_every_language() {
             let end = state
                 .protect()
                 .ranges
-                .with_untracked(|ranges| ranges[0].end);
+                .with_untracked(|ranges| ranges[0].end());
+            let end = units(text, usize::from(end));
             if !insert(state, end, "\n", "insertLineBreak") {
                 failures.push(format!("{name}: the line break was refused"));
                 continue;
@@ -316,7 +318,7 @@ fn a_line_break_at_a_ranges_end_stays_outside_it_in_every_language() {
             let shown = state.doc().text.get_untracked();
             let mut back = shown.clone();
             back.remove(end);
-            let edit = Edit::input(
+            let edit = Edit::input_units(
                 shown,
                 (end + 1, end + 1),
                 back,

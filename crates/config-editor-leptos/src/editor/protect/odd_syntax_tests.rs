@@ -2,7 +2,7 @@
 //! `( … | … )` lists): located, kept and refused from what the trait says,
 //! as in the built-in languages.
 
-use std::ops::Range;
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use super::super::Language;
 use super::super::odd_syntax::ODD;
@@ -38,8 +38,8 @@ fn locks() -> Protected {
     )
 }
 
-fn covered(range: &Range<usize>) -> String {
-    String::from_utf16_lossy(&TEXT.encode_utf16().collect::<Vec<_>>()[range.clone()])
+fn covered(range: &super::super::text::TextRange) -> String {
+    TEXT[*range].to_string()
 }
 
 #[test]
@@ -80,13 +80,17 @@ fn odd_edits_of_a_read_only_field_are_refused_and_others_allowed() {
             true,
         ),
         ("rename the key", "id :=", "idx :=", true),
-        ("comment it out", "id := abc", "; id := abc", true),
+        // Its text kept: taken, and held until it reads again.
+        ("comment it out", "id := abc", "; id := abc", false),
         ("change a value inside the block", "a := 1", "a := 9", true),
+        // Past the block's text (no closer ends it): no locked text
+        // changes, so it goes through; the field is held and the save
+        // waits.
         (
             "add a child to the block",
             "  b := 2\n",
             "  b := 2\n  c := 3\n",
-            true,
+            false,
         ),
         ("change another value", "port := 80", "port := 81", false),
         (

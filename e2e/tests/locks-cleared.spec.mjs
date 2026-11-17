@@ -4,9 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Locks the host clears hold back nothing any more: a key refused at a lock
-// goes through at the same place once the lock is cleared (hard round 3's
-// `D26.host-1`), and an Edit-as edit the typing pause could not convert
-// converts then (hard round 4's `D27.host-1`).
+// goes through at the same place once the lock is cleared, and an Edit-as edit the typing pause could not convert
+// converts then.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');

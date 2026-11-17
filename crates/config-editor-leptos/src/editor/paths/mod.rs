@@ -9,11 +9,21 @@ mod lines;
 mod span_memo;
 mod types;
 mod walk;
+mod written;
 
+use crate::editor::text::text_size;
 pub(crate) use fields::fields;
+#[cfg(any(feature = "toml", feature = "hcl"))]
+pub(crate) use lines::byte_at_column;
+#[cfg(any(feature = "json", feature = "toml", feature = "hcl"))]
+pub(crate) use lines::first_line_span;
+#[cfg(any(feature = "json", feature = "toml", feature = "hcl", feature = "xml"))]
+pub(crate) use lines::span_between;
+#[cfg(any(feature = "yaml", feature = "toml"))]
 pub(crate) use lines::text_line;
 pub(crate) use lines::{
-    Lines, byte_at, line_column, line_of_byte, line_start, lines, offset_of, split_line, units_at,
+    Lines, api_units, byte_at, line_column, line_of_byte, line_start, lines, offset_of, split_line,
+    units_at, utf16_len,
 };
 #[cfg(any(feature = "yaml", feature = "toml", feature = "hcl", feature = "xml"))]
 pub(crate) use span_memo::batch_cached_as;
@@ -24,61 +34,28 @@ pub(crate) use span_memo::{key_span as memo_key_span, value_span as memo_value_s
 pub use types::{FieldPath, TextPosition, TextRange};
 #[cfg(any(feature = "yaml", feature = "json", feature = "toml", feature = "xml"))]
 pub(crate) use walk::Checkpoints;
+pub(crate) use written::joined_value_ranges;
+#[cfg(any(feature = "json", feature = "yaml"))]
+pub(crate) use written::parsed as parsed_in_batch;
+#[cfg(feature = "protect")]
+pub(crate) use written::{inside, whole_value};
 
-use super::codec::{inline_location, written_inline};
+use super::codec::inline_location;
 use super::completion::{hovered_key, path_with_key};
+use super::data_reading::{DataReading, lone_spelling};
 use super::keyboard::utf16_to_byte_index;
-use super::language::{ConfigLanguage, Repetition, Span, pointer_index};
+use super::language::{ConfigLanguage, Repetition, Span};
 use super::work_count::{Work, note};
 
 /// `pointer`, and for languages that repeat elements or blocks, the pointer
-/// written: without the `/0` after each field the language writes as a lone
-/// item (`ConfigLanguage::lone_item`: an XML element or HCL block written
-/// once, read as a one-item list too). An index anywhere else (on a scalar,
-/// an attribute, an object of labelled blocks, another index, the document)
-/// is only an index. A list written as one (`ea = []`) has no lone item: its
-/// `/0` is only its first item.
+/// written where it names a value written once through its list's index
+/// (see `data_reading::lone_spelling`).
 fn spellings(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Vec<String> {
     let mut spellings = vec![pointer.to_string()];
     if let Some(lone) = lone_spelling(behavior, source, pointer) {
         spellings.push(lone);
     }
     spellings
-}
-
-/// [`spellings`]' second one, when it differs from `pointer`.
-pub(crate) fn lone_spelling(
-    behavior: &dyn ConfigLanguage,
-    source: &str,
-    pointer: &str,
-) -> Option<String> {
-    if behavior.repetition() == Repetition::None || !pointer.contains("/0") {
-        return None;
-    }
-    let mut lone = String::new();
-    // The item just left out: an index on it names nothing (an element or
-    // block is no list).
-    let mut left_out = false;
-    for segment in pointer.split('/').skip(1) {
-        if left_out && pointer_index(segment).is_some() {
-            return None;
-        }
-        if segment == "0" && !lone.is_empty() {
-            if memo_value_span(behavior, source, &lone)
-                .is_some_and(|span| written_inline(behavior, source, span))
-            {
-                return None;
-            }
-            if behavior.lone_item(source, &lone) {
-                left_out = true;
-                continue;
-            }
-        }
-        left_out = false;
-        lone.push('/');
-        lone.push_str(segment);
-    }
-    (lone != pointer).then_some(lone)
 }
 
 /// Where the value of the field at `pointer` is written, in any spelling of
@@ -142,7 +119,9 @@ pub(crate) fn field_range(
         .or_else(|| first_repeated(behavior, source, pointer).map(range))
         // Read through a shared value (a YAML alias): where that is written.
         .or_else(|| {
-            let written = behavior.written_at(source, pointer)?;
+            let written = behavior
+                .written_at(source, &FieldPath::from(pointer))?
+                .to_pointer();
             (written != pointer).then(|| field_range(behavior, source, &written))?
         })
 }
@@ -310,18 +289,20 @@ pub(crate) fn problem_span(
         })
 }
 
-/// [`problem_span`] of a schema problem, also where the schema read an
-/// object as a one-item list (see [`conformed_spelling`]).
+/// [`problem_span`] of a schema problem, its pointer one in the data
+/// `reading` reads off `source` (as the text writes it where that reading
+/// made a value written once a list of one).
 #[cfg(feature = "schema-validation")]
 pub(crate) fn schema_problem_span(
     behavior: &dyn ConfigLanguage,
     source: &str,
+    reading: &DataReading,
     pointer: &str,
     required: bool,
     written_as_block: bool,
 ) -> Option<Span> {
     problem_span(behavior, source, pointer, required, written_as_block).or_else(|| {
-        let written = conformed_spelling(behavior, source, pointer)?;
+        let written = reading.written(pointer)?;
         problem_span(behavior, source, &written, required, written_as_block)
     })
 }
@@ -330,42 +311,13 @@ pub(crate) fn schema_problem_span(
 pub(crate) fn schema_problem_key_span(
     behavior: &dyn ConfigLanguage,
     source: &str,
+    reading: &DataReading,
     pointer: &str,
 ) -> Option<Span> {
     problem_key_span(behavior, source, pointer).or_else(|| {
-        let written = conformed_spelling(behavior, source, pointer)?;
+        let written = reading.written(pointer)?;
         problem_key_span(behavior, source, &written)
     })
-}
-
-/// `pointer` of a schema problem as the text writes it where the schema
-/// read an object as a one-item list (`codec::conform_arrays`: an HCL
-/// `listen = { … }`, labelled blocks `listen "a" { … }`): without each
-/// `/0` that names nothing written. `None` when there is none to drop.
-/// Only schema problems are read so: without the schema such an index
-/// names nothing.
-fn conformed_spelling(
-    behavior: &dyn ConfigLanguage,
-    source: &str,
-    pointer: &str,
-) -> Option<String> {
-    if behavior.repetition() == Repetition::None || !pointer.contains("/0") {
-        return None;
-    }
-    let mut written = String::new();
-    for segment in pointer.split('/').skip(1) {
-        let indexed = format!("{written}/{segment}");
-        let names_nothing = || {
-            memo_value_span(behavior, source, &indexed).is_none()
-                && memo_key_span(behavior, source, &indexed).is_none()
-                && inline_location(behavior, source, &indexed, false).is_none()
-        };
-        if segment == "0" && !written.is_empty() && names_nothing() {
-            continue;
-        }
-        written = indexed;
-    }
-    (written != pointer).then_some(written)
 }
 
 /// Where the key `pointer` names is written (a key a problem is about), in
@@ -391,7 +343,7 @@ pub(crate) fn problem_key_span(
 
 /// `locate` of the pointer the field at `pointer` is written at when the
 /// text writes it once and reads it in several places (a YAML anchor read
-/// through an alias or a merge, `ConfigLanguage::written_at`); `None` when
+/// through an alias or a merge, `Sharing::written_at`); `None` when
 /// it reads through nothing.
 fn through_shared(
     behavior: &dyn ConfigLanguage,
@@ -399,7 +351,9 @@ fn through_shared(
     pointer: &str,
     locate: impl FnOnce(&str) -> Option<Span>,
 ) -> Option<Span> {
-    let written = behavior.written_at(source, pointer)?;
+    let written = behavior
+        .written_at(source, &FieldPath::from(pointer))?
+        .to_pointer();
     (written != pointer).then(|| locate(&written))?
 }
 
@@ -464,18 +418,24 @@ pub(crate) fn path_at(
     if !in_batch(source) {
         note(Work::PathLookup);
     }
-    if cursor > units_at(source, source.len()) {
+    if cursor > api_units(source, source.len()) {
         return None;
     }
     let byte = utf16_to_byte_index(source, cursor);
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let line_index = line_column(source, line_start).0 - 1;
+    let line_index = line_column(source, text_size(line_start)).0 - 1;
     let column = source[line_start..byte].chars().count();
     let line = source[line_start..].split('\n').next().unwrap_or("");
-    // In markup closing a value (`<a>1</a|>`): the value it closes.
+    // In markup closing a value (`<a>1</a|>`): the value it closes; past
+    // markup closing others (`</b></a>|`), stepped back over them all on
+    // the line first, so a run of them costs one walk, not one each.
     let in_line = byte - line_start;
-    if let Some(open) = closing_markup_around(behavior, line, in_line) {
-        let value_end = units_at(source, line_start + open);
+    let mut open = in_line;
+    while let Some(start) = closing_markup_around(behavior, line, open) {
+        open = start;
+    }
+    if open < in_line {
+        let value_end = api_units(source, line_start + open);
         return path_at(behavior, source, value_end);
     }
     // On the key, just past it, past it and its separator (`listen =| 1`),
@@ -542,9 +502,9 @@ fn in_string_over_lines(
         .find(|body| body.start <= line_index && line_index <= body.end && body.start > 0)
         .map(|body| body.start - 1)?;
     // The key's line ends before the next line's start (the body follows).
-    let key_line_end = units_at(
+    let key_line_end = api_units(
         source,
-        lines::line_start(source, key_line + 1).checked_sub(1)?,
+        usize::from(lines::line_start(source, key_line + 1)).checked_sub(1)?,
     );
     if key_line == line_index || key_line_end >= cursor {
         return None;

@@ -4,14 +4,15 @@
 //! typed after the dash, a line below a key) in each place (before,
 //! after, between items, past a blank line or a comment, in a document
 //! that does not parse elsewhere), in a YAML document and in the YAML
-//! view of each host.
+//! view of each host, custom languages too.
 //!
 //! `|` marks the caret; `@` stands for the caret's lines in a frame.
 
 use super::super::bridge::Bridge;
 use super::super::completion::completions;
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
+use super::harness::{every_language_but, text};
 
 const SCHEMA: &str = r#"{"type":"object","properties":{"spec":{"type":"object","properties":{
     "containers":{"type":"array","items":{"type":"object",
@@ -114,11 +115,17 @@ fn an_item_started_in_a_yaml_view_offers_its_own_keys() {
         {"name": "a", "cmd": "c"}, {"name": "b", "cmd": "d"}
     ]}});
     let mut failures = Vec::new();
-    for host in [Language::JSON, Language::TOML, Language::HCL, Language::XML] {
+    for host in every_language_but(&["YAML"]) {
         let Some(bridge) = Bridge::new(host, Language::YAML, None) else {
             continue;
         };
-        let host_text = host.serialize(&value).unwrap();
+        let host_text = match text(host, &value, &[]) {
+            Ok(text) => text,
+            Err(error) => {
+                failures.push(error);
+                continue;
+            }
+        };
         let shown = bridge.to_edit(&host_text).expect("shows").text;
         let Some(first) = shown.find("- name: a") else {
             failures.push(format!("{host}: shown {shown:?}"));

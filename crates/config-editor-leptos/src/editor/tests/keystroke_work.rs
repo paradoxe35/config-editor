@@ -5,9 +5,9 @@
 
 use leptos::prelude::*;
 
-use crate::editor::diagnostics::SchemaBundle;
 use crate::editor::edit::Edit;
 use crate::editor::languages::Language;
+use crate::editor::schema::SchemaBundle;
 use crate::editor::state::EditorState;
 use crate::editor::test_state::TestEditor;
 use crate::editor::work_count::{Work, counted};
@@ -41,7 +41,7 @@ fn samples() -> Vec<(Language, &'static str)> {
 
 fn schema() -> std::sync::Arc<SchemaBundle> {
     std::sync::Arc::new(
-        crate::editor::diagnostics::build_schema(include_str!(
+        crate::editor::schema::build_schema(include_str!(
             "../../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap(),
@@ -86,8 +86,8 @@ fn type_x(state: EditorState, at: usize) {
     let byte = crate::editor::keyboard::utf16_to_byte_index(&before, at);
     let mut text = before.clone();
     text.insert(byte, 'x');
-    state.completion().requested.set(true);
-    let typed = Edit::input(
+    state.set_list_mode(crate::editor::completion::ListMode::TYPED);
+    let typed = Edit::input_units(
         before,
         (at, at),
         text,
@@ -202,9 +202,13 @@ fn a_keystroke_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() 
             assert!(state.view().string_bodies.with_untracked(|_| true));
             // Something acting on them reads them first.
             type_x(state, at + 2);
+            let byte = state
+                .doc()
+                .text
+                .with_untracked(|text| crate::editor::text::byte_of(text, at));
             assert_eq!(
                 readings(|| {
-                    let _ = state.in_string_body(at);
+                    let _ = state.in_string_body(byte);
                     read_view(state);
                 }),
                 [1; 4],
@@ -217,7 +221,7 @@ fn a_keystroke_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() 
             broken.insert(byte, '\n');
             assert_eq!(
                 readings(|| {
-                    assert!(state.commit(Edit::new(before, (at, at), broken, at + 1)));
+                    assert!(state.commit(Edit::new_units(before, (at, at), broken, at + 1)));
                     read_view(state);
                 }),
                 [1; 4],
@@ -239,7 +243,7 @@ fn a_keystroke_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() 
 #[test]
 fn a_line_command_keeping_the_lines_reads_the_whole_text_once_the_frame_is_drawn() {
     use crate::editor::keys::line_edit::LineCommand;
-    use crate::editor::keys::lines::{Command, run};
+    use crate::editor::keys::lines::{Command, run_units as run};
     crate::editor::parse_cache::hold();
     for (language, text) in samples() {
         hold(|| {

@@ -1,4 +1,4 @@
-//! `ConfigLanguage::edits_one_scalar` says yes only when it is so, in
+//! `SaveLayout::edits_one_scalar` says yes only when it is so, in
 //! every language: every character typed at every place of a text full of
 //! constructs over lines (comments, multi-line strings and containers, YAML
 //! anchors and aliases), and every character deleted, that it takes for a
@@ -37,7 +37,7 @@ fn sample(language: Language) -> &'static str {
         "HCL" => concat!(
             "/* a = 1\n   b = 2 */\nweb {\n  image = \"nginx:1.25\"\n  port  = 80\n",
             "  text = <<EOT\n  key = \"v\"\nEOT\n  tags = {\n    Name = \"web\"\n  }\n",
-            "  list = [\n    1,\n    2,\n  ]\n  ref = \"${var.x}\" # c\n  multi = \"one\n  two = 2\n  three\"\n}\n",
+            "  list = [\n    1,\n    2,\n  ]\n  ref = \"${var.x}\" # c\n  multi = \"one two = 2 three\"\n}\n",
         ),
         _ => concat!(
             "<root>\n  <!-- a comment\n  <a>1</a>\n  -->\n  <web>\n",

@@ -1,5 +1,5 @@
 //! What labelling the tabs costs as the host lists the documents again
-//! (QA 30, F30-1: a view of files sharing a name, Helm's `values.yaml` in
+//! (a view of files sharing a name, Helm's `values.yaml` in
 //! every chart, re-listed in quadratic time even when one value changed,
 //! and renaming every file took minutes): each list costs work in
 //! proportion to the tabs at most, and nothing for tabs whose name and the

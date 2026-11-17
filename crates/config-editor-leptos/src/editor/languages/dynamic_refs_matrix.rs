@@ -5,8 +5,8 @@
 //! `|` marks the caret.
 
 use super::super::completion::{completions, key_hover};
-use super::super::diagnostics::build_schema;
-use super::Language;
+use super::super::schema::build_schema;
+use super::harness::{At, completing, hovering, key_place, report, text, write};
 use serde_json::{Value, json};
 
 fn schemas() -> Vec<(&'static str, Value, &'static str)> {
@@ -38,26 +38,37 @@ fn schemas() -> Vec<(&'static str, Value, &'static str)> {
     ]
 }
 
-/// Where a key of an item of `kids` is typed, and the same item with
-/// `data` written (its key hovered).
-const DOCUMENTS: [(Language, &str, &str); 3] = [
-    (Language::YAML, "kids:\n  - |\n", "kids:\n  - data: 1\n"),
-    (
-        Language::JSON,
-        "{\"kids\": [{|}]}\n",
-        "{\"kids\": [{\"data\": 1}]}\n",
-    ),
-    (Language::TOML, "[[kids]]\n|\n", "[[kids]]\ndata = 1\n"),
-];
-
 #[test]
 fn completion_and_hover_follow_dynamic_recursive_and_draft_four_references() {
     let mut failures = Vec::new();
     for (name, schema, key) in schemas() {
         let bundle = build_schema(&schema.to_string()).unwrap();
-        for (language, marked, written) in DOCUMENTS {
-            let at = marked.find('|').unwrap();
-            let source = marked.replacen('|', "", 1);
+        let languages = completing()
+            .into_iter()
+            .filter(|language| hovering().contains(language));
+        let forms =
+            languages.flat_map(|language| [(language, &[][..]), (language, &["/kids/0"][..])]);
+        for (language, one_line) in forms {
+            // A key of an item of `kids` typed (the item over lines and on
+            // one line), and the same item with `key` written (its key
+            // hovered).
+            let typed = At::NewKey {
+                object: "/kids/0",
+                typed: "",
+            };
+            let cases =
+                write(language, &json!({"kids": [{}]}), one_line, typed).and_then(|typed| {
+                    let written = json!({"kids": [{ key: 1 }]});
+                    let text = text(language, &written, &[])?;
+                    let place = key_place(language, &text, &format!("/kids/0/{key}"), 2)?;
+                    Ok((typed, text, place))
+                });
+            let Ok((typed, written, (line, column))) = cases else {
+                failures.push(format!("{name}, {language}: {cases:?}"));
+                continue;
+            };
+            let at = typed.byte;
+            let source = typed.text;
             let labels: Vec<String> =
                 completions(&source, at, true, Some(&bundle), true, language.behavior())
                     .into_iter()
@@ -66,14 +77,12 @@ fn completion_and_hover_follow_dynamic_recursive_and_draft_four_references() {
             if !labels.iter().any(|label| label == key) {
                 failures.push(format!("{name}, {language}: offered {labels:?}"));
             }
-            let line = written.lines().position(|line| line.contains(key)).unwrap();
-            let column = written.lines().nth(line).unwrap().find(key).unwrap() + 2;
-            let description = key_hover(written, line, column, Some(&bundle), language.behavior())
+            let description = key_hover(&written, line, column, Some(&bundle), language.behavior())
                 .and_then(|hover| hover.description);
             if description.as_deref() != Some("payload") {
                 failures.push(format!("{name}, {language}: hover {description:?}"));
             }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }

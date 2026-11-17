@@ -2,9 +2,11 @@
 //! its keys are listed, each with the reason as its detail, in every
 //! language, as when browsing the block's own text.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::completion::completions_in;
-use super::super::diagnostics::build_schema;
 use super::super::paths::FieldPath;
+use super::super::schema::build_schema;
 use super::locks::{Sources, protect};
 use super::suggest::{Around, adjust};
 use super::tests::documents;
@@ -47,7 +49,7 @@ fn listed_with_reason(
         let behavior = language.behavior();
         let options = completions_in(
             &text,
-            cursor,
+            crate::editor::text::text_size(cursor),
             true,
             Some(&bundle),
             true,

@@ -28,8 +28,6 @@ impl Frame {
 #[derive(Clone, Debug)]
 pub(super) struct Snapshot {
     pub(super) path: Vec<Seg>,
-    /// Where the start tag of the element holding the caret starts.
-    pub(super) holder: Option<usize>,
     pub(super) partial: Option<Token>,
     /// Whether the caret sits inside a tag (`<...>`) rather than in text.
     pub(super) in_tag: bool,
@@ -85,59 +83,13 @@ pub(super) fn strings(path: &[Seg]) -> Vec<String> {
         .collect()
 }
 
-/// A text's hash and length, a cursor, whether the spans were recorded,
-/// and the scan there.
-type RememberedScan = (u64, usize, usize, bool, std::rc::Rc<Scan>);
-
-thread_local! {
-    /// The last scan: one keystroke's suggestions, the check of their
-    /// read-only fields and the keys already written each read the same
-    /// text at the same place.
-    static LAST_SCAN: std::cell::RefCell<Option<RememberedScan>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Forgets the last scan.
-pub(super) fn forget_scan() {
-    let _ = LAST_SCAN.try_with(|last| last.borrow_mut().take());
-}
-
-#[cfg(test)]
-pub(super) fn scan_kept() -> bool {
-    LAST_SCAN.with(|last| last.borrow().is_some())
-}
-
-/// [`scan_text`] of `source` at `cursor`, remembered for the last text and
-/// cursor.
-pub(super) fn analyze(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
-    remembered(source, cursor, true)
-}
-
-/// [`analyze`] for the caret's place alone: no spans of names and values
-/// (the caret's path and its suggestions' context, on every keystroke:
-/// recording every element's spans took most of one in a long document).
+/// [`scan_text`] of `source` at `cursor` for the caret's place alone, shared
+/// through the parse cache: no spans of names and values (the caret's path
+/// and its suggestions' context, on every keystroke: recording every
+/// element's spans took most of one in a long document).
 pub(super) fn analyze_caret(source: &str, cursor: usize) -> std::rc::Rc<Scan> {
     crate::editor::paths::walked_from_top(source);
-    remembered(source, cursor, false)
-}
-
-fn remembered(source: &str, cursor: usize, spans: bool) -> std::rc::Rc<Scan> {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.hash(&mut hasher);
-    let key = (hasher.finish(), source.len(), cursor);
-    let remembered = LAST_SCAN.with(|last| {
-        last.borrow()
-            .as_ref()
-            // A scan with its spans serves one without.
-            .filter(|(hash, len, at, with_spans, _)| (*hash, *len, *at) == key && (*with_spans || !spans))
-            .map(|(.., scan)| scan.clone())
-    });
-    if let Some(scan) = remembered {
-        return scan;
-    }
-    let scan = std::rc::Rc::new(scan_text(source, cursor, spans));
-    LAST_SCAN.with(|last| *last.borrow_mut() = Some((key.0, key.1, key.2, spans, scan.clone())));
-    scan
+    crate::editor::parse_cache::reading(source, cursor, || scan_text(source, cursor, false))
 }
 
 /// Walks the whole document, tolerating invalid syntax, and captures the parser
@@ -245,9 +197,8 @@ pub(super) fn record_tag_keys(
     } else {
         plan.path_of(tag.start).unwrap_or_default()
     };
-    for inner in attributes {
-        if let Kind::Text { quoted: false } = inner.kind
-            && is_attr_name(source, tag, inner)
+    for (index, inner) in attributes.iter().enumerate() {
+        if is_attr_name(&attributes, index)
             && !partial
             && !plan.markup.holds(&source[inner.start..inner.end])
         {
@@ -265,66 +216,6 @@ pub(super) fn record_tag_keys(
             local_name_start(source, tag) + name_len(source, tag),
         ));
     }
-}
-
-/// Key spans (see [`Scan::key_spans`]): some, or the whole scan's.
-pub(super) enum KeySpans {
-    Some(Vec<(Vec<String>, usize, usize)>),
-    All(std::rc::Rc<Scan>),
-}
-
-impl std::ops::Deref for KeySpans {
-    type Target = [(Vec<String>, usize, usize)];
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Some(spans) => spans,
-            Self::All(scan) => &scan.key_spans,
-        }
-    }
-}
-
-/// The key spans [`analyze`] records at byte `cursor`, at least all whose
-/// path starts with `path`: read from the element with that path among
-/// those starting at `starts` (see [`PathPlan::subtree`]) where they lie
-/// only there, not off the whole document.
-pub(super) fn key_spans_under(
-    source: &str,
-    cursor: usize,
-    path: &[String],
-    starts: impl IntoIterator<Item = usize>,
-) -> KeySpans {
-    some_key_spans(source, cursor, path, starts)
-        .map_or_else(|| KeySpans::All(analyze(source, cursor)), KeySpans::Some)
-}
-
-fn some_key_spans(
-    source: &str,
-    cursor: usize,
-    path: &[String],
-    starts: impl IntoIterator<Item = usize>,
-) -> Option<Vec<(Vec<String>, usize, usize)>> {
-    let walked = walked(source);
-    let read;
-    let tokens: &[Token] = match &walked {
-        Some(walked) => &walked.tokens,
-        None => {
-            read = tokenize(source);
-            &read
-        }
-    };
-    let plan = plan_paths(source, tokens);
-    let (start, after) = plan.subtree(path, starts)?;
-    let first = tokens.partition_point(|token| token.start < start);
-    let end = after.map_or(tokens.len(), |after| tokens.partition_point(|token| token.start < after));
-    let partial = holding(source, tokens, cursor);
-    let mut key_spans = Vec::new();
-    for (index, token) in tokens.iter().enumerate().take(end).skip(first) {
-        if matches!(token.kind, Kind::OpenTag { .. }) {
-            record_tag_keys(source, token, partial == Some(index), &plan, &mut key_spans);
-        }
-    }
-    Some(key_spans)
 }
 
 /// Whether `gap` holds only whitespace, comments and processing
@@ -363,15 +254,17 @@ pub(super) fn attribute_key(path: &[Seg], name: &str) -> Vec<String> {
     key
 }
 
-/// Whether `inner` is an attribute name: an unquoted word directly inside an
-/// open tag that is followed by `=`.
-pub(super) fn is_attr_name(source: &str, open: &Token, inner: Token) -> bool {
-    let inner_tokens = tokenize_tag_inside(source, open);
-    inner_tokens
-        .iter()
-        .position(|token| token.start == inner.start && token.end == inner.end)
-        .and_then(|position| inner_tokens.get(position + 1))
-        .is_some_and(|next| matches!(next.kind, Kind::Equals))
+/// Whether token `index` of `inner`, the tokens inside an open tag
+/// ([`tokenize_tag_inside`]), is an attribute name: an unquoted word
+/// followed by `=`. Given the tokens read once for the tag: reading them
+/// again for each one made a long tag's reading grow with its square.
+pub(super) fn is_attr_name(inner: &[Token], index: usize) -> bool {
+    inner
+        .get(index)
+        .is_some_and(|token| matches!(token.kind, Kind::Text { quoted: false }))
+        && inner
+            .get(index + 1)
+            .is_some_and(|next| matches!(next.kind, Kind::Equals))
 }
 
 /// Whether `token` holds the caret. A tag holds it strictly inside its
@@ -525,14 +418,14 @@ pub(super) fn capture_snapshot(
     let spelled_apart = open_tag.map_or_else(Vec::new, |tag| {
         inner
             .iter()
-            .filter(|token| matches!(token.kind, Kind::Text { quoted: false }) && is_attr_name(source, &tag, **token))
-            .map(|token| source[token.start..token.end].to_string())
+            .enumerate()
+            .filter(|(index, _)| is_attr_name(&inner, *index))
+            .map(|(_, token)| source[token.start..token.end].to_string())
             .filter(|name| plan.attribute_key(tag.start, name).starts_with('@'))
             .collect()
     });
     Snapshot {
         path,
-        holder: frames.last().map(|frame| frame.start),
         partial,
         in_tag: open_tag.is_some(),
         open_tag,
@@ -616,18 +509,9 @@ pub(super) fn record_attribute_values(source: &str, tokens: &[Token], plan: &Pat
     }
 }
 
-pub(super) fn utf16(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// One-based line and character column of a byte offset.
-pub(super) fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    crate::editor::paths::line_column(source, byte)
-}
-
 pub(super) fn xml_text(value: &Value) -> String {
     match value {
-        Value::String(value) => super::super::super::codec::non_finite::written(value).to_string(),
+        Value::String(value) => value.clone(),
         _ => serde_json::to_string(value).unwrap_or_default(),
     }
 }

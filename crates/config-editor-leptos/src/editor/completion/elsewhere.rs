@@ -3,22 +3,23 @@
 //! ranges: each range's places are found once (a scan of the whole text),
 //! not once per suggestion.
 
+use crate::editor::paths::FieldPath;
 use std::collections::HashMap;
 
-use super::offsets::ByteOffsets;
 use super::*;
+use crate::editor::text::byte_range;
 
-/// A key written in the text and its other places (UTF-16 ranges).
-type Written = (String, Vec<(usize, usize)>);
+/// A key written in the text and its other places (byte ranges).
+type Written = (String, Vec<TextRange>);
 
 /// The other places of the keys a list's suggestions replace.
 pub(super) struct OtherPlaces<'a> {
     source: &'a str,
     context: &'a CompletionContext,
     behavior: &'a dyn ConfigLanguage,
-    /// By replaced UTF-16 range: the key written there and its other
-    /// places, or nothing when no key is.
-    found: HashMap<(usize, usize), Option<Written>>,
+    /// By replaced range: the key written there and its other places, or
+    /// nothing when no key is.
+    found: HashMap<TextRange, Option<Written>>,
 }
 
 impl<'a> OtherPlaces<'a> {
@@ -35,25 +36,18 @@ impl<'a> OtherPlaces<'a> {
         }
     }
 
-    /// Where else the key `option` replaces is written (UTF-16 ranges), per
-    /// the language's [`ConfigLanguage::key_renames`]: other dotted keys
+    /// Where else the key `option` replaces is written (byte ranges), per
+    /// the language's [`SaveLayout::key_renames`]: other dotted keys
     /// and headers through it, other blocks or elements of its name. Empty
     /// unless the replaced text is a whole key written in the document,
     /// other than the option's.
-    pub(super) fn of(
-        &mut self,
-        option: &Completion,
-        offsets: &mut ByteOffsets<'_>,
-    ) -> Vec<(usize, usize)> {
+    pub(super) fn of(&mut self, option: &Completion) -> Vec<TextRange> {
         let (source, context, behavior) = (self.source, self.context, self.behavior);
+        let replaced = TextRange::new(option.start, option.end.max(option.start));
         let found = self
             .found
-            .entry((option.start, option.end))
-            .or_insert_with(|| {
-                let start = offsets.byte(option.start);
-                let end = offsets.byte(option.end);
-                written_places(source, context, behavior, start..end)
-            });
+            .entry(replaced)
+            .or_insert_with(|| written_places(source, context, behavior, replaced));
         match found {
             Some((old, places)) if *old != option.label => places.clone(),
             _ => Vec::new(),
@@ -66,12 +60,13 @@ fn written_places(
     source: &str,
     context: &CompletionContext,
     behavior: &dyn ConfigLanguage,
-    replaced: std::ops::Range<usize>,
+    replaced: TextRange,
 ) -> Option<Written> {
     const STAND_IN: &str = "configeditorrenamed";
     let stop = |character: char| character.is_whitespace() || "\"'.=:[]{}<>/,#".contains(character);
-    let end = replaced.end;
-    let replaced = source[replaced].trim_start_matches(|character: char| stop(character));
+    let end = usize::from(replaced.end());
+    let replaced =
+        slice::slice(source, replaced)?.trim_start_matches(|character: char| stop(character));
     let word_start = end - replaced.len();
     let word_len = replaced.find(stop).unwrap_or(replaced.len());
     let old = &replaced[..word_len];
@@ -83,16 +78,16 @@ fn written_places(
         pointer.push('/');
         match segment {
             SchemaPathSegment::Key(key) => {
-                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"))
+                pointer.push_str(&crate::editor::language::pointer_key(key))
             }
             SchemaPathSegment::ArrayItem(index) => pointer.push_str(&index.to_string()),
         }
     }
     pointer.push('/');
-    pointer.push_str(&old.replace('~', "~0").replace('/', "~1"));
+    pointer.push_str(&crate::editor::language::pointer_key(old));
     let none = || Some((old.to_string(), Vec::new()));
     let Some(renamed) = behavior
-        .key_renames(source, &pointer, STAND_IN)
+        .key_renames(source, &FieldPath::from(&pointer), STAND_IN)
         .map(|edits| crate::editor::language::with_edits(source, edits))
     else {
         return none();
@@ -117,11 +112,10 @@ fn written_places(
     if !places.iter().any(|(place, _)| *place == word_start) {
         return none();
     }
-    let utf16 = |byte: usize| source[..byte].encode_utf16().count();
     let places = places
         .into_iter()
         .filter(|(place, _)| *place != word_start)
-        .map(|(place, place_end)| (utf16(place), utf16(place_end)))
+        .map(|(place, place_end)| byte_range(place..place_end))
         .collect();
     Some((old.to_string(), places))
 }

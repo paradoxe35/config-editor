@@ -93,22 +93,23 @@ pub(super) fn block_scalar(language: &YamlBehavior, prefix: &str, written: &str,
 /// `range` (a value's text) run through the blank lines after it when it is
 /// a block scalar that keeps its final line breaks (`|+`, `>2+`): they are
 /// its text, so a new value written in its place brings its own.
-pub(super) fn with_kept_blank_lines(source: &str, mut range: std::ops::Range<usize>) -> std::ops::Range<usize> {
-    let written = &source[range.clone()];
+pub(super) fn with_kept_blank_lines(source: &str, range: TextRange) -> TextRange {
+    let written = slice::slice(source, range).unwrap_or("");
     let header = written.split('\n').next().unwrap_or_default();
-    let header = &header[node_properties_len(header)..];
+    let header = header.get(node_properties_len(header)..).unwrap_or("");
     let indicators = header.split([' ', '\t']).next().unwrap_or_default();
     if !is_block_scalar(indicators) || !indicators.contains('+') || !written.contains('\n') {
         return range;
     }
-    while let Some(rest) = source[range.end..].strip_prefix('\n') {
-        let blank = rest.len() - rest.trim_start_matches([' ', '\t']).len();
-        if !rest[blank..].starts_with('\n') {
+    let mut end = range.end();
+    while let Some(rest) = slice::after(source, end).and_then(|rest| rest.strip_prefix('\n')) {
+        let after_blank = rest.trim_start_matches([' ', '\t']);
+        if !after_blank.starts_with('\n') {
             break;
         }
-        range.end += 1 + blank;
+        end += TextSize::from(1) + TextSize::of(rest) - TextSize::of(after_blank);
     }
-    range
+    TextRange::new(range.start(), end)
 }
 
 /// The string a document holding one value reads as (`k: …`, `- …`,

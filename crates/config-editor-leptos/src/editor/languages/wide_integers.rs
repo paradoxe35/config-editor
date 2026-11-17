@@ -59,7 +59,7 @@ fn floats_past_64_bits(value: &Value, pointer: String, found: &mut Vec<String>) 
         }
         Value::Object(map) => {
             for (key, child) in map {
-                let key = key.replace('~', "~0").replace('/', "~1");
+                let key = crate::editor::language::pointer_key(key);
                 floats_past_64_bits(child, format!("{pointer}/{key}"), found);
             }
         }

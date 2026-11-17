@@ -210,7 +210,7 @@ mod tests {
     }
     use crate::EditorStrings;
 
-    /// QA 18: a whole document's problem stays in the footer when the list
+    /// A whole document's problem stays in the footer when the list
     /// was cut, before the note, and the note counts it as F8 does.
     #[test]
     fn an_unplaced_problem_stays_shown_when_the_list_is_cut() {
@@ -227,7 +227,7 @@ mod tests {
         );
     }
 
-    /// QA 20: when the underline cap left problems undrawn the footer gave
+    /// When the underline cap left problems undrawn the footer gave
     /// no hint; it says so, after the other notes, instead of the hint.
     #[test]
     fn the_footer_says_when_underlines_were_cut() {
@@ -262,7 +262,7 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
-    /// QA 24 (L24-U6): a phone has no hover, but its hint said "hover";
+    /// A phone has no hover, but its hint said "hover";
     /// it says "tap" there, and the notes still take its place.
     #[test]
     fn a_touch_screens_hint_says_tap() {
@@ -279,7 +279,7 @@ mod tests {
         );
     }
 
-    /// QA 19: the note counts the editor's own problems, the ones the cap
+    /// The note counts the editor's own problems, the ones the cap
     /// cut, not the host's (all listed): "770+ errors · only the first 790
     /// are shown" while all were.
     #[test]
@@ -388,7 +388,7 @@ mod tests {
         cut_note(Severity::Error)
     }
 
-    /// QA 17: the "+" goes on each kind a cap cut (schema errors, secret
+    /// The "+" goes on each kind a cap cut (schema errors, secret
     /// placeholder warnings), never at the end of the list, and "only the
     /// first N" counts the problems shown, in every combination.
     #[test]

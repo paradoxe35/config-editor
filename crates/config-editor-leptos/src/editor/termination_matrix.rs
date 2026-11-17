@@ -4,7 +4,7 @@
 //! with empty lines, lines of only blanks and lines at every indent put
 //! inside them, go through the highlighter, folding, Enter at every line,
 //! Edit as and the edit pipeline, each case under a time cap. A loop that
-//! stops advancing (round 21: an empty line inside a YAML block scalar
+//! stops advancing (an empty line inside a YAML block scalar
 //! froze the tab) fails here, naming the case, instead of hanging the
 //! suite.
 
@@ -16,7 +16,7 @@ use leptos::prelude::*;
 use super::completion::completions;
 use super::handle::EditorHandle;
 use super::highlight::spanning::{Spanning, tokens_after};
-use super::keys::enter::{Pressed, enter_at};
+use super::keys::enter::{Pressed, enter_units};
 use super::languages::Language;
 use super::test_state::TestEditor;
 
@@ -165,13 +165,13 @@ fn read_all(language: Language, text: &str) {
     let _ = behavior.empty_value_slots(text);
     let _ = behavior.first_span(text);
     let units = text.encode_utf16().count();
-    let _ = behavior.toggle_comments(text, 0, units);
+    let _ = behavior.toggled_text(text, 0, units);
     for cursor in 0..=units {
         let _ = behavior.newline(text, cursor);
         let _ = behavior.lexical_state(text, cursor);
         let _ = behavior.completion_context(text, cursor);
         let _ = completions(text, cursor, true, None, true, behavior);
-        let _ = behavior.toggle_comments(text, cursor, cursor);
+        let _ = behavior.toggled_text(text, cursor, cursor);
         for typed in ['"', '\'', '<', '>', '/', '{', '[', '$', ':', '-', '\n'] {
             let _ = behavior.auto_close(text, cursor, typed);
             let _ = behavior.reindent_on_type(text, cursor, typed);
@@ -213,14 +213,18 @@ fn edit_all(language: Language, edit_as: Option<Language>, text: &str) {
     }
     for offset in offsets {
         let before = state.doc().text.get_untracked();
-        enter_at(state, (offset, offset), Pressed::Enter, None);
+        enter_units(state, (offset, offset), Pressed::Enter, None);
         read_view(state);
         let _ = handle.value();
-        enter_at(state, (offset, offset), Pressed::LineBelow, None);
-        enter_at(state, (offset, offset), Pressed::LineAbove, None);
+        enter_units(state, (offset, offset), Pressed::LineBelow, None);
+        enter_units(state, (offset, offset), Pressed::LineAbove, None);
         read_view(state);
         let _ = handle.value();
-        state.doc().text.set(before);
+        // Back to the text before, as an edit (the views' links follow
+        // every write of the text).
+        let now = state.doc().text.get_untracked();
+        let end = now.encode_utf16().count();
+        state.commit(super::edit::Edit::new_units(now, (0, end), before, 0));
     }
 }
 

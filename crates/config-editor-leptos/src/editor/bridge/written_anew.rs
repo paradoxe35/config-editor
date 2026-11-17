@@ -4,15 +4,16 @@
 //! or datetime, an HCL expression or heredoc, a YAML tag or quoting, XML
 //! markup): a host that has comments waits instead, since a save keeps
 //! them (the Edit-as notice says so), and so does a save that would write
-//! a value it leaves as it was in another form (QA `E37-2`), so a save no
+//! a value it leaves as it was in another form, so a save no
 //! patch knows never passes changing one.
 
 use super::super::Language;
-use super::super::codec::{self, ConvertError, written_range};
+use super::super::codec::{self, ConvertError, written_text_range};
 use super::super::edit_as::SaveError;
-use super::super::language::ConfigLanguage;
+use super::super::language::{ConfigLanguage, pointer_key};
+use super::super::text::{TextRange, slice};
+use crate::editor::paths::FieldPath;
 use serde_json::Value;
-use std::ops::Range;
 
 /// Why writing `host`'s text `previous` anew as `rendered` (it read as
 /// `old`, the save holds `target`) waits: the comments it would drop, at
@@ -60,12 +61,13 @@ fn changed_form(
 ) -> Option<String> {
     let mut kept = Vec::new();
     unchanged_scalars(old, target, &mut String::new(), &mut kept);
+    let paths: Vec<FieldPath> = kept.iter().map(FieldPath::from).collect();
     // Each text's spans placed from its lines split once (see `with_lines`).
-    let written = |text: &str| -> Vec<Option<Range<usize>>> {
+    let written = |text: &str| -> Vec<Option<TextRange>> {
         super::with_lines(host, text, || {
-            host.value_spans(text, &kept)
+            host.value_spans(text, &paths)
                 .into_iter()
-                .map(|span| written_range(host, text, span?))
+                .map(|span| written_text_range(host, text, span?))
                 .collect()
         })
     };
@@ -73,7 +75,9 @@ fn changed_form(
     kept.iter()
         .zip(before.into_iter().zip(after))
         .find_map(|(pointer, ranges)| match ranges {
-            (Some(was), Some(is)) => (previous[was] != rendered[is]).then(|| pointer.clone()),
+            (Some(was), Some(is)) => {
+                (slice::slice(previous, was) != slice::slice(rendered, is)).then(|| pointer.clone())
+            }
             _ => None,
         })
 }
@@ -86,7 +90,7 @@ fn unchanged_scalars(old: &Value, target: &Value, pointer: &mut String, out: &mu
                 if let Some(other) = right.get(key) {
                     let length = pointer.len();
                     pointer.push('/');
-                    pointer.push_str(&codec::escape(key));
+                    pointer.push_str(&pointer_key(key));
                     unchanged_scalars(value, other, pointer, out);
                     pointer.truncate(length);
                 }

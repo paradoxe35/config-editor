@@ -1,16 +1,17 @@
 //! A key already written is not offered again, whatever its kind (a
 //! scalar, an object, a list of scalars, a list of objects), in every
 //! language; except a list the language writes by repeating its items
-//! (XML elements, HCL blocks), where accepting adds one more item written
-//! the same way. A list of objects written whole in HCL (`containers =
+//! (XML elements, HCL blocks, TOML arrays of tables), where accepting adds
+//! one more item written the same way. A list of objects written whole in HCL (`containers =
 //! [ … ]`) is no such list.
 //!
 //! `|` marks the caret.
 
 use super::super::completion::{apply_completion, completions};
-use super::super::diagnostics::build_schema;
+use super::super::schema::build_schema;
 use super::Language;
-use serde_json::Value;
+use super::harness::{At, completing, report, text, write};
+use serde_json::{Value, json};
 
 const SCHEMA: &str = r#"{"type":"object","properties":{"spec":{"type":"object","properties":{
     "containers":{"type":"array","items":{"type":"object","required":["name"],
@@ -19,7 +20,8 @@ const SCHEMA: &str = r#"{"type":"object","properties":{"spec":{"type":"object","
     "meta":{"type":"object","properties":{"a":{"type":"string"}}},
     "other":{"type":"integer"}}}}}"#;
 
-/// Each case: the document with the caret on a new line in `spec`, and
+/// Forms written by hand, beside those each language writes itself (below):
+/// each case the document with the caret on a new line in `spec`, and
 /// how many `containers` items accepting the offered `containers` leaves
 /// (`None`: not offered).
 const CASES: &[(Language, &str, Option<usize>)] = &[
@@ -75,7 +77,8 @@ const CASES: &[(Language, &str, Option<usize>)] = &[
     ),
 ];
 
-/// Other kinds of key, written: never offered again.
+/// Other kinds of key, written: never offered again. Forms written by hand,
+/// beside those each language writes itself.
 const WRITTEN: &[(Language, &str)] = &[
     (
         Language::HCL,
@@ -120,11 +123,59 @@ fn labels_and_accept(
     (labels, accepted)
 }
 
+/// Whether `language` writes a list of objects by repeating its key, once
+/// per item (XML elements, HCL blocks, TOML arrays of tables).
+fn repeats_items(language: Language) -> bool {
+    repeats(
+        language,
+        "containers",
+        &json!([{"name": "a"}, {"name": "b"}]),
+    )
+}
+
+/// Whether `language` writes the list `list` of `key` by repeating the key,
+/// once per item (or its tags around each).
+fn repeats(language: Language, key: &str, list: &Value) -> bool {
+    text(language, &json!({"spec": { key: list }}), &[])
+        .is_ok_and(|text| text.matches(key).count() >= 2)
+}
+
+/// The caret on a new entry of `spec` holding `spec`, in every language.
+fn written_cases(spec: &Value, failures: &mut Vec<String>) -> Vec<(Language, String)> {
+    let at = At::NewKey {
+        object: "/spec",
+        typed: "",
+    };
+    let mut cases = Vec::new();
+    for language in completing() {
+        match write(language, &json!({ "spec": spec }), &[], at) {
+            Ok(written) => cases.push((language, written.marked())),
+            Err(error) => failures.push(error),
+        }
+    }
+    cases
+}
+
+/// A written list of objects, by hand and as each language writes it, is
+/// offered again only where the language repeats its items.
 #[test]
 fn a_written_list_of_objects_is_offered_again_only_where_items_repeat() {
     let bundle = build_schema(SCHEMA).unwrap();
     let mut failures = Vec::new();
-    for (language, marked, wanted) in CASES {
+    let mut cases: Vec<(Language, String, Option<usize>)> = CASES
+        .iter()
+        .map(|(language, marked, wanted)| (*language, (*marked).to_string(), *wanted))
+        .collect();
+    for (items, spec) in [
+        (1, json!({"containers": [{"name": "web"}]})),
+        (2, json!({"containers": [{"name": "a"}, {"name": "b"}]})),
+    ] {
+        for (language, marked) in written_cases(&spec, &mut failures) {
+            let wanted = repeats_items(language).then_some(items + 1);
+            cases.push((language, marked, wanted));
+        }
+    }
+    for (language, marked, wanted) in &cases {
         let (labels, accepted) = labels_and_accept(*language, marked, "containers");
         let items = accepted.as_ref().map(|text| {
             super::super::codec::read(language.behavior(), text, Some(&bundle.schema))
@@ -141,26 +192,35 @@ fn a_written_list_of_objects_is_offered_again_only_where_items_repeat() {
             ));
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
 #[test]
 fn a_written_key_of_any_other_kind_is_not_offered_again() {
     let mut failures = Vec::new();
-    for (language, marked) in WRITTEN {
+    let mut cases: Vec<(Language, String)> = WRITTEN
+        .iter()
+        .map(|(language, marked)| (*language, (*marked).to_string()))
+        .collect();
+    let spec = json!({"other": 1, "tags": ["a", "b"], "meta": {"a": "x"}});
+    cases.extend(written_cases(&spec, &mut failures));
+    for (language, marked) in &cases {
         let (labels, _) = labels_and_accept(*language, marked, "");
+        // A list the language writes by repeating its key may be offered
+        // again, to add an item (as `containers` above).
         let repeated: Vec<&String> = labels
             .iter()
             .filter(|label| {
                 ["other", "tags", "meta"].contains(&label.as_str())
                     && marked.contains(label.as_str())
+                    && !(label.as_str() == "tags" && repeats(*language, "tags", &json!(["a", "b"])))
             })
             .collect();
         if !repeated.is_empty() || !labels.iter().any(|label| label == "containers") {
             failures.push(format!("{language} {marked:?}: offered {labels:?}"));
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
 /// A key a `not` keeps apart from the keys written (`path` written) is
@@ -190,19 +250,29 @@ fn a_key_a_not_keeps_apart_from_written_keys_is_not_offered() {
         ),
         object(r#""not":{"anyOf":[{"required":["version","path"]},{"required":["git","path"]}]}"#),
     ];
-    let documents: [(Language, &str); 5] = [
-        (Language::YAML, "dep:\n  path: p\n  |\n"),
-        (Language::JSON, "{\"dep\": {\n  \"path\": \"p\",\n  |\n}}\n"),
-        (Language::TOML, "[dep]\npath = \"p\"\n|\n"),
-        (Language::HCL, "dep {\n  path = \"p\"\n  |\n}\n"),
-        (Language::XML, "<dep>\n  <path>p</path>\n  <|\n</dep>\n"),
-    ];
     let mut failures = Vec::new();
+    let at = At::NewKey {
+        object: "/dep",
+        typed: "",
+    };
+    let documents: Vec<(Language, String)> = completing()
+        .into_iter()
+        .filter_map(
+            |language| match write(language, &json!({"dep": {"path": "p"}}), &[], at) {
+                Ok(written) => Some((language, written.marked())),
+                Err(error) => {
+                    failures.push(error);
+                    None
+                }
+            },
+        )
+        .collect();
     for (shape, schema) in schemas.iter().enumerate() {
         let bundle = build_schema(schema).unwrap();
         // The `anyOf` keeps `version` from `path` too.
         let wanted: &[&str] = if shape == 4 { &[] } else { &["version"] };
-        for (language, marked) in documents {
+        for (language, marked) in &documents {
+            let language = *language;
             let at = marked.find('|').unwrap();
             let source = marked.replacen('|', "", 1);
             let labels: Vec<String> =
@@ -215,5 +285,5 @@ fn a_key_a_not_keeps_apart_from_written_keys_is_not_offered() {
             }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }

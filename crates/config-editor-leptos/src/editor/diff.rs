@@ -17,6 +17,35 @@ pub(super) enum DiffEdit {
     Delete,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Steps of the line diffs' searches on this thread (see [`steps`]).
+    static STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// `count` steps of a line diff's search (counted on this thread in tests):
+/// a diagonal tried, a line passed along one, a cell of the frontier kept
+/// for the way back ([`myers_edits`]), a cell of the table of common lines
+/// (`changes::middle_edits`). Apart from `work_count`, whose matrices
+/// measure small documents, where these searches are exact and bounded.
+#[inline(always)]
+pub(super) fn step(count: usize) {
+    #[cfg(test)]
+    STEPS.with(|steps| steps.set(steps.get() + count));
+    #[cfg(not(test))]
+    let _ = count;
+}
+
+/// The steps counted so far on this thread.
+#[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "read by the hostile random suite, which needs every feature"
+)]
+pub(super) fn steps() -> usize {
+    STEPS.with(std::cell::Cell::get)
+}
+
 /// Myers depth cap, in edit steps: the search costs `O(depth²)`, so beyond
 /// this the changed region is diffed as one delete-then-insert block.
 pub(super) const MYERS_MAX_DEPTH: usize = 1024;
@@ -30,9 +59,11 @@ pub(super) fn myers_edits(old: &[&str], new: &[&str]) -> Option<Vec<DiffEdit>> {
 
     for depth in 0..=max_depth {
         trace.push(frontier.clone());
+        step(frontier.len());
         let depth_signed = depth as isize;
         let mut diagonal = -depth_signed;
         while diagonal <= depth_signed {
+            step(1);
             let index = (offset + diagonal) as usize;
             let mut x = if diagonal == -depth_signed
                 || (diagonal != depth_signed && frontier[index - 1] < frontier[index + 1])
@@ -46,6 +77,7 @@ pub(super) fn myers_edits(old: &[&str], new: &[&str]) -> Option<Vec<DiffEdit>> {
                 && y < new.len() as isize
                 && old[x as usize] == new[y as usize]
             {
+                step(1);
                 x += 1;
                 y += 1;
             }

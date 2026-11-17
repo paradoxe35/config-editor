@@ -16,17 +16,17 @@ use super::super::super::positioning::row_box;
 use super::super::super::state::EditorState;
 use super::super::SearchMatch;
 use crate::cssom::cssom;
+use crate::editor::text::{TextRange, TextSize, slice};
 
 /// Most matches drawn at once (a minified line can hold thousands).
 const MAX_MATCHES: usize = 1_000;
 
-/// The part of a match on one document line, in byte offsets of the text.
+/// The part of a match on one document line.
 #[derive(Clone, Copy)]
 struct Segment {
     line: usize,
-    line_start: usize,
-    start: usize,
-    end: usize,
+    line_start: TextSize,
+    range: TextRange,
     current: bool,
 }
 
@@ -125,25 +125,28 @@ fn mirror_rows(state: EditorState) -> Vec<MirrorRow> {
 /// right-to-left run lands depends on all of it.
 fn mirror_line(text: &str, segments: &[Segment], row: usize) -> MirrorRow {
     let line_start = segments[0].line_start;
-    let line_end = text[line_start..]
-        .find('\n')
-        .map_or(text.len(), |newline| line_start + newline);
+    let line_end = slice::line_end_of(text, line_start);
+    let cut = |start, end| {
+        slice::slice(text, TextRange::new(start, end))
+            .unwrap_or("")
+            .to_string()
+    };
     let mut pieces = Vec::new();
     let mut cursor = line_start;
     for segment in segments {
-        let start = segment.start.max(cursor);
-        let end = segment.end.max(start);
+        let start = segment.range.start().max(cursor);
+        let end = segment.range.end().max(start);
         if cursor < start {
-            pieces.push(Piece::Text(text[cursor..start].to_string()));
+            pieces.push(Piece::Text(cut(cursor, start)));
         }
         pieces.push(Piece::Match {
-            text: text[start..end].to_string(),
+            text: cut(start, end),
             current: segment.current,
         });
         cursor = end;
     }
     if cursor < line_end {
-        pieces.push(Piece::Text(text[cursor..line_end].to_string()));
+        pieces.push(Piece::Text(cut(cursor, line_end)));
     }
     MirrorRow { row, pieces }
 }
@@ -157,26 +160,24 @@ fn push_segments(
     rows: &Range<usize>,
     segments: &mut Vec<Segment>,
 ) {
-    let (mut line, mut line_start, mut start) = (found.line, found.line_start, found.start);
+    let (mut line, mut line_start, mut start) = (found.line, found.line_start, found.range.start());
+    let newline = TextSize::from(1);
     loop {
-        let line_end = text[line_start..]
-            .find('\n')
-            .map_or(text.len(), |newline| line_start + newline);
-        let end = found.end.min(line_end);
+        let line_end = slice::line_end_of(text, line_start);
+        let end = found.range.end().min(line_end);
         if rows.contains(&line) && start <= end {
             segments.push(Segment {
                 line,
                 line_start,
-                start,
-                end,
+                range: TextRange::new(start, end),
                 current,
             });
         }
-        if found.end <= line_end + 1 || line + 1 >= rows.end {
+        if found.range.end() <= line_end + newline || line + 1 >= rows.end {
             return;
         }
         line += 1;
-        line_start = line_end + 1;
+        line_start = line_end + newline;
         start = line_start;
     }
 }

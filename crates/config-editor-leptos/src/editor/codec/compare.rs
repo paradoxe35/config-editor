@@ -7,7 +7,7 @@ use super::super::language::ConfigLanguage;
 /// A line as the structural patch compares it: trimmed, without quotes and
 /// without its trailing comment (as the language finds it).
 pub(super) fn comparable(language: &dyn ConfigLanguage, line: &str) -> String {
-    let code = line[..comment_start(language, line)].trim();
+    let code = code_of(language, line).trim();
     // Written forms the language reads the same (its own rules: `\u00e9`
     // for `é`).
     let code = language.comparable_line(code);
@@ -80,7 +80,12 @@ pub(super) fn canonical_number(text: &str) -> Option<String> {
         None => return None,
     } * sign;
     Some(if value.fract() == 0.0 && value.abs() < 1e15 {
-        format!("{}", value as i64)
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a whole number under 1e15, which an i64 holds exactly"
+        )]
+        let whole = value as i64;
+        format!("{whole}")
     } else {
         value.to_string()
     })
@@ -88,23 +93,49 @@ pub(super) fn canonical_number(text: &str) -> Option<String> {
 
 /// The trailing comment of `line`, or `""`.
 pub(super) fn trailing_comment<'a>(language: &dyn ConfigLanguage, line: &'a str) -> &'a str {
-    line[comment_start(language, line)..].trim_end()
+    split_comment(language, line).1.trim_end()
 }
 
 /// The trailing comment of `line` with the spacing written before it
 /// (`    # pc`), for a line that takes it over; `""` without a comment.
 pub(super) fn spaced_trailing_comment<'a>(language: &dyn ConfigLanguage, line: &'a str) -> &'a str {
-    let start = comment_start(language, line);
-    if line[start..].trim_end().is_empty() {
+    let (code, comment) = split_comment(language, line);
+    if comment.trim_end().is_empty() {
         return "";
     }
-    let code_end = line[..start].trim_end().len();
-    let spaced = line[code_end..].trim_end();
+    let spaced = line
+        .strip_prefix(code.trim_end())
+        .unwrap_or(comment)
+        .trim_end();
     if spaced.starts_with([' ', '\t']) {
         spaced
     } else {
-        &line[start..]
+        comment
     }
+}
+
+/// The code of `line` before its trailing comment (all of it without one).
+pub(super) fn code_of<'a>(language: &dyn ConfigLanguage, line: &'a str) -> &'a str {
+    split_comment(language, line).0
+}
+
+/// `line` cut where its trailing comment starts: the code, and the comment.
+pub(super) fn split_comment<'a>(
+    language: &dyn ConfigLanguage,
+    line: &'a str,
+) -> (&'a str, &'a str) {
+    // `comment_start` is a character boundary of `line`.
+    line.split_at(comment_start(language, line))
+}
+
+/// The whitespace `text` starts with.
+pub(super) fn leading_space(text: &str) -> &str {
+    text.strip_suffix(text.trim_start()).unwrap_or("")
+}
+
+/// The whitespace `text` ends with.
+pub(super) fn trailing_space(text: &str) -> &str {
+    text.strip_prefix(text.trim_end()).unwrap_or("")
 }
 
 /// Where the trailing comment of `line` starts, or its length.

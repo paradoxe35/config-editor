@@ -5,6 +5,8 @@
 //! token, with a save waiting. In every host language, shown in
 //! its own language and as every other one, for two unrelated patterns.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
@@ -46,7 +48,7 @@ pub(super) fn type_at(state: EditorState, at: usize, typed: &str) {
         let before = state.doc().text.get_untracked();
         let byte = super::super::keyboard::utf16_to_byte_index(&before, at);
         let text = format!("{}{character}{}", &before[..byte], &before[byte..]);
-        let edit = Edit::input(
+        let edit = Edit::input_units(
             before,
             (at, at),
             text,
@@ -66,7 +68,7 @@ pub(super) fn paste(state: EditorState, range: std::ops::Range<usize>, with: &st
     let after = format!("{}{with}{}", &before[..range.start], &before[range.end..]);
     let (start, end) = (utf16(&before, range.start), utf16(&before, range.end));
     let caret = start + with.encode_utf16().count();
-    state.commit(Edit::new(before, (start, end), after, caret))
+    state.commit(Edit::new_units(before, (start, end), after, caret))
 }
 
 /// The typing pause: the text on screen converted back to the host.
@@ -129,13 +131,12 @@ fn typing_or_pasting_beside_a_whole_placeholder_is_refused() {
                     }
                     if !state
                         .protect()
-                        .tip
-                        .get_untracked()
+                        .tip()
                         .is_some_and(|tip| tip.message.starts_with(SAYS))
                     {
                         failures.push(format!(
                             "{case}, {step}: refusal {:?}",
-                            state.protect().tip.get_untracked()
+                            state.protect().tip()
                         ));
                     }
                     if let Some(glued) = heard
@@ -237,7 +238,7 @@ fn text_typed_beside_a_placeholder_while_the_text_does_not_parse_is_refused() {
                 let end = shown.trim_end().len();
                 let broken = breaking(view);
                 paste(state, end..end, broken);
-                state.protect().tip.set(None);
+                state.protect().hide_tip(false);
                 type_at(state, start + tokens.same.len(), "Z");
                 let now = state.doc().text.get_untracked();
                 if now.contains(&format!("{}Z", tokens.same)) {
@@ -245,14 +246,10 @@ fn text_typed_beside_a_placeholder_while_the_text_does_not_parse_is_refused() {
                 }
                 if !state
                     .protect()
-                    .tip
-                    .get_untracked()
+                    .tip()
                     .is_some_and(|tip| tip.message.starts_with(SAYS))
                 {
-                    failures.push(format!(
-                        "{case}: refusal {:?}",
-                        state.protect().tip.get_untracked()
-                    ));
+                    failures.push(format!("{case}: refusal {:?}", state.protect().tip()));
                 }
                 let Some(from) = now.rfind(broken) else {
                     failures.push(format!("{case}: not broken: {now:?}"));

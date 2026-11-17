@@ -10,14 +10,16 @@
 use jsonschema::error::{ValidationError, ValidationErrorKind};
 use serde_json::Value;
 
-use super::Fields;
+use super::{Explanations, Fields};
 
 /// Whether `error` judges the value of a placeholder of `placeholders`
-/// (its schema `root` read for a `minContains`).
+/// (its schema `root` read for a `minContains`; each option's errors
+/// where it explained its value read in `explanations`).
 pub(super) fn judges_placeholder(
     error: &ValidationError<'_>,
     placeholders: &Fields,
     root: &Value,
+    explanations: &Explanations<'_>,
 ) -> bool {
     let path = error.instance_path().as_str();
     if placeholders.holds(path) {
@@ -34,12 +36,16 @@ pub(super) fn judges_placeholder(
         ValidationErrorKind::Enum { .. }
         | ValidationErrorKind::Constant { .. }
         | ValidationErrorKind::Not { .. } => true,
-        ValidationErrorKind::AnyOf { context } | ValidationErrorKind::OneOfNotValid { context } => {
-            context.iter().any(|option| {
-                option
-                    .iter()
-                    .all(|nested| judges_placeholder(nested, placeholders, root))
-            })
+        ValidationErrorKind::AnyOf { .. } | ValidationErrorKind::OneOfNotValid { .. } => {
+            explanations
+                .branches(error)
+                .unwrap_or_default()
+                .iter()
+                .any(|option| {
+                    option
+                        .iter()
+                        .all(|nested| judges_placeholder(nested, placeholders, root, explanations))
+                })
         }
         _ => false,
     }

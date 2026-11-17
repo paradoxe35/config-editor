@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // A repeated document id is ignored (with a warning): every answer about
 // the id is the first listed document's, before and after it is shown
-// (round 3's `D3.host-1`: `value`, `unifiedDiff()` and `isDirty` answered
+// (`value`, `unifiedDiff()` and `isDirty` answered
 // the ignored duplicate while `text` and `save()` answered the first).
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');

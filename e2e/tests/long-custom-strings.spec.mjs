@@ -211,4 +211,75 @@ test.describe("long footer and find texts at 320 px", () => {
       }),
     ).toBeVisible();
   });
+  test("the find and go-to texts wrap inside their widgets", async ({
+    page,
+  }) => {
+    const long = {
+      matchPosition:
+        "Treffer {current} von insgesamt {total} Treffern in der ganzen Datei",
+      noResults: "Es wurden keine Ergebnisse für diese Suche gefunden",
+      invalidPattern: "Das Suchmuster ist kein gültiger regulärer Ausdruck",
+      replacedOne: "{count} Vorkommen wurde ersetzt und danach gespeichert",
+      replacedOther:
+        "{count} Vorkommen wurden ersetzt und danach wurde gespeichert",
+      replaceSkipped: "; einige Treffer im geschützten Text blieben unberührt",
+      goToLineHint: "Eine Zeilennummer von 1 bis {lines} eingeben und Enter",
+      goToLineInvalid:
+        "Keine gültige Position: Zeile oder Zeile:Spalte erwartet",
+    };
+    const clipped = () =>
+      page.evaluate(() => {
+        const out = [];
+        for (const root of document.querySelectorAll(
+          ".config-editor__find, .config-editor__goto",
+        )) {
+          if (root.getBoundingClientRect().width === 0) continue;
+          const box = root.getBoundingClientRect();
+          for (const element of root.querySelectorAll(
+            ".config-editor__find-count, .config-editor__goto-hint",
+          )) {
+            const rect = element.getBoundingClientRect();
+            if (rect.width === 0) continue;
+            const over = Math.max(rect.right - box.right, box.left - rect.left);
+            const cut = element.scrollWidth - element.clientWidth;
+            if (over > 1 || cut > 1)
+              out.push({ text: element.textContent, over, cut });
+          }
+        }
+        return out;
+      });
+    await mount(page, long, "plain: x\nz: 2\n");
+    await page.locator(".config-editor__input").click();
+    await page.keyboard.press("Control+h");
+    await expect(page.locator(".config-editor__find")).toBeVisible();
+    await page.keyboard.type("z");
+    await expect(page.locator(".config-editor__find-count")).toContainText(
+      "Treffer",
+    );
+    expect(await clipped()).toEqual([]);
+    await page.keyboard.type("qq");
+    await expect(page.locator(".config-editor__find-count")).toContainText(
+      "keine Ergebnisse",
+    );
+    expect(await clipped()).toEqual([]);
+    await page.locator(".config-editor__find-input").first().fill("z");
+    await page.keyboard.press("Control+Alt+Enter");
+    await expect(page.locator(".config-editor__find-count")).toContainText(
+      "ersetzt",
+    );
+    expect(await clipped()).toEqual([]);
+    await page.keyboard.press("Escape");
+    await page.locator(".config-editor__input").click();
+    await page.keyboard.press("Control+g");
+    await expect(page.locator(".config-editor__goto")).toBeVisible();
+    await expect(page.locator(".config-editor__goto-hint")).toContainText(
+      "Zeilennummer",
+    );
+    expect(await clipped()).toEqual([]);
+    await page.keyboard.type("abc");
+    await expect(page.locator(".config-editor__goto-hint")).toContainText(
+      "Keine gültige",
+    );
+    expect(await clipped()).toEqual([]);
+  });
 });

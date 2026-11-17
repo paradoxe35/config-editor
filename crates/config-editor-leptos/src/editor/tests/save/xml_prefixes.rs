@@ -1,6 +1,6 @@
 //! Prefixes edited from another view: a save that leaves a prefix no
-//! declaration binds waits, at the name that needs it (hard-bar QA
-//! `D25.editing-2`: removing `xmlns:x` saved `<s x:attr="3">` unbound,
+//! declaration binds waits, at the name that needs it.
+//! Removing `xmlns:x` saved `<s x:attr="3">` unbound,
 //! which namespace-aware readers refuse, with no problem shown). So does a
 //! save the host could not show in the view again (text beside a child
 //! element added under it). The declarations themselves are markup no view
@@ -21,7 +21,7 @@ fn removed(value: &mut Value, pointer: &str, key: &str) {
 
 /// A view shows no namespace declaration, so it cannot remove one: an
 /// attribute a view gives a prefix that no declaration binds waits, at
-/// the name that needs one (hard-bar QA `D25.editing-2`).
+/// the name that needs one.
 #[test]
 fn a_prefix_no_declaration_binds_waits_on_the_prefixed_name() {
     let mut failures = Vec::new();

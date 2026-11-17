@@ -4,25 +4,22 @@
 //! no later value lands one stop early.
 
 use super::super::completion::{apply_completion, completions, next_stop, stop_ranges};
-use super::super::diagnostics::build_schema;
+use super::super::edit::{Assoc, Change};
+use super::super::schema::build_schema;
 use super::Language;
+use super::harness::{At, completing, holds, write};
+use crate::editor::text::{TextRange, TextSize};
 use serde_json::{Value, json};
 
-const LANGUAGES: [Language; 5] = [
-    Language::YAML,
-    Language::JSON,
-    Language::TOML,
-    Language::HCL,
-    Language::XML,
-];
-
-/// Where a new top-level key is typed, per language.
-fn root(language: Language) -> &'static str {
-    match language.label() {
-        "JSON" => "{\n  |\n}\n",
-        "XML" => "<|\n",
-        _ => "|\n",
-    }
+/// Where a new top-level key is typed in an empty document.
+fn root(language: Language) -> String {
+    let at = At::NewKey {
+        object: "",
+        typed: "",
+    };
+    write(language, &json!({}), &[], at)
+        .map(|written| written.marked())
+        .unwrap_or_else(|error| panic!("{error}"))
 }
 
 /// `svc` accepted at the root, then each of `typed` typed at the caret
@@ -31,6 +28,7 @@ fn root(language: Language) -> &'static str {
 fn typed_through(language: Language, schema: &str, typed: &[&str]) -> String {
     let bundle = build_schema(schema).unwrap();
     let marked = root(language);
+    let marked = marked.as_str();
     let at = marked.find('|').unwrap();
     let source = marked.replacen('|', "", 1);
     let options = completions(&source, at, true, Some(&bundle), true, language.behavior());
@@ -40,28 +38,25 @@ fn typed_through(language: Language, schema: &str, typed: &[&str]) -> String {
         .expect("svc offered");
     let (mut text, mut anchor, mut caret) = apply_completion(&source, option);
     let insert_start = caret - option.cursor_offset;
-    let insert_end = insert_start + option.insert.len();
-    // Kept from the end, as the editor keeps them.
-    let total = text.len();
-    let stops: Vec<(usize, usize)> =
+    // Kept by position, mapped through each edit, as the editor keeps them.
+    let mut stops: Vec<TextRange> =
         stop_ranges(&option.insert, option.cursor_offset, &option.fills)
             .into_iter()
-            .map(|(start, end)| (total - (insert_start + start), total - (insert_start + end)))
+            .map(|stop| stop + insert_start)
             .collect();
-    let after_region = total - insert_end;
+    let mut region_end = insert_start + TextSize::of(option.insert.as_str());
     for value in typed {
         let start = anchor.min(caret);
         let end = anchor.max(caret);
-        text.replace_range(start..end, value);
-        caret = start + value.len();
-        let length = text.len();
-        let region_end = length - after_region;
-        let here: Vec<(usize, usize)> = stops
+        let change = Change::replace(&text, TextRange::new(start, end), value);
+        text = change.apply(&text).expect("made on it");
+        caret = start + TextSize::of(*value);
+        stops = stops
             .iter()
-            .filter(|(start, _)| *start <= length)
-            .map(|(start, end)| (length - start, length - end))
+            .filter_map(|stop| change.map_range(stop))
             .collect();
-        match next_stop(&text, caret, region_end, &here, language.behavior()) {
+        region_end = change.map_pos(region_end, Assoc::After).pos;
+        match next_stop(&text, caret, region_end, &stops, language.behavior()) {
             Some((from, to)) => (anchor, caret) = (from, to),
             None => break,
         }
@@ -89,7 +84,7 @@ fn tab_walks_the_values_of_an_accepted_block_with_a_nested_required_object() {
     let wanted =
         json!({"svc": {"name": "web", "port": 80, "limits": {"cpu": 3, "mem": "1G"}, "mode": "b"}});
     let mut failures = Vec::new();
-    for language in LANGUAGES {
+    for language in completing() {
         let text = typed_through(language, schema, &["web", "80", "3", "1G", "b"]);
         if read(language, schema, &text).as_ref() != Some(&wanted) {
             failures.push(format!("{language}:\n{text}"));
@@ -113,7 +108,7 @@ fn tab_walks_the_values_of_an_accepted_block_nested_two_deep() {
         }}}}"#;
     let wanted = json!({"svc": {"name": "web", "limits": {"io": {"read": 6, "write": 7}, "mem": "1G"}, "mode": "b"}});
     let mut failures = Vec::new();
-    for language in LANGUAGES {
+    for language in completing() {
         let text = typed_through(language, schema, &["web", "6", "7", "1G", "b"]);
         if read(language, schema, &text).as_ref() != Some(&wanted) {
             failures.push(format!("{language}:\n{text}"));
@@ -167,7 +162,7 @@ fn tab_walks_the_items_a_required_list_is_written_with() {
                 }
             }
             let wanted = json!({ "svc": wanted });
-            for language in LANGUAGES {
+            for language in completing() {
                 let text = typed_through(language, &schema, &typed);
                 let read = read(language, &schema, &text);
                 if read.as_ref() != Some(&wanted) {
@@ -222,7 +217,7 @@ fn tab_walks_the_items_of_lists_filled_at_every_depth() {
             &["a", "1", "b", "2", "N"][..],
             json!({"hosts": [{"h": "a", "p": 1}, {"h": "b", "p": 2}], "name": "N"}),
         ),
-        // QA 36: a list of objects holding a required list of objects of
+        // A list of objects holding a required list of objects of
         // two fields: Tab goes from `from` to `to`, then to `proto`.
         (
             r#"{"type":"object","required":["rules","name"],"properties":{"name":{"type":"string"},
@@ -241,11 +236,11 @@ fn tab_walks_the_items_of_lists_filled_at_every_depth() {
     for (svc, typed, wanted) in &cases {
         let schema = format!(r#"{{"type":"object","properties":{{"svc":{svc}}}}}"#);
         let wanted = json!({ "svc": wanted });
-        for language in LANGUAGES {
-            // XML writes a list as its key's element repeated, one per
-            // item: an item that is a list itself has no element of its
-            // own to repeat, so the block leaves such a list out.
-            if language == Language::XML && svc.contains("grid") {
+        for language in completing() {
+            // A language writing a list as its key repeated (XML elements)
+            // has no key of its own for an item that is a list itself, so
+            // the block leaves such a list out.
+            if svc.contains("grid") && !holds(language, &json!({"grid": [[1, 2], [3]]})) {
                 continue;
             }
             let text = typed_through(language, &schema, typed);

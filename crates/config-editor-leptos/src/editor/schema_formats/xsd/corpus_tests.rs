@@ -17,7 +17,7 @@ use serde_json::{Map, Value, json};
 use super::super::{SchemaFormat, SchemaInput};
 use crate::editor::Language;
 use crate::editor::completion::resolve_branches;
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/xsd")

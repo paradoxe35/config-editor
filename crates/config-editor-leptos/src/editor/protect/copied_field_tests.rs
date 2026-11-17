@@ -1,10 +1,12 @@
 //! A secret field's element copied in an XML view (`Shift+Alt+Down`, or
 //! the element typed again below it): the field becomes a list of copies
 //! of the placeholder. The copy is flagged as a copy, as a copied line is
-//! in every language (QA 36: the host's own line was flagged as standing
+//! in every language (the host's own line was flagged as standing
 //! for another field's secret), and the save waits, since the host would
 //! read a list of copies as plain text and the secret would be gone
-//! (round 29 saved).
+//!.
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use leptos::prelude::*;
 
@@ -61,7 +63,7 @@ fn a_secret_element_copied_in_an_xml_view_is_flagged_as_a_copy_and_waits() {
             let line = &before[line_start..line_end];
             let after = format!("{}{line}{}", &before[..line_end], &before[line_end..]);
             let at = utf16(&before, line_end);
-            state.commit(Edit::new(before, (at, at), after.clone(), at));
+            state.commit(Edit::new_units(before, (at, at), after.clone(), at));
             state.recheck_tokens();
             convert_now(state, after.clone(), Language::XML);
             let flagged: Vec<String> = problems(state, Language::XML, None)
@@ -121,7 +123,7 @@ fn a_placeholder_copied_to_another_field_in_an_xml_view_still_saves() {
             1,
         );
         let at = utf16(&after, after.len());
-        state.commit(Edit::new(before, (0, 0), after.clone(), at));
+        state.commit(Edit::new_units(before, (0, 0), after.clone(), at));
         state.recheck_tokens();
         convert_now(state, after, Language::XML);
         if !state.sync().conversion_problems.get_untracked().is_empty() {

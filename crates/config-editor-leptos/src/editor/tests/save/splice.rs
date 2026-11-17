@@ -8,6 +8,8 @@
 use crate::editor::Language;
 use crate::editor::bridge::WHOLE_RENDERS;
 use crate::editor::diff::{DiffEdit, myers_edits};
+use crate::editor::language::{pointer_key, unescaped_key};
+use crate::editor::paths::FieldPath;
 use crate::editor::save_matrix::{ALL, find_slot, save_conversion, slot};
 use serde_json::Value;
 
@@ -284,7 +286,7 @@ fn yaml_1_1_reads_plain_as_text(written: &str, in_flow: bool) -> bool {
 fn yaml_plain_written<'a>(saved: &'a str, pointer: &str) -> Option<(&'a str, bool)> {
     let behavior = Language::YAML.behavior();
     let span = behavior
-        .value_span(saved, pointer)
+        .value_span(saved, &FieldPath::from(pointer))
         .or_else(|| crate::editor::codec::inline_location(behavior, saved, pointer, false))?;
     let line = saved.lines().nth(span.line - 1)?;
     let start = line.char_indices().nth(span.start_column - 1)?.0;
@@ -468,7 +470,7 @@ const KEYS: &[&str] = &[
     "[k]",
     "a,b",
     "\u{fffe}k",
-    // Plain where every reader takes them as text (round 19 quoted them).
+    // Plain where every reader takes them as text.
     "foo bar",
     "Über",
     "a/b",
@@ -482,8 +484,7 @@ fn keys(value: &Value, pointer: String, out: &mut Vec<String>) {
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                let child_pointer =
-                    format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                let child_pointer = format!("{pointer}/{}", pointer_key(key));
                 // XML's text slot is no key the host writes.
                 if key != "#text" {
                     out.push(child_pointer.clone());
@@ -505,7 +506,7 @@ fn rename(document: &mut Value, pointer: &str, to: &str) -> bool {
     let Some((parent, key)) = pointer.rsplit_once('/') else {
         return false;
     };
-    let key = key.replace("~1", "/").replace("~0", "~");
+    let key = unescaped_key(key);
     let Some(Value::Object(map)) = find_slot(document, parent) else {
         return false;
     };
@@ -648,7 +649,10 @@ fn writer_writes_key_plain(key: &str) -> bool {
 
 /// Whether the key at `pointer` of the YAML `text` is in a flow mapping.
 fn in_flow_mapping(text: &str, pointer: &str) -> bool {
-    let Some(span) = Language::YAML.behavior().key_span(text, pointer) else {
+    let Some(span) = Language::YAML
+        .behavior()
+        .key_span(text, &FieldPath::from(pointer))
+    else {
         return true;
     };
     let line = text.lines().nth(span.line - 1).unwrap_or("");
@@ -663,8 +667,10 @@ fn in_flow_mapping(text: &str, pointer: &str) -> bool {
 /// written, when it is written bare, and whether it is in a flow mapping.
 fn yaml_key_written<'a>(saved: &'a str, pointer: &str, to: &str) -> Option<(&'a str, bool)> {
     let (parent, _) = pointer.rsplit_once('/')?;
-    let renamed = format!("{parent}/{}", to.replace('~', "~0").replace('/', "~1"));
-    let span = Language::YAML.behavior().key_span(saved, &renamed)?;
+    let renamed = format!("{parent}/{}", pointer_key(to));
+    let span = Language::YAML
+        .behavior()
+        .key_span(saved, &FieldPath::from(&renamed))?;
     let line = saved.lines().nth(span.line - 1)?;
     let start = line.char_indices().nth(span.start_column - 1)?.0;
     let end = line
@@ -681,7 +687,7 @@ fn yaml_key_written<'a>(saved: &'a str, pointer: &str, to: &str) -> Option<(&'a 
 /// folded over lines, a TOML multi-line string, a heredoc, XML text) edited
 /// a little from another view keeps its lines: a character typed at its
 /// start, its end, or in the middle of one of its lines changes that line
-/// only, and the value reads back (round 20: YAML joined `"l1\n  l2"` into
+/// only, and the value reads back (YAML joined `"l1\n  l2"` into
 /// `"l1 l2Q"`).
 #[test]
 fn a_small_edit_of_a_string_over_lines_keeps_its_lines() {
@@ -693,7 +699,7 @@ fn a_small_edit_of_a_string_over_lines_keeps_its_lines() {
         strings(&old, String::new(), &mut pointers);
         let behavior = host.behavior();
         for pointer in &pointers {
-            let Some(span) = behavior.value_span(text, pointer) else {
+            let Some(span) = behavior.value_span(text, &FieldPath::from(pointer)) else {
                 continue;
             };
             let Some(value) = old.pointer(pointer).and_then(Value::as_str) else {
@@ -833,7 +839,7 @@ fn any_string_written_whole_holds_no_raw_character_a_reader_refuses() {
 }
 
 /// A file's CRLF line endings read as LF inside multi-line values, in the
-/// headless parse as in the editor (round 17: the parse read `\r\n`).
+/// headless parse as in the editor (the parse read `\r\n`).
 #[test]
 fn crlf_inside_multi_line_values_reads_as_lf() {
     let mut failures = Vec::new();

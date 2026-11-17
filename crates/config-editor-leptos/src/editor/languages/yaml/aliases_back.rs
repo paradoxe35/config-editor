@@ -8,6 +8,7 @@
 use super::aliases::shared_of;
 use super::*;
 use crate::editor::paths::{memo_key_span, memo_value_span, with_spans};
+use crate::editor::text::{text_size};
 
 /// `saved` with each value `origin` wrote as an alias (`*p`) of an anchor
 /// `saved` writes before it, that `saved` writes out on its key's line
@@ -29,7 +30,8 @@ pub(super) fn aliases_back(saved: &str, origin: &str) -> Option<String> {
     if candidates.is_empty() {
         return None;
     }
-    let value = YamlBehavior.parse(saved).ok()?;
+    let parsed = crate::editor::parse_cache::parsed(&YamlBehavior, saved);
+    let value = parsed.as_ref().as_ref().ok()?;
     // Each place's spans, and its anchor's, read at once.
     let pointers: Vec<String> =
         candidates.iter().flat_map(|(pointer, name)| [(*pointer).clone(), anchors[*name].clone()]).collect();
@@ -42,7 +44,7 @@ pub(super) fn aliases_back(saved: &str, origin: &str) -> Option<String> {
                 let range = written_out(saved, pointer)?;
                 // An alias reads only an anchor written before it.
                 let anchor_line = memo_key_span(&YamlBehavior, saved, anchor)?.line;
-                let line = crate::editor::paths::line_column(saved, range.start).0;
+                let line = crate::editor::paths::line_column(saved, text_size(range.start)).0;
                 (anchor_line < line).then(|| (range, format!("*{name}")))
             })
             .collect()
@@ -55,7 +57,8 @@ pub(super) fn aliases_back(saved: &str, origin: &str) -> Option<String> {
     for (range, alias) in back {
         text.replace_range(range, &alias);
     }
-    (YamlBehavior.parse(&text).ok()? == value).then_some(text)
+    let reads = crate::editor::parse_cache::parsed(&YamlBehavior, &text);
+    (reads.as_ref().as_ref().ok()? == value).then_some(text)
 }
 
 /// The byte range of the value at `pointer`, written on its key's line
@@ -65,7 +68,8 @@ fn written_out(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
     if memo_key_span(&YamlBehavior, source, pointer)?.line != span.line {
         return None;
     }
-    let range = crate::editor::codec::byte_range(source, span)?;
+    let range: std::ops::Range<usize> =
+        crate::editor::codec::span_text_range(source, span)?.into();
     let text = &source[range.clone()];
     (!text.trim().is_empty() && !text.starts_with(['|', '>', '*', '&', '!'])).then_some(range)
 }

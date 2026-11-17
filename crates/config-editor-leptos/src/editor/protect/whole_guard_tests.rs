@@ -8,7 +8,7 @@
 use leptos::prelude::*;
 
 use super::super::Language;
-use super::super::keys::lines::{Command, run};
+use super::super::keys::lines::{Command, run_units as run};
 use super::super::secret_options::SecretOptions;
 use super::super::test_state::TestEditor;
 use super::super::work_count::{Work, counted, counted_all};
@@ -125,7 +125,7 @@ fn whole_edit_work(
 /// text parses and while it has a syntax error: with none it costs the
 /// check nothing; with one per service, four times the text costs about
 /// four times the extra work of each kind, and parses the text a few times
-/// at most (QA 31: on the large sample pasted four times, broken by its
+/// at most (on the large sample pasted four times, broken by its
 /// repeated keys, the check read the whole text for its placeholders'
 /// fields with a parse for each of dozens of lines blanked, and Ctrl+A Tab
 /// took 4.5 s).
@@ -135,11 +135,12 @@ fn a_whole_document_edit_checks_placeholders_in_linear_work() {
     let ((), none) = counted_all(|| {
         let verdict = Placeholders {
             behavior: Language::YAML.behavior(),
-            reading_schema: None,
             known: &[],
             index: &WholeIndex::new(&[]),
             tokens: &[],
             matcher: &super::tokens::SecretMatcher::new(&SecretOptions::default()),
+            origin: None,
+            holding: false,
         }
         .check("a: 1\nb: [\n", "  a: 1\n  b: [\n", false);
         assert!(verdict.glued.is_none());

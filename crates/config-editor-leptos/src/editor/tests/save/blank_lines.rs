@@ -1,4 +1,4 @@
-//! M25-E1: the blank line that parts a header comment from the first
+//! The blank line that parts a header comment from the first
 //! entry's own comment stays when that entry is removed from another view,
 //! in every language with comments, for a map's first key and a list's
 //! first item, at the top of the file and under an opener.

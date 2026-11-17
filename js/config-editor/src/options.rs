@@ -36,7 +36,9 @@ pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "readOnlyPaths",
     "readOnlyRanges",
     "rangesFor",
+    "valueRevision",
     "secrets",
+    "channel",
 ];
 
 /// Logs a warning for each key of `options` that is neither one of `known`
@@ -61,6 +63,7 @@ pub(crate) const EDITOR_REMOUNT_OPTIONS: &[&str] = &[
     "className",
     "secrets",
     "echoes",
+    "channel",
 ];
 
 /// A console warning for each key of `object` not in `known`, with the

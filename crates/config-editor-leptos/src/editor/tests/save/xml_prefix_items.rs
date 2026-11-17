@@ -1,7 +1,7 @@
 //! Elements with a prefix (`<mvc:interceptor>`, `<xs:element>`,
 //! `<a:item xmlns:a="…">`) edited in another view: the model keys them by
 //! their local name, yet a save keeps every element in its namespace, and
-//! an item added takes its siblings' (QA `E32-1`: adding an item to
+//! an item added takes its siblings' (adding an item to
 //! `<mvc:interceptors>` saved every `<mvc:interceptor>` as
 //! `<interceptor>`, and an item added under `<xs:schema>` could never
 //! save). Each saved element's expanded name (namespace and local name),

@@ -1,6 +1,6 @@
 //! A key renamed together with keys inside it (a Replace All of `port`
 //! over `ports` and the `port` keys it holds) is renamed where each key is
-//! written: the host's forms stay (QA `E32-5`: a TOML inline table so
+//! written: the host's forms stay (a TOML inline table so
 //! renamed was rewritten as `[tool.x.ps]` table sections after the rest).
 
 use crate::editor::Language;

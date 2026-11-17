@@ -2,8 +2,7 @@
 //! share one line (a whole document on one line, or one element of a
 //! document over lines), edited structurally from every other view: only
 //! what the edit touches changes, and the comments, processing
-//! instructions and CDATA sections around it stay byte for byte (hard-bar
-//! QA `D24.editing-1`: deleting an element or attribute rewrote the host
+//! instructions and CDATA sections around it stay byte for byte (deleting an element or attribute once rewrote the host
 //! from the data, dropping every comment and processing instruction and
 //! escaping the CDATA kept, and the save was accepted).
 

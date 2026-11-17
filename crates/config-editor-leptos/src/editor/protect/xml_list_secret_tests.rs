@@ -5,12 +5,14 @@
 //! the host's own view and in every Edit-as view, with one item or two;
 //! items are added, and a token replaced, freely.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
-use super::super::diagnostics::build_schema;
 use super::super::edit::Edit;
 use super::super::save_matrix::{ALL, report};
+use super::super::schema::build_schema;
 use super::super::state::EditorState;
 use super::super::sync::convert_now;
 use super::super::test_state::TestEditor;
@@ -68,7 +70,7 @@ pub(super) fn write(
         } else {
             "insertText"
         };
-        let edit = Edit::input(
+        let edit = Edit::input_units(
             before,
             (start, end),
             after,

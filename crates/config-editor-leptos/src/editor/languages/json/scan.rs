@@ -73,6 +73,9 @@ pub(super) struct Scan {
     pub(super) key_spans: Vec<(Vec<String>, usize, usize)>,
     /// Byte spans of every value, keyed by its document path.
     pub(super) value_spans: Vec<(Vec<String>, usize, usize)>,
+    /// For each of `value_spans`, the end of the whole value when it is a
+    /// container closed in the text (its closer's end).
+    pub(super) value_ends: Vec<Option<usize>>,
     /// Whether the spans are recorded (only the caret's place is wanted
     /// otherwise: building every key's path took most of a keystroke in a
     /// long document).
@@ -109,7 +112,10 @@ pub(super) fn take_value(frames: &mut [Frame], scan: &mut Scan, start: usize, en
     }
     let parent = container_path(frames);
     match frames.last_mut() {
-        None => scan.value_spans.push((Vec::new(), start, end)),
+        None => {
+            scan.value_spans.push((Vec::new(), start, end));
+            scan.value_ends.push(None);
+        }
         Some(Frame::Object { mode, slot, .. }) => {
             if let Mode::Value(key) = mode.clone() {
                 let segment = Seg::Key(key);
@@ -118,6 +124,7 @@ pub(super) fn take_value(frames: &mut [Frame], scan: &mut Scan, start: usize, en
                     start,
                     end,
                 ));
+                scan.value_ends.push(None);
                 *slot = Some(segment);
                 *mode = Mode::After;
             }
@@ -135,6 +142,7 @@ pub(super) fn take_value(frames: &mut [Frame], scan: &mut Scan, start: usize, en
                     start,
                     end,
                 ));
+                scan.value_ends.push(None);
                 *slot = Some(segment);
                 *awaiting = false;
             }
@@ -212,6 +220,9 @@ fn scan(source: &str, cursor: usize, spans: bool) -> Scan {
 struct Walk {
     frames: Vec<Frame>,
     next_id: usize,
+    /// For each open container, its entry in `Scan::value_spans` (none
+    /// when its span was not recorded).
+    opened: Vec<Option<usize>>,
 }
 
 impl Walk {
@@ -228,10 +239,20 @@ impl Walk {
     /// recording its keys and spans in `scan` when there is one.
     fn take(&mut self, source: &str, token: &Token, is_partial: bool, mut scan: Option<&mut Scan>) {
         let frames = &mut self.frames;
+        // The value taken, and its entry in `Scan::value_spans` when one
+        // was recorded.
         let mut take_value = |frames: &mut Vec<Frame>, start: usize, end: usize| match scan.as_deref_mut() {
-            Some(scan) => take_value(frames, scan, start, end),
-            None => move_past_value(frames),
+            Some(scan) => {
+                let recorded = scan.value_spans.len();
+                take_value(frames, scan, start, end);
+                (scan.value_spans.len() > recorded).then_some(recorded)
+            }
+            None => {
+                move_past_value(frames);
+                None
+            }
         };
+        let mut closed = None;
         match token.kind {
             Kind::Str { closed } => {
                 // A string where `:` or `,` was due is the next key: the line
@@ -261,9 +282,12 @@ impl Walk {
                     take_value(frames, token.start, token.end);
                 }
             }
-            Kind::Word => take_value(frames, token.start, token.end),
+            Kind::Word => {
+                take_value(frames, token.start, token.end);
+            }
             Kind::Punct(character @ ('{' | '[')) => {
-                take_value(frames, token.start, token.start + 1);
+                let entry = take_value(frames, token.start, token.start + 1);
+                self.opened.push(entry);
                 self.next_id += 1;
                 frames.push(if character == '{' {
                     Frame::Object {
@@ -281,7 +305,11 @@ impl Walk {
                 });
             }
             Kind::Punct('}' | ']') => {
-                frames.pop();
+                if frames.pop().is_some()
+                    && let Some(Some(entry)) = self.opened.pop()
+                {
+                    closed = Some(entry);
+                }
             }
             Kind::Punct(':') => {
                 if let Some(Frame::Object { mode, .. }) = frames.last_mut()
@@ -308,6 +336,9 @@ impl Walk {
                 None => {}
             },
             Kind::Punct(_) => {}
+        }
+        if let (Some(entry), Some(scan)) = (closed, scan) {
+            scan.value_ends[entry] = Some(token.end);
         }
     }
 }
@@ -351,15 +382,6 @@ pub(super) fn caret_snapshot(source: &str, cursor: usize) -> Snapshot {
     walk.snapshot(partial.map(|index| tokens[index]))
 }
 
-pub(super) fn utf16(text: &str) -> usize {
-    text.encode_utf16().count()
-}
-
-/// One-based line and character column of a byte offset.
-pub(super) fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    crate::editor::paths::line_column(source, byte)
-}
-
 /// One-line JSON, spaced as people write it: `{"a": 1, "b": [1, 2]}`.
 pub(super) fn json_text(value: &Value) -> String {
     match value {
@@ -371,6 +393,6 @@ pub(super) fn json_text(value: &Value) -> String {
             format!("{{{}}}", entries.join(", "))
         }
         Value::Array(items) => format!("[{}]", items.iter().map(json_text).collect::<Vec<_>>().join(", ")),
-        other => serde_json::to_string(&*super::super::super::codec::non_finite::unescape_strings(other)).unwrap_or_default(),
+        other => serde_json::to_string(other).unwrap_or_default(),
     }
 }

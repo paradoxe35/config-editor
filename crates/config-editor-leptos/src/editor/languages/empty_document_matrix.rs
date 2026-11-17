@@ -7,8 +7,9 @@
 //! `|` marks the caret.
 
 use super::super::completion::accept_marked;
-use super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
+use super::harness::{completing, holds, report};
 use serde_json::json;
 
 fn schema() -> SchemaBundle {
@@ -39,19 +40,13 @@ fn the_first_json_key_opens_the_root_object() {
     if block.replace('|', "") != "{\n  \"limits\": {\n    \"max\": 5\n  }\n}\n" {
         failures.push(format!("a block: {block:?}"));
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }
 
 #[test]
 fn the_first_key_of_a_blank_document_reads_back_in_every_language() {
     let mut failures = Vec::new();
-    for language in [
-        Language::YAML,
-        Language::JSON,
-        Language::TOML,
-        Language::HCL,
-        Language::XML,
-    ] {
+    for language in completing() {
         // Quotes start a key in JSON only.
         for marked in BLANK.iter().filter(|marked| !marked.contains('"')) {
             let accepted = accept_marked(marked, "port", &schema(), language.behavior());
@@ -63,7 +58,15 @@ fn the_first_key_of_a_blank_document_reads_back_in_every_language() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
+}
+
+/// The languages that suggest keys and whose root can be a list.
+fn list_roots() -> Vec<Language> {
+    completing()
+        .into_iter()
+        .filter(|language| holds(*language, &json!([{"id": 7}, {"id": 8}])))
+        .collect()
 }
 
 /// A schema whose root is a list of objects: the first key of an empty
@@ -79,7 +82,7 @@ fn the_first_key_under_a_list_root_opens_its_first_item() {
     )
     .unwrap();
     let mut failures = Vec::new();
-    for language in [Language::YAML, Language::JSON] {
+    for language in list_roots() {
         for marked in BLANK
             .iter()
             .filter(|marked| !marked.contains('"') || language == Language::JSON)
@@ -99,7 +102,7 @@ fn the_first_key_under_a_list_root_opens_its_first_item() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }
 
 /// A schema whose root is a list of values: each value its items allow is
@@ -113,7 +116,7 @@ fn the_values_of_a_list_root_are_offered_as_its_first_item() {
         (r#"{"const":3}"#, "3", json!([3])),
     ] {
         let schema = build_schema(&format!(r#"{{"type":"array","items":{items}}}"#)).unwrap();
-        for language in [Language::YAML, Language::JSON] {
+        for language in list_roots() {
             for marked in ["|", "|\n", "\n|\n", "  |  "] {
                 let accepted = accept_marked(marked, label, &schema, language.behavior());
                 let read = language.parse(&accepted.replace('|', ""));
@@ -125,7 +128,7 @@ fn the_values_of_a_list_root_are_offered_as_its_first_item() {
             }
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }
 
 /// The caret before a closer on its own line (`{\n|}`): the entry goes on a
@@ -147,5 +150,5 @@ fn a_json_key_before_a_closer_on_its_line_is_written_on_its_own_line() {
             failures.push(format!("{marked:?}: {accepted:?}"));
         }
     }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    report(&failures);
 }

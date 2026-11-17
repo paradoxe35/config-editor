@@ -91,8 +91,8 @@ fn paths_are_marked_where_the_field_is_written_in_every_language() {
                 Some("b.example"),
             ],
         ),
-        // A block is marked on its key, never on the brace opening it (QA 18:
-        // JSON underlined only `{`).
+        // A block is marked on its key, never on the brace opening it (JSON once underlined
+        // only `{`).
         (
             "/web",
             [
@@ -224,10 +224,10 @@ fn the_host_problem_replaces_the_editors_own_on_the_same_text() {
     );
 }
 
-/// QA 19 (H19-F4): the host's message takes the place of the editor's own
+/// The host's message takes the place of the editor's own
 /// only when it is as serious: a host hint on a field kept its schema
-/// error out of sight (and the footer said there were no errors). QA 24
-/// (L24-U5): a less serious one showed beside it, the same problem twice;
+/// error out of sight (and the footer said there were no errors). A
+/// less serious one showed beside it, the same problem twice;
 /// the more serious one shows, once.
 #[test]
 fn a_less_serious_host_problem_never_hides_the_editors_own() {

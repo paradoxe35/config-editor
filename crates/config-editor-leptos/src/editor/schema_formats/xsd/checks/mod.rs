@@ -23,8 +23,6 @@ use std::collections::{BTreeSet, HashMap};
 
 use serde_json::{Map, Value};
 
-use super::super::super::completion::{child_schemas, resolve_branches};
-use super::super::super::language::SchemaPathSegment;
 use super::super::{CheckProblem, CheckedDocument, SchemaCheck};
 use automaton::{Automaton, Child, Mismatch, Namespace, Namespaces, Occurs};
 use text_order::Element;
@@ -108,10 +106,8 @@ impl SchemaCheck for ContentCheck {
         let top = text.as_deref().map(Node::Elements);
         walk(
             document.value,
-            &[root],
             root,
             top,
-            String::new(),
             &mut |value, branches, node, pointer| {
                 let Some(annotation) = branches.iter().find_map(|branch| branch.get(CONTENT))
                 else {
@@ -145,7 +141,10 @@ impl SchemaCheck for ContentCheck {
                     (None, Some(declared)) if !content.lax => {
                         refused = unknown_keys(map, declared, content);
                         for key in &refused {
-                            let at = format!("{pointer}/{}", escape(key));
+                            let at = format!(
+                                "{pointer}/{}",
+                                super::super::super::language::pointer_key(key)
+                            );
                             problems.push(CheckProblem::new(at, not_allowed(key)).at_key());
                         }
                     }
@@ -238,9 +237,15 @@ impl SchemaCheck for ContentCheck {
                             .count();
                         let child = match map.get(name) {
                             Some(Value::Array(_)) => {
-                                format!("{pointer}/{}/{occurrence}", escape(name))
+                                format!(
+                                    "{pointer}/{}/{occurrence}",
+                                    super::super::super::language::pointer_key(name)
+                                )
                             }
-                            Some(_) => format!("{pointer}/{}", escape(name)),
+                            Some(_) => format!(
+                                "{pointer}/{}",
+                                super::super::super::language::pointer_key(name)
+                            ),
                             None => pointer.to_string(),
                         };
                         problems
@@ -268,10 +273,8 @@ impl SchemaCheck for IdentityCheck {
         let mut scopes = Vec::new();
         walk(
             document.value,
-            &[root],
             root,
             None,
-            String::new(),
             &mut |value, branches, _, pointer| {
                 for branch in branches {
                     if let Some(Value::Array(constraints)) = branch.get(IDENTITY) {
@@ -353,7 +356,12 @@ fn attribute_problems(
             });
         let at = key.map_or_else(
             || pointer.to_string(),
-            |key| format!("{pointer}/{}", escape(&key)),
+            |key| {
+                format!(
+                    "{pointer}/{}",
+                    super::super::super::language::pointer_key(&key)
+                )
+            },
         );
         let message = not_allowed(name);
         problems.push(CheckProblem::new(at, message).at_key());
@@ -465,105 +473,83 @@ fn ambiguous_keys<'m>(map: &'m Map<String, Value>, branches: &[&Value]) -> Vec<&
         .collect()
 }
 
-/// Walks `value` (at `pointer`) with its `schemas`, calling `visit` on
-/// each value with its branches and, in an XML document, its element.
+/// Walks `document` with the one schema walker (`applies`), calling `visit`
+/// on each value with its branches and, in an XML document, its element.
 fn walk<'v, 's>(
-    value: &'v Value,
-    schemas: &[&'s Value],
+    document: &'v Value,
     root: &'s Value,
-    node: Option<Node<'_>>,
-    pointer: String,
+    top: Option<Node<'_>>,
     visit: &mut impl FnMut(&'v Value, &[&'s Value], Option<Node<'_>>, &str),
 ) {
-    if pointer.matches('/').count() > 256 {
-        return;
-    }
-    let branches: Vec<&'s Value> = schemas
-        .iter()
-        .flat_map(|schema| resolve_branches(schema, root))
-        .collect();
-    visit(value, &branches, node, &pointer);
-    match value {
-        Value::Object(map) => {
-            for (key, child) in map {
-                let segment = SchemaPathSegment::Key(key.clone());
-                let child_schemas: Vec<&'s Value> = branches
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
-                let elements: Vec<&Element> = match node {
+    use super::super::super::applies::{Next, Walking, each_value};
+    each_value(
+        document,
+        root,
+        Walking {
+            decided: false,
+            repeats_arrays: true,
+        },
+        &mut |at| {
+            let Some(value) = document.pointer(at.pointer) else {
+                return Next::Past;
+            };
+            let branches = at.here.branches();
+            visit(
+                value,
+                &branches,
+                node_at(top, document, at.pointer),
+                at.pointer,
+            );
+            Next::Into
+        },
+    );
+}
+
+/// Where in the XML text the value at `pointer` of `document` is: an
+/// element name picks the elements of that name, and an item of a list the
+/// element at its index.
+fn node_at<'n>(top: Option<Node<'n>>, document: &Value, pointer: &str) -> Option<Node<'n>> {
+    let mut value = document;
+    let mut node = top;
+    let mut listed: Option<Vec<&'n Element>> = None;
+    for token in pointer.split('/').skip(1) {
+        let key = token.replace("~1", "/").replace("~0", "~");
+        match value {
+            Value::Object(map) => {
+                value = map.get(&key)?;
+                let elements: Vec<&'n Element> = match node {
                     Some(Node::Elements(elements)) => elements
                         .iter()
-                        .filter(|element| element.name == *key)
+                        .filter(|element| element.name == key)
                         .collect(),
                     Some(Node::Element(element)) => element
                         .children
                         .iter()
-                        .filter(|child| child.name == *key)
+                        .filter(|child| child.name == key)
                         .collect(),
                     None => Vec::new(),
                 };
-                let child_pointer = format!("{pointer}/{}", escape(key));
-                match child {
-                    Value::Array(items) => {
-                        let item_schemas: Vec<&'s Value> = child_schemas
-                            .iter()
-                            .flat_map(|schema| child_schemas_of_item(schema, root))
-                            .collect();
-                        for (index, item) in items.iter().enumerate() {
-                            let element = elements.get(index).map(|element| Node::Element(element));
-                            walk(
-                                item,
-                                &item_schemas,
-                                root,
-                                element,
-                                format!("{child_pointer}/{index}"),
-                                visit,
-                            );
-                        }
-                    }
-                    _ => {
-                        let element = elements.first().map(|element| Node::Element(element));
-                        walk(child, &child_schemas, root, element, child_pointer, visit);
-                    }
+                if matches!(value, Value::Array(_)) {
+                    listed = Some(elements);
+                    node = None;
+                } else {
+                    listed = None;
+                    node = elements.first().map(|element| Node::Element(*element));
                 }
             }
-        }
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                let segment = SchemaPathSegment::ArrayItem(index);
-                let item_schemas: Vec<&'s Value> = branches
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
-                walk(
-                    item,
-                    &item_schemas,
-                    root,
-                    None,
-                    format!("{pointer}/{index}"),
-                    visit,
-                );
+            Value::Array(items) => {
+                let index: usize = key.parse().ok()?;
+                value = items.get(index)?;
+                node = listed
+                    .as_ref()
+                    .and_then(|elements| elements.get(index))
+                    .map(|element| Node::Element(*element));
+                listed = None;
             }
+            _ => return None,
         }
-        _ => {}
     }
-}
-
-/// The schemas of an item of a list `schema` describes; `schema` itself
-/// when it describes no list (a lone element repeated in another
-/// language's value).
-fn child_schemas_of_item<'s>(schema: &'s Value, root: &'s Value) -> Vec<&'s Value> {
-    let items = child_schemas(schema, root, &SchemaPathSegment::ArrayItem(0));
-    if items.is_empty() {
-        vec![schema]
-    } else {
-        items
-    }
-}
-
-fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
+    node
 }
 
 fn unexpected(name: &str, expected: &[String]) -> String {

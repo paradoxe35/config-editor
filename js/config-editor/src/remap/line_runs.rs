@@ -3,14 +3,14 @@
 //! written once in each text anchoring them (patience diff), and Myers run
 //! only inside the gaps between anchors. A gap too big for Myers that no
 //! line anchors is one changed run on its own: never the whole stretch
-//! from the first change to the last (QA 31: past ~512 edit steps every
+//! from the first change to the last (past ~512 edit steps every
 //! range between two changes grew over all of it).
 
 use std::collections::HashMap;
 use std::ops::Range;
 
 /// A run of `old` lines and the run of `new` lines it became.
-pub(super) type Run = (Range<usize>, Range<usize>);
+pub(in crate::remap) type Run = (Range<usize>, Range<usize>);
 
 /// Gaps up to this many lines (both texts together) go to Myers without
 /// looking for anchors: its search costs at most this many lines' worth
@@ -42,7 +42,7 @@ fn note(lines: usize) {
 }
 
 /// The runs `old` and `new` differ in, in order, none touching another.
-pub(super) fn line_runs(old: &[&str], new: &[&str]) -> Vec<Run> {
+pub(in crate::remap) fn line_runs(old: &[&str], new: &[&str]) -> Vec<Run> {
     let mut runs: Vec<Run> = Vec::new();
     let mut budget = ANCHOR_BUDGET * (old.len() + new.len());
     // Gaps left to diff, the next one last.
@@ -178,7 +178,7 @@ fn in_order(pairs: &[(usize, usize)]) -> Vec<(usize, usize)> {
 
 /// The runs `old` and `new` differ in (Myers), or `None` past
 /// [`MAX_DEPTH`].
-fn myers(old: &[&str], new: &[&str]) -> Option<Vec<Run>> {
+pub(in crate::remap) fn myers<T: PartialEq>(old: &[T], new: &[T]) -> Option<Vec<Run>> {
     let (n, m) = (old.len() as isize, new.len() as isize);
     let max = (old.len() + new.len()).min(MAX_DEPTH) as isize;
     let offset = max + 1;

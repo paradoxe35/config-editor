@@ -3,11 +3,12 @@
 //! elements of the field's name, read as a list. A secret is never glued:
 //! text typed right after any copy's placeholder (the first, one in the
 //! middle, the last) is refused, as in the other languages, and the host
-//! never hears it, in the host's own view and in an Edit-as XML view (QA
-//! 36: right after the first copy it was taken, heard and saved). The
+//! never hears it, in the host's own view and in an Edit-as XML view (right after the first copy it was once taken, heard and saved). The
 //! same for a secret attribute on a copied element. A new, different
 //! element beside the secret element stays allowed (see
 //! `xml_list_secret_tests`).
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use leptos::prelude::*;
 
@@ -179,7 +180,7 @@ fn native(language: Language, form: Form) -> String {
 
 /// A copy of a secret's line is said to be one, the same way in every
 /// language and however many copies there are, and the host's own line,
-/// left as it was, is not flagged (QA 36: XML flagged the original as
+/// left as it was, is not flagged (XML flagged the original as
 /// standing for another field's secret; YAML said nothing of one copy but
 /// "duplicate key").
 #[test]

@@ -5,7 +5,7 @@
 
 use serde_json::{Map, Value, json};
 
-use super::super::super::completion::text_typing::number_of;
+use super::super::super::decimal_text::decimal;
 
 /// The JSON type a simple type's values read as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -44,8 +44,8 @@ impl Simple {
     pub(super) fn typed(&self, text: &str) -> Value {
         let trimmed = text.trim();
         match self.kind {
-            Kind::Integer | Kind::Number => number_of(trimmed, self.kind == Kind::Number)
-                .map_or_else(|| Value::String(text.to_string()), Value::Number),
+            Kind::Integer | Kind::Number => decimal(trimmed, self.kind == Kind::Integer)
+                .unwrap_or_else(|| Value::String(text.to_string())),
             Kind::Boolean => match trimmed {
                 "true" | "1" => Value::Bool(true),
                 "false" | "0" => Value::Bool(false),

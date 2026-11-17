@@ -1,7 +1,12 @@
-//! A locked field's value can never grow: no key, table, element or
-//! duplicate added inside or next to it, whether typed a character at a
-//! time (through texts that do not parse) or pasted whole, in every
+//! A locked field's value never grows in a save: a key, table, element or
+//! duplicate added inside its text is refused, typed a character at a time
+//! (through texts that do not parse) or pasted whole; one added past its
+//! text (a key after a locked block's end, a second copy of a locked key,
+//! a TOML sub-table or dotted key) changes no locked text and is taken, the
+//! field then held: the save waits while it reads otherwise. In every
 //! language and while editing as another.
+
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
 use serde_json::Value;
 
@@ -90,14 +95,12 @@ fn locks_after(language: Language, text: &str, previous: Option<&Protected>) -> 
 }
 
 /// `inserted` put into `text` at byte `at` in `steps`, each edit passing
-/// the guard as the editor runs it; the text left, and whether every step
-/// went through.
-fn insert(language: Language, text: &str, at: usize, steps: &[&str]) -> (String, bool) {
+/// the guard as the editor runs it; the text left, and its locks.
+fn insert(language: Language, text: &str, at: usize, steps: &[&str]) -> (String, Protected) {
     let schema = schema();
     let mut text = text.to_string();
     let mut protected = locks_after(language, &text, None);
     let mut at = at;
-    let mut all = true;
     for step in steps {
         let edited = format!("{}{step}{}", &text[..at], &text[at..]);
         if check(
@@ -109,14 +112,13 @@ fn insert(language: Language, text: &str, at: usize, steps: &[&str]) -> (String,
         )
         .is_err()
         {
-            all = false;
             continue;
         }
         protected = locks_after(language, &edited, Some(&protected));
         text = edited;
         at += step.len();
     }
-    (text, all)
+    (text, protected)
 }
 
 fn chars(text: &str) -> Vec<&str> {
@@ -134,7 +136,7 @@ fn locked_values(language: Language, text: &str) -> Option<(Value, Value)> {
 }
 
 #[test]
-fn nothing_is_added_to_a_locked_field_typed_or_pasted_in_any_language() {
+fn nothing_added_to_a_locked_field_is_ever_saved_in_any_language() {
     let mut failures = Vec::new();
     for (language, text) in documents() {
         let original = locked_values(language, text).expect("the document reads");
@@ -145,15 +147,13 @@ fn nothing_is_added_to_a_locked_field_typed_or_pasted_in_any_language() {
             };
             let at = found + after.len();
             for (how, steps) in [("typed", chars(inserted)), ("pasted", vec![inserted])] {
-                let (left, all) = insert(language, text, at, &steps);
-                if all {
-                    failures.push(format!("{language}: {what} {how}: allowed\n{left}"));
-                }
+                let (left, protected) = insert(language, text, at, &steps);
                 if let Some(values) = locked_values(language, &left)
                     && values != original
+                    && protected.held.is_empty()
                 {
                     failures.push(format!(
-                        "{language}: {what} {how}: locked values became {values:?}\n{left}"
+                        "{language}: {what} {how}: locked values became {values:?}, not held\n{left}"
                     ));
                 }
             }
@@ -163,9 +163,11 @@ fn nothing_is_added_to_a_locked_field_typed_or_pasted_in_any_language() {
 }
 
 /// The same additions typed into a live editor whose host locks `/meta`
-/// and `/id` by path, on each host language and editing as each other.
+/// and `/id` by path, on each host language and editing as each other:
+/// never saved with a locked value changed.
 #[test]
-fn a_live_editor_refuses_extending_a_locked_block_in_every_edit_as_language() {
+fn a_live_editor_never_saves_a_locked_block_extended_in_any_edit_as_language() {
+    use super::super::host_editing::SaveRequest;
     use leptos::prelude::*;
     let mut failures = Vec::new();
     for (host, host_text) in documents() {
@@ -173,6 +175,7 @@ fn a_live_editor_refuses_extending_a_locked_block_in_every_edit_as_language() {
             let (_owner, state) = TestEditor {
                 edit_as: (edit != host).then_some(edit),
                 read_only_paths: vec![FieldPath::from("/id"), FieldPath::from("/meta")],
+                on_save: Some(Callback::new(|_: SaveRequest| {})),
                 ..TestEditor::new(host, host_text)
             }
             .mount();
@@ -186,18 +189,12 @@ fn a_live_editor_refuses_extending_a_locked_block_in_every_edit_as_language() {
                     continue;
                 };
                 let mut at = found + after.len();
-                let mut all = true;
                 for step in chars(inserted) {
                     let before = state.doc().text.get_untracked();
                     let edited = format!("{}{step}{}", &before[..at], &before[at..]);
                     let caret = at + step.len();
-                    if state.commit(Edit::new(before, (at, at), edited, caret)) {
+                    if state.commit(Edit::new_units(before, (at, at), edited, caret)) {
                         at = caret;
-                    } else {
-                        // A refusal takes back what was typed of the entry
-                        // on its line: typing goes on at the caret.
-                        at = state.doc().caret.get_untracked();
-                        all = false;
                     }
                 }
                 let left = state.doc().text.get_untracked();
@@ -208,8 +205,8 @@ fn a_live_editor_refuses_extending_a_locked_block_in_every_edit_as_language() {
                         .iter()
                         .any(|pointer| read.pointer(pointer) != original.pointer(pointer))
                 });
-                if all || changed {
-                    failures.push(format!("{host} as {edit}: {what}: allowed\n{left}"));
+                if changed && state.save() {
+                    failures.push(format!("{host} as {edit}: {what}: saved\n{left}"));
                 }
             }
         }
@@ -222,7 +219,7 @@ fn take_host_shown(state: super::super::state::EditorState, shown: &str) {
     use leptos::prelude::*;
     let before = state.doc().text.get_untracked();
     if before != shown {
-        let mut edit = Edit::new(before, (0, 0), shown.to_string(), 0);
+        let mut edit = Edit::new_units(before, (0, 0), shown.to_string(), 0);
         edit.origin = super::super::edit::Origin::Switch;
         state.commit(edit);
     }

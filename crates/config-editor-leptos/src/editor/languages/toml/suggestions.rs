@@ -2,17 +2,6 @@
 
 use super::*;
 
-/// The default a suggestion writes for `property`: one TOML reads back as
-/// it is, else none (the caret stays where the value goes).
-fn written_default<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_default(&TomlBehavior, property, root)
-}
-
-/// The `const` a suggestion writes for `property`, as [`written_default`].
-fn written_const<'a>(property: &'a Value, root: &'a Value) -> Option<&'a Value> {
-    kept_const(&TomlBehavior, property, root)
-}
-
 pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionContext {
     let cursor = utf16_to_byte_index(source, cursor);
     let lines = super::lines::TextLines::new(source, false);
@@ -28,7 +17,9 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
     // Inside a table header's brackets (`[web.lets|]`): complete that segment
     // with the tables under the segments before it.
     let header_text = code_before.trim_start();
-    if header_text.starts_with('[') && !header_text.trim_start_matches('[').contains(']') {
+    // The header's text runs up to the caret (not into a comment), so its
+    // parts are offsets back from the caret.
+    if header_text.starts_with('[') && !header_text.trim_start_matches('[').contains(']') && code_before.len() == before_caret.len() {
         let inner = header_text.trim_start_matches('[');
         let (parents, typed) = inner.rsplit_once('.').unwrap_or(("", inner));
         let parents: Vec<&str> = parents.split('.').map(str::trim).filter(|part| !part.is_empty()).collect();
@@ -43,14 +34,13 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         // closed and the existing one reopened after the new one.
         let name_after = source[cursor..word_end].to_string();
         let double = header_text.starts_with("[[");
-        let header_start = source[..cursor].rfind('[').map_or(0, |at| at + 1);
-        let segments_before = &source[header_start..cursor - typed.len()];
+        let segments_before = &source[cursor - inner.len()..cursor - typed.len()];
         let (close, open) = if double { ("]]", "[[") } else { ("]", "[") };
         return CompletionContext {
             path: header_path,
             typed: typed.to_string(),
-            replace_start: crate::editor::paths::units_at(source, cursor - typed.len()),
-            replace_end: crate::editor::paths::units_at(source, if name_after.is_empty() { word_end } else { cursor }),
+            replace_start: crate::editor::paths::api_units(source, cursor - typed.len()),
+            replace_end: crate::editor::paths::api_units(source, if name_after.is_empty() { word_end } else { cursor }),
             entry_suffix: if name_after.is_empty() { String::new() } else { format!("{close}\n\n{open}{segments_before}") },
             // Renamed, the table's sub-tables and dotted keys follow it.
             paired_names: {
@@ -61,7 +51,7 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                 toml_key_occurrences(source, &wanted)
                     .into_iter()
                     .filter(|(start, _)| *start > word_end || *start < name_start)
-                    .map(|(start, end)| (crate::editor::paths::units_at(source, start), crate::editor::paths::units_at(source, end)))
+                    .map(|(start, end)| (crate::editor::paths::api_units(source, start), crate::editor::paths::api_units(source, end)))
                     .collect()
             },
             suffix_caret: if name_after.is_empty() { 0 } else { close.len() + 1 },
@@ -83,8 +73,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         return CompletionContext {
             path,
             typed: String::new(),
-            replace_start: crate::editor::paths::units_at(source, cursor),
-            replace_end: crate::editor::paths::units_at(source, cursor),
+            replace_start: crate::editor::paths::api_units(source, cursor),
+            replace_end: crate::editor::paths::api_units(source, cursor),
             value_key: None,
             value_needs_space: false,
             is_array_item: false,
@@ -123,8 +113,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             CaretEntry::Key { start } => in_front_of_inline_entry(
                 CompletionContext {
                     typed: code_before[start..].trim_end().to_string(),
-                    replace_start: crate::editor::paths::units_at(source, at(caret.separator_at.unwrap_or(start))),
-                    replace_end: crate::editor::paths::units_at(source, cursor),
+                    replace_start: crate::editor::paths::api_units(source, at(caret.separator_at.unwrap_or(start))),
+                    replace_end: crate::editor::paths::api_units(source, cursor),
                     entry_prefix: if caret.separator_at.is_some() { ", ".into() } else { String::new() },
                     explicit_entry_start: caret.separator_at.is_some(),
                     path: full,
@@ -136,8 +126,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             ),
             CaretEntry::Value { key, start } => CompletionContext {
                 typed: code_before[start..].trim_end().to_string(),
-                replace_start: crate::editor::paths::units_at(source, at(start)),
-                replace_end: crate::editor::paths::units_at(source, value_end),
+                replace_start: crate::editor::paths::api_units(source, at(start)),
+                replace_end: crate::editor::paths::api_units(source, value_end),
                 value_needs_space: start == code_before.len() && !code_before.ends_with([' ', '\t']),
                 value_key: Some(key),
                 path: full,
@@ -148,8 +138,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
                 full.push(SchemaPathSegment::ArrayItem(index));
                 CompletionContext {
                     typed: code_before[start..].trim_end().to_string(),
-                    replace_start: crate::editor::paths::units_at(source, at(start)),
-                    replace_end: crate::editor::paths::units_at(source, value_end),
+                    replace_start: crate::editor::paths::api_units(source, at(start)),
+                    replace_end: crate::editor::paths::api_units(source, value_end),
                     is_array_item: true,
                     entry_wrap: Some(("{ ", " }")),
                     path: full,
@@ -189,8 +179,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             .unwrap_or_else(|| cursor + value_token_len(&source[cursor..line_end]));
         return CompletionContext {
             typed: source[typed_start..cursor].trim_end().to_string(),
-            replace_start: crate::editor::paths::units_at(source, typed_start),
-            replace_end: crate::editor::paths::units_at(source, value_end),
+            replace_start: crate::editor::paths::api_units(source, typed_start),
+            replace_end: crate::editor::paths::api_units(source, value_end),
             value_key,
             value_needs_space: source[typed_start..cursor].is_empty()
                 && !after_equals.trim_start().is_empty(),
@@ -245,8 +235,8 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
             .any(|code| key_assignment(code).is_some());
     CompletionContext {
         typed,
-        replace_start: crate::editor::paths::units_at(source, query_start),
-        replace_end: crate::editor::paths::units_at(source, cursor),
+        replace_start: crate::editor::paths::api_units(source, query_start),
+        replace_end: crate::editor::paths::api_units(source, cursor),
         path,
         // In front of a `[table]` header the entry gets a line of its own;
         // the entry it splits from keeps the dotted head they shared
@@ -263,18 +253,6 @@ pub(super) fn completion_context(source: &str, cursor: usize) -> CompletionConte
         names_only: source[cursor..].starts_with('.'),
         ..Default::default()
     }
-}
-
-/// Index of the line containing `byte` and that line's start offset.
-pub(super) fn line_at(source: &str, lines: &[&str], byte: usize) -> (usize, usize) {
-    let mut offset = 0;
-    for (index, line) in lines.iter().enumerate() {
-        if byte <= offset + line.len() {
-            return (index, offset);
-        }
-        offset += line.len() + 1;
-    }
-    (lines.len(), source.len())
 }
 
 /// Length of the scalar value starting at the caret: runs to the comment or
@@ -301,41 +279,35 @@ pub(super) fn value_token_len(text: &str) -> usize {
     code.trim_end().len()
 }
 
-/// Keys already present in the caret's table, ignoring the active line so
-/// its partly typed key can still complete.
-pub(super) fn existing_table_keys(
-    source: &str,
-    cursor_byte: usize,
-    path: &[SchemaPathSegment],
-) -> Option<HashSet<String>> {
-    // A line scan, not a parse: mid-typing the document rarely parses.
+/// The keys of the table at `path` an entry typed at the caret may write
+/// again, though the data holds them already:
+/// - an array of tables written as `[[path.key]]` headers: one more
+///   `[[…]]` table follows, as another HCL block or XML element does;
+/// - while the caret is in a header being named whose table has no keys of
+///   its own, the tables that only headers or dotted keys deeper than them
+///   make (`[clients.acme]` making `clients`): the header may name one of
+///   them (`[cli|]` above `[clients.acme]`), which the data, holding the
+///   table either way, cannot tell.
+pub(super) fn rewritable_keys(source: &str, cursor_byte: usize, path: &[SchemaPathSegment]) -> HashSet<String> {
     let lines: Vec<&str> = source.lines().collect();
-    let (line_index, _) = line_at(source, &lines, cursor_byte);
-    // A table header being typed (`[w|]`) is not an inline array.
-    let in_header = lines
-        .get(line_index)
-        .is_some_and(|line| line.trim_start().starts_with('['));
-    if !in_header
-        && let Some(statement) = statement_start_at(source, cursor_byte)
-        && let Some(keys) = inline_sibling_keys(&source[statement..], b'=', cursor_byte - statement)
-    {
-        return Some(keys.into_iter().collect());
-    }
-    let child_of = |full: &[SchemaPathSegment]| match full.get(path.len()) {
-        Some(SchemaPathSegment::Key(key)) if full.starts_with(path) => Some(key.clone()),
-        _ => None,
-    };
-    // A header naming a table that has keys of its own is a rename: a table
-    // other headers only make (`[clients.acme]` making `clients`) is taken,
-    // or the keys would join it. A header still being named may name one.
-    let current_has_keys = in_header
-        && lines
+    let line_index = source[..cursor_byte.min(source.len())].matches('\n').count();
+    let in_header = lines.get(line_index).is_some_and(|line| line.trim_start().starts_with('['));
+    // A header naming a table with keys of its own is a rename: the keys
+    // would join a table another header makes.
+    let has_keys = || {
+        lines
             .iter()
             .skip(line_index + 1)
             .map(|line| split_toml_comment(line).0)
             .take_while(|code| parse_header(code).is_none())
-            .any(|code| key_assignment(code).is_some());
-    let mut keys = HashSet::new();
+            .any(|code| key_assignment(code).is_some())
+    };
+    let names_implied = in_header && !has_keys();
+    let child_of = |full: &[SchemaPathSegment]| match full.get(path.len()) {
+        Some(SchemaPathSegment::Key(key)) if full.starts_with(path) => Some(key.clone()),
+        _ => None,
+    };
+    let (mut implied, mut written, mut arrays) = (HashSet::new(), HashSet::new(), HashSet::new());
     let mut section: Vec<SchemaPathSegment> = Vec::new();
     let mut tables = Tables::default();
     for (index, line) in lines.iter().enumerate() {
@@ -348,11 +320,17 @@ pub(super) fn existing_table_keys(
             if is_array {
                 header.pop();
             }
-            // A header being named may still name a table that only its
-            // sub-tables made (`[websocket]` with `[websocket.tls]` below),
-            // and never counts itself.
-            if index != line_index && (!in_header || current_has_keys || header.len() == path.len() + 1) {
-                keys.extend(child_of(&header));
+            if index != line_index
+                && let Some(key) = child_of(&header)
+            {
+                if header.len() == path.len() + 1 {
+                    if is_array {
+                        arrays.insert(key.clone());
+                    }
+                    written.insert(key);
+                } else {
+                    implied.insert(key);
+                }
             }
             section = tables.path.clone();
             continue;
@@ -369,130 +347,87 @@ pub(super) fn existing_table_keys(
                     .map(SchemaPathSegment::Key),
             );
             // Keys of a deeper table make its parents only implicitly.
-            if !in_header || current_has_keys || section.len() <= path.len() {
-                keys.extend(child_of(&full));
+            if let Some(key) = child_of(&full) {
+                if section.len() <= path.len() { &mut written } else { &mut implied }.insert(key);
             }
         }
     }
-    Some(keys)
+    if names_implied {
+        implied.retain(|key| !written.contains(key));
+        arrays.extend(implied);
+    }
+    arrays
 }
 
-/// Insert text for a property completion. Scalar values render as TOML
-/// (`key = value`); objects expand to a `[table]` header plus their required
-/// children, with the caret on the first value to fill.
-pub(super) fn property_insert(
-    key: &str,
-    property: &Value,
-    root: &Value,
-    context: &InsertContext<'_>,
-) -> Option<(String, usize)> {
+/// The text a suggestion of `key` inserts for `plan`. A value renders as
+/// TOML (`key = value`); an object at table level is a `[table]` header
+/// over its required children (inline below a list item, or inside an
+/// inline table), a list of objects an `[[array]]` header; the caret on
+/// the first value to fill.
+pub(super) fn write_insert(key: &str, plan: &InsertPlan<'_>, context: &InsertContext<'_>) -> Option<(String, usize)> {
     let toml_key = toml_key(key);
+    let caret_at = |insert: String, caret: Option<usize>| {
+        let caret = insert[..caret.unwrap_or(insert.len())].encode_utf16().count();
+        Some((insert, caret))
+    };
     if context.position == EntryPosition::Name {
         // `[[…]]` names an array of tables; `[…]` a table, or a parent on the
         // way to a deeper header.
-        let array_of_tables = array_branch(property, root)
-            .and_then(|array| array.get("items"))
-            .is_some_and(|items| object_branch(items, root).is_some());
-        let table = if context.array_item {
-            array_of_tables
-        } else {
-            object_branch(property, root).is_some() && array_branch(property, root).is_none()
-        };
+        let table = if context.array_item { plan.list_of_objects } else { plan.object && !plan.list };
         return table.then(|| {
             let length = toml_key.encode_utf16().count();
             (toml_key, length)
         });
     }
-    // Inside an inline table a nested object stays inline; a header is invalid there.
-    if context.position == EntryPosition::Inline
-        && object_branch(property, root).is_some()
-        && schema_const(property, root).is_none()
-        && array_branch(property, root).is_none()
-    {
-        if let Some(default) = written_default(property, root)
-            .filter(|value| !value.as_object().is_some_and(|map| map.is_empty()))
-        {
-            let insert = format!("{toml_key} = {}", toml_inline_table(default));
-            let cursor = insert.encode_utf16().count();
-            return Some((insert, cursor));
+    match plan.value {
+        // Inside an inline table a nested object stays inline; a header is
+        // invalid there.
+        Planned::Object { .. } if context.position == EntryPosition::Inline => {
+            let mut insert = format!("{toml_key} = ");
+            let mut caret = None;
+            write_inline(&plan.children, &mut insert, &mut caret);
+            caret_at(insert, caret)
         }
-        let mut insert = format!("{toml_key} = ");
-        let mut cursor = None;
-        let children = required_children(&TomlBehavior, property, root);
-        write_inline(&children, &mut insert, &mut cursor);
-        let cursor = cursor.map_or_else(|| insert.encode_utf16().count(), |at| insert[..at].encode_utf16().count());
-        return Some((insert, cursor));
-    }
-    if let Some(value) = written_const(property, root) {
-        let insert = format!("{toml_key} = {}", toml_text(value));
-        let cursor = insert.encode_utf16().count();
-        return Some((insert, cursor));
-    }
-    if let Some(array) = array_branch(property, root) {
-        let default = written_default(property, root).filter(|value| !value.as_array().is_some_and(Vec::is_empty));
-        // An array of tables at table level is idiomatic as `[[path.key]]`
-        // with the item's required keys; a default is the list itself.
-        if default.is_none()
-            && context.position == EntryPosition::Block
-            && array.get("items").and_then(|items| object_branch(items, root)).is_some()
-            && let Some(header) = table_header(context.path, &toml_key)
-        {
-            let mut insert = format!("[[{header}]]\n");
-            let mut cursor = None;
-            write_lines(&required_children(&TomlBehavior, property, root), &mut insert, &mut cursor);
-            let cursor = cursor.map_or_else(|| insert.encode_utf16().count(), |at| insert[..at].encode_utf16().count());
-            return Some((insert, cursor));
-        }
-        match default {
-            Some(default) => {
-                let insert = format!("{toml_key} = {}", toml_text(default));
-                let cursor = insert.encode_utf16().count();
-                return Some((insert, cursor));
+        Planned::Value(value) => caret_at(format!("{toml_key} = {}", toml_text(value)), None),
+        Planned::List { .. } => {
+            // An array of tables at table level is idiomatic as
+            // `[[path.key]]` with the item's required keys.
+            let header = (plan.list_of_objects && context.position == EntryPosition::Block)
+                .then(|| table_header(context.path, &toml_key))
+                .flatten();
+            if let Some(header) = header {
+                let mut insert = format!("[[{header}]]\n");
+                let mut caret = None;
+                write_lines(&plan.children, &mut insert, &mut caret);
+                return caret_at(insert, caret);
             }
-            None => {
-                let insert = format!("{toml_key} = []");
-                let cursor = insert.len() - 1;
-                return Some((insert, cursor));
-            }
-        }
-    }
-    if object_branch(property, root).is_some() {
-        if let Some(default) = written_default(property, root)
-            .filter(|value| !value.as_object().is_some_and(|map| map.is_empty()))
-        {
-            let insert = format!("{toml_key} = {}", toml_inline_table(default));
-            let cursor = insert.encode_utf16().count();
-            return Some((insert, cursor));
+            let insert = format!("{toml_key} = []");
+            let caret = insert.len() - 1;
+            caret_at(insert, Some(caret))
         }
         // Headers name the full path (`[web.letsencrypt]` inside `[web]`).
-        // They cannot address array items, so beneath one the object is inline.
-        let Some(header) = table_header(context.path, &toml_key) else {
-            let inline = InsertContext {
-                position: EntryPosition::Inline,
-                ..*context
-            };
-            return property_insert(key, property, root, &inline);
-        };
-        let mut insert = format!("[{header}]\n");
-        let mut cursor = None;
-        write_lines(&required_children(&TomlBehavior, property, root), &mut insert, &mut cursor);
-        let cursor = cursor.map_or_else(|| insert.encode_utf16().count(), |at| insert[..at].encode_utf16().count());
-        return Some((insert, cursor));
-    }
-    if let Some(default) = written_default(property, root) {
-        let insert = format!("{toml_key} = {}", toml_text(default));
-        let cursor = insert.encode_utf16().count();
-        return Some((insert, cursor));
-    }
-    if placeholder(property, root).is_string() {
+        // They cannot address array items, so beneath one the object is
+        // inline.
+        Planned::Object { .. } => match table_header(context.path, &toml_key) {
+            Some(header) => {
+                let mut insert = format!("[{header}]\n");
+                let mut caret = None;
+                write_lines(&plan.children, &mut insert, &mut caret);
+                caret_at(insert, caret)
+            }
+            None => {
+                let inline = InsertContext { position: EntryPosition::Inline, ..*context };
+                write_insert(key, plan, &inline)
+            }
+        },
         // A string value starts quoted, with the caret inside.
-        let insert = format!("{toml_key} = \"\"");
-        let cursor = insert.encode_utf16().count() - 1;
-        return Some((insert, cursor));
+        Planned::Empty { string: true } => {
+            let insert = format!("{toml_key} = \"\"");
+            let caret = insert.len() - 1;
+            caret_at(insert, Some(caret))
+        }
+        Planned::Empty { .. } => caret_at(format!("{toml_key} = "), None),
     }
-    let insert = format!("{toml_key} = ");
-    let cursor = insert.encode_utf16().count();
-    Some((insert, cursor))
 }
 
 /// `children` as the lines of a table (`key = value`), a nested object as
@@ -627,10 +562,12 @@ pub(super) fn key_at_column(line: &str, column: usize) -> Option<(String, usize)
         let end_column = line.trim_end().len();
         return (column >= start_column && column <= end_column).then_some((last, start_column));
     }
+    // The column's byte found once, not again for each key on the line.
+    let byte = usize::from(byte_at_column(line, column));
     if let Some(entry) = inline_keys(code, b'=')
         .into_iter()
         .skip(1)
-        .find(|entry| (entry.start..entry.end).contains(&byte_at_column(line, column)))
+        .find(|entry| (entry.start..entry.end).contains(&byte))
     {
         let key = unquote_key(&line[entry.start..entry.end]);
         return Some((key, line[..entry.start].chars().count()));
@@ -684,7 +621,7 @@ pub(super) fn dotted_hover_path(
         let inner_start = open + if is_array { 2 } else { 1 };
         let closing = if is_array { "]]" } else { "]" };
         let inner = code.trim_end().strip_suffix(closing).and_then(|code| code.get(inner_start..)).unwrap_or("");
-        let byte = byte_at_column(line, column);
+        let byte = usize::from(byte_at_column(line, column));
         // The segment under the column; on the brackets, the table itself.
         let on_segment = (0..segments.len()).find_map(|index| {
             let (from, to) = segment_range(inner, index)?;
@@ -717,25 +654,18 @@ pub(super) fn dotted_hover_path(
         return None;
     }
     let (index, start_column) = segment_at(line[..start].chars().count(), &segments)?;
-    let line_start = crate::editor::paths::line_start(source, line_index);
+    let line_start = usize::from(crate::editor::paths::line_start(source, line_index));
     let mut path = language
-        .completion_context(source, crate::editor::paths::units_at(source, line_start))
+        .completion_context(source, crate::editor::paths::api_units(source, line_start))
         .path;
     path.extend(segments[..=index].iter().cloned().map(SchemaPathSegment::Key));
     Some((path, segments[index].clone(), start_column))
-}
-
-/// The byte offset of character `column` (0-based) in `line`.
-pub(super) fn byte_at_column(line: &str, column: usize) -> usize {
-    line.char_indices()
-        .nth(column)
-        .map_or(line.len(), |(index, _)| index)
 }
 
 /// Where hover reads the context for the key at `column`: just past its `=`,
 /// so a key inside an inline table resolves under that table.
 pub(super) fn hover_context_offset(line: &str, column: usize) -> usize {
     let (code, _) = split_toml_comment(line);
-    inline_key_at(code, b'=', byte_at_column(line, column))
+    inline_key_at(code, b'=', usize::from(byte_at_column(line, column)))
         .map_or(line.len(), |key| key.after_separator)
 }

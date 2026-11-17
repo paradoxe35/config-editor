@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
 use crate::editor::completion::accept_marked;
-use crate::editor::diagnostics::{Schema, build_schema};
+use crate::editor::schema::{Schema, build_schema};
 
 const SCHEMA: &str = r#"{"type":"object","properties":{
     "c1":{"type":"object","required":["k","v"],"properties":{"k":{"type":"string"},"v":{"const":"1.3"}}},

@@ -4,25 +4,37 @@
 //! The host's text (`value`, `baseline`, `initial_value`) is shown converted;
 //! edits convert back before `on_change`, keeping the host's framing. Both
 //! directions go through `codec`, so no language needs bridge support.
+//!
+//! Positions in the texts are bytes (`TextSize`, `TextRange`), cut through
+//! `text::slice`; a language hook's `usize` bytes convert where they come
+//! in.
+
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 use super::Language;
 use super::byte_order_mark;
 use super::codec::{self, Conversion, ConvertError};
-use super::diagnostics::{Diagnostic, SchemaBundle, Severity};
+use super::diagnostics::{Diagnostic, Severity};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
-use super::item_sources::{self, ItemSource, ItemSources};
-use super::language::{ConfigLanguage, Scalars};
+use super::item_sources::{ItemSource, ItemSources, Pairing, SaveTold};
+use super::language::{ConfigLanguage, pointer_key};
+use super::schema::SchemaBundle;
+use crate::editor::paths::FieldPath;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Each item's source, by its pointer in the view's value.
 type ItemMap = HashMap<String, ItemSource>;
 
+mod changed_forms;
 mod collapsed;
-mod emptied_containers;
-mod emptied_quotes;
 mod host_strings;
-pub(super) mod item_trail;
+mod kept_comments;
+pub(super) mod links;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -47,20 +59,8 @@ mod read_back;
 mod schema_readings;
 mod shared;
 mod tags;
-mod text_scalars;
-mod typed_spellings;
-#[cfg(all(
-    test,
-    feature = "yaml",
-    feature = "json",
-    feature = "toml",
-    feature = "hcl",
-    feature = "xml"
-))]
-mod typed_spellings_tests;
-mod whole_floats;
-mod wide_numbers;
 mod written_anew;
+use changed_forms::{emptied_quotes, text_scalars, typed_spellings, whole_floats, wide_numbers};
 use merge::{View, merge_changes};
 
 /// A save's patch of the host's text: `previous` made to read as `new`.
@@ -70,13 +70,14 @@ type Patch = fn(
     &serde_json::Value,
     &serde_json::Value,
     Option<&serde_json::Value>,
+    SaveTold<'_>,
 ) -> Option<String>;
 
 /// The patches that change only what one edit touched, in the order tried.
 const PRECISE: [Patch; 5] = [
     codec::patch_reorder,
     codec::patch_scalars,
-    codec::patch_renames,
+    codec::patch_key_renames,
     codec::patch_scalar_to_container,
     codec::patch_inline,
 ];
@@ -106,6 +107,15 @@ impl Bridge {
         (host != edit).then_some(Bridge { host, edit, schema })
     }
 
+    /// How the host's texts read: what names a view's items by their
+    /// host paths (see `links::HostReading`).
+    pub(super) fn reading(&self) -> links::HostReading {
+        links::HostReading {
+            language: self.host,
+            schema: self.schema.clone(),
+        }
+    }
+
     fn shape(&self) -> Option<&serde_json::Value> {
         self.schema.as_deref().map(|bundle| &bundle.schema)
     }
@@ -127,6 +137,31 @@ impl Bridge {
             None,
             self.shape(),
         )
+    }
+
+    /// Whether `edit_text` can be a text of this view that stood for the
+    /// host's `host_text`: it reads in the edit language with the keys at
+    /// the top that the view of `host_text` holds. The same text in
+    /// another view's language (cut in one view, pasted back after a
+    /// switch) is another document. (The values may read otherwise: a
+    /// list of one converted again need not read as the lone element the
+    /// host holds.)
+    pub(super) fn shows_as(&self, host_text: &str, edit_text: &str) -> bool {
+        let edit = self.edit.behavior();
+        let read = |text: &str| codec::read(edit, text, self.shape()).ok();
+        let Some(shown) = self.to_edit(host_text).ok() else {
+            return false;
+        };
+        if shown.text == edit_text {
+            return true;
+        }
+        match (read(edit_text), read(&shown.text)) {
+            (Some(serde_json::Value::Object(held)), Some(serde_json::Value::Object(shown))) => {
+                held.len() == shown.len() && held.keys().all(|key| shown.contains_key(key))
+            }
+            (Some(held), Some(shown)) => !held.is_object() && !shown.is_object(),
+            _ => edit_text.trim().is_empty() && host_text.trim().is_empty(),
+        }
     }
 
     /// `previous_host` is the host's last text, whose framing is kept: a
@@ -154,57 +189,22 @@ impl Bridge {
         previous_host: &str,
         origin: &str,
     ) -> Result<String, SaveError> {
-        self.to_host_traced(edit_text, previous_host, origin, None)
-            .0
+        self.to_host_linked(edit_text, previous_host, origin, None, &[])
     }
 
-    /// [`Self::to_host_since`], which item of the host each of the view's
-    /// is read from `trail`, the edits made to the view since a save (see
-    /// `item_sources`), with the host text that save wrote; with the trail
-    /// once the save is made. A save no item may have moved in is told
-    /// nothing, unless the host's items hold what no view shows (see
-    /// [`item_trail::Trail::wants_trace`]).
-    pub(super) fn to_host_traced(
+    /// [`Self::to_host_since`], told which item of the host each of the
+    /// view's is by its links (see `links`).
+    pub(super) fn to_host_linked(
         &self,
         edit_text: &str,
         previous_host: &str,
         origin: &str,
-        trail: Option<(&item_trail::Trail, &str)>,
-    ) -> (Result<String, SaveError>, item_trail::Trail) {
-        let (bare_origin, _) = byte_order_mark::split(origin);
-        let traced = trail.filter(|(trail, _)| {
-            trail.wants_trace() || self.host.behavior().items_hold_unshown(bare_origin)
-        });
-        let trace = traced.and_then(|(trail, _)| trail.trace(self.edit.behavior(), edit_text));
-        let followed = traced.map(|(_, host)| byte_order_mark::split(host).0);
-        let saved = self.to_host_told(
-            edit_text,
-            previous_host,
-            origin,
-            trace
-                .as_ref()
-                .zip(followed)
-                .map(|(trace, host)| (&trace.items, host)),
-        );
-        let next = match (trace, trail) {
-            (Some(trace), _) => trace.saved,
-            (None, Some((trail, _))) if traced.is_none() => trail.untraced_to(edit_text),
-            (None, Some((trail, _))) => trail.unknown_from(edit_text),
-            (None, None) => item_trail::Trail::unknown_since(edit_text),
-        };
-        (saved, next)
-    }
-
-    fn to_host_told(
-        &self,
-        edit_text: &str,
-        previous_host: &str,
-        origin: &str,
-        items: Option<(&ItemMap, &str)>,
+        told: Option<&links::Told>,
+        untouched: &[links::Untouched],
     ) -> Result<String, SaveError> {
         let (previous, _) = byte_order_mark::split(previous_host);
         let (origin, _) = byte_order_mark::split(origin);
-        let conversion = self.to_unmarked_host(edit_text, previous, origin, items)?;
+        let conversion = self.to_unmarked_host(edit_text, previous, origin, told, untouched)?;
         // A value the host would read back otherwise waits (a save written
         // whole is checked here, a patched one before it is read back).
         if let Some(pointer) = conversion.losses.first() {
@@ -215,15 +215,42 @@ impl Bridge {
         Ok(byte_order_mark::restore(previous_host, conversion.text))
     }
 
-    /// `items`: each item's source, with the host text whose items
-    /// `ItemSource::Previous` names.
+    /// `told`: each item's source, by its links; `untouched`: the scalars
+    /// the user left as the editor wrote them.
     fn to_unmarked_host(
         &self,
         edit_text: &str,
         previous_host: &str,
         origin: &str,
-        items: Option<(&ItemMap, &str)>,
+        told: Option<&links::Told>,
+        untouched: &[links::Untouched],
     ) -> Result<Conversion, SaveError> {
+        // The host text before the last the links name, without its byte
+        // order mark.
+        let earlier = told.map(|told| {
+            byte_order_mark::split(told.earlier.as_deref().unwrap_or_default())
+                .0
+                .to_string()
+        });
+        // A view whose links name no item of the host's last text is an
+        // edit of the text they name (see `links::Told::base`): saved over
+        // it, which holds their forms and comments.
+        if let Some(told) = told
+            && let Some(base) = told.base.as_deref()
+        {
+            let told = links::Told {
+                items: told.items.clone(),
+                base: None,
+                earlier: told.earlier.clone(),
+                loose: Vec::new(),
+            };
+            let base = byte_order_mark::split(base).0;
+            return self.to_unmarked_host(edit_text, base, origin, Some(&told), untouched);
+        }
+        let items = told.map(|told| &told.items).zip(earlier.as_deref());
+        // The host's last text as it was given, whose comments the save
+        // keeps (the patches below may start from a respelled copy).
+        let host_previous = previous_host;
         if edit_text.trim().is_empty() {
             return Ok(Conversion {
                 text: String::new(),
@@ -252,7 +279,13 @@ impl Bridge {
         };
         codec::convertible(self.edit.behavior(), edit_text)?;
         let host = self.host.behavior();
-        let Ok(old) = codec::read(host, previous_host, self.shape()) else {
+        // A scalar left as the editor wrote it is its host value, whatever
+        // the view read it as (see `links::untouched`).
+        let edited = self.host_values(edited, untouched);
+        // The host's reading notes the lists it reads a value written once
+        // as (the merge keeps the rest as the host writes them).
+        let host_reading = super::data_reading::read(host, previous_host, self.shape()).ok();
+        let Some(old) = host_reading.as_ref().map(|reading| reading.value().clone()) else {
             return Ok(codec::render(
                 &edited,
                 host,
@@ -302,6 +335,13 @@ impl Bridge {
             && seen
                 .as_ref()
                 .is_some_and(|seen| read_back::reorders(seen, &edited));
+        // Which host item each item is, as the edit made it, told to the
+        // merge, the writes and the checks that follow.
+        let view_sources = items.map(|(items, earlier)| ItemSources {
+            previous: previous_host.to_string(),
+            origin: earlier.to_string(),
+            items: items.clone(),
+        });
         let value = match &seen {
             // An edit where the view could not show the host's value (an
             // XML view of nested or empty lists) that does not map back onto
@@ -314,6 +354,8 @@ impl Bridge {
                     unshown: &unshown,
                     repetition: self.edit.behavior().repetition(),
                     moves: moved,
+                    host_reading: host_reading.as_deref(),
+                    told: view_sources.as_ref(),
                 },
             )
             .map_err(|pointer| {
@@ -323,13 +365,13 @@ impl Bridge {
                     self.host.label()
                 ))
             })?,
-            None => edited,
+            None => edited.clone(),
         };
         // A view that writes every scalar as text (XML) only guesses types:
         // the edited values keep the host's.
         let value = match &seen {
-            Some(seen) if self.edit.behavior().scalars() == Scalars::Text => {
-                text_scalars::in_host_types(&old, seen, value, self.shape()).map_err(|pointer| {
+            Some(seen) if self.edit.behavior().scalars_are_text() => {
+                text_scalars::in_host_types(&old, (seen, &edited), value, (self.shape(), &respelled)).map_err(|pointer| {
                     ConvertError::Unsupported(format!(
                         "{} reads an empty element here, and {} holds no empty number or boolean: the edit is saved once it holds a value again (at {pointer})",
                         self.edit.label(),
@@ -351,22 +393,12 @@ impl Bridge {
             ),
             None => value,
         };
-        // A map whose last entry the view deleted (`deps:` left alone) is
-        // the empty map, not a null.
-        let value = emptied_containers::kept(self.edit.behavior(), edit_text, &old, value);
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
-        // Which host item each item is, as the edit made it, told to the
-        // writes and checks that follow.
-        let _told = item_sources::tell(items.map(|(items, followed)| ItemSources {
-            previous: previous_host.to_string(),
-            followed: followed.to_string(),
-            origin: origin.to_string(),
-            values: vec![value.clone()],
-            items: items.clone(),
-        }));
-        let rendered = codec::render(&value, host, Some(previous_host), self.shape())?;
+        let sources = view_sources;
+        let told = SaveTold::new(sources.as_ref());
+        let rendered = codec::render_told(&value, host, Some(previous_host), self.shape(), told)?;
         // The host's text is patched to read back exactly as a full render
         // would (losses included), so its comments and formatting survive: a
         // value edit rewrites just those values, a structural one just those
@@ -402,7 +434,7 @@ impl Bridge {
         }
         // So is a string a host that writes scalars as text reads back as
         // another value (XML `<s>true</s>` is the boolean).
-        if host.scalars() == Scalars::Text
+        if host.scalars_are_text()
             && let Some((pointer, read)) = host_strings::first_read_otherwise(&value, &target)
         {
             let string = value.pointer(&pointer).and_then(|value| value.as_str());
@@ -417,6 +449,12 @@ impl Bridge {
         // The host writer may order keys its own way (TOML puts `reach = {}`
         // after arrays); the patch keeps the edit's order, the host's own.
         let target = in_order_of(target, &value);
+        // So is an emptied map or list the host does not write (an HCL
+        // block of labelled blocks, all gone): saved without it, the host
+        // would read back otherwise than the view.
+        if let Some(pointer) = dropped_empty(&value, &target, &mut String::new()) {
+            return Err(SaveError::CannotKeep { pointer });
+        }
         // A value the edit left as it was that the host would write
         // otherwise (a number the view showed in its own form) keeps the
         // host's text: the patches leave it, and it is no loss.
@@ -429,12 +467,8 @@ impl Bridge {
             Some(_) => merge::keys_ordered_like(target, &old),
             None => target,
         };
-        item_sources::also_for(&target);
-        if let Some(order) = &moved_to {
-            item_sources::also_for(order);
-        }
-        // A list the host held left with one item or none reads back as
-        // the host spells it (see `collapsed`): no loss.
+        // A list the host held left with one item reads back as the host
+        // spells it (see `collapsed`): no loss.
         let lost = |losses: &[String]| -> Vec<String> {
             losses
                 .iter()
@@ -457,6 +491,15 @@ impl Bridge {
         let restored =
             emptied_quotes::restored(host, previous_host, origin, (&old, &target), shape);
         let previous_host = restored.as_deref().unwrap_or(previous_host);
+        // The text the save patches is the host's last text, of which the
+        // sources tell, unless the save prepared it (parted a shared value,
+        // put emptied quotes back): then it tells each write of a later
+        // text which item is which, but not where the item is.
+        let over = if detached.is_some() || restored.is_some() {
+            told.later()
+        } else {
+            told
+        };
         // The first patch that applies, of those that change only what one
         // edit touched. A patch that writes a map in another form (an HCL
         // block as an attribute) is not taken. Each patch places what it
@@ -464,30 +507,43 @@ impl Bridge {
         let first = |patches: &[Patch],
                      previous: &str,
                      old: &serde_json::Value,
-                     target: &serde_json::Value| {
+                     target: &serde_json::Value,
+                     told: SaveTold<'_>| {
             with_lines(host, previous, || {
                 patches.iter().find_map(|patch| {
-                    patch(host, previous, old, target, shape)
-                        .filter(|patched| host.changed_form(previous, patched).is_none())
+                    patch(host, previous, old, target, shape, told)
+                        .filter(|patched| host.changed_form(previous, patched, told).is_none())
                 })
             })
         };
-        let precise = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
-            first(&PRECISE, previous, old, target)
-        };
-        let structure = |previous: &str, old: &serde_json::Value, target: &serde_json::Value| {
-            first(&[codec::patch_structure], previous, old, target)
+        let precise =
+            |previous: &str,
+             old: &serde_json::Value,
+             target: &serde_json::Value,
+             told: SaveTold<'_>| first(&PRECISE, previous, old, target, told);
+        let structure = |previous: &str,
+                         old: &serde_json::Value,
+                         target: &serde_json::Value,
+                         told: SaveTold<'_>| {
+            first(&[codec::patch_structure], previous, old, target, told)
         };
         // `previous` patched to read as `target`, or `Err` when items moved
         // cannot take their comments along: the save waits, rather than
-        // leave the comments on the items now in their places.
+        // leave the comments on the items now in their places. `told` says
+        // whether `previous` is the host's last text.
         let save = |previous: &str,
                     old: &serde_json::Value,
-                    target: &serde_json::Value|
+                    target: &serde_json::Value,
+                    told: SaveTold<'_>|
          -> Result<Option<String>, SaveError> {
             // A shared value this step parts from the rest written out (a
             // stage may part what the whole edit does not).
             let detached = shared::detached(host, previous, (old, target), shape);
+            let told = if detached.is_some() {
+                told.later()
+            } else {
+                told
+            };
             let previous = detached.as_deref().unwrap_or(previous);
             if let Some(pointer) = with_lines(host, previous, || {
                 codec::unmoved_comments(host, previous, old, target)
@@ -498,34 +554,57 @@ impl Bridge {
                 ))
                 .into());
             }
-            Ok(precise(previous, old, target)
-                // Several edits in one save: one step at a time.
-                .or_else(|| {
-                    let steps = codec::steps(old, target);
-                    if steps.is_empty() {
-                        return None;
-                    }
-                    let (mut text, mut current) = (previous.to_string(), old.clone());
-                    for step in steps {
-                        text = precise(&text, &current, &step)
-                            .or_else(|| structure(&text, &current, &step))?;
-                        current = step;
-                    }
-                    // A step reads the host's forms from the text the one
-                    // before wrote: a value one step removes and another
-                    // adds elsewhere (an HCL expression moved to another
-                    // block) is written anew in a form that reads the same.
-                    // The whole save made at once keeps it.
-                    host.changed_form(previous, &text).is_none().then_some(text)
-                })
-                .or_else(|| structure(previous, old, target))
+            // Several edits in one save: one step at a time, the first over
+            // `previous`, each later one over the text the step before wrote.
+            let stepwise = |previous: &str, old: &serde_json::Value, told: SaveTold<'_>| {
+                let steps = codec::steps(old, target, told.sources());
+                if steps.is_empty() {
+                    return None;
+                }
+                let (mut text, mut current) = (previous.to_string(), old.clone());
+                for (index, step) in steps.into_iter().enumerate() {
+                    let told = if index == 0 { told } else { told.later() };
+                    text = precise(&text, &current, &step, told)
+                        .or_else(|| structure(&text, &current, &step, told))?;
+                    current = step;
+                }
+                Some(text)
+            };
+            let whole_or_steps = |previous: &str, old: &serde_json::Value, told: SaveTold<'_>| {
+                precise(previous, old, target, told).or_else(|| stepwise(previous, old, told))
+            };
+            // Keys renamed (the links tell which, values the rest) are
+            // renamed in place first (a patch of the whole edit would write
+            // a renamed map anew), then the rest is saved.
+            let renames = codec::renames(old, target, told.sources());
+            let renamed = (!renames.is_empty()).then(|| codec::with_renames(old, &renames, true));
+            let renamed = renamed
+                .filter(|renamed| renamed != target)
+                .and_then(|renamed| {
+                    let text = precise(previous, old, &renamed, told)?;
+                    whole_or_steps(&text, &renamed, told.later())
+                });
+            // A step reads the host's forms from the text the one before
+            // wrote: a value one step removes and another adds elsewhere
+            // (an HCL expression moved to another block) is written anew
+            // in a form that reads the same. The whole save made at once
+            // keeps it.
+            let patched = renamed
+                .or_else(|| whole_or_steps(previous, old, told))
+                .filter(|text| host.changed_form(previous, text, told).is_none());
+            Ok(patched
+                .or_else(|| structure(previous, old, target, told))
                 // Block items no line patch tells apart (tagged maps)
                 // removed whole.
-                .or_else(|| first(&[codec::patch_removed_items], previous, old, target)))
+                .or_else(|| first(&[codec::patch_removed_items], previous, old, target, told)))
         };
         // Items moved while others are added or removed: moved first (with
         // their comments), then the removed ones dropped, then the rest.
-        let stages = codec::move_stages(&old, &target);
+        // Which host item each item of the save is: the links first,
+        // values telling the rest.
+        let pairing =
+            Pairing::of(Some(&old), &target, host.scalars_are_text()).told(over.over_last(), None);
+        let stages = codec::move_stages(&old, &target, &pairing);
         // A stage that cannot be saved alone is saved with the rest, from
         // the stages saved before it.
         let staged = if stages.is_empty() {
@@ -533,31 +612,33 @@ impl Bridge {
         } else {
             let (mut text, mut current) = (previous_host.to_string(), old.clone());
             let mut done = true;
+            let mut at = over;
             for stage in &stages {
-                let Some(next) = save(&text, &current, stage)? else {
+                let Some(next) = save(&text, &current, stage, at)? else {
                     break;
                 };
                 text = next;
                 current = stage.clone();
+                at = over.later();
             }
-            match save(&text, &current, &target)? {
+            match save(&text, &current, &target, at)? {
                 Some(next) => text = next,
                 None => done = false,
             }
             // Each stage reads which item is which in its own step (an
             // item changed in place is one removed and one added there):
             // the whole save must keep each item's form as the save made at
-            // once does (QA `E32-4`), else it is made at once.
-            (done && current != old && host.changed_form(previous_host, &text).is_none())
+            // once does, else it is made at once.
+            (done && current != old && host.changed_form(previous_host, &text, over).is_none())
                 .then_some(text)
         };
         let patched = match staged {
             Some(text) => Some(text),
-            None => save(previous_host, &old, &target)?,
+            None => save(previous_host, &old, &target, over)?,
         };
         // Keys the edit put in another order, besides what else it changed.
         let patched = patched.map(|text| match &moved_to {
-            Some(order) => in_order(host, text, order, shape),
+            Some(order) => in_order(host, text, order, shape, over.later()),
             None => text,
         });
         let (conversion, as_text) = match patched {
@@ -568,6 +649,7 @@ impl Bridge {
                     (&old, &target),
                     (text, respelled),
                     shape,
+                    over.sources(),
                 );
                 let conversion = Conversion {
                     text: spelled.text,
@@ -602,13 +684,31 @@ impl Bridge {
         // A key or item the edit moved is written as where it was cut
         // from (see `moved_forms`), else the save waits.
         let conversion = match items {
-            Some((items, followed)) => {
+            Some((items, earlier)) => {
+                // The view's pointers as the save spells them: a view that
+                // writes a list of one as its item (XML) names `/l/x` for
+                // the save's `/l/0/x`. The sources name the host's paths
+                // already.
+                let respelled = items.keys().any(|to| intended.pointer(to).is_none());
+                let view =
+                    respelled.then(|| super::parse_cache::parsed(self.edit.behavior(), edit_text));
+                let items: ItemMap = match view.as_ref().map(|view| view.as_ref().as_ref()) {
+                    Some(Ok(view)) => {
+                        let paths = links::HostPaths::between(intended, view);
+                        items
+                            .iter()
+                            .map(|(to, source)| (paths.item(to).0, source.clone()))
+                            .collect()
+                    }
+                    _ => items.clone(),
+                };
                 let text = self.moved_kept(
                     conversion.text,
                     intended,
-                    items,
-                    (followed, (followed == previous_host).then_some(&old)),
-                    origin,
+                    &items,
+                    (previous_host, &old),
+                    earlier,
+                    over,
                 )?;
                 // Values the cut of what they referred to wrote out
                 // (YAML aliases), referring to it again where it is back.
@@ -617,6 +717,46 @@ impl Bridge {
             }
             None => conversion,
         };
+        // Nor does it drop a comment of what the edit left alone (see
+        // `kept_comments`), unless the user deleted it in the view.
+        let shown_words = shown
+            .as_ref()
+            .map(|shown| kept_comments::comment_words(self.edit.behavior(), &shown.text))
+            .unwrap_or_default();
+        let deleted = |words: &str| {
+            shown_words.iter().any(|shown| shown == words)
+                && !kept_comments::comment_words(self.edit.behavior(), edit_text)
+                    .iter()
+                    .any(|now| now == words)
+        };
+        if let Some((pointer, words)) = kept_comments::first_lost(
+            host,
+            (host_previous, &conversion.text),
+            (&old, intended),
+            items.map(|(items, _)| items),
+            &deleted,
+        ) {
+            return Err(ConvertError::Unsupported(format!(
+                "this edit would drop the comment `{words}` of a line it leaves as it was: make it editing as {} (at {pointer})",
+                self.host.label()
+            ))
+            .into());
+        }
+        // Nor one the view still shows (its item gone, the comment's line
+        // kept or pasted back): the save writes values, not the view's
+        // comments, so it waits.
+        if let Some(words) = kept_comments::dropped_but_shown(
+            host,
+            self.edit.behavior(),
+            (host_previous, &conversion.text),
+            edit_text,
+        ) {
+            return Err(ConvertError::Unsupported(format!(
+                "this edit would drop the comment `{words}`, which the view still shows: delete it in the view too, or make the edit editing as {}",
+                self.host.label()
+            ))
+            .into());
+        }
         // Nor does what is written read back otherwise, or keys in another
         // order than the user moved them to.
         let saved = read_back::Saved {
@@ -643,23 +783,59 @@ impl Bridge {
         self.tags_kept(previous_host, &conversion.text, (&old, &target))?;
         // The read-back check cannot tell forms that read the same (an HCL
         // expression and the literal text it reads as): the host can.
-        if let Some(pointer) = host.changed_form(previous_host, &conversion.text) {
+        if let Some(pointer) = host.changed_form(previous_host, &conversion.text, over) {
             return Err(self.changed_form(&pointer, intended));
         }
         Ok(conversion)
     }
 
+    /// `edited` (the view's value) with each of `untouched` the value it
+    /// stands for in its host text.
+    fn host_values(
+        &self,
+        mut edited: serde_json::Value,
+        untouched: &[links::Untouched],
+    ) -> serde_json::Value {
+        let mut read: Vec<(&Arc<str>, Option<serde_json::Value>)> = Vec::new();
+        for scalar in untouched {
+            let at = match read
+                .iter()
+                .position(|(host, _)| Arc::ptr_eq(host, &scalar.host))
+            {
+                Some(at) => at,
+                None => {
+                    let (text, _) = byte_order_mark::split(&scalar.host);
+                    read.push((
+                        &scalar.host,
+                        codec::read(self.host.behavior(), text, self.shape()).ok(),
+                    ));
+                    read.len() - 1
+                }
+            };
+            let held = read[at]
+                .1
+                .as_ref()
+                .and_then(|value| value.pointer(&scalar.from))
+                .filter(|value| !value.is_object() && !value.is_array());
+            if let (Some(held), Some(slot)) = (held, edited.pointer_mut(&scalar.pointer)) {
+                *slot = held.clone();
+            }
+        }
+        edited
+    }
+
     /// `saved` with the scalars of each item `items` tells the edit moved
-    /// written as the host wrote them where they were cut from (in
-    /// `followed`, the host text `ItemSource::Previous` names, reading
-    /// `old` when known, or the session's first text `origin`).
+    /// written as the host wrote them where they were cut from (in the
+    /// host's last text `previous`, reading `old`, or in the host text
+    /// before it that the links name, `earlier`).
     fn moved_kept(
         &self,
         saved: String,
         intended: &serde_json::Value,
         items: &ItemMap,
-        (followed, old): (&str, Option<&serde_json::Value>),
+        (previous, old): (&str, &serde_json::Value),
         origin: &str,
+        told: SaveTold<'_>,
     ) -> Result<String, SaveError> {
         let host = self.host.behavior();
         let read = |text: &str| codec::read(host, text, self.shape()).ok();
@@ -667,16 +843,9 @@ impl Bridge {
             .values()
             .any(|source| matches!(source, ItemSource::Origin(_)));
         let origin_value = pasted_back.then(|| read(origin)).flatten();
-        let followed_value = match old {
-            Some(_) => None,
-            None => read(followed),
-        };
-        let Some(old) = old.or(followed_value.as_ref()) else {
-            return Ok(saved);
-        };
         let sources = (
             moved_forms::Source {
-                text: followed,
+                text: previous,
                 value: old,
             },
             origin_value.as_ref().map(|value| moved_forms::Source {
@@ -684,7 +853,7 @@ impl Bridge {
                 value,
             }),
         );
-        moved_forms::kept(host, saved, intended, items, sources, self.shape())
+        moved_forms::kept(host, saved, intended, items, sources, self.shape(), told)
             .map_err(|pointer| self.changed_form(&pointer, intended))
     }
 
@@ -785,6 +954,7 @@ fn in_order(
     text: String,
     target: &serde_json::Value,
     shape: Option<&serde_json::Value>,
+    told: SaveTold<'_>,
 ) -> String {
     let Ok(current) = codec::read(host, &text, shape) else {
         return text;
@@ -794,8 +964,8 @@ fn in_order(
         return text;
     }
     with_lines(host, &text, || {
-        codec::patch_key_order(host, &text, &current, target, shape)
-            .filter(|moved| host.changed_form(&text, moved).is_none())
+        codec::patch_key_order(host, &text, &current, target, shape, told)
+            .filter(|moved| host.changed_form(&text, moved, told).is_none())
     })
     .unwrap_or(text)
 }
@@ -807,8 +977,31 @@ fn with_lines<T>(host: &dyn ConfigLanguage, text: &str, work: impl FnOnce() -> T
     super::paths::with_spans(host, text, &[], work)
 }
 
+/// `text` (reading `old`) made to read as `new` by the first patch that
+/// changes only what differs and keeps every form, as a save's single
+/// step is.
+fn patched(
+    host: &dyn ConfigLanguage,
+    text: &str,
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+    shape: Option<&serde_json::Value>,
+) -> Option<String> {
+    with_lines(host, text, || {
+        PRECISE
+            .iter()
+            .chain(&[codec::patch_structure as Patch])
+            .find_map(|patch| {
+                patch(host, text, old, new, shape, SaveTold::default()).filter(|patched| {
+                    host.changed_form(text, patched, SaveTold::default())
+                        .is_none()
+                })
+            })
+    })
+}
+
 /// `value` with each scalar changed from `old` as the host saves it there
-/// ([`ConfigLanguage::scalar_edit`]), or the reason the save waits.
+/// ([`SaveLayout::scalar_edit`]), or the reason the save waits.
 fn host_scalars(
     host: &dyn ConfigLanguage,
     previous: &str,
@@ -822,7 +1015,7 @@ fn host_scalars(
             let Some(slot) = value.pointer_mut(&pointer) else {
                 continue;
             };
-            match host.scalar_edit(previous, &pointer, slot) {
+            match host.scalar_edit(previous, &FieldPath::from(&pointer), slot) {
                 Ok(Some(own)) => *slot = own,
                 Ok(None) => {}
                 Err(reason) => {
@@ -875,7 +1068,7 @@ fn changed_scalars(
         (Value::Object(left), Value::Object(right)) => {
             for (key, value) in right {
                 if let Some(before) = left.get(key) {
-                    let child = format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                    let child = format!("{pointer}/{}", pointer_key(key));
                     changed_scalars(before, value, child, out);
                 }
             }
@@ -935,14 +1128,15 @@ fn located(
     // nearest ancestor that is there.
     let mut at = pointer;
     let span = loop {
+        let path = FieldPath::from(at);
         if let Some(span) = behavior
-            .value_span(source, at)
-            .or_else(|| behavior.key_span(source, at))
+            .value_span(source, &path)
+            .or_else(|| behavior.key_span(source, &path))
         {
             break Some(span);
         }
-        match at.rfind('/') {
-            Some(parent) if parent > 0 => at = &at[..parent],
+        match at.rsplit_once('/') {
+            Some((parent, _)) if !parent.is_empty() => at = parent,
             _ => break behavior.first_span(source),
         }
     };
@@ -956,6 +1150,47 @@ fn located(
 }
 
 // Conversion tests pair languages, so they need every built-in one.
+
+/// The pointer of the first empty map or list of `value` (at `pointer`)
+/// `target` (the host's reading of it written) holds nothing at.
+fn dropped_empty(
+    value: &serde_json::Value,
+    target: &serde_json::Value,
+    pointer: &mut String,
+) -> Option<String> {
+    use serde_json::Value;
+    let empty = match value {
+        Value::Object(map) => map.is_empty(),
+        Value::Array(items) => items.is_empty(),
+        _ => return None,
+    };
+    if empty {
+        return target.pointer(pointer).is_none().then(|| pointer.clone());
+    }
+    let length = pointer.len();
+    let children: Vec<(String, &Value)> = match value {
+        Value::Object(map) => map
+            .iter()
+            .map(|(key, child)| (pointer_key(key), child))
+            .collect(),
+        Value::Array(items) => items
+            .iter()
+            .enumerate()
+            .map(|(index, child)| (index.to_string(), child))
+            .collect(),
+        _ => Vec::new(),
+    };
+    for (segment, child) in children {
+        pointer.push('/');
+        pointer.push_str(&segment);
+        let found = dropped_empty(child, target, pointer);
+        pointer.truncate(length);
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
 
 /// `value` with each object's keys in `order`'s order (keys `order` lacks
 /// last, as they were).
@@ -994,6 +1229,7 @@ fn in_order_of(value: serde_json::Value, order: &serde_json::Value) -> serde_jso
     feature = "hcl",
     feature = "xml"
 ))]
+#[allow(clippy::string_slice, reason = "the tests cut their own texts")]
 mod tests {
     use super::super::Language;
     use super::super::diagnostics::{Diagnostic, Severity};
@@ -1096,7 +1332,7 @@ mod tests {
 
     /// The XML view repeats elements for nested lists and shows a one-item
     /// list as its item: a value edited there lands in its place in the
-    /// host, the nesting and the list kept (round 17 flattened them).
+    /// host, the nesting and the list kept.
     #[cfg(all(feature = "yaml", feature = "xml"))]
     #[test]
     fn a_value_edited_in_a_view_without_nested_lists_keeps_the_nesting() {
@@ -1147,7 +1383,7 @@ mod tests {
     #[cfg(feature = "schema-validation")]
     #[test]
     fn one_item_arrays_round_trip_through_xml_with_a_schema() {
-        let schema = super::super::diagnostics::build_schema(include_str!(
+        let schema = super::super::schema::build_schema(include_str!(
             "../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap();
@@ -1381,7 +1617,7 @@ mod structural_saves {
     #[cfg(feature = "schema-validation")]
     #[test]
     fn a_value_in_a_lone_block_read_as_a_list_changes_only_that_value() {
-        let schema = super::super::diagnostics::build_schema(include_str!(
+        let schema = super::super::schema::build_schema(include_str!(
             "../../tests/fixtures/tunnel.schema.json"
         ))
         .unwrap();

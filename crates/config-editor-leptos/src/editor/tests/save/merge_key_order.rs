@@ -1,6 +1,6 @@
 //! Keys a YAML merge (`<<: *x`) brings in are not written in the map: a
 //! key the view adds after them is written after the merge line, and later
-//! edits in the map save (QA `E37-3`: the new key went above the merge, and
+//! edits in the map save (the new key went above the merge, and
 //! every later save waited on a merged key's place).
 
 use crate::editor::Language;

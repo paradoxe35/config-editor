@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// A host's readOnlyRanges lock in an Edit-as view follows its field (QA 33):
+// A host's readOnlyRanges lock in an Edit-as view follows its field:
 // with a key added above the locked field, the next edit anywhere read the
 // range at its first positions in the new host text, so the lock went to
 // the field above and the locked value took typing and was saved changed.

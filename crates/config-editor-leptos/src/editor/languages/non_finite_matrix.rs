@@ -3,11 +3,12 @@
 //! (never `null`) where it has not, kept by Edit-as saves, and numbers to
 //! schema validation.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::super::bridge::Bridge;
 use super::super::codec::{self, float_of};
 use super::Language;
+use super::harness::{At, BUILT_IN, every_language, text, write};
 
 /// `rate` holds each non-finite number in the languages that have them.
 fn sources() -> Vec<(Language, &'static str)> {
@@ -22,14 +23,28 @@ fn sources() -> Vec<(Language, &'static str)> {
     ]
 }
 
-fn targets() -> [Language; 5] {
-    [
-        Language::YAML,
-        Language::JSON,
-        Language::TOML,
-        Language::HCL,
-        Language::XML,
-    ]
+/// Every language, custom ones too.
+fn targets() -> Vec<Language> {
+    every_language()
+}
+
+/// `document` with `literal` written as the value at `pointer`, in
+/// `language`.
+fn with_literal(
+    language: Language,
+    document: &Value,
+    pointer: &str,
+    literal: &str,
+) -> Option<String> {
+    let written = write(language, document, &[], At::EmptyValue(pointer)).ok()?;
+    let mut text = written.text;
+    text.insert_str(written.byte, literal);
+    Some(text)
+}
+
+/// The languages that read `b` of `{a: 1, b: <number>}` as a number.
+fn numeric() -> Vec<Language> {
+    numeric_at(&json!({"a": 1, "b": 0}), "/b")
 }
 
 /// The three values, as numbers.
@@ -129,7 +144,7 @@ fn edit_as_saves_keep_non_finite_numbers() {
 #[cfg(feature = "schema-validation")]
 #[test]
 fn schema_validation_reads_non_finite_numbers_as_numbers() {
-    use super::super::diagnostics::build_schema;
+    use super::super::schema::build_schema;
     let numbers = build_schema(
         r#"{"properties": {"rate": {"type": "number"}, "low": {"type": "number"}, "odd": {"type": "number"}}}"#,
     )
@@ -173,10 +188,20 @@ fn non_finite_numbers_are_never_null_in_the_data_model() {
     }
 }
 
-/// Real strings spelled like the reserved form, in every language: one
-/// mark, two marks, and the JSON escape of one.
-fn forged() -> Vec<(Language, &'static str)> {
-    vec![
+/// Real strings spelled like the reserved form, as each language writes
+/// them, then by hand in each built-in language: one mark, two marks, and
+/// the JSON escape of one.
+fn forged() -> Vec<(Language, String)> {
+    let value = json!({
+        "s": codec::string_value("\u{FDD0}inf"),
+        "t": codec::string_value("\u{FDD0}\u{FDD0}nan"),
+        "n": 1,
+    });
+    let mut forged: Vec<(Language, String)> = every_language()
+        .into_iter()
+        .filter_map(|language| Some((language, text(language, &value, &[]).ok()?)))
+        .collect();
+    let by_hand = [
         (
             Language::YAML,
             "s: \"\u{FDD0}inf\"\nt: \u{FDD0}\u{FDD0}nan\nn: 1\n",
@@ -197,7 +222,9 @@ fn forged() -> Vec<(Language, &'static str)> {
             Language::XML,
             "<s>\u{FDD0}inf</s>\n<t>\u{FDD0}\u{FDD0}nan</t>\n<n>1</n>\n",
         ),
-    ]
+    ];
+    forged.extend(by_hand.map(|(language, source)| (language, source.to_string())));
+    forged
 }
 
 /// Whether `value` holds the two forged strings as strings.
@@ -215,6 +242,7 @@ fn holds_forged(value: &Value) -> bool {
 fn strings_spelled_like_the_reserved_form_stay_strings() {
     let mut failures = Vec::new();
     for (from, source) in forged() {
+        let source = source.as_str();
         let parsed = from.parse(source).expect("parses");
         if !holds_forged(&parsed) {
             failures.push(format!("{from}: parsed as {parsed}"));
@@ -252,7 +280,7 @@ fn strings_spelled_like_the_reserved_form_stay_strings() {
         }
         #[cfg(feature = "schema-validation")]
         {
-            use super::super::diagnostics::build_schema;
+            use super::super::schema::build_schema;
             let strings = build_schema(
                 r#"{"properties": {"s": {"type": "string", "maxLength": 4}, "t": {"type": "string", "maxLength": 5}}}"#,
             )
@@ -269,29 +297,36 @@ fn strings_spelled_like_the_reserved_form_stay_strings() {
             }
         }
     }
-    // Built with `string_value`, a host's string is written as it is.
+    failures.extend(string_values_written_as_they_are(&every_language()));
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Built with `string_value`, a host's string is written as it is, in each
+/// of `languages`: why not, for each that fails.
+fn string_values_written_as_they_are(languages: &[Language]) -> Vec<String> {
     let value = serde_json::json!({
         "s": codec::string_value("\u{FDD0}inf"),
         "t": codec::string_value("\u{FDD0}\u{FDD0}nan"),
     });
-    for to in targets() {
+    let mut failures = Vec::new();
+    for to in languages {
         match to.serialize(&value) {
             Ok(text)
                 if text.contains("\u{FDD0}inf") && !text.contains("\u{FDD0}\u{FDD0}\u{FDD0}") => {}
             other => failures.push(format!("{to}: serialize of string_value gave {other:?}")),
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    failures
 }
 
 /// Infinities and NaN against each numeric keyword: an infinity is beyond
 /// every bound, NaN beyond every bound on both sides, and neither is an
-/// integer or a multiple of anything (round 16 let them pass `integer`,
-/// `multipleOf` and, for NaN, `minimum`). Finite numbers keep their results.
+/// integer or a multiple of anything (none passes `integer`, `multipleOf`
+/// or, for NaN, `minimum`). Finite numbers keep their results.
 #[cfg(feature = "schema-validation")]
 #[test]
 fn non_finite_numbers_fail_integer_multiple_of_and_bounds() {
-    use super::super::diagnostics::build_schema;
+    use super::super::schema::build_schema;
     let keywords = [
         (r#"{"type": "integer"}"#, [true, true, true]),
         (r#"{"multipleOf": 5}"#, [true, true, true]),
@@ -355,8 +390,8 @@ fn non_finite_numbers_fail_integer_multiple_of_and_bounds() {
 
 /// A number too large to hold (a float past the largest, an integer past
 /// 64 bits, either sign) is underlined whole in every language that reads
-/// it as a number, wherever the parser stopped in it (QA 32: JSON's
-/// `1e400` only on its last `0`, HCL's on `e400`).
+/// it as a number, wherever the parser stopped in it (not only from the
+/// place it stopped, such as `e400` or the last digit).
 #[test]
 fn a_number_too_large_is_underlined_whole_in_every_language() {
     let mut failures = Vec::new();
@@ -367,22 +402,31 @@ fn a_number_too_large_is_underlined_whole_in_every_language() {
         "99999999999999999999999",
         "-99999999999999999999999",
     ];
-    for language in [
-        Language::JSON,
-        Language::TOML,
-        Language::HCL,
-        Language::YAML,
-    ] {
+    let document = json!({"a": 1, "b": 0});
+    for language in numeric() {
         for literal in literals {
-            // YAML reads an overflowing float as an infinity.
-            if language == Language::YAML && literal.contains('e') {
+            let Some(source) = with_literal(language, &document, "/b", literal) else {
+                continue;
+            };
+            // Numbers held as text (XML's): a long one is text too.
+            if language
+                .parse(&source)
+                .is_ok_and(|read| read["b"].is_string())
+            {
                 continue;
             }
-            let (source, line) = match language.label() {
-                "JSON" => (format!("{{\n  \"a\": 1,\n  \"b\": {literal}\n}}\n"), 3),
-                "YAML" => (format!("a: 1\nb: {literal}\n"), 2),
-                _ => (format!("a = 1\nb = {literal}\n"), 2),
-            };
+            // A language with infinities may read an overflowing float as
+            // one (YAML does).
+            let infinite = language
+                .parse(&source)
+                .is_ok_and(|read| float_of(&read["b"]).is_some_and(f64::is_infinite));
+            if literal.contains('e') && infinite {
+                continue;
+            }
+            let line = source[..source.find(literal).unwrap()]
+                .matches('\n')
+                .count()
+                + 1;
             let problems =
                 super::super::diagnostics::validate(&source, None, None, true, language.behavior());
             let text: Vec<char> = source.split('\n').nth(line - 1).unwrap().chars().collect();
@@ -423,10 +467,25 @@ fn an_overflowing_yaml_float_is_an_infinity() {
     assert!(Language::JSON.parse("{\"a\": 1e400}").is_err());
 }
 
-/// M23-E3: an integer past 64 bits is a syntax error in every language
-/// with integers, JSON too (it read it as a float, silently not the number
+/// An integer past 64 bits is a syntax error in every language with
+/// integers, JSON too (never read as a float, silently not the number
 /// written), on the number's line; 64-bit ones are exact. XML text holds
-/// it as text.
+/// it as text. The integers written in each language's own place for a
+/// number, then by hand.
+/// The built-in languages that read the value at `pointer` of `document`
+/// (a number) as a number when a number is written there. (The custom test
+/// languages' readers are their own, not the editor's.)
+fn numeric_at(document: &Value, pointer: &str) -> Vec<Language> {
+    BUILT_IN
+        .into_iter()
+        .filter(|language| {
+            with_literal(*language, document, pointer, "2")
+                .and_then(|text| language.parse(&text).ok())
+                .is_some_and(|read| read.pointer(pointer) == Some(&json!(2)))
+        })
+        .collect()
+}
+
 #[test]
 fn an_integer_past_64_bits_is_a_syntax_error_in_every_language() {
     let mut failures = Vec::new();
@@ -468,6 +527,37 @@ fn an_integer_past_64_bits_is_a_syntax_error_in_every_language() {
         }
         if let Err(error) = language.parse(at_edge) {
             failures.push(format!("{language} {at_edge:?}: {error:?}"));
+        }
+    }
+    let document = json!({"n": 1, "id": 0});
+    for language in numeric_at(&document, "/id") {
+        for (literal, reads) in [
+            ("18446744073709551616", false),
+            ("-9223372036854775809", false),
+            ("9223372036854775807", true),
+            ("-9223372036854775808", true),
+        ] {
+            let Some(source) = with_literal(language, &document, "/id", literal) else {
+                continue;
+            };
+            if language
+                .parse(&source)
+                .is_ok_and(|read| read["id"].is_string())
+            {
+                continue;
+            }
+            let read = language.parse(&source);
+            let line = source[..source.find(literal).unwrap()]
+                .matches('\n')
+                .count()
+                + 1;
+            let good = match &read {
+                Ok(value) => reads && value["id"].as_i64() == literal.parse::<i64>().ok(),
+                Err(error) => !reads && error.line.is_none_or(|at| at == line),
+            };
+            if !good {
+                failures.push(format!("{language} {source:?}: {read:?}"));
+            }
         }
     }
     assert_eq!(

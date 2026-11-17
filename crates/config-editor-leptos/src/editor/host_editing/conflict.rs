@@ -11,7 +11,6 @@ use leptos::prelude::*;
 
 use super::super::edit::Edit;
 use super::super::state::{EditorState, textarea_selection};
-use super::super::sync::{map_through_change, remember_synced};
 use super::{BaselineConflict, BaselineDecision, PendingBaseline, decide_baseline};
 
 impl EditorState {
@@ -67,27 +66,28 @@ impl EditorState {
         let before = self.doc().text.get_untracked();
         if before != pending.shown {
             if self.bridge().is_some() {
-                remember_synced(*self, pending.shown.clone(), pending.host.clone());
+                // The view's text of the host's own: its save is that text.
+                self.sync()
+                    .restored(&pending.shown, pending.host.as_str().into());
             }
-            let element = self.textarea();
-            let selection = element.as_ref().map_or_else(
+            let selection = self.textarea().map_or_else(
                 || {
                     let at = self.doc().caret.get_untracked();
                     (at, at)
                 },
-                textarea_selection,
+                |element| textarea_selection(&element),
             );
-            let caret = map_through_change(&before, &pending.shown, selection.0);
             self.close_suggestions();
             self.hide_hover();
             self.forget_typing_aids();
             // The host's own text: read-only fields do not hold it back, and
             // its secret placeholders are the host's.
-            self.commit(
-                Edit::new(before, selection, pending.shown, caret)
-                    .quiet()
-                    .reloading(pending.host.clone()),
-            );
+            self.commit(Edit::reload(
+                before,
+                selection,
+                pending.shown,
+                pending.host.clone(),
+            ));
         }
         self.close_conflict(BaselineConflict::Reloaded);
         let said = self.strings_untracked(|strings| strings.reloaded.clone());
@@ -130,7 +130,7 @@ impl EditorState {
         let text = self.doc().text.get_untracked();
         text == shown
             || (self.bridge().is_some()
-                && text == self.sync().synced_edit.get_value()
+                && self.sync().is_synced(&text)
                 && self.sync().host_text.get_value() == host)
     }
 
@@ -165,13 +165,11 @@ impl EditorState {
     }
 
     fn notice_has_focus(&self) -> bool {
-        let Some(active) = active_element() else {
+        // The notice first: no element is focused in it while it is not shown.
+        let Some(notice) = self.editing().notice_ref.get_untracked() else {
             return false;
         };
-        self.editing()
-            .notice_ref
-            .get_untracked()
-            .is_some_and(|notice| notice.contains(Some(&active)))
+        active_element().is_some_and(|active| notice.contains(Some(&active)))
     }
 }
 

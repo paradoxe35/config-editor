@@ -10,7 +10,7 @@ use super::{
     CompiledSchema, LossEffect, SchemaCompiler, SchemaFormat, SchemaFormatInfo, SchemaInput,
     SchemaLoss, SchemaResources,
 };
-use crate::editor::diagnostics::{Schema, SchemaError, SchemaSource};
+use crate::editor::schema::{Schema, SchemaError, SchemaSource};
 
 /// `name: type` lines; `use: file` lines take the lines of a resource;
 /// `lose: construct` lines report a loss there. Its options are copied into

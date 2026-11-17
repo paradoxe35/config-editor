@@ -1,136 +1,77 @@
-//! Where a protected field is written: the stretches of text a lock covers,
-//! found by path in any language (`field_range` for each field, the
-//! fields inside a container, the bodies of multi-line strings, and the
-//! closers ending a container).
-
-use std::ops::Range;
-use std::rc::Rc;
+//! Where a protected field is written, from the parse: its key and its
+//! whole value (`Text::value_ranges`), and the text's lines and offsets.
 
 use serde_json::Value;
 
 use super::super::language::{ConfigLanguage, Repetition};
-use super::super::parse_cache::string_bodies;
-use super::super::paths::{TextPosition, TextRange, batch_cached, field_range, key_range, path_at};
+use super::super::paths::{self, field_key, key_range, whole_value};
+use super::super::text::{TextRange, TextSize, byte_range, slice, text_size};
 use super::super::work_count::{Work, note_many};
-use super::marks::escape;
-use super::scan::Written;
 
-/// Line starts of a text, to turn one-based positions into UTF-16 offsets
+/// Line starts of a text, to turn one-based positions into byte offsets
 /// without rescanning it for each.
 pub(crate) struct LineIndex<'a> {
     text: &'a str,
-    /// Byte and UTF-16 offset of each line's start.
-    starts: Vec<(usize, usize)>,
+    /// The byte each line starts at.
+    starts: Vec<TextSize>,
 }
 
 impl<'a> LineIndex<'a> {
     pub(crate) fn new(text: &'a str) -> Self {
-        let mut starts = vec![(0, 0)];
-        let mut units = 0;
-        for (byte, character) in text.char_indices() {
-            units += character.len_utf16();
-            if character == '\n' {
-                starts.push((byte + 1, units));
-            }
-        }
+        note_many(Work::OffsetBytes, text.len());
+        let starts = std::iter::once(TextSize::default())
+            .chain(text.match_indices('\n').map(|(at, _)| text_size(at + 1)))
+            .collect();
         LineIndex { text, starts }
     }
 
-    /// The UTF-16 offset of one-based `line`:`column`, clamped to the line.
-    pub(crate) fn offset(&self, line: usize, column: usize) -> usize {
+    /// The byte of one-based `line`:`column` (a character column),
+    /// clamped to the line.
+    pub(crate) fn offset(&self, line: usize, column: usize) -> TextSize {
         let index = line.saturating_sub(1).min(self.starts.len() - 1);
-        let (byte, units) = self.starts[index];
-        let rest = self.text[byte..].split('\n').next().unwrap_or("");
-        units
-            + rest
+        self.starts[index]
+            + self
+                .line_text(index)
                 .chars()
                 .take(column.saturating_sub(1))
-                .map(char::len_utf16)
-                .sum::<usize>()
+                .map(TextSize::of)
+                .sum::<TextSize>()
     }
 
-    pub(crate) fn range(&self, range: TextRange) -> Range<usize> {
+    /// `range` (lines and character columns) as bytes.
+    pub(crate) fn range(&self, range: paths::TextRange) -> TextRange {
         let start = self.offset(range.start.line, range.start.column);
-        start..self.offset(range.end.line, range.end.column).max(start)
+        TextRange::new(
+            start,
+            self.offset(range.end.line, range.end.column).max(start),
+        )
     }
 
-    /// Zero-based line of UTF-16 `offset`.
-    pub(crate) fn line_of(&self, offset: usize) -> usize {
+    /// Zero-based line of byte `offset`.
+    pub(crate) fn line_of(&self, offset: TextSize) -> usize {
         self.starts
-            .partition_point(|(_, units)| *units <= offset)
+            .partition_point(|start| *start <= offset)
             .saturating_sub(1)
     }
 
-    /// UTF-16 offsets of zero-based `line`'s start and end (before its
-    /// newline).
-    pub(crate) fn line_bounds(&self, line: usize) -> Range<usize> {
+    /// Zero-based `line`'s start and end (before its newline).
+    pub(crate) fn line_bounds(&self, line: usize) -> TextRange {
         let line = line.min(self.starts.len() - 1);
-        let (byte, units) = self.starts[line];
-        let length: usize = self.text[byte..]
-            .split('\n')
-            .next()
-            .unwrap_or("")
-            .encode_utf16()
-            .count();
-        units..units + length
+        TextRange::at(self.starts[line], TextSize::of(self.line_text(line)))
     }
 
     /// Zero-based `line`'s text, without its newline.
     pub(crate) fn line_text(&self, line: usize) -> &'a str {
         let line = line.min(self.starts.len() - 1);
-        let start = self.starts[line].0;
         let end = self
             .starts
             .get(line + 1)
-            .map_or(self.text.len(), |(next, _)| next - 1);
-        &self.text[start..end]
+            .map_or(TextSize::of(self.text), |next| *next - TextSize::from(1));
+        slice::slice(self.text, TextRange::new(self.starts[line], end)).unwrap_or_default()
     }
 
     pub(crate) fn line_count(&self) -> usize {
         self.starts.len()
-    }
-
-    /// The one-based line and character column of UTF-16 `offset` (clamped
-    /// to the text): what [`LineIndex::offset`] reads back.
-    pub(crate) fn position(&self, offset: usize) -> TextPosition {
-        let line = self.line_of(offset);
-        let (byte, units) = self.starts[line];
-        let mut counted = units;
-        let mut column = 1;
-        for character in self.text[byte..].chars() {
-            if counted >= offset || character == '\n' {
-                break;
-            }
-            counted += character.len_utf16();
-            column += 1;
-        }
-        TextPosition::new(line + 1, column)
-    }
-
-    /// The byte index of UTF-16 `offset` (clamped to the text), read from
-    /// its line's start, not from the text's.
-    pub(crate) fn byte_of(&self, offset: usize) -> usize {
-        let (byte, units) = self.starts[self.line_of(offset)];
-        let mut counted = units;
-        for (at, character) in self.text[byte..].char_indices() {
-            if counted >= offset {
-                return byte + at;
-            }
-            counted += character.len_utf16();
-        }
-        self.text.len()
-    }
-
-    /// The UTF-16 offset of byte `byte` (a character boundary), counted
-    /// from its line's start.
-    pub(crate) fn units_of(&self, byte: usize) -> usize {
-        let line = self
-            .starts
-            .partition_point(|(start, _)| *start <= byte)
-            .saturating_sub(1);
-        let (start, units) = self.starts[line];
-        note_many(Work::OffsetBytes, byte - start);
-        units + self.text[start..byte].encode_utf16().count()
     }
 }
 
@@ -138,252 +79,59 @@ impl<'a> LineIndex<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Extent {
     /// The field's own key (not muted: only its value is).
-    pub(crate) key: Option<Range<usize>>,
+    pub(crate) key: Option<TextRange>,
     /// Everything the field covers, in order, without overlaps.
-    pub(crate) ranges: Vec<Range<usize>>,
+    pub(crate) ranges: Vec<TextRange>,
 }
 
-/// Fields inside one locked container located at most.
-const MAX_DESCENDANTS: usize = 2000;
-
-/// Where the field at `pointer` is written in `text`, with everything
-/// inside it when its `value` is a container (without a value, the lines
-/// `written` inside it).
+/// Where the field at `pointer` is written in `text`, which parses: its key
+/// and its whole value as the language's parse writes it
+/// (`Text::value_ranges`: over lines, with its closers), from the markup
+/// opening the key (`<` of `<web>`). `None` when the text writes neither.
 pub(crate) fn extent(
     behavior: &dyn ConfigLanguage,
     text: &str,
     lines: &LineIndex<'_>,
-    value: Option<&Value>,
-    written: Option<&[Written]>,
     pointer: &str,
 ) -> Option<Extent> {
-    // A value written over lines (a TOML `"""` string, a YAML quoted or
-    // plain scalar, an HCL heredoc) is a construct starting in its span:
-    // read only when the value may be one.
-    let over_lines =
-        value.is_none_or(|value| !value.is_number() && !value.is_boolean() && !value.is_null());
-    let constructs = if over_lines {
-        construct_ranges(behavior, text)
-    } else {
-        Rc::new(Constructs(Vec::new()))
-    };
-    let constructs = &constructs.0;
-    let written_range = |pointer: &str| {
-        field_range(behavior, text, pointer)
-            .map(|range| over_constructs(lines.range(range), constructs))
-    };
-    let mut ranges = vec![written_range(pointer)?];
     let key = key_range(behavior, text, pointer).map(|range| lines.range(range));
-    // Lines written inside it, each from its indent to its last character.
-    for field in written.unwrap_or_default() {
-        if field.pointer != pointer && within(behavior, &field.pointer, pointer) {
-            let bounds = lines.line_bounds(field.line);
-            let content = lines.line_text(field.line);
-            let indent = content.len() - content.trim_start().len();
-            let start = bounds.start + content[..indent].encode_utf16().count();
-            let end = bounds.start + content.trim_end().encode_utf16().count();
-            ranges.push(start..end);
+    let (value, shared) = whole_value(behavior, text, pointer);
+    let mut ranges: Vec<TextRange> = value.into_iter().map(byte_range).collect();
+    match (&key, ranges.first_mut()) {
+        // The key and what stands between it and its value (a separator,
+        // a line break, a tag) are the field's own.
+        (Some(key), Some(first)) if !shared && key.start() < first.start() => {
+            *first = TextRange::new(key.start(), first.end());
         }
-    }
-    if let Some(value) = value {
-        for child in &inside(value, pointer) {
-            if let Some(range) = written_range(child) {
-                ranges.push(range);
-            }
-        }
-        if value.as_str().is_some_and(|text| text.contains('\n')) || value.is_object() {
-            add_string_bodies(behavior, text, lines, &mut ranges);
-        }
-    }
-    // Markup opening the field (`<web>`) starts at its `<`.
-    if let Some(first) = ranges.first_mut() {
-        let name = lines.byte_of(first.start);
-        if let Some(open) = super::super::flow_syntax::markup_before(behavior, text, name) {
-            first.start -= text[open..name].encode_utf16().count();
-        }
-    }
-    let mut ranges = merge(behavior, text, lines, ranges, pointer);
-    close(behavior, text, lines, &mut ranges);
-    Some(Extent { key, ranges })
-}
-
-/// `pointer` in `document`, also spelled without the `/0` of a lone
-/// repeated element.
-pub(crate) fn lookup<'a>(document: &'a Value, pointer: &str) -> Option<&'a Value> {
-    document.pointer(pointer)
-}
-
-/// The pointers of the fields inside `value` (at `pointer`), at most
-/// [`MAX_DESCENDANTS`]: those a lock on it covers.
-pub(crate) fn inside(value: &Value, pointer: &str) -> Vec<String> {
-    let mut inside = Vec::new();
-    descendants(value, pointer.to_string(), &mut inside);
-    inside.truncate(MAX_DESCENDANTS);
-    inside
-}
-
-fn descendants(value: &Value, pointer: String, out: &mut Vec<String>) {
-    if out.len() > MAX_DESCENDANTS {
-        return;
-    }
-    match value {
-        Value::Object(map) => {
-            for (key, child) in map {
-                let child_pointer = format!("{pointer}/{}", escape(key));
-                out.push(child_pointer.clone());
-                descendants(child, child_pointer, out);
-            }
-        }
-        Value::Array(items) => {
-            for (index, child) in items.iter().enumerate() {
-                let child_pointer = format!("{pointer}/{index}");
-                out.push(child_pointer.clone());
-                descendants(child, child_pointer, out);
-            }
-        }
+        (Some(key), Some(_)) if shared => ranges.insert(0, *key),
+        (Some(key), None) => ranges.push(*key),
+        (None, None) => return None,
         _ => {}
     }
-}
-
-/// A multi-line string's body lines below a covered line are covered too.
-fn add_string_bodies(
-    behavior: &dyn ConfigLanguage,
-    text: &str,
-    lines: &LineIndex<'_>,
-    ranges: &mut Vec<Range<usize>>,
-) {
-    let bodies = batch_cached(text, || Bodies(string_bodies(behavior, text)));
-    if bodies.0.is_empty() {
-        return;
-    }
-    let covered: Vec<usize> = ranges
-        .iter()
-        .map(|range| lines.line_of(range.end))
-        .collect();
-    for body in bodies.0.iter().cloned() {
-        if body.start > 0 && covered.contains(&(body.start - 1)) && !body.is_empty() {
-            let start = lines.line_bounds(body.start).start;
-            let end = lines.line_bounds(body.end - 1).end;
-            ranges.push(start..end);
+    if let Some(first) = ranges.first_mut() {
+        // `markup_before` is the flow syntax's, in `str` bytes.
+        let name = usize::from(first.start());
+        if let Some(open) = super::super::flow_syntax::markup_before(behavior, text, name) {
+            *first = TextRange::new(text_size(open), first.end());
         }
     }
-}
-
-/// The lines of the multi-line strings' bodies of a text (see
-/// `ConfigLanguage::string_body_lines`), read once for all the locks.
-struct Bodies(std::rc::Rc<Vec<Range<usize>>>);
-
-/// The UTF-16 ranges of the constructs a text writes over lines, read once
-/// for all the locks.
-struct Constructs(Vec<Range<usize>>);
-
-/// UTF-16 ranges of the constructs `text` writes over lines (see
-/// `ConfigLanguage::multiline_constructs`), shared by the locks placed in
-/// one batch (`paths::with_spans`).
-fn construct_ranges(behavior: &dyn ConfigLanguage, text: &str) -> Rc<Constructs> {
-    batch_cached(text, || Constructs(constructs_of(behavior, text)))
-}
-
-fn constructs_of(behavior: &dyn ConfigLanguage, text: &str) -> Vec<Range<usize>> {
-    let constructs = behavior.multiline_constructs(text);
-    if constructs.is_empty() {
-        return Vec::new();
-    }
-    let mut bytes: Vec<(usize, usize)> = constructs
-        .iter()
-        .map(|construct| (construct.range.start, construct.range.end))
-        .filter(|(start, end)| start < end && *end <= text.len())
-        .collect();
-    bytes.sort_unstable();
-    // One pass over the text, the offsets in order.
-    let mut marks: Vec<usize> = bytes
-        .iter()
-        .flat_map(|(start, end)| [*start, *end])
-        .collect();
-    marks.sort_unstable();
-    marks.dedup();
-    let mut units = Vec::with_capacity(marks.len());
-    let (mut byte, mut unit) = (0, 0);
-    for mark in &marks {
-        unit += text[byte..*mark].encode_utf16().count();
-        byte = *mark;
-        units.push(unit);
-    }
-    let to_units = |at: usize| units[marks.partition_point(|mark| *mark < at)];
-    bytes
-        .into_iter()
-        .map(|(start, end)| to_units(start)..to_units(end))
-        .collect()
-}
-
-/// `range` (a field's span, on one line) carried to the end of the
-/// construct over lines that starts inside it: the rest of the value.
-fn over_constructs(range: Range<usize>, constructs: &[Range<usize>]) -> Range<usize> {
-    let end = constructs
-        .iter()
-        .filter(|construct| range.start <= construct.start && construct.start <= range.end)
-        .map(|construct| construct.end)
-        .fold(range.end, usize::max);
-    range.start..end
-}
-
-/// The ranges sorted and joined where only the field's own text lies
-/// between them: blank space, punctuation, or lines whose path is inside
-/// the field. A gap holding another field (a TOML table between two of
-/// the field's own) stays open.
-fn merge(
-    behavior: &dyn ConfigLanguage,
-    text: &str,
-    lines: &LineIndex<'_>,
-    mut ranges: Vec<Range<usize>>,
-    pointer: &str,
-) -> Vec<Range<usize>> {
-    ranges.sort_by_key(|range| (range.start, range.end));
-    let mut merged: Vec<Range<usize>> = Vec::new();
+    ranges.sort_by_key(|range| (range.start(), range.end()));
+    let mut merged: Vec<TextRange> = Vec::with_capacity(ranges.len());
     for range in ranges {
-        let Some(last) = merged.last_mut() else {
-            merged.push(range);
-            continue;
-        };
-        if range.start <= last.end
-            || gap_is_inside(behavior, text, lines, last.end..range.start, pointer)
-        {
-            last.end = last.end.max(range.end);
-        } else {
-            merged.push(range);
+        match merged.last_mut() {
+            Some(last) if range.start() <= last.end() => *last = last.cover(range),
+            _ => merged.push(range),
         }
     }
-    merged
+    Some(Extent {
+        key,
+        ranges: merged,
+    })
 }
 
-fn gap_is_inside(
-    behavior: &dyn ConfigLanguage,
-    text: &str,
-    lines: &LineIndex<'_>,
-    gap: Range<usize>,
-    pointer: &str,
-) -> bool {
-    let first = lines.line_of(gap.start);
-    let last = lines.line_of(gap.end);
-    // Lines wholly inside the gap must belong to the field.
-    for line in first + 1..last {
-        let bounds = lines.line_bounds(line);
-        let content = &text[lines.byte_of(bounds.start)..lines.byte_of(bounds.end)];
-        let blank = content.trim();
-        if blank.is_empty()
-            || behavior.comment_start(content) == Some(content.len() - content.trim_start().len())
-        {
-            continue;
-        }
-        let indent = content.len() - content.trim_start().len();
-        let at = bounds.start + content[..indent].encode_utf16().count();
-        let inside = path_at(behavior, text, at)
-            .is_some_and(|path| within(behavior, &path.to_pointer(), pointer));
-        if !inside {
-            return false;
-        }
-    }
-    true
+/// `pointer` in `document`.
+pub(crate) fn lookup<'a>(document: &'a Value, pointer: &str) -> Option<&'a Value> {
+    document.pointer(pointer)
 }
 
 /// Whether `path` is `pointer` or inside it, ignoring the `/0` steps of
@@ -399,36 +147,25 @@ pub(crate) fn plain(behavior: &dyn ConfigLanguage, pointer: &str) -> String {
     if behavior.repetition() == Repetition::None {
         pointer.to_string()
     } else {
-        let lone = format!("{pointer}/").replace("/0/", "/");
-        lone.trim_end_matches('/').to_string()
+        field_key(pointer)
     }
 }
 
-/// The last range carried over the closers of containers it opened (`}`,
-/// `]`, an XML end tag, with the element's text before it), so deleting
-/// one cannot unmake the field.
-fn close(
-    behavior: &dyn ConfigLanguage,
-    text: &str,
-    lines: &LineIndex<'_>,
-    ranges: &mut [Range<usize>],
-) {
-    let (Some(first), Some(last)) = (ranges.first().cloned(), ranges.last_mut()) else {
-        return;
-    };
-    let covered = &text[lines.byte_of(first.start)..lines.byte_of(last.end)];
-    let mut depth = behavior.unclosed_containers(covered);
-    let mut end = lines.byte_of(last.end);
-    while depth > 0 {
-        let rest = &text[end..];
-        let skipped = rest.len() - rest.trim_start().len();
-        let Some(length) = behavior.container_closer_len(&rest[skipped..]) else {
-            break;
-        };
-        end += skipped + length;
-        depth -= 1;
+/// The values of `value` (a document) under `keys`, any list index between
+/// them, each item of a list there one value.
+pub(super) fn values_under<'v>(value: &'v Value, keys: &[&str], found: &mut Vec<&'v Value>) {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .for_each(|item| values_under(item, keys, found)),
+        _ if keys.is_empty() => found.push(value),
+        Value::Object(map) => {
+            if let Some(child) = map.get(&crate::editor::language::unescaped_key(keys[0])) {
+                values_under(child, &keys[1..], found);
+            }
+        }
+        _ => {}
     }
-    last.end = lines.units_of(end);
 }
 
 #[cfg(test)]
@@ -439,11 +176,12 @@ mod tests {
     fn line_index_converts_positions() {
         let text = "a: 1\nbé: 2\n";
         let lines = LineIndex::new(text);
-        assert_eq!(lines.offset(2, 1), 5);
-        assert_eq!(lines.offset(2, 3), 7);
-        assert_eq!(lines.offset(9, 1), 11);
-        assert_eq!(lines.line_of(6), 1);
-        assert_eq!(lines.line_bounds(1), 5..10);
+        let at = TextSize::from;
+        assert_eq!(lines.offset(2, 1), at(5));
+        assert_eq!(lines.offset(2, 3), at(8));
+        assert_eq!(lines.offset(9, 1), at(12));
+        assert_eq!(lines.line_of(at(6)), 1);
+        assert_eq!(lines.line_bounds(1), TextRange::new(at(5), at(11)));
         assert_eq!(lines.line_count(), 3);
     }
 }

@@ -1,6 +1,7 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
+use crate::editor::text::{text_size, byte_range};
 
 /// Datetimes become strings. Parsing as a `Table`, not a bare `Value`,
 /// reports a duplicate key at its second occurrence rather than at line end.
@@ -9,15 +10,19 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
         let line_count = source.split('\n').count().max(1);
         let (line, column) = error
             .span()
-            .map(|span| line_column(source, span.start))
+            .map(|span| line_column(source, text_size(span.start)))
             .unwrap_or((1, 1));
         let (line, column) = (line.clamp(1, line_count), column.max(1));
         let (column, message) = super::super::wide_integers::out_of_range(source, line, column).unwrap_or_else(|| {
             let message = error.message();
-            let message = if message.starts_with("cannot recurse further") {
+            // Arrays or inline tables too deep, or tables under too many
+            // keys (`[a.a.a…]`).
+            let message = if message.starts_with("cannot recurse further")
+                || message.starts_with("recursion limit")
+            {
                 super::super::nesting::too_deep(super::super::nesting::VALUES)
             } else {
-                message.to_string()
+                super::words::plain(source, line, column, message)
             };
             (column, message)
         });
@@ -55,17 +60,6 @@ fn toml_to_json(value: &toml::Value) -> Value {
     }
 }
 
-pub(super) fn span_between(source: &str, start: usize, end: usize) -> (usize, usize, usize) {
-    let (line, column) = line_column(source, start);
-    (
-        line,
-        column,
-        column + source[start..end.min(source.len())].chars().count(),
-    )
-}
-
-/// Splits a line into code and trailing comment. A `#` starts a comment only
-/// at the line start or after whitespace; `#` inside strings stays code.
 /// Where `delimiter` closes a string in `text` (not escaped, for `"""`).
 pub(super) fn closing_delimiter(text: &str, delimiter: &str) -> Option<usize> {
     let mut from = 0;
@@ -79,59 +73,9 @@ pub(super) fn closing_delimiter(text: &str, delimiter: &str) -> Option<usize> {
     None
 }
 
+/// `line` split into its code and its comment (see `lexical`).
 pub(super) fn split_toml_comment(line: &str) -> (&str, Option<&str>) {
-    let mut quote: Option<char> = None;
-    let mut escaped = false;
-    // The end of a triple-quoted string closed on this line.
-    let mut skip_until = 0;
-    for (index, character) in line.char_indices() {
-        if index < skip_until {
-            continue;
-        }
-        if let Some(active) = quote {
-            if active == '"' && escaped {
-                escaped = false;
-            } else if active == '"' && character == '\\' {
-                escaped = true;
-            } else if character == active {
-                if active == '\'' && line[index..].starts_with("''") {
-                    continue;
-                }
-                quote = None;
-            }
-        } else if matches!(character, '"' | '\'') {
-            // A run of 3+ quotes opens a multi-line string even if unterminated here.
-            let run = line[index..]
-                .chars()
-                .take_while(|next| *next == character)
-                .count();
-            if run >= 3 {
-                let delimiter = &line[index..index + 3];
-                let Some(close) = closing_delimiter(&line[index + 3..], delimiter) else {
-                    return (line, None);
-                };
-                // Up to two more quotes end the string's own text.
-                let end = index + 3 + close + 3;
-                let extra = line[end..]
-                    .chars()
-                    .take_while(|next| *next == character)
-                    .count()
-                    .min(2);
-                skip_until = end + extra;
-                continue;
-            }
-            quote = Some(character);
-        } else if character == '#'
-            && (index == 0
-                || line[..index]
-                    .chars()
-                    .next_back()
-                    .is_some_and(char::is_whitespace))
-        {
-            return (&line[..index], Some(&line[index..]));
-        }
-    }
-    (line, None)
+    super::lexical::split_comment(line)
 }
 
 /// A table-addressing header: `[table]`, `[[array]]`, or dotted `a.b.c`.
@@ -252,7 +196,6 @@ pub(super) fn value_span_in_line(line: &str) -> Option<(usize, usize)> {
     (start < end).then_some((start, end))
 }
 
-
 /// The table path in effect after each line, in one pass: `[[a.b]]` adds the
 /// entry's index, and a later `[a.b.c]` belongs to the latest `a.b` entry.
 /// Entry `i` is the path for line `i + 1`; a leading empty path is for line 0.
@@ -260,9 +203,10 @@ pub(super) fn table_paths(lines: &[&str]) -> Vec<Vec<SchemaPathSegment>> {
     let mut paths = Vec::with_capacity(lines.len() + 1);
     let mut tables = Tables::default();
     paths.push(tables.path.clone());
-    for line in lines {
+    let in_string = super::editing::in_string_lines(lines);
+    for (line, in_string) in lines.iter().zip(in_string) {
         let (code, _) = split_toml_comment(line);
-        if let Some((segments, is_array)) = parse_header(code) {
+        if !in_string && let Some((segments, is_array)) = parse_header(code) {
             tables.enter(&segments, is_array);
         }
         paths.push(tables.path.clone());
@@ -493,15 +437,14 @@ pub(super) fn inline_entries_on(code: &str, base: &[String]) -> Vec<InlineEntry>
     entries
 }
 
-
 /// The span of the value from `start` to `end` of a line's `code` (at
 /// `offset`): a container is marked at its opening bracket.
 pub(super) fn value_span_at(source: &str, code: &str, offset: usize, start: usize, end: usize) -> (usize, usize, usize) {
     if code[start..].trim_start().starts_with(['{', '[']) {
-        let (line_number, column) = line_column(source, offset + start);
+        let (line_number, column) = line_column(source, text_size(offset + start));
         return (line_number, column, column + 1);
     }
-    span_between(source, offset + start, multi_line_string_end(source, offset + start).unwrap_or(offset + end))
+    span_between(source, byte_range(offset + start..multi_line_string_end(source, offset + start).unwrap_or(offset + end)))
 }
 
 /// Where a multi-line string starting at byte `start` (`"""`, `'''`) and
@@ -523,17 +466,6 @@ fn multi_line_string_end(source: &str, start: usize) -> Option<usize> {
         }
         at = found + 1;
     }
-}
-
-pub(super) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
-    source.lines().enumerate().find_map(|(index, line)| {
-        let start = line.find(|character: char| !character.is_whitespace())?;
-        Some((
-            index + 1,
-            line[..start].chars().count() + 1,
-            line.chars().count() + 1,
-        ))
-    })
 }
 
 /// Where the last segment of a dotted key starts (after its last `.` outside

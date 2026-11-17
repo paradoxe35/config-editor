@@ -1,7 +1,7 @@
 //! Saves from an Edit-as view: a value the host's language cannot carry
-//! exactly waits (round 20's `D20.docs-1`), and a formatting-only edit,
+//! exactly waits, and a formatting-only edit,
 //! which leaves the host's text as it was, leaves the document clean once
-//! converted (round 17's `D17.ux-1`). In every host and view.
+//! converted. In every host and view.
 
 #![cfg(all(
     feature = "yaml",
@@ -49,7 +49,7 @@ fn replace_all(state: EditorState, text: &str) {
     let before = state.doc().text.get_untracked();
     let end = before.encode_utf16().count();
     let caret = text.encode_utf16().count();
-    state.commit(Edit::new(before, (0, end), text.to_string(), caret));
+    state.commit(Edit::new_units(before, (0, end), text.to_string(), caret));
 }
 
 fn pause(state: EditorState) {
@@ -103,8 +103,7 @@ fn a_value_the_host_cannot_read_back_as_the_view_holds_it_waits() {
                 // is an empty map in a view that writes it as an empty
                 // element, which reads as text over the host's string.
                 if edit.parse(&typed).ok().as_ref() != Some(&read)
-                    || edit.behavior().scalars() == crate::editor::language::Scalars::Text
-                        && value == serde_json::json!({})
+                    || edit.behavior().scalars_are_text() && value == serde_json::json!({})
                 {
                     continue;
                 }

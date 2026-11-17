@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // A docs card about the text goes when the host replaces the text, and one
-// that had the focus gives it back to the text (round 14's `D14.ux-2`: a
+// that had the focus gives it back to the text (a
 // focused card kept a removed key's docs).
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');

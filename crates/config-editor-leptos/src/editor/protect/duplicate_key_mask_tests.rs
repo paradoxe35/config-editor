@@ -2,18 +2,20 @@
 //! field's block (Alt+Down, Alt+Up, cut and paste): the block writes the
 //! key twice and the text does not parse. Each copy is judged in the value
 //! it is written in: text typed or pasted beside either is refused from
-//! the first character, and the host never hears it glued (QA 34: the
+//! the first character, and the host never hears it glued (the
 //! copy the language did not find took the first letter, then its line was
 //! kept whole: no Backspace, undo, nor renaming or deleting the other).
 //! The way back stays open: undoing the move, deleting or renaming either
 //! copy, and, where text was written beside a copy before (the host's
 //! text), taking it out, renaming or deleting the other.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::keys::line_edit::LineCommand;
-use super::super::keys::lines::{Command, run};
+use super::super::keys::lines::{Command, run_units as run};
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
@@ -331,7 +333,7 @@ fn text_written_beside_a_copy_of_a_key_written_twice_can_be_taken_out() {
             let host = glued_host(language);
             let (_owner, state, heard) = mount(language, &host);
             if !act(state) || shown(state) == host {
-                let tip = state.protect().tip.get_untracked().map(|tip| tip.message);
+                let tip = state.protect().tip().map(|tip| tip.message);
                 failures.push(format!("{case}: refused ({tip:?}):\n{host}"));
                 continue;
             }

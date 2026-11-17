@@ -1,16 +1,17 @@
 //! Which item is which, as the user's edits of an Edit-as view make it:
 //! items of an XML host holding markup no view shows (`xsi:type`, a
 //! namespace declaration, a prefixed name) keep it through the lines the
-//! user deletes, cuts and pastes, even where their data reads alike (QA
-//! `E32-3`: deleting the first of two items with the same data kept its
+//! user deletes, cuts and pastes, even where their data reads alike (deleting the first of two items with the same data once kept its
 //! `xsi:type` on the second) and across a save between the cut and the
-//! paste (QA `E32-2`: an item cut and pasted lost its `xsi:type`, saved
+//! paste (an item cut and pasted lost its `xsi:type`, saved
 //! as one removed and one added). Each session is saved as the editor
 //! saves it: the edits since the last save tell the save the items.
 
 use crate::editor::Language;
 use crate::editor::bridge::Bridge;
-use crate::editor::bridge::item_trail::Trail;
+use crate::editor::bridge::links::{Clipboard, Links, pieces};
+use crate::editor::edit::Edit;
+use crate::editor::edit::UNKNOWN_UNITS;
 use crate::editor::save_matrix::report;
 
 const XSI: &str = "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"";
@@ -84,26 +85,27 @@ fn session(
         .to_edit(host)
         .map_err(|error| error.to_string())?
         .text;
-    let mut trail = Trail::starting(&view);
+    let mut links = Links::fresh(host, &view, Some(bridge.reading()));
+    let mut clipboard = Clipboard::default();
     let mut saved = host.to_string();
-    // The host text saved for the view's text the trail starts on.
-    let mut followed = saved.clone();
     let mut steps = steps(&view);
     steps.push(Step::Pause);
     for step in steps {
         match step {
             Step::Edit(next, caret) => {
-                trail.note(&view, &next, caret);
+                // An edit that says nothing of what it replaced.
+                let made = Edit::new_units(view.clone(), UNKNOWN_UNITS, next.clone(), caret);
+                let pieces = pieces(&made, &clipboard);
+                links.edited(edit.behavior(), &view, &pieces, &mut clipboard);
                 view = next;
             }
             Step::Pause => {
-                let (result, next) =
-                    bridge.to_host_traced(&view, &saved, host, Some((&trail, &followed)));
-                saved = result.map_err(|error| format!("{error:?}"))?;
-                if next.start() == Some(view.as_str()) {
-                    followed = saved.clone();
-                }
-                trail = next;
+                let identity = Language::XML.behavior().items_hold_unshown(&saved);
+                let told = links.told(edit.behavior(), &view, &saved, identity);
+                saved = bridge
+                    .to_host_linked(&view, &saved, host, told.as_ref(), &[])
+                    .map_err(|error| format!("{error:?}"))?;
+                links = Links::fresh(&saved, &view, Some(bridge.reading()));
             }
         }
     }

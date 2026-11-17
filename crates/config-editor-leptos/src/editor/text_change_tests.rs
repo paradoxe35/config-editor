@@ -2,7 +2,17 @@
 //! random texts and edits (ASCII, 2- and 3-byte characters, characters
 //! outside the BMP, line breaks).
 
-use super::{changed_range, edit_range, map_through_change, replaces, utf16_len};
+use super::super::text::Utf16;
+use super::{changed_range, edited_bytes, utf16_len};
+
+/// [`edited_bytes`] with the caret given and the range read as UTF-16
+/// units, to compare with the reference.
+fn edit_range(before: &str, after: &str, caret: Utf16) -> (usize, usize) {
+    let caret = caret.to_byte(after).expect("a caret between characters");
+    let range = edited_bytes(before, after, caret);
+    let units = |at| usize::from(Utf16::of_byte(before, at).expect("on a character boundary"));
+    (units(range.start()), units(range.end()))
+}
 
 /// What the texts' UTF-16 units read (the reference).
 mod units {
@@ -36,29 +46,6 @@ mod units {
             return (from, from + removed);
         }
         (start, end)
-    }
-
-    pub(super) fn replaces(before: &str, after: &str, (start, end): (usize, usize)) -> bool {
-        let old: Vec<u16> = before.encode_utf16().collect();
-        let new: Vec<u16> = after.encode_utf16().collect();
-        let kept = old.len().checked_sub(end).filter(|_| start <= end);
-        kept.is_some_and(|kept| {
-            new.len() >= start + kept
-                && old[..start] == new[..start]
-                && old[end..] == new[new.len() - kept..]
-        })
-    }
-
-    pub(super) fn map_through_change(old: &str, new: &str, offset: usize) -> usize {
-        let (start, end) = changed_range(old, new);
-        let (old_len, new_len) = (old.encode_utf16().count(), new.encode_utf16().count());
-        if offset <= start {
-            offset
-        } else if offset >= end {
-            offset + new_len - old_len
-        } else {
-            start
-        }
     }
 }
 
@@ -115,27 +102,9 @@ fn reads_what_the_utf16_units_read() {
             "{before:?} → {after:?}"
         );
         assert_eq!(
-            edit_range(&before, &after, caret),
+            edit_range(&before, &after, Utf16::count(caret)),
             units::edit_range(&before, &after, caret),
             "{before:?} → {after:?} at {caret}"
-        );
-        let selection = (offset_of(&before, from), offset_of(&before, to));
-        let guess = (
-            offset_of(&before, random.below(chars.len() + 1)),
-            offset_of(&before, random.below(chars.len() + 1)),
-        );
-        for range in [selection, guess] {
-            assert_eq!(
-                replaces(&before, &after, range),
-                units::replaces(&before, &after, range),
-                "{before:?} → {after:?} replacing {range:?}"
-            );
-        }
-        let offset = offset_of(&before, random.below(chars.len() + 1));
-        assert_eq!(
-            map_through_change(&before, &after, offset),
-            units::map_through_change(&before, &after, offset),
-            "{before:?} → {after:?} at {offset}"
         );
     }
 }
@@ -161,18 +130,8 @@ fn reads_long_texts_as_the_utf16_units_do() {
             head.len()
         );
         assert_eq!(
-            edit_range(&before, &after, caret),
+            edit_range(&before, &after, Utf16::count(caret)),
             units::edit_range(&before, &after, caret)
-        );
-        let range = (utf16_len(&head), utf16_len(&head) + utf16_len(&removed));
-        assert_eq!(
-            replaces(&before, &after, range),
-            units::replaces(&before, &after, range)
-        );
-        let offset = offset_of(&before, random.below(before.chars().count() + 1));
-        assert_eq!(
-            map_through_change(&before, &after, offset),
-            units::map_through_change(&before, &after, offset)
         );
     }
 }

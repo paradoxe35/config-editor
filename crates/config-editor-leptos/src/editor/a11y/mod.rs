@@ -48,8 +48,8 @@ pub(super) struct A11yState {
     pub(super) announcement: RwSignal<String>,
     /// What is at the caret, for `aria-describedby`.
     pub(super) caret_note: RwSignal<String>,
-    /// Bumped on each caret move, so only the last scheduled update lands.
-    pub(super) note_token: StoredValue<u64>,
+    /// The timer writing the note after the caret's last move.
+    pub(super) note_timer: StoredValue<crate::reactive::later::Timeout>,
     /// Distinguishes this editor's elements from other editors'.
     pub(super) id: usize,
     /// Where the read-only editor's notice shows (see `note_read_only`).
@@ -67,7 +67,7 @@ impl A11yState {
             escaped: StoredValue::new(false),
             announcement: RwSignal::new(String::new()),
             caret_note: RwSignal::new(String::new()),
-            note_token: StoredValue::new(0),
+            note_timer: StoredValue::new(Default::default()),
             id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             read_only_notice: RwSignal::new(None),
             notice_timer: StoredValue::new(Default::default()),

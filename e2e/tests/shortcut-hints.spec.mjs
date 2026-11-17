@@ -11,7 +11,7 @@ const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 
 const footerHint = (page) => page.locator('.config-editor__hint');
 const input = (page) => page.locator('.config-editor__input');
 
-test.describe('the suggestions hint on a touch screen (D23.ux-1)', () => {
+test.describe('the suggestions hint on a touch screen', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 740 } });
   setupEditor(test, '?language=yaml');
 
@@ -21,7 +21,7 @@ test.describe('the suggestions hint on a touch screen (D23.ux-1)', () => {
   });
 });
 
-test.describe('shortcut hints on macOS (D23.ux-2)', () => {
+test.describe('shortcut hints on macOS', () => {
   test.use({ userAgent: MAC });
   setupEditor(test, '?language=yaml');
 
@@ -45,7 +45,7 @@ test.describe('shortcut hints on macOS (D23.ux-2)', () => {
   });
 });
 
-test.describe('shortcut hints elsewhere (D23.ux-2)', () => {
+test.describe('shortcut hints elsewhere', () => {
   setupEditor(test, '?language=yaml');
 
   test('name Ctrl', async ({ page }) => {
@@ -56,7 +56,7 @@ test.describe('shortcut hints elsewhere (D23.ux-2)', () => {
   });
 });
 
-test.describe('F6 and the conflict notice (D23.a11y-2)', () => {
+test.describe('F6 and the conflict notice', () => {
   setupEditor(test, '?language=yaml');
 
   // The sentence says where F6 works: in the editor. The host's page keeps
@@ -83,7 +83,7 @@ test.describe('F6 and the conflict notice (D23.a11y-2)', () => {
   });
 });
 
-test.describe('a window a few lines tall (D23.ux-5)', () => {
+test.describe('a window a few lines tall', () => {
   test.use({ viewport: { width: 200, height: 150 } });
   setupEditor(test, '?language=yaml');
 

@@ -22,7 +22,13 @@ ROOT=$PWD
 # Runs a test command, under a memory limit when CI_MEMORY_LIMIT is set:
 # compiled first, so the limit applies to the tests and not to rustc.
 run_tests() {
-  cargo "$@" --no-run --quiet
+  # Arguments after `--` go to the test binary; `--no-run` must come before.
+  local cargo_args=()
+  for argument in "$@"; do
+    [[ "$argument" == "--" ]] && break
+    cargo_args+=("$argument")
+  done
+  cargo "${cargo_args[@]}" --no-run --quiet
   if [[ -n "${CI_MEMORY_LIMIT:-}" ]]; then
     prlimit --as="$CI_MEMORY_LIMIT" cargo "$@"
   else
@@ -41,10 +47,15 @@ step_clippy() {
   cargo clippy -p config-editor-js --target wasm32-unknown-unknown -- -D warnings
   (cd crates/config-editor-leptos &&
     cargo clippy --all-targets --no-default-features --features yaml,json,toml,hcl,xml -- -D warnings)
+  # Text offsets stay typed: no file gains a plain `usize` offset.
+  cargo test -p config-editor-leptos --test typed_offsets
 }
 
 step_test() {
-  run_tests test -p config-editor-leptos --features xsd
+  run_tests test -p config-editor-leptos
+  # The memory tests count this thread's live allocations: other tests
+  # running at the same time would move the count, so they run alone.
+  run_tests test -p config-editor-leptos --lib keeps_no_memory -- --ignored --test-threads=1
   # Also checks that the settings' generated TypeScript type and README tables
   # match `EditorSettings` (UPDATE_GENERATED=1 rewrites them).
   run_tests test -p config-editor-js
@@ -110,8 +121,11 @@ step_docs() {
   fi
   git ls-files '*.md' | xargs js/node_modules/.bin/prettier --check --log-level warn
   node e2e/screenshots.mjs --check
+  # Every seeded random test is in the sweep's list (scripts/sweep.sh), so
+  # the release-size sweep (.github/workflows/sweep.yml) runs it.
+  scripts/sweep.sh --check
   # The GitHub workflows, when actionlint is installed (it also runs
-  # shellcheck on their scripts when that is installed).
+  # ShellCheck on their scripts when that is installed).
   if command -v actionlint >/dev/null; then
     actionlint
   else

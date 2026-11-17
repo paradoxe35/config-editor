@@ -1,4 +1,4 @@
-//! H25-E2: an XML attribute holds a single value. One set to a list, an
+//! An XML attribute holds a single value. One set to a list, an
 //! empty list or a map from another view waits with a problem, as
 //! `serialize` refuses it, whether the view spells it `@a` (a child has its
 //! name) or `a`: it is never written `a="1 2"`, nor turned into elements.

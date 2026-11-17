@@ -12,22 +12,30 @@ use serde_json::Value;
 use web_sys::KeyboardEvent;
 
 use super::completion::{Completion, SuggestionPlace};
-use super::diagnostics::{Diagnostic, SchemaBundle};
+use super::diagnostics::Diagnostic;
 use super::edit::{Edit, Origin};
 use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::line_rows::MarkedLines;
 use super::paths::{FieldPath, TextRange};
+use super::schema::SchemaBundle;
 use super::secret_options::SecretOptions;
 use super::state::EditorState;
 use crate::EditorStrings;
+use crate::editor::text::TextSize;
 
 /// The host's side of protection (the component's props, when given).
 pub(super) struct ProtectInit {
     pub(super) paths: Option<Signal<Vec<FieldPath>>>,
     pub(super) ranges: Option<Signal<Vec<TextRange>>>,
     pub(super) secrets: Option<SecretOptions>,
+    #[allow(dead_code, reason = "the same input as protection's, unread here")]
+    pub(super) foreign: Option<Signal<Arc<Vec<DocumentPlaceholders>>>>,
 }
+
+/// Another editor's placeholders: none in this build.
+#[derive(Clone, PartialEq)]
+pub(crate) struct DocumentPlaceholders;
 
 /// What protection would read.
 #[allow(dead_code, reason = "the same inputs as protection's, unread here")]
@@ -36,7 +44,8 @@ pub(super) struct Inputs {
     pub(super) edit_language: RwSignal<Language>,
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
-    pub(super) host_text: StoredValue<String>,
+    pub(super) host_text: super::sync::HostTextReader,
+    pub(super) popups: super::popups::PopupState,
 }
 
 /// Nothing protected.
@@ -92,8 +101,25 @@ impl ProtectState {
         Vec::new()
     }
 
+    pub(super) fn placeholder_patterns(&self) -> Vec<super::diagnostics::PlaceholderPattern> {
+        Vec::new()
+    }
+
+    pub(super) fn own_placeholders(&self, _source: String) -> Option<DocumentPlaceholders> {
+        None
+    }
+
     pub(super) fn has_placeholders(&self) -> bool {
         false
+    }
+
+    pub(super) fn held_problems(
+        &self,
+        _behavior: &dyn super::super::language::ConfigLanguage,
+        _text: &str,
+        _strings: &EditorStrings,
+    ) -> Vec<Diagnostic> {
+        Vec::new()
     }
 
     pub(super) fn placeholder_pattern_problem(
@@ -118,7 +144,10 @@ impl ProtectState {
         Vec::new()
     }
 
-    pub(super) fn tip_open(&self) -> bool {
+    /// Whether the lock tooltip shows: never, with no locks (the edit
+    /// tests, which need YAML, ask).
+    #[cfg(all(test, feature = "yaml"))]
+    pub(crate) fn tip_open(&self) -> bool {
         false
     }
 
@@ -130,7 +159,7 @@ impl ProtectState {
     pub(super) fn trust_text(&self) {}
 
     /// A refusal's reason has no tooltip to show in.
-    pub(super) fn flash(&self, _message: String, _offset: usize) {}
+    pub(super) fn flash(&self, _message: String, _text: &str, _offset: TextSize) {}
 }
 
 /// Native unit tests have no console.
@@ -152,25 +181,11 @@ impl EditorState {
         Ok(())
     }
 
-    pub(super) fn follow_edit(&self, _before: &str, _after: &str, _caret: usize) {}
-
-    pub(super) fn note_refused(&self, _edit: &Edit, _message: String) -> Option<Edit> {
-        None
-    }
-
-    pub(super) fn note_applied(&self, _edit: &Edit) {}
-
-    pub(super) fn forget_refusal(&self) {}
-
-    pub(super) fn note_stepped_over(&self, _from: usize, _to: usize) {}
+    pub(super) fn follow_edit(&self, _edit: &Edit) {}
 
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 
     pub(super) fn leave_ranges(&self, _before: &str) {}
-
-    pub(crate) fn host_ranges_now(&self) -> Vec<TextRange> {
-        Vec::new()
-    }
 
     pub(super) fn check_host_save(
         &self,
@@ -184,11 +199,21 @@ impl EditorState {
         None
     }
 
+    pub(crate) fn changes_held(&self) -> bool {
+        false
+    }
+
+    pub(crate) fn note_held_back(&self, _held: bool) {}
+
+    pub(crate) fn cuts_a_token(&self, _start: TextSize, _end: TextSize) -> bool {
+        false
+    }
+
     pub(super) fn snap_to_tokens(&self) {}
 
     pub(super) fn recheck_tokens(&self) {}
 
-    pub(super) fn press_at(&self, _offset: usize) {}
+    pub(super) fn press_at(&self, _offset: TextSize) {}
 
     pub(super) fn release_press(&self) {}
 
@@ -196,7 +221,11 @@ impl EditorState {
         false
     }
 
-    pub(super) fn protected_note(&self, _offset: usize, _ends: bool) -> Option<(String, String)> {
+    pub(super) fn protected_note(
+        &self,
+        _offset: TextSize,
+        _ends: bool,
+    ) -> Option<(String, String)> {
         None
     }
 
@@ -207,6 +236,21 @@ impl EditorState {
     #[cfg(feature = "search")]
     pub(super) fn protected_bytes(&self, _text: &str) -> Vec<std::ops::Range<usize>> {
         Vec::new()
+    }
+
+    /// Nothing is protected: no span to keep.
+    #[cfg(test)]
+    pub(super) fn spans_before(&self, _text: &str) {}
+
+    #[cfg(test)]
+    pub(super) fn assert_spans_kept(
+        &self,
+        _spans: &(),
+        _before: &str,
+        _after: &str,
+        _caret: TextSize,
+        _stepped: bool,
+    ) {
     }
 }
 
@@ -246,8 +290,17 @@ pub(super) fn mentions_marks(_schema: &Value) -> bool {
     false
 }
 
+/// No schema marks are read.
+pub(super) fn mentions_secrets(_schema: &Value) -> bool {
+    false
+}
+
 #[cfg(feature = "schema-validation")]
-pub(super) fn secret_pointers(_document: &Value, _root: &Value) -> Vec<String> {
+pub(super) fn secret_pointers(
+    _document: &Value,
+    _root: &Value,
+    _repeats_arrays: bool,
+) -> Vec<String> {
     Vec::new()
 }
 

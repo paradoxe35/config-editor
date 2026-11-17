@@ -5,8 +5,10 @@
 //! the container's, as its opening tag does.
 
 use super::super::completion::{KeyHover, key_hover};
-use super::super::diagnostics::{SchemaBundle, build_schema};
+use super::super::schema::{SchemaBundle, build_schema};
 use super::Language;
+use super::harness::{hovering, key_place, report, text};
+use serde_json::{Value, json};
 
 fn schema() -> SchemaBundle {
     build_schema(
@@ -24,29 +26,16 @@ fn schema() -> SchemaBundle {
     .unwrap()
 }
 
-/// Each language's document with two `svc` items and a `box` object.
-const DOCUMENTS: [(Language, &str); 5] = [
-    (
-        Language::YAML,
-        "svc:\n  - name: a\n    port: 1\n  - name: b\n    port: 2\nbox:\n  size: 3\n",
-    ),
-    (
-        Language::JSON,
-        "{\n  \"svc\": [\n    { \"name\": \"a\", \"port\": 1 },\n    { \"name\": \"b\", \"port\": 2 }\n  ],\n  \"box\": {\n    \"size\": 3\n  }\n}\n",
-    ),
-    (
-        Language::TOML,
-        "[[svc]]\nname = \"a\"\nport = 1\n\n[[svc]]\nname = \"b\"\nport = 2\n\n[box]\nsize = 3\n",
-    ),
-    (
-        Language::HCL,
-        "svc {\n  name = \"a\"\n  port = 1\n}\nsvc {\n  name = \"b\"\n  port = 2\n}\nbox {\n  size = 3\n}\n",
-    ),
-    (
-        Language::XML,
-        "<svc>\n  <name>a</name>\n  <port>1</port>\n</svc>\n<svc>\n  <name>b</name>\n  <port>2</port>\n</svc>\n<box>\n  <size>3</size>\n</box>\n",
-    ),
-];
+/// Two `svc` items and a `box` object.
+fn document() -> Value {
+    json!({
+        "svc": [{"name": "a", "port": 1}, {"name": "b", "port": 2}],
+        "box": {"size": 3}
+    })
+}
+
+/// The XML document of [`document`], as written by hand.
+const XML_DOCUMENT: &str = "<svc>\n  <name>a</name>\n  <port>1</port>\n</svc>\n<svc>\n  <name>b</name>\n  <port>2</port>\n</svc>\n<box>\n  <size>3</size>\n</box>\n";
 
 /// The hover over the `nth` (zero-based) `needle` in `source`, one
 /// character into it.
@@ -68,9 +57,10 @@ fn described(hover: Option<KeyHover>) -> Option<(String, Option<String>, Option<
     hover.map(|hover| (hover.key, hover.title, hover.description))
 }
 
-/// QA 24 (L24-U3): TOML `[[svc]]`, HCL `svc {` and XML `<svc>` showed the
-/// item's schema alone (no description), so an array's own docs never
-/// showed there; YAML and JSON show them on `svc:`.
+/// The array's own docs show on its name wherever it is written: once
+/// (YAML, JSON), or on each item (TOML `[[svc]]`, HCL `svc {`, XML
+/// `<svc>`), not the item's schema alone. The items over lines and on one
+/// line each.
 #[test]
 fn an_array_of_blocks_shows_its_own_docs_on_every_item() {
     let bundle = schema();
@@ -82,41 +72,67 @@ fn an_array_of_blocks_shows_its_own_docs_on_every_item() {
             Some(description.to_string()),
         ))
     };
-    for (language, source) in DOCUMENTS {
-        // Each `svc` that opens an item (not XML's closing tags).
-        let opening = source.matches("svc").count() - source.matches("/svc").count();
-        let needle = if language == Language::XML {
-            "<svc"
-        } else {
-            "svc"
-        };
-        for nth in 0..opening {
-            let hover = hover_at(language, source, needle, nth, &bundle);
+    let mut sources = Vec::new();
+    for language in hovering() {
+        for one_line in [&[][..], &["/svc/0", "/svc/1"][..]] {
+            match text(language, &document(), one_line) {
+                Ok(text) => sources.push((language, text)),
+                Err(error) => failures.push(error),
+            }
+        }
+    }
+    for (language, source) in &sources {
+        let (language, source) = (*language, source.as_str());
+        // Each `svc` written, not in a closing tag: one character in.
+        let names: Vec<usize> = source
+            .match_indices("svc")
+            .map(|(at, _)| at)
+            .filter(|at| !source[..*at].ends_with('/'))
+            .collect();
+        for (nth, at) in names.into_iter().enumerate() {
+            let line = source[..at].matches('\n').count();
+            let line_start = source[..at].rfind('\n').map_or(0, |index| index + 1);
+            let column = source[line_start..at].chars().count() + 1;
+            let hover = key_hover(source, line, column, Some(&bundle), language.behavior());
             let docs = hover.as_ref().and_then(|hover| hover.docs_url.clone());
             let shown = described(hover);
             if shown != svc("Services list") || docs.as_deref() != Some("https://example.com/svc") {
-                failures.push(format!("{language:?} svc #{nth}: {shown:?} {docs:?}"));
+                failures.push(format!(
+                    "{language} svc #{nth}: {shown:?} {docs:?}\n{source}"
+                ));
             }
         }
         for (needle, description) in [("name", "Service name"), ("port", "Service port")] {
             for nth in [0, 1] {
-                let shown = described(hover_at(language, source, needle, nth, &bundle));
+                let pointer = format!("/svc/{nth}/{needle}");
+                let shown =
+                    key_place(language, source, &pointer, 1)
+                        .ok()
+                        .and_then(|(line, column)| {
+                            described(key_hover(
+                                source,
+                                line,
+                                column,
+                                Some(&bundle),
+                                language.behavior(),
+                            ))
+                        });
                 let wanted = Some((needle.to_string(), None, Some(description.to_string())));
                 if shown != wanted {
-                    failures.push(format!("{language:?} {needle} #{nth}: {shown:?}"));
+                    failures.push(format!("{language} {needle} #{nth}: {shown:?}\n{source}"));
                 }
             }
         }
     }
-    assert!(failures.is_empty(), "{failures:#?}");
+    report(&failures);
 }
 
-/// QA 24 (L24-U3): an XML container's closing tag (`</svc>`, `</box>`)
-/// showed nothing; it shows the container's docs, as its opening tag.
+/// An XML container's closing tag (`</svc>`, `</box>`) shows the
+/// container's docs, as its opening tag does: markup of XML's own.
 #[test]
 fn an_xml_containers_closing_tag_shows_its_docs() {
     let bundle = schema();
-    let (_, source) = DOCUMENTS[4];
+    let source = XML_DOCUMENT;
     let mut failures = Vec::new();
     for (needle, nth, wanted) in [
         ("/svc", 0, ("svc", "Services list")),
@@ -133,10 +149,11 @@ fn an_xml_containers_closing_tag_shows_its_docs() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// QA 25 (U25-7): a repeated block's card showed the item's type with the
-/// list's description, the item's own title and description lost; a YAML
-/// `- ` and a JSON item's `{` showed no card. Each item, by its key or
-/// what opens it, shows the list's docs with the item's own under them.
+/// Each item, by its key or what opens it (a YAML `- `, a JSON item's `{`,
+/// a repeated block's name), shows the list's docs with the item's own
+/// under them: the item's title and description, not only its type. What
+/// opens an item is each language's own syntax, so the cases are written
+/// by hand.
 #[test]
 fn a_list_item_shows_the_lists_docs_and_its_own() {
     let bundle = build_schema(
@@ -257,10 +274,24 @@ fn a_list_item_shows_the_lists_docs_and_its_own() {
 
 /// Hovering any character of lists holding wide characters (a secret's
 /// `•` placeholder, accents, a no-break space after a dash) finds docs or
-/// nothing, in every language, and never stops the editor.
+/// nothing, in every language, and never stops the editor: the lists as
+/// each language writes them, then broken forms written by hand.
 #[test]
 fn hovering_any_character_of_a_list_with_wide_characters_never_fails() {
     let bundle = schema();
+    let wide = json!({"svc": [{"name": "é•••"}, {"name": "•\u{a0}x"}], "box": {"size": 3}});
+    for language in hovering() {
+        for one_line in [&[][..], &["/svc"][..]] {
+            let Ok(source) = text(language, &wide, one_line) else {
+                continue;
+            };
+            for (line, text) in source.split('\n').enumerate() {
+                for column in 0..=text.chars().count() {
+                    let _ = key_hover(&source, line, column, Some(&bundle), language.behavior());
+                }
+            }
+        }
+    }
     let documents = [
         (
             Language::YAML,

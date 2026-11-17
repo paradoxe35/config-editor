@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use super::super::completion::{child_schemas, resolve_branches, schema_at_path};
+use super::super::applies::{Applies, Entry, Here, Next, Seen, Walking, each_value};
 use super::super::language::SchemaPathSegment;
 
 /// The fields of one document the schema marks, by JSON pointer.
@@ -19,87 +19,67 @@ pub(crate) struct SchemaMarks {
 /// Whether `schema` mentions any of the marks at all, so documents under a
 /// schema without them skip the walk.
 pub(crate) fn mentions_marks(schema: &Value) -> bool {
-    match schema {
-        Value::Object(map) => map.iter().any(|(key, value)| {
-            (matches!(key.as_str(), "readOnly" | "writeOnly" | "x-secret")
-                && value == &Value::Bool(true))
-                || mentions_marks(value)
-        }),
-        Value::Array(items) => items.iter().any(mentions_marks),
-        _ => false,
-    }
+    mentions(schema, &["readOnly", "writeOnly", "x-secret"])
+}
+
+/// Whether `schema` marks any field secret.
+pub(crate) fn mentions_secrets(schema: &Value) -> bool {
+    mentions(schema, &["writeOnly", "x-secret"])
+}
+
+fn mentions(schema: &Value, marks: &[&str]) -> bool {
+    let mut found = false;
+    crate::editor::schema::each_schema(schema, &(), &mut |_, members, ()| {
+        found |= marks
+            .iter()
+            .any(|mark| members.get(*mark) == Some(&Value::Bool(true)));
+        (!found).then_some(())
+    });
+    found
 }
 
 /// The keys of the fields `root` marks read-only, wherever they are (a
 /// field whose items or entries are read-only by its own key), to find the
 /// lines that may hold one in a text too large to read every line of.
 pub(crate) fn read_only_names(root: &Value) -> Vec<String> {
-    let mut names = Vec::new();
-    collect_names(root, root, &mut names, 0);
+    // Whether what applies to a field (blind, as locks read it), or to its
+    // items or entries at any depth, says `readOnly`; each schema is read
+    // once, so a reference cycle ends.
+    let holds_read_only = |field: &Value| {
+        let mut read = std::collections::HashSet::new();
+        let mut next = vec![Entry::schema(field)];
+        while let Some(entry) = next.pop() {
+            let here = Here::walk(entry, root, Seen::default());
+            let branches = here.branches();
+            if read_only_in(&branches).is_some() {
+                return true;
+            }
+            if branches.iter().fold(false, |new, branch| {
+                read.insert(std::ptr::from_ref(*branch)) | new
+            }) {
+                next.push(here.unnamed_children());
+            }
+        }
+        false
+    };
+    let mut names: Vec<String> = Vec::new();
+    crate::editor::schema::each_schema(root, &(), &mut |_, members, ()| {
+        if let Some(Value::Object(properties)) = members.get("properties") {
+            for (key, field) in properties {
+                if !names.contains(key) && holds_read_only(field) {
+                    names.push(key.clone());
+                }
+            }
+        }
+        Some(())
+    });
     names
 }
 
-fn collect_names(schema: &Value, root: &Value, names: &mut Vec<String>, depth: usize) {
-    if depth > MAX_DEPTH {
-        return;
-    }
-    match schema {
-        Value::Object(map) => {
-            if let Some(Value::Object(properties)) = map.get("properties") {
-                for (key, child) in properties {
-                    if holds_read_only(child, root, 0) && !names.contains(key) {
-                        names.push(key.clone());
-                    }
-                }
-            }
-            for value in map.values() {
-                collect_names(value, root, names, depth + 1);
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect_names(item, root, names, depth + 1);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Whether the field `schema` describes is read-only, or its items or
-/// entries are.
-fn holds_read_only(schema: &Value, root: &Value, depth: usize) -> bool {
-    if depth > 8 {
-        return false;
-    }
-    if read_only_reason(&[schema], root).is_some() {
-        return true;
-    }
-    resolve_branches(schema, root).iter().any(|branch| {
-        ["items", "additionalProperties", "contains"]
-            .iter()
-            .filter_map(|key| branch.get(*key))
-            .chain(
-                ["prefixItems", "patternProperties"]
-                    .iter()
-                    .filter_map(|key| branch.get(*key))
-                    .flat_map(|inner| match inner {
-                        Value::Array(items) => items.iter().collect::<Vec<_>>(),
-                        Value::Object(map) => map.values().collect(),
-                        _ => Vec::new(),
-                    }),
-            )
-            .any(|inner| holds_read_only(inner, root, depth + 1))
-    })
-}
-
-/// The read-only reason the branches of a field's schemas give: `Some` when
-/// one says `readOnly: true` (the inner `Option` is its
+/// The read-only reason the schemas applying to a field (`branches`)
+/// give: `Some` when one says `readOnly: true` (the inner `Option` is its
 /// `x-readonly-reason`).
-pub(crate) fn read_only_reason(schemas: &[&Value], root: &Value) -> Option<Option<String>> {
-    let branches: Vec<&Value> = schemas
-        .iter()
-        .flat_map(|schema| resolve_branches(schema, root))
-        .collect();
+pub(crate) fn read_only_in(branches: &[&Value]) -> Option<Option<String>> {
     branches
         .iter()
         .any(|branch| branch.get("readOnly") == Some(&Value::Bool(true)))
@@ -113,15 +93,12 @@ pub(crate) fn read_only_reason(schemas: &[&Value], root: &Value) -> Option<Optio
         })
 }
 
-/// Whether the branches of a field's schemas make it a secret.
-pub(crate) fn is_secret(schemas: &[&Value], root: &Value) -> bool {
-    schemas
-        .iter()
-        .flat_map(|schema| resolve_branches(schema, root))
-        .any(|branch| {
-            branch.get("writeOnly") == Some(&Value::Bool(true))
-                || branch.get("x-secret") == Some(&Value::Bool(true))
-        })
+/// Whether the schemas applying to a field (`branches`) make it a secret.
+fn secret_in(branches: &[&Value]) -> bool {
+    branches.iter().any(|branch| {
+        branch.get("writeOnly") == Some(&Value::Bool(true))
+            || branch.get("x-secret") == Some(&Value::Bool(true))
+    })
 }
 
 /// The schema's verdict for the field at `path`, written or not: read-only
@@ -132,83 +109,61 @@ pub(crate) fn marks_at(
     path: &[SchemaPathSegment],
     repeats_arrays: bool,
 ) -> (Option<Option<String>>, bool) {
+    let applies = Applies::blind(root, repeats_arrays);
     for depth in 0..=path.len() {
-        let schemas = schema_at_path(root, &path[..depth], repeats_arrays);
-        if let Some(reason) = read_only_reason(&schemas, root) {
+        let branches = applies.at(&path[..depth]).branches();
+        if let Some(reason) = read_only_in(&branches) {
             return (Some(reason), false);
         }
         if depth == path.len() {
-            return (None, is_secret(&schemas, root));
+            return (None, secret_in(&branches));
         }
     }
     (None, false)
 }
 
-/// The marked fields of `document`, walking it with the schema.
+/// The marked fields of `document`, walking it with the schema: what the
+/// schema may say at each field whatever the document decides, so a lock
+/// never depends on what is written beside it.
 pub(crate) fn schema_marks(document: &Value, root: &Value) -> SchemaMarks {
     let mut marks = SchemaMarks::default();
-    walk(document, vec![root], root, String::new(), &mut marks, 0);
+    each_value(document, root, Walking::default(), &mut |visit| {
+        let branches = visit.here.branches();
+        if let Some(reason) = read_only_in(&branches) {
+            marks.read_only.push((visit.pointer.to_string(), reason));
+            return Next::Past;
+        }
+        if secret_in(&branches) {
+            marks.secret.push(visit.pointer.to_string());
+        }
+        Next::Into
+    });
     marks
 }
 
-/// Fields walked at most, so a huge document cannot stall an edit.
-const MAX_DEPTH: usize = 64;
-
-fn walk(
-    value: &Value,
-    schemas: Vec<&Value>,
-    root: &Value,
-    pointer: String,
-    marks: &mut SchemaMarks,
-    depth: usize,
-) {
-    if depth > MAX_DEPTH || schemas.is_empty() {
-        return;
-    }
-    if let Some(reason) = read_only_reason(&schemas, root) {
-        marks.read_only.push((pointer, reason));
-        return;
-    }
-    if is_secret(&schemas, root) {
-        marks.secret.push(pointer.clone());
-    }
-    let children: Vec<(String, &Value, SchemaPathSegment)> = match value {
-        Value::Object(map) => map
-            .iter()
-            .map(|(key, child)| (escape(key), child, SchemaPathSegment::Key(key.clone())))
-            .collect(),
-        Value::Array(items) => items
-            .iter()
-            .enumerate()
-            .map(|(index, child)| {
-                (
-                    index.to_string(),
-                    child,
-                    SchemaPathSegment::ArrayItem(index),
-                )
-            })
-            .collect(),
-        _ => return,
+/// The secret fields of `document` a message must not quote: every field
+/// a schema that may apply there marks secret (inside a read-only field
+/// too), a key naming a list also read as its item where the language
+/// writes lists by repeating keys (`repeats_arrays`).
+#[cfg(feature = "schema-validation")]
+pub(crate) fn secret_fields(document: &Value, root: &Value, repeats_arrays: bool) -> Vec<String> {
+    let mut secrets = Vec::new();
+    let walking = Walking {
+        decided: false,
+        repeats_arrays,
     };
-    for (step, child, segment) in children {
-        let next: Vec<&Value> = schemas
-            .iter()
-            .flat_map(|schema| child_schemas(schema, root, &segment))
-            .collect();
-        walk(
-            child,
-            next,
-            root,
-            format!("{pointer}/{step}"),
-            marks,
-            depth + 1,
-        );
-    }
+    each_value(document, root, walking, &mut |visit| {
+        if secret_in(&visit.here.branches()) {
+            secrets.push(visit.pointer.to_string());
+        }
+        Next::Into
+    });
+    secrets
 }
 
 /// A key as a JSON pointer segment.
 pub(crate) fn escape(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
+    crate::editor::language::pointer_key(key)
 }
 
 #[cfg(test)]
@@ -266,5 +221,32 @@ mod tests {
         assert!(!mentions_marks(
             &json!({"properties": {"readOnly": {"type": "boolean"}}})
         ));
+        // Data is no schema: a default or an example that looks marked
+        // marks nothing.
+        assert!(!mentions_marks(&json!({
+            "default": {"readOnly": true},
+            "properties": {"a": {"examples": [{"x-secret": true}], "const": {"writeOnly": true}}}
+        })));
+    }
+
+    /// The keys that may name a read-only field: the field's own, by what
+    /// applies to it, its items' or its entries' at any depth; never a name
+    /// inside data, nor a list read-only only by `contains`.
+    #[test]
+    fn read_only_names_follow_what_applies_to_each_field() {
+        let schema = json!({
+            "$defs": {"node": {"type": "array", "items": {"$ref": "#/$defs/node"}},
+                      "locked": {"readOnly": true}},
+            "properties": {
+                "id": {"allOf": [{"$ref": "#/$defs/locked"}]},
+                "tokens": {"items": {"items": {"readOnly": true}}},
+                "labels": {"patternProperties": {"^x": {"readOnly": true}}},
+                "tree": {"$ref": "#/$defs/node"},
+                "some": {"contains": {"readOnly": true}},
+                "free": {"type": "string"}
+            },
+            "default": {"properties": {"inData": {"readOnly": true}}}
+        });
+        assert_eq!(read_only_names(&schema), ["id", "tokens", "labels"]);
     }
 }

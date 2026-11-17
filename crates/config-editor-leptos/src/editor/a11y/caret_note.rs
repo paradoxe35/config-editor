@@ -8,27 +8,21 @@
 use leptos::prelude::*;
 
 use super::super::diagnostics::Diagnostic;
-use super::super::keyboard::utf16_to_byte_index;
+
 use super::super::problem_hit::innermost_start;
 use super::super::state::EditorState;
 use super::texts::problem_text;
 use crate::EditorStrings;
+use crate::editor::text::TextSize;
 use crate::reactive::later;
 use crate::strings::fill;
 
 /// How long the caret rests before the note follows it, in milliseconds.
 const NOTE_DELAY_MS: i32 = 150;
 
-/// The one-based line and character column of UTF-16 `caret` in `text`.
-pub(in crate::editor) fn caret_position(text: &str, caret: usize) -> (usize, usize) {
-    let byte = utf16_to_byte_index(text, caret);
-    let line_start = text[..byte].rfind('\n').map_or(0, |at| at + 1);
-    let line = text[..line_start]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count()
-        + 1;
-    (line, text[line_start..byte].chars().count() + 1)
+/// The one-based line and character column of byte `caret` in `text`.
+pub(in crate::editor) fn caret_position(text: &str, caret: TextSize) -> (usize, usize) {
+    super::super::paths::line_column(text, caret)
 }
 
 /// Whether `problem` covers the caret at one-based `line`:`column`: its
@@ -100,13 +94,8 @@ pub(in crate::editor) fn connect_caret_note(state: EditorState) {
         state.problems().diagnostics.track();
         state.protect().track();
         state.config().settings.strings.track();
-        state.a11y().note_token.update_value(|token| *token += 1);
-        let token = state.a11y().note_token.get_value();
-        later::after(state, NOTE_DELAY_MS, move |state| {
-            if state.a11y().note_token.get_value() == token {
-                update_note(state);
-            }
-        });
+        let timer = later::after(state, NOTE_DELAY_MS, update_note);
+        later::replace_in(state.a11y().note_timer, timer);
     });
 }
 
@@ -162,9 +151,8 @@ pub(in crate::editor) fn open_docs_key(state: EditorState, event: &web_sys::Keyb
 /// `event`; false when there is none.
 pub(in crate::editor) fn open_docs(state: EditorState, event: &web_sys::KeyboardEvent) -> bool {
     let card_docs = || {
-        state.hover().card.with_untracked(|card| {
-            card.as_ref()
-                .filter(|_| state.completion().suggestions.with_untracked(Vec::is_empty))
+        state.popups().with_card(|card| {
+            card.filter(|_| state.completion().suggestions.with_untracked(Vec::is_empty))
                 .and_then(|card| card.info.docs_url.clone())
         })
     };

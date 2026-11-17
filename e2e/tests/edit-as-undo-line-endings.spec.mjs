@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { editor } from './helpers.mjs';
 
-// Round 16: undoing an Edit-as switch left the other language's whole text
+// Undoing an Edit-as switch left the other language's whole text
 // selected, so the next key replaced the document; and any edit to a CRLF
 // file turned every line ending into LF. Both with real keys, in the demo.
 

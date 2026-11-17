@@ -193,7 +193,7 @@ test.describe('completion in a large document', () => {
 
 // The work after a pause in typing (validation, the placeholders' fields,
 // the Edit-as conversion) and after a whole-document edit, as long tasks:
-// QA round 16 measured 630 ms after one key in the large JSON sample (each
+// One key in the large JSON sample took 630 ms before (each
 // placeholder looked up by path in a text that does not parse), seconds for
 // Ctrl+A Tab on the sample pasted four times, and 1.7 s for an Edit-as
 // switch there. Generous bounds for CI machines that still catch work done
@@ -275,7 +275,7 @@ test.describe('the large sample pasted four times', () => {
   });
 });
 
-// QA round 17: Ctrl+/ over the whole sample pasted four times (~8000 lines),
+// Ctrl+/ over the whole sample pasted four times (~8000 lines),
 // back, and its undo took 1-2.5 s each: after the toggle, every commented
 // placeholder was looked up by path (a read of the whole text each).
 for (const language of ['yaml', 'xml']) {
@@ -308,7 +308,7 @@ for (const language of ['yaml', 'xml']) {
   });
 }
 
-// QA round 18: Ctrl+/ on a closing tag or a block's `}` comments the whole
+// Ctrl+/ on a closing tag or a block's `}` comments the whole
 // element or block, leaving a commented copy of the document beside a live
 // one. Then Ctrl+A Ctrl+/, back and the undos took 2-3 s each on 4300 lines
 // of XML and 7800 of HCL: every placeholder, written in the commented copy

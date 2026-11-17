@@ -14,16 +14,19 @@ mod style;
 mod constructs;
 mod multiline;
 mod parse;
+mod words;
 mod spans;
 mod lines;
 mod suggestions;
 mod editing;
+mod lexical;
 mod colors;
 mod table_spacing;
 // The fold ranges (the `folding` feature).
 #[cfg(feature = "folding")]
 mod folding;
 
+use crate::editor::paths::{byte_at_column, first_line_span, line_column, span_between, FieldPath};
 use style::*;
 use parse::*;
 use spans::*;
@@ -31,10 +34,11 @@ use suggestions::*;
 use editing::*;
 use colors::*;
 
-use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, inline_sibling_keys, caret_value_end, string_end_at_caret, statement_start_at, entry_follows, in_front_of_inline_entry};
-use super::super::completion::{kept_const, kept_default, array_branch, object_branch, placeholder, schema_const, required_children, Fill, RequiredChild};
+use super::inline::{InlineEntry as CaretEntry, inline_caret, inline_key_at, inline_keys, caret_value_end, string_end_at_caret, statement_start_at, entry_follows, in_front_of_inline_entry};
+use super::super::completion::{Fill, InsertPlan, Planned, RequiredChild};
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::language::pointer_segments;
+use super::super::language::{Text, Typing, Hover, SaveLayout, LanguageTraits};
 use super::super::language::{LanguageConfig, bracket_newline, CompletionContext, Newline, EntryPosition, InsertContext, ConfigLanguage, LanguageInfo, Lexical, Span, ParseError,
     SchemaPathSegment,
 };
@@ -46,8 +50,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) struct TomlBehavior;
 
-
-/// A TOML scalar edit (see `ConfigLanguage::edits_one_scalar`): a
+/// A TOML scalar edit (see `SaveLayout::edits_one_scalar`): a
 /// `key = value` line read as a document of its own; the edit adds and
 /// removes no quote or escape (a multi-line string), bracket or comma.
 const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRules {
@@ -57,15 +60,6 @@ const SCALAR_LINE: super::scalar_lines::LineRules = super::scalar_lines::LineRul
 };
 
 impl ConfigLanguage for TomlBehavior {
-    fn key_half_typed(&self, line: &str) -> bool {
-        // A table header without its `]` yet.
-        line.starts_with('[') && !line.contains(']')
-    }
-
-    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
-        super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
-    }
-
     fn info(&self) -> LanguageInfo {
         LanguageInfo {
             label: "TOML",
@@ -87,6 +81,10 @@ impl ConfigLanguage for TomlBehavior {
             item_separator: Some(','),
             item_marker: None,
             written_separator: Some(" = "),
+            traits: LanguageTraits {
+                writes_non_finite: true,
+                ..LanguageTraits::NONE
+            },
         }
     }
 
@@ -94,20 +92,188 @@ impl ConfigLanguage for TomlBehavior {
         toml_parse(source)
     }
 
-    fn key_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        toml_key_span(source, pointer).map(Span::from)
+    fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        toml_key_span(source, &path.to_pointer()).map(Span::from)
     }
 
-    fn value_span(&self, source: &str, pointer: &str) -> Option<Span> {
-        toml_value_span(source, pointer).map(Span::from)
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        toml_value_span(source, &path.to_pointer()).map(Span::from)
+    }
+
+    fn value_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        toml_value_spans(source, &paths.iter().map(FieldPath::to_pointer).collect::<Vec<_>>()).into_iter().map(|span| span.map(Span::from)).collect()
+    }
+
+    fn key_spans(&self, source: &str, paths: &[FieldPath]) -> Vec<Option<Span>> {
+        toml_key_spans(source, &paths.iter().map(FieldPath::to_pointer).collect::<Vec<_>>()).into_iter().map(|span| span.map(Span::from)).collect()
+    }
+
+    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
+        completion_context(source, cursor)
+    }
+
+    fn write_insert(
+        &self,
+        key: &str,
+        plan: &InsertPlan<'_>,
+        context: &InsertContext<'_>,
+    ) -> Option<(String, usize)> {
+        write_insert(key, plan, context)
+    }
+
+    fn format_value(&self, value: &Value) -> String {
+        toml_text(value)
+    }
+
+    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
+        key_at_column(line, column)
+    }
+
+    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
+        highlight(line)
+    }
+
+    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
+        use super::super::codec::first_pointer;
+        if !value.is_object() {
+            return Err("a TOML document is a table: the top level must be an object".to_string());
+        }
+        if let Some(pointer) = first_pointer(value, &Value::is_null) {
+            return Err(format!("TOML has no null value (at {pointer})"));
+        }
+        let too_large = |value: &Value| value.as_u64().is_some_and(|number| i64::try_from(number).is_err());
+        if let Some(pointer) = first_pointer(value, &too_large) {
+            return Err(format!("TOML integers end at 9223372036854775807 (at {pointer})"));
+        }
+        let rendered = toml::to_string(&super::super::codec::non_finite::Floats(value))
+            .map_err(|error| error.to_string())?;
+        // Tables the host wrote as dotted keys are written that way again.
+        Ok(match previous {
+            Some(previous) => {
+                let folded = fold_dotted_tables(&rendered, &dotted_tables(previous), previous);
+                // In the host's table order only where that reads the same:
+                // a sub-table belongs to the array-of-tables entry above it.
+                let ordered = order_tables_like(&folded, previous);
+                let same = toml_parse(&ordered).ok().is_some_and(|value| toml_parse(&folded).ok() == Some(value));
+                // Its tables parted as the host parts its own.
+                table_spacing::spaced_like(if same { ordered } else { folded }, previous)
+            }
+            None => rendered,
+        })
+    }
+
+    fn text(&self) -> &dyn Text {
+        self
+    }
+
+    fn typing(&self) -> &dyn Typing {
+        self
+    }
+
+    fn hover(&self) -> &dyn Hover {
+        self
+    }
+
+    fn layout(&self) -> &dyn SaveLayout {
+        self
+    }
+}
+
+impl Text for TomlBehavior {
+    fn first_span(&self, source: &str) -> Option<Span> {
+        first_line_span(source).map(Span::from)
+    }
+
+    fn lexical_state(&self, _language: &dyn ConfigLanguage, source: &str, cursor: usize) -> Lexical {
+        let (quote, in_comment) = toml_lexical_state(source, cursor);
+        Lexical { quote, in_comment }
+    }
+
+    /// A `#` outside a string, wherever it is (see `lexical`).
+    fn comment_start(&self, _language: &dyn ConfigLanguage, line: &str) -> Option<usize> {
+        lexical::read_line(line, line.len()).comment
+    }
+
+    #[cfg(feature = "folding")]
+    fn fold_ranges(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<super::super::language::FoldRange> {
+        folding::toml_fold_ranges(source, &self.config(), &string_bodies(self, source))
+    }
+
+    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
+        multi_line_string_bodies(source)
+    }
+
+    /// `"""` / `'''` strings, and arrays (or inline tables) over lines.
+    fn multiline_constructs(&self, _language: &dyn ConfigLanguage, source: &str) -> Vec<MultilineConstruct> {
+        constructs::multiline_constructs(source)
+    }
+
+    /// The inside of an array: its elements.
+    fn highlight_continued(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<Token> {
+        let mut tokens = Tokens::new();
+        constructs::value_tokens(text, 0, &mut tokens);
+        tokens.finish()
+    }
+}
+
+impl Typing for TomlBehavior {
+    fn rewritable_keys(&self, source: &str, cursor_byte: usize, path: &[SchemaPathSegment]) -> HashSet<String> {
+        rewritable_keys(source, cursor_byte, path)
     }
 
     /// A value follows, or the rest of a dotted key (`tcp|.nodelay`).
-    fn value_follows_key(&self, rest: &str) -> bool {
+    fn value_follows_key(&self, _language: &dyn ConfigLanguage, rest: &str) -> bool {
         rest.starts_with('.') || {
             let rest = rest.trim_start();
             rest.strip_prefix('=').is_some_and(|after| !after.starts_with('='))
         }
+    }
+
+    fn newline(&self, _language: &dyn ConfigLanguage, source: &str, cursor: usize) -> Newline {
+        inline_table_exit(source, cursor).unwrap_or_else(|| {
+            bracket_newline(source, cursor, &[('[', ']')], &self.config(), |line| split_toml_comment(line).0)
+        })
+    }
+
+    fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
+        // A third quote typed in a row opens a multi-line string.
+        if !matches!(typed, '"' | '\'') {
+            return None;
+        }
+        let byte = utf16_to_byte_index(source, cursor);
+        let before = &source[..byte];
+        let pair: String = [typed, typed].iter().collect();
+        let opens = before.ends_with(&pair)
+            && !before[..before.len() - 2].ends_with(typed)
+            && toml_lexical_state(source, cursor.saturating_sub(2)).0.is_none();
+        opens.then(|| [typed; 3].iter().collect())
+    }
+
+    /// A `[table]` header takes its keys along: commented alone, they would
+    /// move into the table above.
+    fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
+        table_of_selected_header(source, start, end)
+    }
+}
+
+impl Hover for TomlBehavior {
+    fn hover_cursor(&self, line: &str, column: usize) -> usize {
+        hover_context_offset(line, column)
+    }
+
+    fn hover_path(
+        &self,
+        source: &str,
+        line_index: usize,
+        column: usize,
+    ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
+        dotted_hover_path(self, source, line_index, column)
+    }
+}
+
+impl SaveLayout for TomlBehavior {
+    fn edits_one_scalar(&self, source: &str, range: std::ops::Range<usize>, inserted: &str) -> bool {
+        super::scalar_lines::one_scalar_line(self, source, range, inserted, &SCALAR_LINE).is_some()
     }
 
     /// A `[table]` header starts a section.
@@ -116,15 +282,15 @@ impl ConfigLanguage for TomlBehavior {
     }
 
     /// An `[[array]]` table's header starts an item.
-    fn opens_list_item(&self, lines: &[&str], index: usize) -> bool {
+    fn opens_list_item(&self, language: &dyn ConfigLanguage, lines: &[&str], index: usize) -> bool {
         let line = lines[index];
-        line[..self.comment_start(line).unwrap_or(line.len())]
+        line[..language.comment_start(line).unwrap_or(line.len())]
             .trim_start()
             .starts_with("[[")
     }
 
-    fn item_lines(&self, source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
-        table_lines(source, pointer)
+    fn item_lines(&self, source: &str, path: &FieldPath) -> Option<std::ops::Range<usize>> {
+        table_lines(source, &path.to_pointer())
     }
 
     /// An assignment aligned as formatters write it (`p    = 1`) is the
@@ -139,15 +305,15 @@ impl ConfigLanguage for TomlBehavior {
         }
     }
 
-    fn key_renames(&self, source: &str, pointer: &str, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
-        toml_key_renames(source, pointer, new_key)
+    fn key_renames(&self, source: &str, path: &FieldPath, new_key: &str) -> Option<Vec<crate::editor::language::KeyEdit>> {
+        toml_key_renames(source, &path.to_pointer(), new_key)
     }
 
     /// A date or time the host writes bare stays one: written as TOML
     /// reads it back, and a text that is no date or time (typed half-way)
     /// waits rather than turn it into a string.
-    fn scalar_edit(&self, previous: &str, pointer: &str, value: &Value) -> Result<Option<Value>, String> {
-        let Some(span) = self.value_span(previous, pointer) else {
+    fn scalar_edit(&self, previous: &str, path: &FieldPath, value: &Value) -> Result<Option<Value>, String> {
+        let Some(span) = self.value_span(previous, path) else {
             return Ok(None);
         };
         // (A lookup while a batch runs for the text.)
@@ -170,52 +336,13 @@ impl ConfigLanguage for TomlBehavior {
     }
 
     /// Bare (`A-Za-z0-9_-`), else a basic string (`"a.b"`).
-    fn written_key(&self, _source: &str, _pointer: &str, key: &str) -> Option<String> {
+    fn written_key(&self, _language: &dyn ConfigLanguage, _source: &str, _path: &FieldPath, key: &str) -> Option<String> {
         Some(toml_key(key))
-    }
-
-    fn value_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        toml_value_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
-    }
-
-    fn key_spans(&self, source: &str, pointers: &[String]) -> Vec<Option<Span>> {
-        toml_key_spans(source, pointers).into_iter().map(|span| span.map(Span::from)).collect()
-    }
-
-    fn first_span(&self, source: &str) -> Option<Span> {
-        first_line_span(source).map(Span::from)
-    }
-
-    fn completion_context(&self, source: &str, cursor: usize) -> CompletionContext {
-        completion_context(source, cursor)
-    }
-
-    fn existing_keys(
-        &self,
-        source: &str,
-        cursor_byte: usize,
-        path: &[SchemaPathSegment],
-    ) -> Option<HashSet<String>> {
-        existing_table_keys(source, cursor_byte, path)
-    }
-
-    fn property_insert(
-        &self,
-        key: &str,
-        property: &Value,
-        root: &Value,
-        context: &InsertContext<'_>,
-    ) -> Option<(String, usize)> {
-        property_insert(key, property, root, context)
-    }
-
-    fn format_value(&self, value: &Value) -> String {
-        toml_text(value)
     }
 
     /// A date or time the host wrote bare (`1979-05-27T07:32:00Z`) stays
     /// bare, a datetime, while the new text still is one.
-    fn format_value_like(&self, value: &Value, written: &str) -> String {
+    fn format_value_like(&self, _language: &dyn ConfigLanguage, value: &Value, written: &str) -> String {
         let is_datetime = |text: &str| text.parse::<toml::value::Datetime>().is_ok();
         if let Value::String(text) = value
             && !written.starts_with(['"', '\''])
@@ -271,127 +398,18 @@ impl ConfigLanguage for TomlBehavior {
             super::number_forms::NumberSyntax { radixes: &[("0x", 16), ("0o", 8), ("0b", 2)], separator: Some('_') };
         super::number_forms::checked(written, value, &SYNTAX, |text, value| self.scalar_reads_as(text, value))
     }
-
-    fn hover_key(&self, line: &str, column: usize) -> Option<(String, usize)> {
-        key_at_column(line, column)
-    }
-
-    fn hover_cursor(&self, line: &str, column: usize) -> usize {
-        hover_context_offset(line, column)
-    }
-
-    fn hover_path(
-        &self,
-        source: &str,
-        line_index: usize,
-        column: usize,
-    ) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
-        dotted_hover_path(self, source, line_index, column)
-    }
-
-    fn highlight(&self, line: &str) -> Vec<super::super::highlight::Token> {
-        highlight(line)
-    }
-
-    fn newline(&self, source: &str, cursor: usize) -> Newline {
-        inline_table_exit(source, cursor).unwrap_or_else(|| {
-            bracket_newline(source, cursor, &[('[', ']')], &self.config(), |line| split_toml_comment(line).0)
-        })
-    }
-
-    fn auto_close(&self, source: &str, cursor: usize, typed: char) -> Option<String> {
-        // A third quote typed in a row opens a multi-line string.
-        if !matches!(typed, '"' | '\'') {
-            return None;
-        }
-        let byte = utf16_to_byte_index(source, cursor);
-        let before = &source[..byte];
-        let pair: String = [typed, typed].iter().collect();
-        let opens = before.ends_with(&pair)
-            && !before[..before.len() - 2].ends_with(typed)
-            && toml_lexical_state(source, cursor.saturating_sub(2)).0.is_none();
-        opens.then(|| [typed; 3].iter().collect())
-    }
-
-    /// A `[table]` header takes its keys along: commented alone, they would
-    /// move into the table above.
-    fn comment_scope(&self, source: &str, start: usize, end: usize) -> (usize, usize) {
-        table_of_selected_header(source, start, end)
-    }
-
-    fn lexical_state(&self, source: &str, cursor: usize) -> Lexical {
-        let (quote, in_comment) = toml_lexical_state(source, cursor);
-        Lexical { quote, in_comment }
-    }
-
-
-    fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
-        use super::super::codec::first_pointer;
-        if !value.is_object() {
-            return Err("a TOML document is a table: the top level must be an object".to_string());
-        }
-        if let Some(pointer) = first_pointer(value, &Value::is_null) {
-            return Err(format!("TOML has no null value (at {pointer})"));
-        }
-        let too_large = |value: &Value| value.as_u64().is_some_and(|number| i64::try_from(number).is_err());
-        if let Some(pointer) = first_pointer(value, &too_large) {
-            return Err(format!("TOML integers end at 9223372036854775807 (at {pointer})"));
-        }
-        let rendered = toml::to_string(&super::super::codec::non_finite::Floats(value))
-            .map_err(|error| error.to_string())?;
-        // Tables the host wrote as dotted keys are written that way again.
-        Ok(match previous {
-            Some(previous) => {
-                let folded = fold_dotted_tables(&rendered, &dotted_tables(previous), previous);
-                // In the host's table order only where that reads the same:
-                // a sub-table belongs to the array-of-tables entry above it.
-                let ordered = order_tables_like(&folded, previous);
-                let same = toml_parse(&ordered).ok().is_some_and(|value| toml_parse(&folded).ok() == Some(value));
-                // Its tables parted as the host parts its own.
-                table_spacing::spaced_like(if same { ordered } else { folded }, previous)
-            }
-            None => rendered,
-        })
-    }
-
-
-    /// `inf`, `-inf` and `nan`.
-    fn writes_non_finite(&self) -> bool {
-        true
-    }
-
-    #[cfg(feature = "folding")]
-    fn fold_ranges(&self, source: &str) -> Vec<super::super::language::FoldRange> {
-        folding::toml_fold_ranges(source, &self.config(), &string_bodies(self, source))
-    }
-
-    fn string_body_lines(&self, source: &str) -> Vec<std::ops::Range<usize>> {
-        multi_line_string_bodies(source)
-    }
-
-    /// `"""` / `'''` strings, and arrays (or inline tables) over lines.
-    fn multiline_constructs(&self, source: &str) -> Vec<MultilineConstruct> {
-        constructs::multiline_constructs(source)
-    }
-
-    /// The inside of an array: its elements.
-    fn highlight_continued(&self, text: &str) -> Vec<Token> {
-        let mut tokens = Tokens::new();
-        constructs::value_tokens(text, 0, &mut tokens);
-        tokens.finish()
-    }
 }
-
-/// One-based line and character column of a byte offset.
-fn line_column(source: &str, byte: usize) -> (usize, usize) {
-    crate::editor::paths::line_column(source, byte)
-}
-
 
 // Conversion
 
-
-
-
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod completion_tests;
 #[cfg(test)]
 mod tests;

@@ -1,9 +1,8 @@
-//! QA `E35-1`: a map key of an XML host (not a list item) cut in an
+//! A map key of an XML host (not a list item) cut in an
 //! Edit-as view and pasted back after a pause, a switch or a round trip
 //! through the host's language keeps its written name (prefix), its
-//! attribute or element form and its markup, as a cut item does (QA
-//! `E34-1`), wherever among its siblings it is pasted, at once too (QA
-//! `E37-4`: a prefixed key moved in one save waited); never is it saved
+//! attribute or element form and its markup, as a cut item does, wherever among its siblings it is pasted, at once too
+//! (a prefixed key moved in one save used to wait); never is it saved
 //! as a new key with that markup lost.
 
 use super::super::edit::Edit;
@@ -132,7 +131,7 @@ fn cut(state: EditorState, view: Language) -> String {
     let lines = before[from..to].to_string();
     let text = format!("{}{}", &before[..from], &before[to..]);
     let caret = units(&before[..from]);
-    state.commit(Edit::new(before, (caret, caret), text, caret));
+    state.commit(Edit::new_units(before, (caret, caret), text, caret));
     lines
 }
 
@@ -156,9 +155,15 @@ fn paste(state: EditorState, view: Language, lines: &str, place: Place) -> Optio
             lines.to_string(),
         ),
         Place::End if view == Language::JSON => {
+            // A comma typed after the last key, the lines pasted after it,
+            // and their own comma deleted.
             let close = line_offset(&before, entry_lines(view, &before, "d").1) - 1;
-            let last = lines.trim_end().strip_suffix(',').expect("a middle key");
-            (close, format!(",\n{last}"))
+            type_at(state, (close, close), ",");
+            let at = close + 2;
+            type_at(state, (at, at), lines);
+            let comma = at + lines.trim_end().len() - 1;
+            type_at(state, (comma, comma + 1), "");
+            return Some(());
         }
         Place::End => (
             line_offset(&before, entry_lines(view, &before, "d").1),
@@ -168,8 +173,22 @@ fn paste(state: EditorState, view: Language, lines: &str, place: Place) -> Optio
     let text = format!("{}{inserted}{}", &before[..at], &before[at..]);
     let start = units(&before[..at]);
     let caret = start + units(&inserted);
-    state.commit(Edit::new(before, (start, start), text, caret));
+    state.commit(Edit::new_units(before, (start, start), text, caret));
     Some(())
+}
+
+/// Bytes `from..to` of the view's text replaced by `typed`.
+fn type_at(state: EditorState, (from, to): (usize, usize), typed: &str) {
+    let before = state.doc().text.get_untracked();
+    let text = format!("{}{typed}{}", &before[..from], &before[to..]);
+    let start = units(&before[..from]);
+    let caret = start + units(typed);
+    state.commit(Edit::new_units(
+        before.clone(),
+        (start, units(&before[..to])),
+        text,
+        caret,
+    ));
 }
 
 fn between(state: EditorState, view: Language, step: Between) {

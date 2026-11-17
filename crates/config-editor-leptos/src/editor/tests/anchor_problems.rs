@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use leptos::prelude::*;
 
-use crate::editor::diagnostics::{Schema, build_schema};
 use crate::editor::languages::Language;
+use crate::editor::schema::{Schema, build_schema};
 use crate::editor::test_state::TestEditor;
 
 const SCHEMA: &str = r#"{

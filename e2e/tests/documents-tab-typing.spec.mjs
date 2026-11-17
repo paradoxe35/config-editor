@@ -5,8 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // Typing on a focused document tab types into its editor, at its caret,
 // every character kept. Before, letters were dropped until a Space moved
-// the focus into the editor, and the rest landed at the editor's old caret
-// (round 1's `D1.ux-1`).
+// the focus into the editor, and the rest landed at the editor's old caret.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');

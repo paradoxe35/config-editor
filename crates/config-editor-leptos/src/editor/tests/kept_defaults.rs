@@ -4,7 +4,7 @@
 //! stays where the value goes. In every built-in language.
 
 use crate::editor::Language;
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 use serde_json::{Value, json};
 
 const LANGUAGES: [Language; 5] = [

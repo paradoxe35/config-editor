@@ -12,10 +12,11 @@
 use super::Language;
 use super::bridge::Bridge;
 use super::codec;
-use super::completion::conform_arrays;
-use super::diagnostics::{SchemaBundle, build_schema};
+use super::data_reading::conform_arrays;
 use super::diff::{DiffEdit, myers_edits};
 use super::language::Repetition;
+use super::schema::{SchemaBundle, build_schema};
+use crate::editor::paths::FieldPath;
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -44,7 +45,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::XML,
             "<!-- head -->\n<listen>1</listen> <!-- port -->\n<tcp><nodelay>true</nodelay></tcp>\n<self>\n  <allow>a</allow>\n  <allow>b</allow>\n  <allow>c</allow>\n</self>\n<clients>\n  <!-- acme -->\n  <acme secret=\"s1\" max_connections=\"2\"/>\n  <beta>\n    <secret>s2</secret>\n  </beta>\n</clients>\n<limits>\n  <max_pending>5</max_pending> <!-- mp -->\n</limits>\n",
         ),
-        // Round 8 shapes: siblings sharing a one-line container's value,
+        // Shapes: siblings sharing a one-line container's value,
         // multi-line arrays, dotted keys sharing prefixes and holding
         // multi-line strings.
         (
@@ -71,7 +72,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::HCL,
             "x {\n  s {\n    secret = \"a\"\n  }\n  n {\n    v = [\"p\"]\n  }\n  m {\n    c = [\"e\"]\n  }\n  w {\n    c = [\"e\"]\n    # note\n    v = [\"p\"]\n  }\n}\n",
         ),
-        // Round 9 shapes: own-line comments inside multi-line lists, dotted
+        // Shapes: own-line comments inside multi-line lists, dotted
         // groups followed by other keys, dotted multi-line strings, compact
         // JSON.
         (
@@ -98,7 +99,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::XML,
             "<!-- c -->\n<tcp><nodelay>true</nodelay></tcp>\n<udp>\n  <nodelay>true</nodelay> <!-- u -->\n</udp>\n<listen>1</listen>\n",
         ),
-        // Round 10 shapes: a table with its own header under a parent with
+        // Shapes: a table with its own header under a parent with
         // dotted keys, one-line labelled blocks next to an object attribute,
         // YAML scalars in every style, list items with comments, a header
         // of several lines.
@@ -114,7 +115,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::YAML,
             "# head\n# more\nlisten: 1\nallow:\n  - a/8 # A\n  # private\n  - 'c/8'\n  - \"e/8\"\nsecret: >-\n  s1\nhealth_check: {path: /h, interval_secs: 3}\nflow: [ 'a/8', \"b/8\" ]   # flow\n",
         ),
-        // Round 11 shapes: YAML indented other than by two spaces, XML
+        // Shapes: YAML indented other than by two spaces, XML
         // attributes and text over lines, heredocs, four-space JSON, a
         // multi-line string under a headed table beside dotted keys.
         (
@@ -137,7 +138,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::TOML,
             "listen = 1\nservices.web.target = 80\n\n[services.db]\nhealth_check.path = '''\n/lit\n'''\nclient = \"acme\"\n",
         ),
-        // Round 12 shapes: anchors, aliases and merge keys, empty values,
+        // Shapes: anchors, aliases and merge keys, empty values,
         // numbers written their own way, datetimes, flow maps over lines.
         (
             Language::YAML,
@@ -155,7 +156,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::HCL,
             "# h\ntcp = {\n  nodelay = true # a\n  keepalive_secs = 30\n}\nlisten = 1\n",
         ),
-        // Round 13 shapes: anchored flow items in lists and merges beside own
+        // Shapes: anchored flow items in lists and merges beside own
         // keys, flow maps closing on their last entry, a trailing folded
         // scalar, nested and repeated HCL blocks with templates, arrays of
         // tables before their parent table, numbers on a compact JSON line.
@@ -175,7 +176,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::JSON,
             "{\"listen\": 7.835e3, \"pool\": {\"min_idle\": 1.50, \"max_idle\": -0}}\n",
         ),
-        // Round 14 shapes: a list of an anchor, its alias and a merge that
+        // Shapes: a list of an anchor, its alias and a merge that
         // overrides a key; HCL expressions and dashed object keys; lists of
         // one-line objects; spacing before comments in lists.
         (
@@ -199,7 +200,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::TOML,
             "# c\nrate = inf # r\nlow = -inf\nodd = nan\nlisten = 1\n\n[limits]\nmax_pending = 5\n",
         ),
-        // Round 15 shapes: block scalars, anchored items under an anchored
+        // Shapes: block scalars, anchored items under an anchored
         // map, XML text with its whitespace and CDATA, JSON escapes, empty
         // HCL blocks over lines and multi-line object attributes.
         (
@@ -218,7 +219,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::HCL,
             "# top\nblock {\n}\n\n# mid\nobj = {\n  a = 1\n}\nlisten = 1 # l\n",
         ),
-        // Round 18 shapes: lists over lines with a comment after their
+        // Shapes: lists over lines with a comment after their
         // opening bracket, indentless YAML sequences, YAML scalars over
         // lines, an indented heredoc.
         (
@@ -233,7 +234,7 @@ pub(super) fn hosts() -> Vec<(Language, &'static str)> {
             Language::YAML,
             "# top\nl:\n- k: >-\n    x\n  j: 2\n- - a\n  - b\nm: \"l1\n  l2\" # m\np: plain\n  continued\nlisten: 1 # l\n",
         ),
-        // Round 20 shapes: lists inside list items, comment lines above
+        // Shapes: lists inside list items, comment lines above
         // each item (the first one's too), XML repeated elements with
         // comments, a TOML list with a comment line above its first item.
         (
@@ -836,7 +837,10 @@ fn restyled_values(
         .into_iter()
         .filter(|(pointer, value)| !pointer.is_empty() && !value.is_object() && !value.is_array())
         .collect();
-    let wanted: Vec<String> = scalars.iter().map(|(pointer, _)| pointer.clone()).collect();
+    let wanted: Vec<FieldPath> = scalars
+        .iter()
+        .map(|(pointer, _)| FieldPath::from(pointer))
+        .collect();
     let language = host.behavior();
     let old_spans = language.value_spans(before, &wanted);
     let new_spans = language.value_spans(after, &wanted);

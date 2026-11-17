@@ -6,10 +6,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // A pair the editor types itself (a quote or bracket opened, a selection
 // wrapped in one, an empty pair deleted) is one undo step with the typing
 // around it: one undo never leaves half-typed text such as `a: ""one""`,
-// which the next save would have sent (round 8's `D8.editing-2`). Typing
+// which the next save would have sent. Typing
 // goes on in the same step past a closer the editor wrote and stepped over
 // (`"` before its `"`) and through Enter, so one undo takes back a member
-// typed in one go (round 30's `E30-3`).
+// typed in one go.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const js = join(root, 'js');
@@ -73,6 +73,12 @@ const MEMBERS = [
   ['toml', 'a = 1\n', 'a = 1', '\nk = ["x", "y"]'],
   ['hcl', 'a = 1\n', 'a = 1', '\nk = { x = "y" }'],
   ['xml', '<a>1</a>\n', '<a>1</a>', '\n<k v="1">x</k>'],
+  // Text before the caret the browser counts in more units than the
+  // characters' bytes, or fewer (`é` is two bytes and one unit, `😀` four
+  // and two): stepping over a closer the editor wrote still goes on in the
+  // same step.
+  ['json', '{\n  "é😀": 1\n}\n', '"é😀": 1', ', "é": "😀"'],
+  ['yaml', 'é: "😀"\n', 'é: "😀"', '\nk: "v"'],
 ];
 
 test.describe('one undo after typing over a selection', () => {

@@ -3,9 +3,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// The README's code samples do what their text says (round 3's
-// `D3.docs-1`: the custom-language guide's `.env` parse cut a value at its
-// second `=`).
+// The README's code samples do what their text says (the custom-language guide's
+// `.env` parse once cut a value at its second `=`).
 
 const readme = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js', 'config-editor', 'README.md'), 'utf8');
 

@@ -1,7 +1,9 @@
+use super::edit::{Assoc, Change};
 use super::keyboard::utf16_to_byte_index;
-use super::language::{ConfigLanguage, LanguageConfig};
+use super::language::{ConfigLanguage, LanguageConfig, Toggled};
 use super::projection::Projection;
 use super::work_count::{Work, note};
+use crate::editor::text::{TextSize, byte_range, checked_range, text_size, utf16_of};
 
 pub(super) fn line_at_cursor(source: &str, cursor: usize) -> usize {
     source[..utf16_to_byte_index(source, cursor)]
@@ -37,15 +39,31 @@ pub(super) fn copied_lines(
 ) -> (usize, usize) {
     let (start, end) = line_range(source, cursor);
     let byte = utf16_to_byte_index(source, end);
-    let header_end = end - usize::from(source[..byte].ends_with('\n'));
-    let Some(hidden_end) = projection.hidden_from(header_end) else {
+    let header_end = byte - usize::from(source[..byte].ends_with('\n'));
+    let Some(hidden_end) = projection.hidden_from(text_size(header_end)) else {
         return (start, end);
     };
+    // The block's ends in UTF-16 units, as the language's hook counts.
+    let hidden_end = utf16_of(source, hidden_end);
     let (first, last) = behavior.whole_constructs(source, start, hidden_end);
     (
         line_range(source, first.min(start)).0,
         line_range(source, last.max(hidden_end)).1,
     )
+}
+
+/// The change Ctrl+/'s `toggled` edits make of `before`, and the text
+/// after; `None` when they do not fit it (a custom language's mistake,
+/// which then changes nothing).
+pub(super) fn toggled_change(before: &str, toggled: &Toggled) -> Option<(Change, String)> {
+    let edits = toggled
+        .edits
+        .iter()
+        .map(|(range, text)| Some((checked_range(range)?, text.clone())))
+        .collect::<Option<Vec<_>>>()?;
+    let change = Change::replacing(TextSize::of(before), edits)?;
+    let text = change.apply(before)?;
+    Some((change, text))
 }
 
 /// The selection Ctrl+/ leaves in `updated`: `toggled` (UTF-16) as the
@@ -58,6 +76,9 @@ pub(super) fn toggled_selection(
     updated: &str,
     toggled: (usize, usize),
 ) -> (usize, usize) {
+    // A language's `toggle_comments` (a custom language's too) may hand
+    // the selection back in either order.
+    let toggled = (toggled.0.min(toggled.1), toggled.0.max(toggled.1));
     let lines = |text: &str, (start, end): (usize, usize)| {
         line_at_cursor(text, end) - line_at_cursor(text, start)
     };
@@ -88,16 +109,15 @@ pub(super) fn tab_insert(source: &str, cursor: usize, unit: &str) -> String {
     " ".repeat(unit.len() - column % unit.len())
 }
 
-/// Where Home moves the caret at `cursor` (UTF-16): the line's first
-/// non-blank character, or the line start when already there.
-pub(super) fn smart_home(source: &str, cursor: usize) -> usize {
-    let byte = utf16_to_byte_index(source, cursor);
+/// Where Home moves the caret at byte `at`: the line's first non-blank
+/// character, or the line start when already there.
+pub(super) fn smart_home(source: &str, at: TextSize) -> TextSize {
+    let byte = usize::from(at.min(TextSize::of(source)));
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let line = &source[line_start..];
     let line = &line[..line.find('\n').unwrap_or(line.len())];
     let first = line_start + (line.len() - line.trim_start_matches([' ', '\t']).len());
-    let target = if byte == first { line_start } else { first };
-    source[..target].encode_utf16().count()
+    text_size(if byte == first { line_start } else { first })
 }
 
 /// For F8: the index of the first of the sorted `offsets` strictly after
@@ -181,6 +201,9 @@ fn read_indent_unit(source: &str) -> String {
     " ".repeat(width)
 }
 
+/// [`indent_lines_through`] on the selection's lines only (UTF-16), as the
+/// text after and the selection then (UTF-16), for the tests.
+#[cfg(test)]
 pub(super) fn indent_lines(
     source: &str,
     selection_start: usize,
@@ -188,20 +211,37 @@ pub(super) fn indent_lines(
     outdent: bool,
     unit: &str,
 ) -> Option<(String, usize, usize)> {
-    indent_lines_through(source, (selection_start, selection_end), 0, outdent, unit)
+    let selection = (
+        crate::editor::text::byte_of(source, selection_start),
+        crate::editor::text::byte_of(source, selection_end),
+    );
+    let indented = indent_lines_through(source, selection, 0, outdent, unit)?;
+    let updated = indented.change.apply(source)?;
+    let units = |byte: TextSize| updated[..usize::from(byte)].encode_utf16().count();
+    let (start, end) = indented.selection;
+    Some((updated.clone(), units(start), units(end)))
 }
 
-/// [`indent_lines`] on the selection's lines and on through line
-/// `through` (0-based): the hidden lines of a folded line.
+/// What indenting (or outdenting) lines makes: the change, and the
+/// selection then, as byte offsets of the text after.
+pub(super) struct Indented {
+    pub(super) change: Change,
+    pub(super) selection: (TextSize, TextSize),
+}
+
+/// The selection's lines (bytes of `source`) and on through line `through`
+/// (0-based: the hidden lines of a folded line) indented by `unit`, or with
+/// `outdent` outdented one stop; `None` past the text.
 pub(super) fn indent_lines_through(
     source: &str,
-    (selection_start, selection_end): (usize, usize),
+    (selection_start, selection_end): (TextSize, TextSize),
     through: usize,
     outdent: bool,
     unit: &str,
-) -> Option<(String, usize, usize)> {
-    let start = utf16_to_byte_index(source, selection_start);
-    let end = utf16_to_byte_index(source, selection_end);
+) -> Option<Indented> {
+    let len = TextSize::of(source);
+    let start = usize::from(selection_start.min(len));
+    let end = usize::from(selection_end.min(len));
     let first_line = source[..start]
         .bytes()
         .filter(|byte| *byte == b'\n')
@@ -215,9 +255,9 @@ pub(super) fn indent_lines_through(
         return None;
     }
 
-    let unit = unit.to_string();
+    // Each line's edit: where, how many bytes it removes, how many it
+    // inserts (the unit).
     let mut edits: Vec<(usize, usize, usize)> = Vec::new();
-    let mut updated = String::with_capacity(source.len() + lines.len() * 2);
     let mut offset = 0;
     for (line_index, line) in lines.iter().enumerate() {
         if (first_line..=last_line.min(lines.len() - 1)).contains(&line_index) {
@@ -238,37 +278,27 @@ pub(super) fn indent_lines_through(
                     }
                 };
                 edits.push((offset, remove, 0));
-                updated.push_str(&line[remove..]);
-            } else if body.trim().is_empty() {
+            } else if !body.trim().is_empty() {
                 // Indenting a blank line would only leave trailing whitespace.
-                updated.push_str(line);
-            } else {
                 edits.push((offset + indent, 0, unit.len()));
-                updated.push_str(&line[..indent]);
-                updated.push_str(&unit);
-                updated.push_str(&line[indent..]);
             }
-        } else {
-            updated.push_str(line);
         }
         offset += line.len();
     }
-
+    let change = Change::replacing(
+        TextSize::of(source),
+        edits.iter().map(|&(at, removed, inserted)| {
+            (byte_range(at..at + removed), unit[..inserted].to_string())
+        }),
+    )?;
+    let len_after = usize::from(change.len_after());
     let map_offset = |position: usize, right_biased: bool| {
-        let mut delta = 0isize;
-        for (edit_position, removed, inserted) in &edits {
-            if position < *edit_position {
-                break;
-            }
-            if position == *edit_position && *removed == 0 && !right_biased {
-                return (*edit_position as isize + delta) as usize;
-            }
-            if position <= *edit_position + *removed {
-                return (*edit_position as isize + delta + *inserted as isize) as usize;
-            }
-            delta += *inserted as isize - *removed as isize;
-        }
-        (position as isize + delta) as usize
+        let assoc = if right_biased {
+            Assoc::After
+        } else {
+            Assoc::Before
+        };
+        usize::from(change.map_pos(text_size(position), assoc).pos)
     };
     // As in VS Code, a selection starting at a line's start keeps covering
     // the new indent; one starting in the line moves with its text, and one
@@ -301,21 +331,22 @@ pub(super) fn indent_lines_through(
         }
         _ => map_offset(start, start == end || !at_line_start),
     }
-    .min(updated.len());
+    .min(len_after);
     let updated_end = if start == end {
         updated_start
     } else {
-        map_offset(end, true).min(updated.len())
+        map_offset(end, true).min(len_after)
     };
-    let updated_selection_start = updated[..updated_start].encode_utf16().count();
-    let updated_selection_end = updated[..updated_end].encode_utf16().count();
-    Some((updated, updated_selection_start, updated_selection_end))
+    Some(Indented {
+        change,
+        selection: (text_size(updated_start), text_size(updated_end)),
+    })
 }
 
-/// Backspace in leading spaces deletes back to the previous indent stop.
-/// Returns the text and caret, or `None` for a plain Backspace.
-pub(super) fn backspace_indent(source: &str, cursor: usize, unit: &str) -> Option<(String, usize)> {
-    let byte = utf16_to_byte_index(source, cursor);
+/// Backspace at byte `at` in leading spaces deletes back to the previous
+/// indent stop; `None` for a plain Backspace.
+pub(super) fn backspace_indent(source: &str, at: TextSize, unit: &str) -> Option<Change> {
+    let byte = usize::from(at.min(TextSize::of(source)));
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let before = &source[line_start..byte];
     if before.is_empty() || !before.bytes().all(|byte| byte == b' ') {
@@ -329,27 +360,24 @@ pub(super) fn backspace_indent(source: &str, cursor: usize, unit: &str) -> Optio
         0 => unit.len(),
         partial => partial,
     };
-    let mut updated = String::with_capacity(source.len());
-    updated.push_str(&source[..byte - remove]);
-    updated.push_str(&source[byte..]);
-    Some((updated, cursor - remove))
+    Some(Change::replace(source, byte_range(byte - remove..byte), ""))
 }
 
 /// Typing `}`, `]`, or `)` on a blank line re-indents it to match the opening
-/// bracket's line. Returns the text (closer included) and caret, or `None`
-/// when typing it plainly is already right.
+/// bracket's line: the line's indent replaced by the opener's, the closer
+/// after it; `None` when typing it plainly is already right.
 pub(super) fn typed_closer(
     source: &str,
-    cursor: usize,
+    at: TextSize,
     closer: char,
     behavior: &dyn ConfigLanguage,
-) -> Option<(String, usize)> {
+) -> Option<Change> {
     let config = behavior.config();
     let opener = config
         .brackets
         .iter()
         .find_map(|(open, close)| (*close == closer).then_some(*open))?;
-    let byte = utf16_to_byte_index(source, cursor);
+    let byte = usize::from(at.min(TextSize::of(source)));
     let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
     let before = &source[line_start..byte];
     if !before.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
@@ -388,13 +416,11 @@ pub(super) fn typed_closer(
     if indent == before {
         return None;
     }
-    let mut updated = String::with_capacity(source.len() + 1);
-    updated.push_str(&source[..line_start]);
-    updated.push_str(&indent);
-    updated.push(closer);
-    updated.push_str(&source[byte..]);
-    let caret = source[..line_start].encode_utf16().count() + indent.encode_utf16().count() + 1;
-    Some((updated, caret))
+    Some(Change::replace(
+        source,
+        byte_range(line_start..byte),
+        &format!("{indent}{closer}"),
+    ))
 }
 
 #[cfg(test)]
@@ -459,8 +485,10 @@ mod toggle_tests {
 
 #[cfg(test)]
 mod tests {
+    use super::super::edit::Change;
     use super::super::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError};
     use super::{backspace_indent, indent_lines, typed_closer};
+    use crate::editor::text::TextSize;
 
     /// A language with `#` comments and `{}` / `[]` brackets, for the
     /// bracket scan.
@@ -489,10 +517,13 @@ mod tests {
     }
 
     /// Applies `edit` at the `|` and returns the text with `|` at the new caret.
-    fn at(marked: &str, edit: impl Fn(&str, usize) -> Option<(String, usize)>) -> Option<String> {
+    fn at(marked: &str, edit: impl Fn(&str, TextSize) -> Option<Change>) -> Option<String> {
         let at = marked.find('|').unwrap();
         let source = marked.replace('|', "");
-        let (updated, caret) = edit(&source, source[..at].encode_utf16().count())?;
+        let change = edit(&source, crate::editor::text::text_size(at))?;
+        let updated = change.apply(&source)?;
+        // The caret after the text it wrote (bytes).
+        let caret = usize::from(change.hull().map(|(_, written)| written.end())?);
         Some(format!("{}|{}", &updated[..caret], &updated[caret..]))
     }
 

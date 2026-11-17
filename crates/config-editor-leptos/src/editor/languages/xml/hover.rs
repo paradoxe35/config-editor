@@ -5,7 +5,9 @@ use super::*;
 /// The element or attribute name under `column` (a character index) on a
 /// single line, with its starting column. Comment-only lines yield `None`.
 pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
-    let tokens = tokenize(line);
+    let tokens = tokenize_text(line);
+    let mut columns = super::super::columns::Columns::new(line);
+    let mut column_of = |byte: usize| columns.at(byte);
     for token in &tokens {
         match token.kind {
             Kind::OpenTag { name_end, .. } => {
@@ -13,8 +15,8 @@ pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
                 if start >= name_end {
                     continue;
                 }
-                let start_column = line[..start].chars().count();
-                let end_column = line[..name_end.min(line.len())].chars().count();
+                let start_column = column_of(start);
+                let end_column = column_of(name_end.min(line.len()));
                 if (start_column..end_column).contains(&column) {
                     return Some((decode_entities(&line[start..name_end]), start_column));
                 }
@@ -22,8 +24,8 @@ pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
                     if !matches!(inner.kind, Kind::Text { quoted: false }) {
                         continue;
                     }
-                    let start_column = line[..inner.start].chars().count();
-                    let end_column = line[..inner.end].chars().count();
+                    let start_column = column_of(inner.start);
+                    let end_column = column_of(inner.end);
                     if (start_column..end_column).contains(&column) {
                         // Markup is no key (`declarations`). With the line
                         // alone, `xsi` is taken as the schema-instance
@@ -40,7 +42,7 @@ pub(super) fn hover_name(line: &str, column: usize) -> Option<(String, usize)> {
                     continue;
                 }
                 let start = token.start + 2;
-                let start_column = line[..start].chars().count();
+                let start_column = column_of(start);
                 let end_column = start_column
                     + line[start..]
                         .chars()
@@ -91,7 +93,7 @@ pub(super) fn hover_context_end(line: &str, column: usize) -> usize {
 /// start column there. An end tag is its element's, as its start tag.
 pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize) -> Option<(Vec<SchemaPathSegment>, String, usize)> {
     let line = crate::editor::paths::split_line(source, line_index)?;
-    let line_start = crate::editor::paths::line_start(source, line_index);
+    let line_start = usize::from(crate::editor::paths::line_start(source, line_index));
     let byte = line_start + line.char_indices().nth(column).map_or(line.len(), |(at, _)| at);
     let walked = super::scan::walked(source);
     let read;
@@ -111,7 +113,8 @@ pub(super) fn element_hover_path(source: &str, line_index: usize, column: usize)
         Kind::OpenTag { name_end, .. } if token.start < byte && byte < name_end => Some((index, token.start + 1)),
         Kind::EndTag => {
             let start = token.start + 2;
-            let name_end = start + token_name(source, token).len();
+            // Its local name's end, past any prefix (`</a:b>`).
+            let name_end = local_name_start(source, token) + token_name(source, token).len();
             (start <= byte && byte < name_end).then_some((index, start))
         }
         _ => None,
@@ -163,12 +166,12 @@ fn attribute_hover_path(
     } else {
         tokens.iter().find(in_attributes)?
     };
-    let name = tokenize_tag_inside(source, open).into_iter().find(|inner| {
-        matches!(inner.kind, Kind::Text { quoted: false })
-            && inner.start <= byte
-            && byte < inner.end
-            && is_attr_name(source, open, *inner)
-    })?;
+    let inside = tokenize_tag_inside(source, open);
+    let name = inside
+        .iter()
+        .enumerate()
+        .find(|(index, inner)| inner.start <= byte && byte < inner.end && is_attr_name(&inside, *index))
+        .map(|(_, inner)| *inner)?;
     // Markup is no key: no schema describes it.
     if plan.markup.holds(&source[name.start..name.end]) {
         return None;

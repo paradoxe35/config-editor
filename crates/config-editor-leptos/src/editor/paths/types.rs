@@ -62,7 +62,7 @@ impl FieldPath {
             .iter()
             .map(|segment| match segment {
                 SchemaPathSegment::Key(key) => {
-                    format!("/{}", key.replace('~', "~0").replace('/', "~1"))
+                    format!("/{}", crate::editor::language::pointer_key(key))
                 }
                 SchemaPathSegment::ArrayItem(index) => format!("/{index}"),
             })
@@ -77,6 +77,18 @@ impl FieldPath {
     /// Whether this is the whole document.
     pub fn is_root(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Each segment as text, unescaped: a key as it is, an index in digits
+    /// (the segments of [`to_pointer`](Self::to_pointer)).
+    pub(crate) fn texts(&self) -> Vec<String> {
+        self.0
+            .iter()
+            .map(|segment| match segment {
+                SchemaPathSegment::Key(key) => key.clone(),
+                SchemaPathSegment::ArrayItem(index) => index.to_string(),
+            })
+            .collect()
     }
 }
 

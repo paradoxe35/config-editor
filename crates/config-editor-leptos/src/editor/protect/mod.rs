@@ -4,13 +4,14 @@
 //!
 //! The shared part, computed per text on screen in any language:
 //! - `marks`: what the schema marks on each field;
-//! - `locate`, `locks`: where each protected field is written (by path,
-//!   with everything inside a container); `carry`: the locks moved
-//!   through an edit leaving the text unparseable; `scan`: the fields of
-//!   a text that does not parse, line by line, when there is none to
-//!   carry from;
-//! - `guard`: one check every edit passes, whatever made it; `reach`: an
-//!   edit no lock can feel, kept and followed without reading the text;
+//! - `locate`, `locks`: the protected spans, placed from a text that
+//!   parses (by path, with everything inside a container) and followed by
+//!   position through every edit (`carry`); a locked field reading
+//!   otherwise in a text that parses is held, and the save waits; `scan`:
+//!   the fields of a host text that never parsed, read once;
+//! - `guard`: one check every edit passes, whatever made it: no span's
+//!   text changes, nothing is glued onto one; `reach`: an edit no lock can
+//!   feel, kept and followed without reading the text;
 //! - `save`: the last check before an Edit-as save reaches the host;
 //! - `tokens`, `secrets`: secret placeholders, atomic and followed through
 //!   edits; `problems`: placeholders the host did not give; `glued`: text
@@ -20,6 +21,16 @@
 //! - `live`: the editor's signals, the check wired in, the tooltip;
 //! - `view`: the gutter lock and muted values of each line;
 //! - `texts`: the built-in texts.
+//!
+//! Every offset here is a byte of the text (`TextSize`, `TextRange`);
+//! UTF-16 is only met where the public language API or the screen takes
+//! it, converted there.
+
+#![deny(
+    clippy::string_slice,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 #[cfg(test)]
 mod around_written_tests;
@@ -28,16 +39,18 @@ mod components;
 mod copied;
 mod follow;
 mod follow_items;
+mod foreign;
 mod glued;
 mod guard;
 mod hooks;
 mod host_ranges;
+#[cfg(test)]
+mod kept;
 mod live;
 mod locate;
 mod locks;
 mod marks;
 mod moved_off;
-mod own_value;
 mod problems;
 mod reach;
 mod rewritten;
@@ -52,11 +65,12 @@ mod view;
 mod whole_guard;
 
 pub(super) use components::ProtectTipView;
+pub(crate) use foreign::DocumentPlaceholders;
 pub(crate) use glued::glued_message;
 #[cfg(feature = "schema-validation")]
 pub(crate) use hooks::secret_pointers;
 pub(crate) use live::{Inputs, ProtectInit, ProtectState};
-pub(crate) use marks::mentions_marks;
+pub(crate) use marks::{mentions_marks, mentions_secrets};
 pub(crate) use save::ReadOnlyChange;
 pub(crate) use texts::{moved_placeholder, save_refused};
 
@@ -131,6 +145,8 @@ mod broken_tests;
     feature = "xml"
 ))]
 mod browse_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod command_matrix_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -222,6 +238,15 @@ mod follow_items_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod foreign_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod glued_broken_host_tests;
 #[cfg(all(
     test,
@@ -259,6 +284,31 @@ mod guarantee_tests;
     feature = "xml"
 ))]
 mod guard_scale_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod held_place_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod held_placeholder_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl"
+))]
+mod held_switch_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod held_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod held_undo_tests;
+#[cfg(all(test, feature = "yaml", feature = "hcl", feature = "xml"))]
+mod hold_cause_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -449,6 +499,17 @@ mod point_problem_tests;
     feature = "xml"
 ))]
 mod prefix_name_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod range_edge_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod range_items_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -458,6 +519,15 @@ mod prefix_name_tests;
     feature = "xml"
 ))]
 mod range_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod ranges_while_held_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -476,6 +546,17 @@ mod reach_tests;
     feature = "xml"
 ))]
 mod real_again_tests;
+#[cfg(all(test, feature = "yaml"))]
+mod released_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod rename_through_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -503,6 +584,15 @@ mod secret_tests;
     feature = "xml"
 ))]
 mod sibling_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod split_key_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -553,6 +643,14 @@ mod typing_tests;
     feature = "yaml",
     feature = "json",
     feature = "toml",
+    feature = "hcl"
+))]
+mod value_below_key_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
     feature = "hcl",
     feature = "xml"
 ))]
@@ -592,6 +690,15 @@ mod whole_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod whole_value_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod xml_copies_tests;
 #[cfg(all(
     test,
@@ -611,3 +718,12 @@ mod xml_list_secret_tests;
     feature = "xml"
 ))]
 mod xml_rename_secret_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod xml_secret_entry_tests;

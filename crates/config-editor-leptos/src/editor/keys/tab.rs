@@ -3,11 +3,11 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::commands::{indent_lines, line_range, tab_insert};
+use super::super::commands::{indent_lines_through, tab_insert};
 use super::super::completion::next_stop;
-use super::super::edit::Edit;
-use super::super::keyboard::{replace_selection, utf16_to_byte_index};
+use super::super::edit::{Change, Edit};
 use super::super::state::{EditorState, is_backward, select, textarea_selection};
+use crate::editor::text::{TextRange, TextSize, slice, utf16_of};
 
 pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     event.prevent_default();
@@ -17,7 +17,7 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
     let (start, end) = textarea_selection(&element);
     let text = state.doc().text.get_untracked();
     if !event.shift_key() && start == end {
-        let in_block = in_slot_region(state, &text, start);
+        let in_block = in_slot_region(state, start);
         if next_placeholder_slot(state, &text, start) || step_out_of_value(state, &text, start) {
             return;
         }
@@ -39,47 +39,40 @@ pub(super) fn tab(state: EditorState, event: &KeyboardEvent) {
         return;
     }
     // A selection within one line is replaced, as typing would.
-    let (updated, caret) = replace_selection(
+    let insert = tab_insert(
         &text,
-        start,
-        end,
-        &tab_insert(&text, start, &state.doc().indent.get_value()),
+        utf16_of(&text, start),
+        &state.doc().indent.get_value(),
     );
-    state.commit(Edit::new(text, (start, end), updated, caret));
+    let change = Change::replace(&text, TextRange::new(start, end.max(start)), &insert);
+    state.commit(Edit::command(text, change, (start, end)));
     state.close_suggestions();
 }
 
 /// Whether `caret` is in the block a suggestion just wrote (whose values
 /// Tab walks).
-fn in_slot_region(state: EditorState, text: &str, caret: usize) -> bool {
+fn in_slot_region(state: EditorState, caret: TextSize) -> bool {
     state
         .completion()
         .slot_region
         .get_value()
-        .is_some_and(|(region_start, from_end)| {
-            let region_end = text.encode_utf16().count().saturating_sub(from_end);
-            caret >= region_start && caret <= region_end
-        })
+        .is_some_and(|region| region.contains_inclusive(caret))
 }
 
 /// In a block a suggestion just wrote, Tab goes to its next empty value or
 /// selects the next value it wrote, as through a snippet's placeholders.
-pub(super) fn next_placeholder_slot(state: EditorState, text: &str, caret: usize) -> bool {
-    let Some((region_start, from_end)) = state.completion().slot_region.get_value() else {
+pub(super) fn next_placeholder_slot(state: EditorState, text: &str, caret: TextSize) -> bool {
+    let Some(region) = state.completion().slot_region.get_value() else {
         return false;
     };
-    let length = text.encode_utf16().count();
-    let region_end = length.saturating_sub(from_end);
-    let stops: Vec<(usize, usize)> = state
-        .completion()
-        .value_stops
-        .get_value()
-        .into_iter()
-        .filter(|(start, _)| *start <= length)
-        .map(|(start, end)| (length - start, length - end))
-        .collect();
-    let next = (caret >= region_start && caret <= region_end)
-        .then(|| next_stop(text, caret, region_end, &stops, state.behavior()))
+    let next = region
+        .contains_inclusive(caret)
+        .then(|| {
+            state
+                .completion()
+                .value_stops
+                .with_value(|stops| next_stop(text, caret, region.end(), stops, state.behavior()))
+        })
         .flatten();
     match next {
         Some((anchor, end)) => {
@@ -106,14 +99,14 @@ pub(super) fn next_placeholder_slot(state: EditorState, text: &str, caret: usize
 /// After a value typed before a closer the editor wrote (`"k.pem|"`,
 /// `<listen>7836|</listen>`), Tab with no slot left steps past the closer,
 /// as at the end of a snippet, instead of indenting inside the value.
-fn step_out_of_value(state: EditorState, text: &str, caret: usize) -> bool {
+fn step_out_of_value(state: EditorState, text: &str, caret: TextSize) -> bool {
     let Some(closer) = state.closer_at(caret) else {
         return false;
     };
     let Some(opener) = closer.opener else {
         return false;
     };
-    if text[..utf16_to_byte_index(text, caret)].ends_with(opener) {
+    if slice::before(text, caret).is_some_and(|head| head.ends_with(opener)) {
         return false;
     }
     state.forget_closer_at(caret);
@@ -122,26 +115,28 @@ fn step_out_of_value(state: EditorState, text: &str, caret: usize) -> bool {
 }
 
 /// Whether Tab indents the selected lines rather than replacing the
-/// selection: it spans lines, or covers one whole line (as in VS Code).
-fn spans_lines(text: &str, start: usize, end: usize) -> bool {
-    if start == end {
+/// selection (bytes `start..end`): it spans lines, or covers one whole line
+/// (as in VS Code).
+fn spans_lines(text: &str, start: TextSize, end: TextSize) -> bool {
+    let Some(selected) = slice::slice(text, TextRange::new(start, end.max(start))) else {
+        return false;
+    };
+    if selected.is_empty() {
         return false;
     }
-    let (line_start, line_end) = line_range(text, start);
-    let content_end = line_end
-        - usize::from(text.encode_utf16().nth(line_end.wrapping_sub(1)) == Some(u16::from(b'\n')));
-    let indent_end = line_start
-        + text[utf16_to_byte_index(text, line_start)..]
-            .chars()
-            .take_while(|character| matches!(character, ' ' | '\t'))
-            .count();
-    let whole_line = start <= indent_end && end >= content_end;
-    whole_line
-        || text
-            .encode_utf16()
-            .skip(start)
-            .take(end - start)
-            .any(|unit| unit == u16::from(b'\n'))
+    if selected.contains('\n') {
+        return true;
+    }
+    let Some(head) = slice::before(text, start) else {
+        return false;
+    };
+    let line_start = start - TextSize::of(head.rsplit('\n').next().unwrap_or_default());
+    let Some(line) = slice::after(text, line_start).and_then(|rest| rest.split('\n').next()) else {
+        return false;
+    };
+    let indent = TextSize::of(line) - TextSize::of(line.trim_start_matches([' ', '\t']));
+    let (indent_end, content_end) = (line_start + indent, line_start + TextSize::of(line));
+    start <= indent_end && end >= content_end
 }
 
 /// Indents (or with Shift outdents) the selected lines, keeping them
@@ -149,31 +144,40 @@ fn spans_lines(text: &str, start: usize, end: usize) -> bool {
 fn indent_block(
     state: EditorState,
     text: String,
-    (start, end): (usize, usize),
+    (start, end): (TextSize, TextSize),
     outdent: bool,
     backward: bool,
 ) {
-    let Some((updated, selection_start, selection_end)) =
-        indent_lines(&text, start, end, outdent, &state.doc().indent.get_value())
-    else {
+    let unit = state.doc().indent.get_value();
+    let Some(indented) = indent_lines_through(&text, (start, end), 0, outdent, &unit) else {
         return;
     };
-    // The caret is the end that moves: the start of a backward selection.
-    let (anchor, caret) = if backward {
-        (selection_end, selection_start)
-    } else {
-        (selection_start, selection_end)
-    };
-    let made = if updated != text {
-        state.commit(Edit::new(text, (start, end), updated, caret).selecting_from(anchor))
-    } else {
-        state.note_caret(caret);
-        true
-    };
+    let restore = if backward { (end, start) } else { (start, end) };
+    let edit = selected_through(
+        Edit::command(text, indented.change, restore),
+        indented.selection,
+        backward,
+    );
+    let (selection_start, selection_end) = edit.selected();
+    let made = edit.before == edit.text || state.commit(edit);
     // Keep the block selected, in the same direction (a refused edit
     // left the selection it started from).
     if made && let Some(element) = state.textarea() {
         select(&element, selection_start, selection_end, backward);
     }
     state.close_suggestions();
+}
+
+/// `edit` leaving `selection` (bytes of the text after) selected, its
+/// caret at the start with `backward` (the end that moves).
+pub(super) fn selected_through(
+    edit: Edit,
+    (start, end): (TextSize, TextSize),
+    backward: bool,
+) -> Edit {
+    if backward {
+        edit.selecting(end, start)
+    } else {
+        edit.selecting(start, end)
+    }
 }

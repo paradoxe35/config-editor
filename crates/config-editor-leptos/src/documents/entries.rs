@@ -10,6 +10,7 @@ use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use super::tab_names::TabNames;
 use crate::EditorStrings;
+use crate::editor::{Clipboard, DocumentPlaceholders, same_document};
 use crate::reactive::{Relay, detached_owner, later};
 use crate::{
     Diagnostic, EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest,
@@ -48,6 +49,8 @@ pub(super) struct Entry {
     pub(super) host_diagnostics: RwSignal<Vec<HostDiagnostic>>,
     pub(super) read_only_paths: RwSignal<Vec<FieldPath>>,
     pub(super) read_only_ranges: RwSignal<Vec<TextRange>>,
+    /// Which giving of them they are (see `Document::read_only_ranges_version`).
+    pub(super) read_only_ranges_version: StoredValue<u64>,
     /// Taken when the editor mounts.
     pub(super) secrets: SecretOptions,
     /// The text differs from the baseline: from the editor once mounted,
@@ -76,7 +79,7 @@ impl Entry {
             .baseline
             .clone()
             .unwrap_or_else(|| document.value.clone());
-        let dirty = differs(&document.value, &baseline);
+        let dirty = !same_document(&document.value, &baseline);
         let edited = opens_edited(document, &setup);
         owner.with(|| Entry {
             id: document.id.clone(),
@@ -95,6 +98,7 @@ impl Entry {
             host_diagnostics: RwSignal::new(document.host_diagnostics.clone()),
             read_only_paths: RwSignal::new(document.read_only_paths.clone()),
             read_only_ranges: RwSignal::new(document.read_only_ranges.clone()),
+            read_only_ranges_version: StoredValue::new(document.read_only_ranges_version),
             secrets: document.secrets.clone().unwrap_or_default(),
             dirty: RwSignal::new(dirty),
             conflicted: RwSignal::new(false),
@@ -138,6 +142,19 @@ impl Entry {
     /// Takes the host's new values for a document whose editor stays.
     fn update(&self, documents: Documents, document: &Document) {
         set_if_changed(self.file_name, &document.file_name);
+        // Its ranges before its text: a new text places the ranges it comes
+        // with, never the ones given for the text it replaces (placed first,
+        // the old lock would stay beside the new one).
+        // A listing is the ranges and the giving they belong to: another
+        // giving at the same positions (for another text) is placed anew
+        // (a new lock at an old lock's first positions is not the old one).
+        if self.read_only_ranges_version.get_value() == document.read_only_ranges_version {
+            set_if_changed(self.read_only_ranges, &document.read_only_ranges);
+        } else {
+            self.read_only_ranges_version
+                .set_value(document.read_only_ranges_version);
+            self.read_only_ranges.set(document.read_only_ranges.clone());
+        }
         // A host lists every document again after each keystroke: only one
         // whose text or baseline changed is compared again for being dirty.
         let mut changed = set_if_changed(self.value, &document.value);
@@ -161,13 +178,13 @@ impl Entry {
         set_if_changed(self.settings, &document.settings);
         set_if_changed(self.host_diagnostics, &document.host_diagnostics);
         set_if_changed(self.read_only_paths, &document.read_only_paths);
-        set_if_changed(self.read_only_ranges, &document.read_only_ranges);
         // Its dirty state now, as its editor will report it once it has
         // shown the new text (a `saveAll` in the same task acts on it).
         if changed {
-            let dirty = self
-                .value
-                .with_untracked(|value| self.baseline.with_untracked(|base| differs(value, base)));
+            let dirty = self.value.with_untracked(|value| {
+                self.baseline
+                    .with_untracked(|base| !same_document(value, base))
+            });
             documents.note_dirty(self, dirty);
         }
     }
@@ -219,11 +236,6 @@ fn opens_edited(document: &Document, setup: &Setup) -> bool {
             .is_some_and(|language| language != setup.language)
 }
 
-/// Whether two texts differ, line endings aside.
-fn differs(text: &str, baseline: &str) -> bool {
-    text != baseline && text.replace("\r\n", "\n") != baseline.replace("\r\n", "\n")
-}
-
 /// Sets `signal` to `value` unless it holds it already; returns whether
 /// it changed.
 fn set_if_changed<T, V>(signal: RwSignal<T>, value: &V) -> bool
@@ -257,6 +269,8 @@ pub(super) struct Callbacks {
     pub(super) on_problems: Option<Callback<(String, Vec<Diagnostic>)>>,
     pub(super) on_edit_as_change: Option<Callback<(String, Language)>>,
     pub(super) on_sync_change: Option<Callback<(String, bool)>>,
+    /// The host lists every `on_change` text back (the `echoes` prop).
+    pub(super) echoes: bool,
 }
 
 /// The view's state that each document's tab, panel and editor follow.
@@ -273,6 +287,11 @@ pub(super) struct Follows {
     /// Every tab's file name: what a tab shows of its own depends on the
     /// others' (see `tab_names`).
     pub(super) names: Relay<Arc<TabNames>>,
+    /// The real placeholders of every mounted editor: the view owns which
+    /// placeholders exist across its documents, and each editor flags
+    /// another document's written in it (see the editor's
+    /// `protect::foreign`).
+    pub(super) placeholders: Relay<Arc<Vec<DocumentPlaceholders>>>,
 }
 
 /// Where the focus goes when a document is selected.
@@ -317,6 +336,9 @@ pub(super) struct Documents {
     /// added one yet: the next one added in answer is selected, its editor
     /// focused (see `adding`).
     pub(super) adding: Adding,
+    /// One clipboard per host language for every editor of the view: an
+    /// item copied in one document and pasted in another keeps its source.
+    clipboards: StoredValue<Vec<(Language, StoredValue<Clipboard>)>>,
 }
 
 thread_local! {
@@ -362,6 +384,7 @@ impl Documents {
             focus_editor,
             tab_names,
             said: RwSignal::new(String::new()),
+            clipboards: StoredValue::new(Vec::new()),
             callbacks,
             follows: Follows {
                 active: Relay::new(move || active.get()),
@@ -371,6 +394,18 @@ impl Documents {
                     Arc::new(settings.with(|settings| settings.strings.clone()))
                 }),
                 names: Relay::new(move || tab_names.get()),
+                placeholders: Relay::new(move || {
+                    let placeholders = entries.with(|entries| {
+                        entries
+                            .iter()
+                            .filter_map(|entry| {
+                                let source = entry.file_name.try_get()?;
+                                entry.handle.placeholders(source)
+                            })
+                            .collect()
+                    });
+                    Arc::new(placeholders)
+                }),
             },
             root: NodeRef::new(),
             strip: NodeRef::new(),
@@ -401,6 +436,22 @@ impl Documents {
     }
 
     /// The open document `id`.
+    /// The clipboard the editors of documents in `language` share.
+    pub(super) fn clipboard_for(&self, language: Language) -> StoredValue<Clipboard> {
+        if let Some(shared) = self.clipboards.with_value(|clipboards| {
+            clipboards
+                .iter()
+                .find(|(known, _)| *known == language)
+                .map(|(_, clipboard)| *clipboard)
+        }) {
+            return shared;
+        }
+        let clipboard = StoredValue::new(Clipboard::default());
+        self.clipboards
+            .update_value(|clipboards| clipboards.push((language, clipboard)));
+        clipboard
+    }
+
     pub(super) fn entry(&self, id: &str) -> Option<Entry> {
         self.entries
             .try_with_untracked(|entries| entries.iter().find(|entry| entry.id == id).cloned())
@@ -411,7 +462,7 @@ impl Documents {
     /// Edit-as text, shown or not), as their panel's effect does once it
     /// runs: a query in the same task as the view's start (`is_dirty`,
     /// `save`, the editor's text) answers from that text, not as if it
-    /// were absent (QA 37, HO37-4).
+    /// were absent.
     pub(super) fn mount_waiting(&self) {
         let waiting: Vec<Entry> = self
             .entries
@@ -825,7 +876,7 @@ impl Documents {
     }
 
     /// Focuses the tab of `id` once it is rendered: at the end of this
-    /// task, so the keys pressed right after land on it (QA 30, L30-6), or
+    /// task, so the keys pressed right after land on it, or
     /// by the next frame for a tab not rendered yet.
     fn focus_tab(&self, id: &str) {
         let id = id.to_string();

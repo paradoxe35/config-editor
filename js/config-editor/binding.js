@@ -6,16 +6,15 @@
 // `update` after every change, `detach` on unmount) and decides what each
 // change means: settings and most props apply live (the caret, undo history
 // and folds stay), the few the editor is built from re-mount it (the
-// document, its baseline and the caret carried over), the bound value goes
-// through `ValueSync` (an echo, late or out of order, never rolls the
-// document back), a mount
-// that failed on a bad prop is retried when a prop changes, and the
-// WebAssembly loads once for every editor on the page.
+// document, its baseline, the caret and the echoes still on their way
+// carried over), the bound value goes to the editor's `update({ value })`
+// with `echoes` on (the editor tells an echo, late or out of order, from the
+// parent's own value, so none rolls the document back), a mount that failed on a bad prop is retried when a prop
+// changes, and the WebAssembly loads once for every editor on the page.
 
 import { ConfigDocuments, ConfigEditor, unifiedDiff } from "./pkg/config_editor.js";
 import { loadConfigEditor, whenLoaded } from "./load.js";
 import { SETTING_TYPES } from "./setting-types.js";
-import { SETTLE_MS, ValueSync } from "./sync.js";
 
 export { SETTING_TYPES };
 
@@ -189,24 +188,29 @@ class Binding {
 
 /** The props an `EditorBinding` reads (React-shaped; each wrapper maps its own). */
 export class EditorBinding extends Binding {
-  #sync = new ValueSync();
-  // The check, a pause after an echo left the host on an older value, that
-  // it came back to the document (see `ValueSync.settle`).
-  #settleTimer = null;
-  // The `value` prop as last handled: a re-mount re-runs the value check,
-  // and an unchanged prop is not a new value from the host.
+  // The `value` prop as last handed to the editor: an unchanged prop is not
+  // a new value from the parent.
   #handledValue = undefined;
+  #handledRevision = undefined;
   // What a re-mount (language, schema, … changed) starts from, so an
   // uncontrolled document and its diff baseline survive it.
   #carried = null;
   // Where the caret was when a re-mount took the editor away while it had
   // focus: the new one takes focus and the caret back, so typing goes on.
   #carriedFocus = null;
+  // The channel of the editor a re-mount took away (`editor.channel`): the
+  // new one takes it over, so the echoes still on their way to the parent
+  // are told apart there too and none rolls the typing back.
+  #channel = null;
   // A `setValue` (the handle's) made while there is no editor (before the first mount, or
   // while a re-mount has failed): applied and reported on mount.
   #reset = null;
   // Each live prop as last applied.
   #applied = {};
+  // The bound value each positional prop (`readOnlyRanges`,
+  // `hostDiagnostics`) was given with, when its list last changed: its
+  // places are in that text, sent along as `rangesFor`, on a re-mount too.
+  #givenFor = {};
   #followPath = (path) => this.props.onPathChange?.(path);
   #save = (value, language) => this.props.onSave?.(value, language);
 
@@ -247,12 +251,25 @@ export class EditorBinding extends Binding {
     const value = this.#reset ?? this.#carried?.value ?? props.value ?? props.defaultValue ?? "";
     const baseline = props.baseline ?? this.#carried?.baseline ?? value;
     this.#carried = { value, baseline };
-    // Ranges are in the bound value: on a document carried past it, they
-    // are moved from it to the document.
-    const rangesFor = props.value === undefined || value === props.value ? undefined : props.value;
+    // Ranges are in the text they were given with (the bound value when
+    // their list last changed, or now for a new list): on a document
+    // carried past it, they are moved from it to the document, never read
+    // again in a text they were not given for.
+    const givenFor = (name) =>
+      this.#applied[name] === JSON.stringify(props[name] ?? []) && name in this.#givenFor
+        ? this.#givenFor[name]
+        : props.value;
+    const textFor = givenFor("readOnlyRanges");
+    const rangesFor = textFor === undefined || textFor === value ? undefined : textFor;
+    // Diagnostics given with another text come with the first update.
+    const diagnostics = givenFor("hostDiagnostics") === textFor ? props.hostDiagnostics : undefined;
     return new ConfigEditor(element, {
       ...settings,
       value,
+      // The parent binds the value two ways: every `onChange` text comes
+      // back as the value, maybe late and in any order.
+      echoes: true,
+      channel: this.#channel ?? undefined,
       language: props.language,
       editAs: props.editAs ?? undefined,
       schema: props.schema,
@@ -264,19 +281,16 @@ export class EditorBinding extends Binding {
       readOnly: props.readOnly,
       readOnlyReason: props.readOnlyReason ?? undefined,
       className: props.editorClassName,
-      onChange: (text) => {
+      onChange: (text, revision) => {
         if (this.#carried) this.#carried.value = text;
-        // A parent setting the value it holds does not render again: the
-        // echo of a text equal to the bound value may never come.
-        this.#sync.sent(text, text !== this.#handledValue);
-        this.props.onChange?.(text);
+        this.props.onChange?.(text, revision);
       },
       onEditAsChange: (language) => this.props.onEditAsChange?.(language),
       onSyncChange: (inSync) => this.props.onSyncChange?.(inSync),
       onChangeSummary: (summary) => this.props.onChangeSummary?.(summary),
       onProblems: (problems) => this.props.onProblems?.(problems),
       onPathChange: props.onPathChange ? this.#followPath : undefined,
-      hostDiagnostics: props.hostDiagnostics,
+      hostDiagnostics: diagnostics,
       readOnlyPaths: props.readOnlyPaths,
       readOnlyRanges: props.readOnlyRanges,
       rangesFor,
@@ -298,6 +312,9 @@ export class EditorBinding extends Binding {
   }
 
   mounted() {
+    // The new editor took the channel over (a constructor that threw left
+    // it for the next try).
+    this.#channel = null;
     const focus = this.#carriedFocus;
     this.#carriedFocus = null;
     const textarea = this.element.querySelector("textarea");
@@ -313,7 +330,6 @@ export class EditorBinding extends Binding {
       // The `value` prop still holds what the host had before the reset
       // reaches it: not a new value of its own.
       this.#handledValue = this.props.value;
-      this.#sync.sent(value);
       this.props.onChange?.(value);
     }
     this.sync(true);
@@ -334,7 +350,15 @@ export class EditorBinding extends Binding {
     // destroy() first: it sends an edit still waiting to convert.
     editor.destroy();
     if (this.#carried) this.#carried.value = editor.value;
+    this.#channel?.free();
+    this.#channel = editor.channel;
     editor.free();
+  }
+
+  detach() {
+    super.detach();
+    this.#channel?.free();
+    this.#channel = null;
   }
 
   /** Applies the live props that changed (all of them right after a mount). */
@@ -346,20 +370,16 @@ export class EditorBinding extends Binding {
       return true;
     };
     const value = props.value;
-    // A value passed again is news only while a copy of it is on its way.
-    if (this.instance && value !== undefined && (value !== this.#handledValue || this.#sync.mayEcho(value))) {
+    // The editor tells the parent's echoes from its own values (`echoes`).
+    const handled = value === this.#handledValue && props.valueRevision === this.#handledRevision;
+    if (this.instance && value !== undefined && !handled) {
       this.guard((editor) => {
         this.#handledValue = value;
-        // First: an Edit-as edit still waiting out the typing pause is sent
-        // now (reading `value` does), so its echo is told apart like any.
-        const flushed = this.#sync.mark();
-        const current = editor.value;
-        const { apply, report, settle } = this.#sync.received(value, current, flushed);
-        // Told apart here: the editor, which never sees the echoes this
-        // absorbs, takes it as the host's own text whatever it is.
-        if (apply !== null) editor.replaceValue(apply);
-        if (report !== null) this.props.onChange?.(report);
-        if (settle) this.#settleLater();
+        this.#handledRevision = props.valueRevision;
+        // The revision the parent stored with it, when it passes it back:
+        // its echo is then matched exactly.
+        const revision = props.valueRevision;
+        editor.update(revision === undefined ? { value } : { value, valueRevision: revision });
       });
     }
     // The live props that changed, each in its own `update`: a bad one
@@ -374,12 +394,18 @@ export class EditorBinding extends Binding {
     if (changed("readOnlyReason", props.readOnlyReason ?? null)) update.readOnlyReason = props.readOnlyReason ?? null;
     for (const name of ["hostDiagnostics", "readOnlyPaths", "readOnlyRanges"]) {
       const list = JSON.stringify(props[name] ?? []);
+      // A new list is given with the bound value now.
+      if (this.#applied[name] !== list) this.#givenFor[name] = value;
       if (changed(name, list)) update[name] = JSON.parse(list);
     }
-    // Ranges are in the bound value, which may be an echo the user typed
-    // past: the editor maps them from it to the document.
+    // Ranges are in the bound value they were given with, which may be an
+    // echo the user typed past: the editor maps them from it to the
+    // document (also when a re-mount sends them again).
     const ranged = (key) => key === "hostDiagnostics" || key === "readOnlyRanges";
-    const rangesFor = (key) => (ranged(key) && value !== undefined ? { rangesFor: value } : {});
+    const rangesFor = (key) => {
+      const text = this.#givenFor[key] ?? value;
+      return ranged(key) && text !== undefined ? { rangesFor: text } : {};
+    };
     const followsPath = props.onPathChange !== undefined;
     if (changed("followsPath", followsPath)) update.onPathChange = followsPath ? this.#followPath : null;
     // `Ctrl+S` is the editor's only while `onSave` is set.
@@ -395,24 +421,6 @@ export class EditorBinding extends Binding {
     return this.#reset ?? this.#carried?.value ?? this.props.value ?? this.props.defaultValue ?? "";
   }
 
-  /** Checks once a pause is over that the host came back to the document; arming it again starts the pause again. */
-  #settleLater() {
-    clearTimeout(this.#settleTimer);
-    this.#settleTimer = setTimeout(() => {
-      this.#settleTimer = null;
-      this.guard((editor) => {
-        const current = editor.value;
-        if (this.#sync.settle(current)) this.props.onChange?.(current);
-      });
-    }, SETTLE_MS);
-  }
-
-  detach() {
-    clearTimeout(this.#settleTimer);
-    this.#settleTimer = null;
-    super.detach();
-  }
-
   #setValue(value) {
     if (typeof value !== "string") {
       this.report(new TypeError("setValue needs a string"));
@@ -424,11 +432,10 @@ export class EditorBinding extends Binding {
       return;
     }
     this.guard((editor) => {
-      if (editor.value === value) return;
-      editor.replaceValue(value);
+      // A reset to the document as it is changes nothing, and is not reported.
+      if (!editor.replaceValue(value)) return;
       // The host's state follows the reset: it is reported like an edit,
-      // and its echo is recognised like one.
-      this.#sync.sent(value);
+      // and the editor tells its echo apart like one.
       this.props.onChange?.(value);
     });
   }
@@ -596,6 +603,8 @@ export class DocumentsBinding extends Binding {
       return false;
     }
     return this.ask((view) => {
+      // A reset to the text the document holds changes nothing, and is not
+      // reported: the parent's list holds it once.
       if (!view.replaceValue(id, value)) return false;
       // The parent's list follows, as after an edit.
       this.props.onChange?.(id, value);

@@ -5,7 +5,8 @@
 //!   moved out of its block), then made real again (the key renamed back,
 //!   the line uncommented or moved back): text written beside it in a
 //!   field meanwhile is refused there; written beside it in a comment, the
-//!   edit making it real with that text is refused, in every language;
+//!   edit making it real with that text (leaving the token and its edges
+//!   as they were) is taken and held with its reason, in every language;
 //! - its field made a list or map holding it (an XML element given a child
 //!   or an attribute, a sibling moved in, the token put in brackets) is
 //!   refused as text beside it is.
@@ -13,12 +14,14 @@
 //! Never does the host hear its field holding the token with anything
 //! beside it.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 use serde_json::Value;
 
 use super::super::Language;
 use super::super::keys::line_edit::LineCommand;
-use super::super::keys::lines::{Command, run};
+use super::super::keys::lines::{Command, run_units as run};
 use super::super::save_matrix::{ALL, report};
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
@@ -231,10 +234,11 @@ fn a_placeholder_made_real_again_with_text_beside_it_is_refused() {
             // another block), it is still the host's token, held whole (see
             // `whole_guard::moved`); in a comment, or read into another
             // value with text beside it (a YAML line moved under a scalar),
-            // it is that text's, free to write beside.
+            // it is that text's, free to write beside. While the text does
+            // not parse, a token is a span: nothing is typed against it.
             let alone = language
                 .parse(&plain)
-                .is_ok_and(|document| alone_somewhere(&document));
+                .map_or(true, |document| alone_somewhere(&document));
             let typed = state
                 .doc()
                 .text
@@ -250,7 +254,10 @@ fn a_placeholder_made_real_again_with_text_beside_it_is_refused() {
             make(state, true);
             pause(state);
             let now = state.doc().text.get_untracked();
-            if glued(language, &now, field(language)) {
+            // An edit leaving the token and its edges as they were (a line
+            // uncommented) is taken, held with its reason.
+            let held = state.changes_held() && state.save_waits().is_some();
+            if glued(language, &now, field(language)) && !held {
                 failures.push(format!("{case}: made real again glued: {now:?}"));
             }
             if let Some(text) = heard

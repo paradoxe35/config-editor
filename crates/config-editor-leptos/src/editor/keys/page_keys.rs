@@ -14,13 +14,13 @@
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::projection::Projection;
 use super::super::source_area::SourceArea;
 use super::super::state::{EditorState, directed_selection, select};
 use super::page_ruler::Ruler;
+use crate::editor::text::{TextSize, byte_of, slice, utf16_of};
 use crate::page_scroll::{band_in_view, reveal_band, scale_of};
 
 /// Pages the text on `PageDown` / `PageUp` (with Shift, selecting).
@@ -44,6 +44,8 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
     let (anchor, caret) = directed_selection(&area);
     let target = state.doc().text.with_untracked(|text| {
         let ruler = Ruler::new(&area, metrics.char_width);
+        // The ruler measures the drawn line, as the browser counts it: in
+        // UTF-16 units.
         let goal = state
             .view()
             .page_goal
@@ -51,16 +53,22 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
             .filter(|(at, _)| *at == caret)
             .map_or_else(
                 || {
-                    let (line, units) = line_at(text, caret);
+                    let (line, units) = line_at(text, utf16_of(text, caret));
                     ruler.goal(line, units)
                 },
                 |(_, goal)| goal,
             );
         let target = state.view().projection.with_untracked(|projection| {
-            paged(text, projection, caret, rows, down, |line| {
-                ruler.nearest(line, goal)
-            })
+            paged(
+                text,
+                projection,
+                utf16_of(text, caret),
+                rows,
+                down,
+                |line| ruler.nearest(line, goal),
+            )
         });
+        let target = byte_of(text, target);
         state.view().page_goal.set_value(Some((target, goal)));
         target
     });
@@ -72,18 +80,16 @@ pub(super) fn page(state: EditorState, event: &KeyboardEvent) -> bool {
             target < anchor,
         );
     } else {
-        let _ = area.set_selection_range(target as u32, target as u32);
+        select(&area, target, target, false);
     }
     let step = (rows as f64 * line_height).round() as i32;
     let top = area.scroll_top();
     area.set_scroll_top(if down { top + step } else { top - step }.max(0));
-    state.view().scroll_y.set(f64::from(area.scroll_top()));
     state
         .doc()
         .text
-        .with_untracked(|text| reveal_offset(&area, text, target, state.view().scroll_y));
+        .with_untracked(|text| reveal_offset(&area, text, target));
     reveal_in_page(&area, target, metrics.padding_top, line_height);
-    state.note_caret(target);
     true
 }
 
@@ -103,13 +109,16 @@ fn rows_height(area: &SourceArea) -> f64 {
     }
 }
 
-/// Shows the caret's row, at document offset `target`, in the boxes
+/// Shows the caret's row, at byte `target` of the document, in the boxes
 /// around the text area (a text area taller than the window does not
 /// scroll itself): they move only as far as that takes.
-fn reveal_in_page(area: &SourceArea, target: usize, padding_top: f64, line_height: f64) {
+fn reveal_in_page(area: &SourceArea, target: TextSize, padding_top: f64, line_height: f64) {
     let line = area.state().doc().text.with_untracked(|text| {
-        let byte = utf16_to_byte_index(text, target);
-        text[..byte].bytes().filter(|byte| *byte == b'\n').count()
+        slice::before(text, target)
+            .unwrap_or(text)
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count()
     });
     let row = area.row_of_line(line) as f64;
     let element: &web_sys::Element = area.element();
@@ -133,7 +142,7 @@ fn page_rows(height: f64, line_height: f64) -> usize {
 /// The line of document offset `offset` (UTF-16), and how far into it
 /// the offset is.
 fn line_at(text: &str, offset: usize) -> (&str, usize) {
-    let byte = utf16_to_byte_index(text, offset);
+    let byte = usize::from(byte_of(text, offset));
     let start = text[..byte].rfind('\n').map_or(0, |at| at + 1);
     let end = text[byte..].find('\n').map_or(text.len(), |at| byte + at);
     (&text[start..end], text[start..byte].encode_utf16().count())
@@ -263,7 +272,7 @@ mod tests {
         );
     }
 
-    /// QA 26: the column was counted in UTF-16 units, so a page key from
+    /// The column was counted in UTF-16 units, so a page key from
     /// after an emoji or a tab landed right or left of where `ArrowDown`
     /// does. Every line pair pages from its first line's end onto the
     /// on-screen column below it.

@@ -7,7 +7,7 @@ use super::super::byte_order_mark;
 use super::super::codec;
 use super::super::languages::Language;
 use super::super::state::EditorState;
-use super::super::sync;
+use super::super::sync::{self, Held, Route};
 use super::SaveRequest;
 
 impl EditorState {
@@ -26,23 +26,16 @@ impl EditorState {
         let Some(on_save) = self.editing().on_save else {
             return false;
         };
-        let document = self.host_document();
-        if document.is_some()
-            && let Some(message) = self.save_waits()
-        {
-            self.show_conversion_problem();
-            self.protect()
-                .flash(message, self.doc().caret.get_untracked());
-            return false;
-        }
-        // A converted view's host text parses already; the host's own
-        // language is read here: a save never sends text its reader refuses
-        // (a number the editor cannot hold exactly, which the language
-        // allows, saves).
-        let document = document
-            .filter(|text| self.bridge().is_some() || self.config().host_language.saves(text));
-        match document {
-            Some(text) => {
+        match self.to_host(Route::Save) {
+            Err(Held::Guarded(Some(message))) => {
+                self.show_conversion_problem();
+                let caret = self.doc().caret.get_untracked();
+                self.doc()
+                    .text
+                    .with_untracked(|text| self.protect().flash(message, text, caret));
+                false
+            }
+            Ok(text) => {
                 self.editing().sent.update_value(|sent| sent.note(&text));
                 on_save.run(SaveRequest {
                     text,
@@ -50,7 +43,7 @@ impl EditorState {
                 });
                 true
             }
-            None => {
+            Err(_) => {
                 self.show_conversion_problem();
                 // What the caret note shows there is said too, as a message
                 // that waits is (through the tip).
@@ -73,13 +66,13 @@ impl EditorState {
             return Some(self.doc().text.get_untracked());
         }
         let text = self.doc().text.get_untracked();
-        if text != self.sync().synced_edit.get_value() {
+        if !self.sync().is_synced(&text) {
             sync::convert_now(*self, text, self.sync().edit_language.get_untracked());
         }
         let converted = self
             .doc()
             .text
-            .with_untracked(|text| *text == self.sync().synced_edit.get_value());
+            .with_untracked(|text| self.sync().is_synced(text));
         converted.then(|| self.sync().host_text.get_value())
     }
 

@@ -8,6 +8,8 @@
 //! token the host wrote with other text beside it stays the host's to
 //! embed.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use leptos::prelude::*;
 
 use super::super::Language;
@@ -224,8 +226,7 @@ fn parses(case: &Broken, state: EditorState) -> bool {
 fn tip(state: EditorState) -> String {
     state
         .protect()
-        .tip
-        .get_untracked()
+        .tip()
         .map(|tip| tip.message)
         .unwrap_or_default()
 }
@@ -233,7 +234,7 @@ fn tip(state: EditorState) -> String {
 /// A key typed beside the token is refused with the tip, the text kept.
 fn refused_beside(case: &Broken, state: EditorState, step: &str) -> Option<String> {
     let before = text(state);
-    state.protect().tip.set(None);
+    state.protect().hide_tip(false);
     type_at(state, token_end(state), "Z");
     (text(state) != before || !tip(state).contains(SAYS)).then(|| {
         format!(

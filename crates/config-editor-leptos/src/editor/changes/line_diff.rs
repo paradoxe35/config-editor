@@ -526,6 +526,7 @@ pub(in crate::editor) fn middle_edits(old: &[&str], new: &[&str]) -> Vec<DiffEdi
         edits.extend(std::iter::repeat_n(DiffEdit::Insert, new.len()));
         return edits;
     }
+    super::super::diff::step(cell_count);
     let columns = new.len() + 1;
     let mut lcs = vec![0u32; cell_count];
     for old_index in (0..old.len()).rev() {
@@ -583,7 +584,7 @@ mod tests {
     /// Blank lines removed before the end are removed lines (counted,
     /// marked, a hunk) when both texts end with a line break, however many
     /// and with any line ending; only the final line break removed is no
-    /// change (round 7's `D7.docs-2`, and `D7.docs-1`'s documented rule).
+    /// change (the documented rule).
     #[test]
     fn trailing_blank_lines_removed_are_removed_lines() {
         let mut failures = Vec::new();
@@ -706,7 +707,7 @@ mod tests {
         assert!(style_number(&style, "max-height:") >= content, "{style}");
     }
 
-    /// D23.ux-5: in a text area 70 px tall the roomier side had 21 px, less
+    /// In a text area 70 px tall the roomier side had 21 px, less
     /// than the header, so Revert and Close were clipped. The preview keeps
     /// a header's height, inside the area, and scrolls.
     #[test]
@@ -737,7 +738,7 @@ mod tests {
         }
     }
 
-    /// QA 22: on a 390 px phone the preview ran past the editor's right
+    /// On a 390 px phone the preview ran past the editor's right
     /// edge (sized to the window from the text's left). It stays inside
     /// the editor, moved left over the gutter to keep its width.
     #[test]
@@ -868,7 +869,7 @@ mod tests {
     }
 
     /// Many separate changes stay separate past what the exact searches
-    /// take (round 17's `D17.perf-1`: past 512 they became one
+    /// take (past 512 they became one
     /// delete-then-insert hunk, "1 change", which could not be stepped).
     #[test]
     fn many_separate_changes_stay_separate() {
@@ -896,8 +897,8 @@ mod tests {
     }
 
     /// A new baseline under the peeked line makes it another change: its
-    /// `Before` is no longer the baseline's, so the peek closes (round 16's
-    /// `D16.ux-2`: it kept showing the old baseline's line).
+    /// `Before` is no longer the baseline's, so the peek closes (it once
+    /// kept showing the old baseline's line).
     #[test]
     fn peek_closes_when_the_baseline_under_it_changes() {
         let current = "a: 1\nb: 2X\nc: 3\n";

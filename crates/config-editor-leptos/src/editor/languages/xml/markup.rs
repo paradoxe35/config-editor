@@ -109,7 +109,7 @@ pub(super) fn end_tag_len(text: &str) -> Option<usize> {
 }
 
 /// The `<` before a start tag's name, and the name's prefix (`<c:` of
-/// `<c:scan>`): the key is the element's local name (QA `E37-4`: a
+/// `<c:scan>`): the key is the element's local name (a
 /// prefixed element's lines were not found, so a move among its siblings
 /// in one save could not be written).
 pub(super) fn name_markup_len(text: &str) -> Option<usize> {

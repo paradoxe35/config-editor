@@ -28,12 +28,16 @@ pub(super) struct TestEditor {
     /// The `settings` prop; a signal the test may switch.
     pub(super) settings: Signal<EditorSettings>,
     /// The `schema` prop, built.
-    pub(super) schema: Option<std::sync::Arc<super::diagnostics::SchemaBundle>>,
+    pub(super) schema: Option<std::sync::Arc<super::schema::SchemaBundle>>,
     /// A text in the `edit_as` language to open with, as a documents
     /// view's `Document::edit_as_text`.
     pub(super) opening: Option<String>,
     /// The `read_only_reason` prop.
     pub(super) read_only_reason: Option<String>,
+    /// The placeholders of a documents view's editors.
+    pub(super) foreign: Option<Signal<std::sync::Arc<Vec<super::protect::DocumentPlaceholders>>>>,
+    /// A clipboard shared with other editors (a documents view's).
+    pub(super) clipboard: Option<StoredValue<super::bridge::links::Clipboard>>,
 }
 
 impl TestEditor {
@@ -53,6 +57,8 @@ impl TestEditor {
             schema: None,
             opening: None,
             read_only_reason: None,
+            foreign: None,
+            clipboard: None,
         }
     }
 
@@ -78,9 +84,11 @@ impl TestEditor {
                 paths: Some(Signal::stored(self.read_only_paths)),
                 ranges: Some(Signal::stored(self.read_only_ranges)),
                 secrets: self.secrets,
+                foreign: self.foreign,
             },
             on_save: self.on_save,
             on_baseline_conflict: None,
+            clipboard: self.clipboard,
         });
         (owner, state)
     }

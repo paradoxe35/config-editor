@@ -12,17 +12,19 @@ use leptos::prelude::*;
 use crate::reactive::{Kept, size_observer, window_listener};
 
 mod a11y;
+mod applies;
 mod bridge;
 mod byte_order_mark;
-mod caret_tip;
 mod change_summary;
 #[cfg_attr(not(feature = "diff"), path = "editor/off/changes.rs")]
 mod changes;
 mod codec;
 mod commands;
 mod comment_scope;
+mod comment_toggle;
 mod completion;
 mod components;
+mod data_reading;
 mod decimal_text;
 mod diagnostics;
 mod diff;
@@ -30,10 +32,6 @@ mod document;
 mod drag_move;
 mod edit;
 mod edit_as;
-// `"$ref": ""` read as the root, for validation, completion and hover alike.
-mod empty_refs;
-#[cfg(feature = "schema-validation")]
-mod false_schema;
 // What a `$ref` the editor cannot follow is told.
 mod fill;
 mod flat_keys;
@@ -47,9 +45,6 @@ mod history;
 mod host_diagnostics;
 mod host_editing;
 mod hover;
-mod hover_focus;
-mod hover_path;
-mod hover_problems;
 mod input;
 mod item_sources;
 mod kept_focus;
@@ -58,8 +53,11 @@ mod schema_formats;
 #[cfg(feature = "schema-validation")]
 mod schema_refs;
 mod ui_refs;
+pub(crate) use bridge::links::Clipboard;
 pub use input::flush_pending_input;
+pub(crate) use line_endings::same_document;
 pub use sync::flush_pending_edits;
+pub use sync::{Echo, Echoes, SETTLE_MS, echo_clock};
 mod keyboard;
 mod keys;
 pub mod language;
@@ -70,12 +68,10 @@ mod line_endings;
 mod line_rows;
 mod live_settings;
 mod metrics;
-mod outside_press;
 mod parse_cache;
 mod paths;
 mod pattern_engine;
-mod popup_pointer;
-mod popup_under;
+mod popups;
 mod positioning;
 mod problem_hit;
 mod problem_walk;
@@ -84,6 +80,7 @@ mod projection;
 #[cfg_attr(not(feature = "protect"), path = "editor/off/protect.rs")]
 mod protect;
 mod readings;
+mod schema;
 mod scroll_through;
 #[cfg_attr(not(feature = "search"), path = "editor/off/search.rs")]
 mod search;
@@ -95,6 +92,7 @@ mod sync;
 mod platform;
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
+mod text;
 mod text_change;
 mod theme;
 mod touch;
@@ -107,16 +105,16 @@ pub use changes::unified_diff;
 pub use codec::{Conversion, ConvertError, float_of, float_value, string_of, string_value};
 pub use completion::{HoverDocs, Suggestion};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
-pub(crate) use diagnostics::SchemaKey;
-pub use diagnostics::{
-    Diagnostic, DiagnosticOrigin, Schema, SchemaError, SchemaSource, Severity, check_syntax,
-};
+pub use diagnostics::{Diagnostic, DiagnosticOrigin, Severity, check_syntax};
 pub use handle::EditorHandle;
 pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic, is_web_url};
 pub use host_editing::{BaselineConflict, SaveRequest};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
+pub(crate) use protect::DocumentPlaceholders;
+pub(crate) use schema::SchemaKey;
+pub use schema::{Schema, SchemaError, SchemaSource};
 pub use schema_formats::{
     CheckProblem, CheckedDocument, CompiledSchema, LossEffect, SchemaCheck, SchemaCompiler,
     SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss, SchemaResources, UnknownSchemaFormat,
@@ -179,6 +177,24 @@ pub fn ConfigEditor(
     /// `on_change` to keep the host as the source of truth.
     #[prop(optional, into)]
     value: Option<Signal<String>>,
+    /// With `echoes`: the revision `on_change` sent `value` with
+    /// ([`EditorHandle::sent_revision`], read in `on_change`), for a host
+    /// that stores it beside the text and never goes back to an older one.
+    /// Its echo is then matched exactly, with no pause: that revision and
+    /// every earlier one are confirmed. Set it before `value` (it is read
+    /// as `value` changes), and to `None` for a text of the host's own.
+    /// Unset, an echo is told apart by its text, and a host left behind on
+    /// an older one hears the document again a pause later.
+    #[prop(optional, into)]
+    value_revision: MaybeProp<u64>,
+    /// Whether the host hands every `on_change` text back as `value`, maybe
+    /// late and in any order (a store saving each text, then giving it
+    /// back): each such echo is told apart from a text of the host's own,
+    /// so a late one never rolls back what was typed since, and a host left
+    /// on an older text hears the document again. Off, every new `value`
+    /// is the host's own and replaces the document. Read at mount.
+    #[prop(optional)]
+    echoes: bool,
     /// Text to diff against, in `language`: the version the host last saved
     /// or loaded. Set it to the saved text after saving to clear the diff.
     /// Unset, it is the document at mount (`value`, else `initial_value`).
@@ -357,9 +373,11 @@ pub fn ConfigEditor(
             paths: read_only_paths,
             ranges: read_only_ranges,
             secrets,
+            foreign: handle.and_then(EditorHandle::take_foreign),
         },
         on_save,
         on_baseline_conflict,
+        clipboard: handle.and_then(EditorHandle::take_clipboard),
     });
     // After the editor is made, not while: the host has its handle (a
     // JavaScript `new ConfigEditor` has returned) when it hears them.
@@ -372,10 +390,12 @@ pub fn ConfigEditor(
         state,
         sync::Host {
             value,
+            value_revision,
             edit_as,
             on_edit_as_change,
             initial_pending,
             on_sync_change,
+            echoes,
         },
     );
     host_editing::connect(
@@ -403,9 +423,9 @@ pub fn ConfigEditor(
         Effect::new(move |_| on_path_change.run(state.doc().caret_path.get()));
     }
     remeasure_on_window_changes(state);
-    outside_press::close_popups_on_outside_press(state);
+    popups::close_popups_on_outside_press(state);
     kept_focus::keep_focus_in_editor(state);
-    outside_press::close_popups_on_escape_over_them(state);
+    popups::close_popups_on_escape_over_them(state);
     live_settings::follow(state);
     let rows = components::row_states(state);
     folding::mount_fold_layers(state);

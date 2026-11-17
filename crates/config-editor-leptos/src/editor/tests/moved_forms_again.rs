@@ -1,4 +1,4 @@
-//! QA `E37-1`/`E37-5`: a key keeps the form its host writes it in through
+//! A key keeps the form its host writes it in through
 //! every move of a session (moved again after a pause, its source a key
 //! pasted earlier), whichever way it is cut (a whole line, a line's
 //! text) or pasted (over a selected line), and so does a copy of it or
@@ -10,6 +10,7 @@ use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::moved_forms::{key_line, line_offset, pause, units};
 use crate::editor::save_matrix::report;
+use crate::editor::text::text_size;
 use leptos::prelude::*;
 
 /// A key `d` its host writes in a form of its own, in three blocks `a`
@@ -93,12 +94,19 @@ pub(super) fn replace(state: EditorState, (from, to): (usize, usize), typed: &st
     let before = state.doc().text.get_untracked();
     let text = format!("{}{typed}{}", &before[..from], &before[to..]);
     let start = units(&before[..from]);
-    state.commit(Edit::new(
+    state.commit(Edit::new_units(
         before.clone(),
         (start, units(&before[..to])),
         text,
         start + units(typed),
     ));
+}
+
+/// Bytes `from..to` of the view's text copied (as Ctrl+C does): the
+/// clipboard's record keeps their items' links.
+pub(super) fn copy(state: EditorState, (from, to): (usize, usize)) {
+    let text = state.doc().text.get_untracked();
+    state.note_copied(&text[from..to], (text_size(from), text_size(to)));
 }
 
 /// How the key's line is cut.
@@ -143,7 +151,7 @@ fn cut(state: EditorState, name: &str, how: Cut) -> String {
     let lines = before[from..to].to_string();
     match how {
         Cut::Line => replace(state, (from, to), ""),
-        Cut::Copy => {}
+        Cut::Copy => copy(state, (from, to)),
         Cut::Text => {
             let indent = lines.len() - lines.trim_start().len();
             let end = from + lines.trim_end().len();

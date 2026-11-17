@@ -3,25 +3,26 @@
 //! edit, found again when the text is replaced), and keeping each atomic:
 //! edits touching one take it whole, and the caret never lands inside.
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
-use super::super::edit::Edit;
-use super::super::input::{UNKNOWN_SELECTION, edit_range};
+use super::super::edit::{Change, Edit};
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::secret_options::SecretOptions;
-use super::super::state::{EditorState, directed_selection, textarea_selection};
+use super::super::state::{EditorState, directed_selection, select, textarea_selection};
+use super::super::text_change::edited_bytes;
 use super::follow_items;
+use super::foreign::foreign_tokens;
 use super::tokens::{
     Known, SecretMatcher, follow, held_in_fields, in_comment, locate_written, snap, snap_selection,
     widen,
 };
 use super::unplaced::placed_where_written;
-use super::whole_guard::WholeIndex;
+use super::whole_guard::{Held, WholeIndex};
+use crate::editor::text::{TextRange, TextSize, byte_range, slice, text_size};
 
 /// Known tokens one edit may write and still have found by path (a
 /// paste); more (an undo restoring a whole text) are found by text.
@@ -40,11 +41,15 @@ pub(crate) struct SecretState {
     /// The tokens of `known` given as a field's whole value, looked up by
     /// token and by field (built again only when `known` changes).
     pub(crate) whole: Memo<Arc<WholeIndex>>,
-    /// UTF-16 ranges of the real tokens in the text on screen.
-    pub(crate) tokens: RwSignal<Vec<Range<usize>>>,
+    /// The ranges of the real tokens in the text on screen.
+    pub(crate) tokens: RwSignal<Vec<TextRange>>,
     /// The last text an edit's check found to parse, or made of one by an
     /// edit to one scalar (see `whole_guard`).
     pub(crate) parsing: StoredValue<Option<String>>,
+    /// An edit taken while the parse reads a placeholder given whole with
+    /// text beside it (see `whole_guard::Held`): what reaches the host
+    /// waits until it reads as the host's text again.
+    pub(crate) held: StoredValue<Option<Held>>,
 }
 
 impl SecretState {
@@ -73,6 +78,7 @@ impl SecretState {
             whole: Memo::new(move |_| Arc::new(known.with(|known| WholeIndex::new(known)))),
             tokens: RwSignal::new(tokens),
             parsing: StoredValue::new(None),
+            held: StoredValue::new(None),
         }
     }
 
@@ -96,14 +102,7 @@ impl SecretState {
     }
 }
 
-/// UTF-16 `range` of `text`, as a string.
-fn utf16_slice(text: &str, range: Range<usize>) -> String {
-    let start = super::super::keyboard::utf16_to_byte_index(text, range.start);
-    let end = super::super::keyboard::utf16_to_byte_index(text, range.end).max(start);
-    text[start..end].to_string()
-}
-
-/// Whether `followed` (UTF-16 ranges of `text`) are each a token in its own
+/// Whether `followed` (ranges of `text`) are each a token in its own
 /// field: the parsed document holds every known token in its field as often
 /// as the ranges show it. A text that does not parse keeps them as they
 /// are, until it parses again.
@@ -111,13 +110,12 @@ fn in_their_fields(
     behavior: &dyn ConfigLanguage,
     text: &str,
     known: &[Known],
-    followed: &[Range<usize>],
+    followed: &[TextRange],
 ) -> bool {
     let parsed = parse_cache::parsed(behavior, text);
     let Ok(document) = parsed.as_ref() else {
         return true;
     };
-    let units: Vec<u16> = text.encode_utf16().collect();
     let mut shown: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     // Tokens the host wrote in comments: those followed in comments are
     // each one of them, as often as the comments hold it (read only when
@@ -132,24 +130,12 @@ fn in_their_fields(
     } else {
         behavior.comments(text)
     };
-    // The byte each range starts at, read on in one pass (they are in
-    // order).
-    let (mut unit, mut byte) = (0, 0);
-    let mut byte_at = |offset: usize| {
-        for character in text[byte..].chars() {
-            if unit >= offset {
-                break;
-            }
-            unit += character.len_utf16();
-            byte += character.len_utf8();
-        }
-        byte
-    };
     for range in followed {
-        let written = String::from_utf16_lossy(
-            &units[range.start.min(units.len())..range.end.min(units.len())],
-        );
-        if !comments.is_empty() && in_comment(&comments, byte_at(range.start)) {
+        let end = range.end().min(TextSize::of(text));
+        let written = slice::slice(text, TextRange::new(range.start().min(end), end))
+            .unwrap_or_default()
+            .to_string();
+        if !comments.is_empty() && in_comment(&comments, range.start()) {
             match in_comments.get_mut(written.as_str()) {
                 Some(left) if *left > 0 => *left -= 1,
                 _ => return false,
@@ -164,7 +150,12 @@ fn in_their_fields(
         let in_the_comments = |token: &str| {
             comments
                 .iter()
-                .map(|comment| text[comment.clone()].matches(token).count())
+                .map(|comment| {
+                    slice::slice(text, byte_range(comment.clone()))
+                        .unwrap_or_default()
+                        .matches(token)
+                        .count()
+                })
                 .sum::<usize>()
         };
         let all_followed = known
@@ -187,35 +178,32 @@ fn in_their_fields(
             .all(|(token, count)| held.get(token.as_str()) == Some(count))
 }
 
-use super::super::text_change::{replaces, utf16_len};
-
-/// The UTF-16 range of `before` an edit to `after` replaced when the
-/// browser did not say (an `insertFromPaste` input without a `beforeinput`)
-/// and the inserted text began a placeholder it replaced whole: a token
-/// pasted over another shares its first characters, which the diff of the
-/// texts keeps, reading the paste as an edit inside the token. The inserted
-/// text ends at `caret`; it is taken to start where the token it began in
-/// starts, when the range then cuts no token. `None` otherwise.
+/// The range of `before` an edit to `after` replaced when the browser did
+/// not say (an `insertFromPaste` input without a `beforeinput`) and the
+/// inserted text began a placeholder it replaced whole: a token pasted
+/// over another shares its first characters, which the diff of the texts
+/// keeps, reading the paste as an edit inside the token. The inserted text
+/// ends at `caret` (a byte of `after`); it is taken to start where the
+/// token it began in starts, when the range then cuts no token. `None`
+/// otherwise.
 fn ended_at_caret(
-    tokens: &[Range<usize>],
+    tokens: &[TextRange],
     before: &str,
     after: &str,
-    caret: usize,
-) -> Option<(usize, usize)> {
-    let old: Vec<u16> = before.encode_utf16().collect();
-    let new: Vec<u16> = after.encode_utf16().collect();
+    caret: TextSize,
+) -> Option<TextRange> {
     // What follows the caret is what followed the replaced range.
-    let kept = new.len().checked_sub(caret)?;
-    let end = old.len().checked_sub(kept)?;
-    if old[end..] != new[caret..] {
+    let kept = TextSize::of(after).checked_sub(caret)?;
+    let end = TextSize::of(before).checked_sub(kept)?;
+    if slice::after(before, end)? != slice::after(after, caret)? {
         return None;
     }
-    let prefix = old
-        .iter()
-        .zip(&new)
+    let prefix = before
+        .bytes()
+        .zip(after.bytes())
         .take_while(|(old, new)| old == new)
         .count();
-    let start = prefix.min(caret).min(end);
+    let start = text_size(prefix).min(caret).min(end);
     // Only text written past the shared characters (a deletion is no
     // paste).
     if caret <= start {
@@ -223,41 +211,95 @@ fn ended_at_caret(
     }
     let token = tokens
         .iter()
-        .find(|token| token.start < start && start < token.end)?;
-    let cuts = |range: &Range<usize>| {
+        .find(|token| token.start() < start && start < token.end())?;
+    let cuts = |range: &TextRange| {
         tokens.iter().any(|token| {
-            (token.start < range.start && range.start < token.end)
-                || (token.start < range.end && range.end < token.end)
+            (token.start() < range.start() && range.start() < token.end())
+                || (token.start() < range.end() && range.end() < token.end())
         })
     };
-    let whole = token.start..end;
-    (!cuts(&whole)).then_some((whole.start, whole.end))
+    let whole = TextRange::new(token.start(), end.max(token.start()));
+    (!cuts(&whole)).then_some(whole)
 }
 
 impl EditorState {
+    /// The placeholders of `text` (in order) no edit may cut: the host's
+    /// tokens where they are, every other copy of one written here (a
+    /// placeholder is one span wherever it is: pasted where no field reads
+    /// it, it is still never split), and, in a documents view, the tokens
+    /// of the other documents written here (flagged as theirs, and as solid
+    /// as here: removed whole or kept whole).
+    pub(crate) fn solid_tokens(&self, text: &str) -> Vec<TextRange> {
+        let secrets = self.protect().secrets;
+        let mut tokens = secrets.tokens.get_untracked();
+        // Another document's tokens are solid here too, also where this
+        // document's host gave none of its own.
+        let others = self.protect().foreign.get_untracked();
+        if secrets.known.with_untracked(Vec::is_empty) && others.is_empty() {
+            return tokens;
+        }
+        // The copies of the host's tokens and of the other documents'
+        // tokens written here.
+        let written: Vec<TextRange> = secrets.matcher.with_value(|matcher| {
+            secrets.known.with_untracked(|known| {
+                let own: std::collections::HashSet<&str> =
+                    known.iter().map(|known| known.token.as_str()).collect();
+                matcher
+                    .find(text)
+                    .into_iter()
+                    .map(byte_range)
+                    .filter(|range| {
+                        slice::slice(text, *range).is_some_and(|token| own.contains(token))
+                    })
+                    .chain(
+                        foreign_tokens(text, matcher, known, &others)
+                            .into_iter()
+                            .map(|(range, _)| byte_range(range)),
+                    )
+                    .collect()
+            })
+        });
+        if written.is_empty() {
+            return tokens;
+        }
+        tokens.extend(written);
+        tokens.sort_by_key(|range| range.start());
+        tokens.dedup_by(|later, earlier| later.start() < earlier.end());
+        tokens
+    }
+
+    /// The solid tokens of the text on screen (see [`Self::solid_tokens`]).
+    fn solid_tokens_on_screen(&self) -> Vec<TextRange> {
+        self.doc()
+            .text
+            .with_untracked(|text| self.solid_tokens(text))
+    }
+
     /// The edit pipeline's prepare stage: an edit cutting a placeholder
     /// takes it whole, leaving just the caret.
     pub(crate) fn widen_edit(&self, edit: &mut Edit) {
-        let widened = self.protect().secrets.tokens.with_untracked(|tokens| {
-            if tokens.is_empty() {
-                return None;
-            }
-            // The selection the edit replaced when it is known and the
-            // texts agree with it: a token pasted over another shares its
-            // first characters, which a diff of the texts would keep.
-            let told = edit.selection != UNKNOWN_SELECTION;
-            let (start, end) = Some(edit.selection)
-                .filter(|selection| told && replaces(&edit.before, &edit.text, *selection))
-                .or_else(|| {
-                    (!told)
-                        .then(|| ended_at_caret(tokens, &edit.before, &edit.text, edit.caret()))
-                        .flatten()
-                })
-                .unwrap_or_else(|| edit_range(&edit.before, &edit.text, edit.caret()));
-            widen(tokens, &edit.before, &edit.text, start..end)
-        });
-        if let Some((text, _, caret)) = widened {
-            edit.text = text;
+        let tokens = self.solid_tokens(&edit.before);
+        if tokens.is_empty() {
+            return;
+        }
+        // What the edit replaced, as it said: a token pasted over another
+        // shares its first characters, which a diff of the texts would
+        // keep. Read off the texts only when it did not say.
+        let caret = edit.caret();
+        let recorded = edit
+            .change()
+            .and_then(|change| change.hull())
+            .map(|(was, _)| was);
+        let region = recorded
+            .or_else(|| ended_at_caret(&tokens, &edit.before, &edit.text, caret))
+            .unwrap_or_else(|| edited_bytes(&edit.before, &edit.text, caret));
+        if let Some((text, wide, caret)) = widen(&tokens, &edit.before, &edit.text, region) {
+            // What the widened edit does, recorded for the followers.
+            let inserted =
+                slice::slice(&text, TextRange::new(wide.start(), caret.max(wide.start())))
+                    .unwrap_or_default()
+                    .to_string();
+            edit.rewrite(Change::replace(&edit.before, wide, &inserted));
             edit.collapse_to(caret);
         }
     }
@@ -269,34 +311,46 @@ impl EditorState {
     /// other edits (a key renamed above one) is checked at the typing pause
     /// ([`Self::recheck_tokens`]): it takes a parse, too slow for every key
     /// on a large document.
-    pub(crate) fn follow_tokens(&self, before: &str, after: &str, caret: usize) {
+    pub(crate) fn follow_tokens(
+        &self,
+        before: &str,
+        after: &str,
+        caret: TextSize,
+        change: Option<&Change>,
+    ) {
         let secrets = self.protect().secrets;
         if secrets.known.with_untracked(Vec::is_empty) {
             return;
         }
-        let (start, end) = edit_range(before, after, caret);
+        // What the edit replaced, as it recorded it; else read off the
+        // texts and its caret.
+        let replaced = change
+            .and_then(Change::hull)
+            .map_or_else(|| edited_bytes(before, after, caret), |(was, _)| was);
         // Tokens the edit wrote again whole are found again by their text.
         let region = secrets.tokens.with_untracked(|tokens| {
-            super::rewritten::rewritten_region(tokens, before, after, &(start..end))
-                .unwrap_or(start..end)
+            super::rewritten::rewritten_region(tokens, before, after, &replaced).unwrap_or(replaced)
         });
-        let Range { start, end } = secrets.known.with_untracked(|known| {
+        let region = secrets.known.with_untracked(|known| {
             let texts: Vec<&str> = known.iter().map(|known| known.token.as_str()).collect();
             super::rewritten::around_written(&texts, before, after, &region)
         });
-        let inserted_len = (utf16_len(after) + end - start).saturating_sub(utf16_len(before));
+        let inserted_len = (TextSize::of(after) + region.len())
+            .checked_sub(TextSize::of(before))
+            .unwrap_or_default();
         let followed = secrets
             .tokens
-            .with_untracked(|tokens| follow(tokens, &(start..end), inserted_len));
+            .with_untracked(|tokens| follow(tokens, &region, inserted_len));
         let behavior = self.behavior();
-        let inserted = utf16_slice(after, start..start + inserted_len);
+        let wrote = TextRange::at(region.start(), inserted_len);
+        let inserted = slice::slice(after, wrote).unwrap_or_default();
         let (tokens, by_text) = secrets.matcher.with_value(|matcher| {
             secrets.known.with_untracked(|known| {
                 // The known tokens the edit wrote (one pass of the pattern).
                 let mut written: Vec<&str> = matcher
-                    .find(&inserted)
+                    .find(inserted)
                     .into_iter()
-                    .map(|range| &inserted[range])
+                    .filter_map(|range| inserted.get(range))
                     .filter(|token| known.iter().any(|known| known.token == *token))
                     .collect();
                 written.sort_unstable();
@@ -315,18 +369,53 @@ impl EditorState {
                     .filter(|known| written.contains(&known.token.as_str()))
                     .cloned()
                     .collect();
-                let units: Vec<u16> = after.encode_utf16().collect();
-                let mut tokens: Vec<Range<usize>> = followed
+                let text_of = |range: &TextRange| {
+                    let end = range.end().min(TextSize::of(after));
+                    slice::slice(after, TextRange::new(range.start().min(end), end))
+                        .unwrap_or_default()
+                };
+                // In a text that parses, every copy of a pasted token is
+                // placed by its path, first ones first.
+                if parse_cache::parsed(behavior, after).is_ok() {
+                    let mut tokens: Vec<TextRange> = followed
+                        .into_iter()
+                        .filter(|range| !written.contains(&text_of(range)))
+                        .chain(matcher.locate(behavior, after, &mine))
+                        .collect();
+                    tokens.sort_by_key(|range| range.start());
+                    return (tokens, false);
+                }
+                // In one that does not, no path is read off its lines for
+                // the tokens the edit kept (a placeholder whose key a paste
+                // split would read as another field's, and a paste into it
+                // would be taken): they follow their text. With the copies
+                // the edit wrote that their path places, each token is real
+                // as often as the host gave it, first ones first.
+                let mut left: std::collections::HashMap<String, usize> =
+                    std::collections::HashMap::new();
+                for known in mine.iter().filter(|known| known.field.is_some()) {
+                    *left.entry(known.token.clone()).or_default() += known.count;
+                }
+                let (kept, mut tokens): (Vec<TextRange>, Vec<TextRange>) = followed
                     .into_iter()
-                    .filter(|range| {
-                        let token = String::from_utf16_lossy(
-                            &units[range.start.min(units.len())..range.end.min(units.len())],
-                        );
-                        !written.contains(&token.as_str())
-                    })
-                    .chain(matcher.locate(behavior, after, &mine))
+                    .partition(|range| left.contains_key(text_of(range)));
+                let mut candidates: Vec<TextRange> = matcher
+                    .locate(behavior, after, &mine)
+                    .into_iter()
+                    .filter(|range| wrote.contains_range(*range))
+                    .chain(kept)
                     .collect();
-                tokens.sort_by_key(|range| range.start);
+                candidates.sort_by_key(|range| range.start());
+                candidates.dedup_by(|later, earlier| later.start() < earlier.end());
+                for range in candidates {
+                    if let Some(count) = left.get_mut(text_of(&range))
+                        && *count > 0
+                    {
+                        *count -= 1;
+                        tokens.push(range);
+                    }
+                }
+                tokens.sort_by_key(|range| range.start());
                 (tokens, false)
             })
         });
@@ -485,38 +574,43 @@ impl EditorState {
         self.rescan_tokens(false);
     }
 
+    /// Whether a selection from byte `start` to `end` takes part of a
+    /// placeholder, not all of it. A drag of such a selection is refused:
+    /// its delete would take the placeholder whole while its drop writes
+    /// only the dragged part, losing the rest.
+    pub(crate) fn cuts_a_token(&self, start: TextSize, end: TextSize) -> bool {
+        let region = TextRange::new(start.min(end), end.max(start));
+        self.solid_tokens_on_screen()
+            .iter()
+            .any(|token| super::tokens::cuts(token, &region))
+    }
+
     /// Moves a selection end left inside a placeholder (by a click, Home,
     /// a vertical move) out of it: a caret to the nearest edge, a selection
     /// grown to take it whole.
     pub(crate) fn snap_to_tokens(&self) {
-        let secrets = self.protect().secrets;
         let Some(element) = self.textarea() else {
             return;
         };
         let (anchor, caret) = directed_selection(&element);
         let (start, end) = (anchor.min(caret), anchor.max(caret));
-        let snapped = secrets
-            .tokens
-            .with_untracked(|tokens| snap_selection(tokens, start, end));
+        let snapped = snap_selection(&self.solid_tokens_on_screen(), start, end);
         if snapped == (start, end) {
             return;
         }
         let backward = caret < anchor;
-        super::super::state::select(&element, snapped.0, snapped.1, backward);
+        select(&element, snapped.0, snapped.1, backward);
         self.note_caret(if backward { snapped.0 } else { snapped.1 });
     }
 
-    /// A mouse press at UTF-16 `offset` (read off the pointer, since the
+    /// A mouse press at byte `offset` (read off the pointer, since the
     /// browser's own anchor inside a placeholder is not reliable): a press
     /// inside one is remembered, for the release to anchor at its edge.
-    pub(crate) fn press_at(&self, offset: usize) {
-        let secrets = self.protect().secrets;
-        let pressed = secrets.tokens.with_untracked(|tokens| {
-            tokens
-                .iter()
-                .find(|token| token.start < offset && offset < token.end)
-                .cloned()
-        });
+    pub(crate) fn press_at(&self, offset: TextSize) {
+        let pressed = self
+            .solid_tokens_on_screen()
+            .into_iter()
+            .find(|token| token.start() < offset && offset < token.end());
         self.protect()
             .marks
             .update_value(|marks| marks.pressed = pressed);
@@ -537,18 +631,18 @@ impl EditorState {
             return;
         };
         let (start, end) = textarea_selection(&element);
-        let inside = |at: usize| token.start < at && at < token.end;
+        let inside = |at: TextSize| token.start() < at && at < token.end();
         // The end the pointer moved: the one outside the placeholder.
         let focus = if !inside(start) && (start < end || !inside(end)) {
-            if start < token.start { start } else { end }
+            if start < token.start() { start } else { end }
         } else {
             end
         };
-        if focus <= token.start {
-            super::super::state::select(&element, focus, token.end, true);
+        if focus <= token.start() {
+            select(&element, focus, token.end(), true);
             self.note_caret(focus);
-        } else if focus >= token.end {
-            super::super::state::select(&element, token.start, focus, false);
+        } else if focus >= token.end() {
+            select(&element, token.start(), focus, false);
             self.note_caret(focus);
         } else {
             self.snap_to_tokens();
@@ -574,22 +668,21 @@ impl EditorState {
         if anchor != caret && !event.shift_key() {
             return false;
         }
-        let step = if forward {
-            caret + 1
-        } else {
-            caret.saturating_sub(1)
-        };
-        let target = self
-            .protect()
-            .secrets
-            .tokens
-            .with_untracked(|tokens| snap(tokens, step, Some(forward)));
+        // One character on: into a placeholder, that is past it.
+        let step = self.doc().text.with_untracked(|text| {
+            if forward {
+                slice::step_forward(text, caret)
+            } else {
+                slice::step_back(text, caret)
+            }
+        });
+        let target = snap(&self.solid_tokens_on_screen(), step, Some(forward));
         if target == step {
             return false;
         }
         event.prevent_default();
         let anchor = if event.shift_key() { anchor } else { target };
-        super::super::state::select(
+        select(
             &element,
             anchor.min(target),
             anchor.max(target),

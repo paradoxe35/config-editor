@@ -1,5 +1,5 @@
-//! Some fields of a document by pointer (the secret ones, the host's
-//! placeholders), looked up rather than compared with each problem.
+//! Some fields of a document by pointer (the host's placeholders), looked
+//! up rather than compared with each problem.
 
 use std::collections::BTreeSet;
 

@@ -7,7 +7,7 @@
 
 use super::super::super::{SchemaFormat, SchemaInput};
 use crate::editor::Language;
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 use crate::editor::work_count::{Work, counted, counted_all};
 
 fn xsd(body: &str) -> String {

@@ -101,7 +101,7 @@ async function framesOnDemand(page) {
 // The first frame drawn after the text scrolls shows each popup at its text,
 // though the text scrolled (and the popup opened) frames before the browser
 // got to draw: the scroll event and so the highlighted copy come only with
-// that frame. In the full e2e under load, U20-N1 measured between the two
+// that frame. In the full e2e under load, a run measured between the two
 // and saw the list 155 px above its line.
 test.describe('popups when frames come late', () => {
   test.skip(!built, 'run `npm run build` in js/ first');

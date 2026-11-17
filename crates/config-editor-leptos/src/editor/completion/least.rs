@@ -7,7 +7,6 @@
 //! of its pattern's letters, an object or list with one of those inside),
 //! so the list is no error the moment it is written.
 
-use super::conditions::decides;
 use super::fill::{Filler, MAX_FILL_DEPTH, RESERVED_ITEMS};
 use super::*;
 
@@ -112,7 +111,7 @@ impl List<'_> {
         };
         let mut filled = Vec::new();
         for schema in [contains, item].into_iter().flatten() {
-            if let Some(value) = filler.filled(schema, depth + 1) {
+            if let Some(value) = filler.filled(schema, None, depth + 1) {
                 if allowed(&value) {
                     return Some(value);
                 }
@@ -136,7 +135,7 @@ impl List<'_> {
 /// lower bound, and for text of a least length or a pattern, `more` texts
 /// of that length (and a little longer) in small letters, capitals and
 /// digits.
-fn others(schema: &Value, root: &Value, filled: &[Value], more: usize) -> Vec<Value> {
+pub(super) fn others(schema: &Value, root: &Value, filled: &[Value], more: usize) -> Vec<Value> {
     let branches = resolve_branches(schema, root);
     let mut found: Vec<Value> = Vec::new();
     for branch in &branches {

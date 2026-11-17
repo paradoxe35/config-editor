@@ -8,7 +8,7 @@ use super::super::fold_ranges::FoldRange;
 use super::super::languages::Language;
 use super::super::test_state::TestEditor;
 use super::line_edit::LineCommand;
-use super::lines::{Command, run};
+use super::lines::{Command, run_units as run};
 
 #[test]
 fn a_closed_fold_moved_stays_closed_through_undo_and_redo() {

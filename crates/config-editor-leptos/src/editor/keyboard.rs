@@ -1,11 +1,15 @@
+use super::edit::Change;
 use super::language::ConfigLanguage;
+#[cfg(test)]
+use crate::editor::text::byte_of;
+use crate::editor::text::{TextRange, TextSize, Utf16, slice, utf16_of};
 
 /// The byte index of UTF-16 offset `offset` (as the browser reports carets),
 /// clamped to the end of `source`.
 pub fn utf16_to_byte_index(source: &str, offset: usize) -> usize {
     // Read off the text's lines while a batch runs for it.
-    if let Some(byte) = super::paths::byte_at(source, offset) {
-        return byte;
+    if let Some(byte) = super::paths::byte_at(source, Utf16::count(offset)) {
+        return byte.into();
     }
     // ASCII runs a block at a time (one unit per byte), the rest by
     // character: a long document is mostly ASCII.
@@ -39,6 +43,9 @@ pub fn utf16_to_byte_index(source: &str, offset: usize) -> usize {
     byte
 }
 
+/// `source` with UTF-16 `start..end` replaced by `insert`, and the caret
+/// after it, as the tests type text.
+#[cfg(test)]
 pub(super) fn replace_selection(
     source: &str,
     start: usize,
@@ -79,25 +86,26 @@ pub(super) fn is_quote(behavior: &dyn ConfigLanguage, character: char) -> bool {
     })
 }
 
-/// Auto-closing and selection wrapping for a typed bracket or quote; the
+/// Auto-closing and selection wrapping for a typed bracket or quote: the
+/// opening written at the selection's start and the closing at its end
+/// (bytes of `source`), and the selection then (bytes, between them); the
 /// language's `lexical_state` blocks pairing inside strings and comments.
 pub(super) fn paired_edit(
     source: &str,
-    start: usize,
-    end: usize,
+    start: TextSize,
+    end: TextSize,
     opening: char,
     behavior: &dyn ConfigLanguage,
-) -> Option<(String, usize, usize)> {
+) -> Option<(Change, TextSize, TextSize)> {
     let (closing, quote) = pair_of(behavior, opening)?;
-    let start_byte = utf16_to_byte_index(source, start);
-    let end_byte = utf16_to_byte_index(source, end);
-    let selected = &source[start_byte..end_byte];
-    let lexical = behavior.lexical_state(source, start);
+    let selected = slice::slice(source, TextRange::new(start, end.max(start)))?;
+    let (head, tail) = (slice::before(source, start)?, slice::after(source, start)?);
+    let lexical = behavior.lexical_state(source, utf16_of(source, start));
     if lexical.in_comment || lexical.quote.is_some() {
         return None;
     }
     if quote
-        && source[..start_byte]
+        && head
             .chars()
             .rev()
             .take_while(|character| *character == '\\')
@@ -110,11 +118,11 @@ pub(super) fn paired_edit(
 
     // As in VS Code: a quote never pairs right after a word character (`don't`).
     if start == end {
-        let next = source[start_byte..].chars().next();
+        let next = tail.chars().next();
         let closes_here =
             next.is_none_or(|next| next.is_whitespace() || AUTO_CLOSE_BEFORE.contains(next));
         let after_word = quote
-            && source[..start_byte]
+            && head
                 .chars()
                 .next_back()
                 .is_some_and(|previous| previous.is_alphanumeric() || previous == '_');
@@ -124,45 +132,82 @@ pub(super) fn paired_edit(
     }
     // A closer already ahead belongs to an outer pair, so the new pair is
     // complete on its own (`{"web": |}` → `{"web": {|}}`).
-    let (updated, _) =
-        replace_selection(source, start, end, &format!("{opening}{selected}{closing}"));
-    let selection_start = start + opening.len_utf16();
-    let selection_end = selection_start + selected.encode_utf16().count();
-    Some((updated, selection_start, selection_end))
+    let change = Change::replacing(
+        TextSize::of(source),
+        [
+            (TextRange::empty(start), opening.to_string()),
+            (TextRange::empty(end), closing.to_string()),
+        ],
+    )?;
+    let selection_start = start + TextSize::of(opening);
+    let selection_end = selection_start + TextSize::of(selected);
+    Some((change, selection_start, selection_end))
 }
 
-/// The caret after typing `closing` over the same closer at `cursor`; `None`
-/// after a `\`, where the character is escaped text.
-pub(super) fn skip_closing_pair(source: &str, cursor: usize, closing: char) -> Option<usize> {
-    let byte_index = utf16_to_byte_index(source, cursor);
-    let escaped = source[..byte_index]
+/// [`paired_edit`] as the text it makes and the selection then, at UTF-16
+/// offsets as the tests that type text through it write them.
+#[cfg(test)]
+#[allow(dead_code, reason = "used by the tests of some builds only")]
+pub(super) fn paired_text(
+    source: &str,
+    start: usize,
+    end: usize,
+    opening: char,
+    behavior: &dyn ConfigLanguage,
+) -> Option<(String, usize, usize)> {
+    let (start, end) = (byte_of(source, start), byte_of(source, end));
+    let (change, start, end) = paired_edit(source, start, end, opening, behavior)?;
+    let text = change.apply(source)?;
+    let (start, end) = (utf16_of(&text, start), utf16_of(&text, end));
+    Some((text, start, end))
+}
+
+/// [`delete_empty_pair`] as the text it makes and the caret then (UTF-16),
+/// for the tests.
+#[cfg(test)]
+#[allow(dead_code, reason = "used by the tests of some builds only")]
+pub(super) fn deleted_pair_text(
+    source: &str,
+    cursor: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<(String, usize)> {
+    let change = delete_empty_pair(source, byte_of(source, cursor), behavior)?;
+    let text = change.apply(source)?;
+    let at = change
+        .hull()
+        .map_or(0, |(_, written)| usize::from(written.end()));
+    let caret = text[..at].encode_utf16().count();
+    Some((text, caret))
+}
+
+/// The caret after typing `closing` over the same closer at byte `at`;
+/// `None` after a `\`, where the character is escaped text.
+pub(super) fn skip_closing_pair(source: &str, at: TextSize, closing: char) -> Option<TextSize> {
+    let escaped = slice::before(source, at)?
         .chars()
         .rev()
         .take_while(|character| *character == '\\')
         .count()
         % 2
         == 1;
-    (!escaped && source[byte_index..].starts_with(closing)).then_some(cursor + closing.len_utf16())
+    (!escaped && slice::after(source, at)?.starts_with(closing)).then(|| at + TextSize::of(closing))
 }
 
-/// Both characters of the empty pair around `cursor`, when `behavior`
-/// pairs them.
+/// Both characters of the empty pair around byte `at` deleted, when
+/// `behavior` pairs them.
 pub(super) fn delete_empty_pair(
     source: &str,
-    cursor: usize,
+    at: TextSize,
     behavior: &dyn ConfigLanguage,
-) -> Option<(String, usize)> {
-    let byte_index = utf16_to_byte_index(source, cursor);
-    let previous = source[..byte_index].chars().next_back()?;
-    let next = source[byte_index..].chars().next()?;
+) -> Option<Change> {
+    let previous = slice::before(source, at)?.chars().next_back()?;
+    let next = slice::after(source, at)?.chars().next()?;
     let (expected, _) = pair_of(behavior, previous)?;
     if next != expected {
         return None;
     }
-
-    let start = cursor - previous.len_utf16();
-    let end = cursor + next.len_utf16();
-    Some(replace_selection(source, start, end, ""))
+    let range = TextRange::new(at - TextSize::of(previous), at + TextSize::of(next));
+    Some(Change::replace(source, range, ""))
 }
 
 /// Whether `character` closes what `behavior` pairs: one of its closing

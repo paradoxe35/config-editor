@@ -1,11 +1,14 @@
 //! Lines and columns of a text: where line `n` starts, which line and
-//! column a byte is at. While [`with_spans`](super::with_spans) runs for a
-//! text, its lines are split once and every answer is a lookup (thousands
-//! of spans placed on a long document each counted the lines before them);
-//! outside one, each answer reads the text up to it, as it always did.
+//! column a byte is at, and the UTF-16 offset of a byte and back (the one
+//! conversion between the browser's offsets and the text's). While
+//! [`with_spans`](super::with_spans) runs for a text, its lines are split
+//! once and every answer is a lookup (thousands of spans placed on a long
+//! document each counted the lines before them); outside one, each answer
+//! reads the text up to it.
 
 use std::rc::Rc;
 
+use super::super::text::{TextRange, TextSize, Utf16, text_size};
 use super::super::work_count::{Work, note};
 use super::TextPosition;
 use super::span_memo::{batch_cached_as, in_batch};
@@ -13,24 +16,24 @@ use super::span_memo::{batch_cached_as, in_batch};
 /// Where each line of a text starts (split on `\n`), and whether it is
 /// ASCII (its columns are then its bytes).
 pub(crate) struct Lines {
-    starts: Vec<usize>,
+    starts: Vec<TextSize>,
     ascii: Vec<bool>,
     /// The UTF-16 offset each line starts at.
-    units: Vec<usize>,
+    units: Vec<Utf16>,
 }
 
 impl Lines {
     fn new(source: &str) -> Self {
-        let mut starts = vec![0];
+        let mut starts = vec![TextSize::default()];
         let mut ascii = Vec::new();
-        let mut units = vec![0];
+        let mut units = vec![Utf16::default()];
         let mut plain = true;
         let mut unit = 0;
         for (at, character) in source.char_indices() {
             unit += character.len_utf16();
             if character == '\n' {
-                starts.push(at + 1);
-                units.push(unit);
+                starts.push(text_size(at + 1));
+                units.push(Utf16::count(unit));
                 ascii.push(plain);
                 plain = true;
             } else if !character.is_ascii() {
@@ -45,51 +48,56 @@ impl Lines {
         }
     }
 
+    /// The end of line `index` (before its `\n`), the text's end for the
+    /// last.
+    fn end(&self, source: &str, index: usize) -> TextSize {
+        self.starts
+            .get(index + 1)
+            .map_or(TextSize::of(source), |next| *next - TextSize::from(1))
+    }
+
     /// The UTF-16 offset of `byte` (a character boundary), as
     /// `source[..byte].encode_utf16().count()` gives it.
-    fn units_at(&self, source: &str, byte: usize) -> usize {
-        let byte = byte.min(source.len());
+    fn units_at(&self, source: &str, byte: TextSize) -> Utf16 {
+        let byte = byte.min(TextSize::of(source));
         let index = self.starts.partition_point(|start| *start <= byte) - 1;
         let start = self.starts[index];
         let within = if self.ascii[index] {
-            byte - start
+            Utf16::new(u32::from(byte - start))
         } else {
-            source[start..byte].encode_utf16().count()
+            Utf16::of(&source[TextRange::new(start, byte)])
         };
         self.units[index] + within
     }
 
     /// The byte at UTF-16 `offset`, as `utf16_to_byte_index` gives it.
-    fn byte_at(&self, source: &str, offset: usize) -> usize {
+    fn byte_at(&self, source: &str, offset: Utf16) -> TextSize {
         let index = self.units.partition_point(|unit| *unit <= offset) - 1;
         let (start, mut unit) = (self.starts[index], self.units[index]);
         if self.ascii[index] {
-            let end = self
-                .starts
-                .get(index + 1)
-                .map_or(source.len(), |next| next - 1);
-            if offset - unit <= end - start {
-                return start + offset - unit;
+            let within = u32::from(offset - unit);
+            if within <= u32::from(self.end(source, index) - start) {
+                return start + TextSize::from(within);
             }
         }
-        for (at, character) in source[start..].char_indices() {
+        for (at, character) in source[usize::from(start)..].char_indices() {
             if unit >= offset {
-                return start + at;
+                return start + text_size(at);
             }
-            unit += character.len_utf16();
+            unit += Utf16::count(character.len_utf16());
         }
-        source.len()
+        TextSize::of(source)
     }
 
     /// The (one-based) line and column of `byte`.
-    fn line_column(&self, source: &str, byte: usize) -> (usize, usize) {
-        let byte = byte.min(source.len());
+    fn line_column(&self, source: &str, byte: TextSize) -> (usize, usize) {
+        let byte = byte.min(TextSize::of(source));
         let index = self.starts.partition_point(|start| *start <= byte) - 1;
         let start = self.starts[index];
         let column = if self.ascii[index] {
-            byte - start
+            usize::from(byte - start)
         } else {
-            source[start..byte].chars().count()
+            source[TextRange::new(start, byte)].chars().count()
         };
         (index + 1, column + 1)
     }
@@ -102,11 +110,7 @@ impl Lines {
     /// Line `index` (from 0) of `source` (the text split) without its `\n`.
     pub(crate) fn line<'a>(&self, source: &'a str, index: usize) -> Option<&'a str> {
         let start = *self.starts.get(index)?;
-        let end = self
-            .starts
-            .get(index + 1)
-            .map_or(source.len(), |next| next - 1);
-        Some(&source[start..end])
+        Some(&source[TextRange::new(start, self.end(source, index))])
     }
 }
 
@@ -116,12 +120,12 @@ pub(crate) fn lines(source: &str) -> Rc<Lines> {
 }
 
 /// The (one-based) line and column of byte `byte` of `source`.
-pub(crate) fn line_column(source: &str, byte: usize) -> (usize, usize) {
+pub(crate) fn line_column(source: &str, byte: TextSize) -> (usize, usize) {
     if in_batch(source) {
         return lines(source).line_column(source, byte);
     }
     note(Work::LineSeek);
-    let before = &source[..byte.min(source.len())];
+    let before = &source[..usize::from(byte.min(TextSize::of(source)))];
     let line = before.matches('\n').count() + 1;
     let line_start = before.rfind('\n').map_or(0, |index| index + 1);
     (line, before[line_start..].chars().count() + 1)
@@ -129,37 +133,94 @@ pub(crate) fn line_column(source: &str, byte: usize) -> (usize, usize) {
 
 /// The line (from 0, split on `\n`) holding byte `byte` of `source`: a
 /// lookup while a batch runs for the text.
-pub(crate) fn line_of_byte(source: &str, byte: usize) -> usize {
-    let byte = byte.min(source.len());
+pub(crate) fn line_of_byte(source: &str, byte: TextSize) -> usize {
+    let byte = byte.min(TextSize::of(source));
     if in_batch(source) {
         let lines = lines(source);
         return lines.starts.partition_point(|start| *start <= byte) - 1;
     }
     note(Work::LineSeek);
-    source[..byte].matches('\n').count()
+    source[..usize::from(byte)].matches('\n').count()
 }
 
 /// The UTF-16 offset of byte `byte` of `source` (a character boundary):
 /// `source[..byte].encode_utf16().count()`, a lookup while a batch runs
 /// for the text.
-pub(crate) fn units_at(source: &str, byte: usize) -> usize {
+pub(crate) fn units_at(source: &str, byte: TextSize) -> Utf16 {
     if in_batch(source) {
         return lines(source).units_at(source, byte);
     }
     note(Work::LineSeek);
-    source[..byte.min(source.len())].encode_utf16().count()
+    Utf16::of(&source[..usize::from(byte.min(TextSize::of(source)))])
+}
+
+/// [`units_at`] where two outside edges meet: `byte` from a `str` method
+/// and the answer for the public language API's UTF-16 offsets
+/// ([`CompletionContext`](crate::language::CompletionContext) and the
+/// like), both `usize` there.
+pub(crate) fn api_units(source: &str, byte: usize) -> usize {
+    usize::from(units_at(source, text_size(byte.min(source.len()))))
 }
 
 /// The byte at UTF-16 `offset` of `source` (see `utf16_to_byte_index`), a
 /// lookup while a batch runs for the text.
-pub(crate) fn byte_at(source: &str, offset: usize) -> Option<usize> {
+pub(crate) fn byte_at(source: &str, offset: Utf16) -> Option<TextSize> {
     in_batch(source).then(|| lines(source).byte_at(source, offset))
+}
+
+/// The place of `range` of `source` as its line and its first and end
+/// (one-based, in characters) columns on it.
+#[cfg(any(feature = "json", feature = "toml", feature = "hcl", feature = "xml"))]
+pub(crate) fn span_between(source: &str, range: TextRange) -> (usize, usize, usize) {
+    let (line, column) = line_column(source, range.start());
+    let end = range.end().min(TextSize::of(source));
+    (
+        line,
+        column,
+        column
+            + source[TextRange::new(range.start(), end.max(range.start()))]
+                .chars()
+                .count(),
+    )
+}
+
+/// The first line of `source` with text, from its first character to its
+/// end (one-based columns, in characters).
+#[cfg(any(feature = "json", feature = "toml", feature = "hcl"))]
+pub(crate) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
+    source.lines().enumerate().find_map(|(index, line)| {
+        let start = line.find(|character: char| !character.is_whitespace())?;
+        Some((
+            index + 1,
+            line[..start].chars().count() + 1,
+            line.chars().count() + 1,
+        ))
+    })
+}
+
+/// The UTF-16 length of `text`.
+pub(crate) fn utf16_len(text: &str) -> usize {
+    // One unit per character, two for one outside the BMP (a 4-byte one).
+    text.bytes()
+        .map(|byte| usize::from(byte & 0xC0 != 0x80) + usize::from(byte >= 0xF0))
+        .sum()
+}
+
+/// The byte offset of character `column` (from 0) of `line`; its length
+/// past its end.
+#[cfg(any(feature = "toml", feature = "hcl"))]
+pub(crate) fn byte_at_column(line: &str, column: usize) -> TextSize {
+    text_size(
+        line.char_indices()
+            .nth(column)
+            .map_or(line.len(), |(index, _)| index),
+    )
 }
 
 /// `position.to_offset(source)`, from the lines read once for the text
 /// while a batch runs for it, when only `\n` ends them
 /// (`line_breaks_only`): one pass up to it each time otherwise.
-pub(crate) fn offset_of(source: &str, position: TextPosition, line_breaks_only: bool) -> usize {
+pub(crate) fn offset_of(source: &str, position: TextPosition, line_breaks_only: bool) -> Utf16 {
     let index = position.line.wrapping_sub(1);
     match split_line(source, index).filter(|_| line_breaks_only && position.line > 0) {
         Some(line) => {
@@ -167,21 +228,25 @@ pub(crate) fn offset_of(source: &str, position: TextPosition, line_breaks_only: 
                 .char_indices()
                 .nth(position.column.saturating_sub(1))
                 .map_or(line.len(), |(at, _)| at);
-            units_at(source, line_start(source, index) + column)
+            units_at(source, line_start(source, index) + text_size(column))
         }
-        None => position.to_offset(source),
+        None => Utf16::count(position.to_offset(source)),
     }
 }
 
 /// Where line `index` (from 0, split on `\n`) of `source` starts; the
 /// text's length past its last line.
-pub(crate) fn line_start(source: &str, index: usize) -> usize {
+pub(crate) fn line_start(source: &str, index: usize) -> TextSize {
     if in_batch(source) {
         let lines = lines(source);
-        return lines.starts.get(index).copied().unwrap_or(source.len());
+        return lines
+            .starts
+            .get(index)
+            .copied()
+            .unwrap_or(TextSize::of(source));
     }
     note(Work::LineSeek);
-    source.split_inclusive('\n').take(index).map(str::len).sum()
+    text_size(source.split_inclusive('\n').take(index).map(str::len).sum())
 }
 
 /// Line `index` (from 0) of `source` without its `\n`, as
@@ -197,11 +262,12 @@ pub(crate) fn split_line(source: &str, index: usize) -> Option<&str> {
 /// Line `index` (from 0) of `source` as `source.lines().nth(index)` gives
 /// it: without a `\r` before its `\n`, and no empty line after a final
 /// line break.
+#[cfg(any(feature = "yaml", feature = "toml"))]
 pub(crate) fn text_line(source: &str, index: usize) -> Option<&str> {
     if in_batch(source) {
         let line = split_line(source, index)?;
         // The empty text after a final line break (or of an empty text).
-        if line.is_empty() && line_start(source, index) == source.len() {
+        if line.is_empty() && line_start(source, index) == TextSize::of(source) {
             return None;
         }
         return Some(line.strip_suffix('\r').unwrap_or(line));
@@ -214,7 +280,10 @@ pub(crate) fn text_line(source: &str, index: usize) -> Option<&str> {
 mod tests {
     use super::super::super::keyboard::utf16_to_byte_index;
     use super::super::TextPosition;
-    use super::{line_column, line_start, offset_of, split_line, text_line, units_at};
+    use super::{
+        TextSize, Utf16, line_column, line_start, offset_of, split_line, text_line, text_size,
+        units_at,
+    };
 
     /// Inside a batch, every answer is the one read from the top.
     #[test]
@@ -233,12 +302,12 @@ mod tests {
             let read = |text: &str| {
                 let columns: Vec<_> = (0..=text.len())
                     .filter(|at| text.is_char_boundary(*at))
-                    .map(|at| line_column(text, at))
+                    .map(|at| line_column(text, text_size(at)))
                     .collect();
                 let lines: Vec<_> = (0..6)
                     .map(|index| {
                         (
-                            line_start(text, index).min(text.len()),
+                            line_start(text, index).min(TextSize::of(text)),
                             split_line(text, index).map(str::to_string),
                             text_line(text, index).map(str::to_string),
                         )
@@ -247,7 +316,7 @@ mod tests {
                 // UTF-16 offsets both ways, and positions as offsets.
                 let units: Vec<_> = (0..=text.len())
                     .filter(|at| text.is_char_boundary(*at))
-                    .map(|at| units_at(text, at))
+                    .map(|at| units_at(text, text_size(at)))
                     .collect();
                 let bytes: Vec<_> = (0..text.encode_utf16().count() + 3)
                     .map(|unit| utf16_to_byte_index(text, unit))
@@ -272,9 +341,9 @@ mod tests {
             // A position's offset is `to_offset`'s.
             let positions =
                 (0..6).flat_map(|line| (0..8).map(move |column| TextPosition::new(line, column)));
-            let read_off: Vec<usize> = positions
+            let read_off: Vec<Utf16> = positions
                 .clone()
-                .map(|position| position.to_offset(text))
+                .map(|position| Utf16::count(position.to_offset(text)))
                 .collect();
             if batched.4 != read_off {
                 failures.push(format!("{text:?}: offsets {:?} vs {read_off:?}", batched.4));

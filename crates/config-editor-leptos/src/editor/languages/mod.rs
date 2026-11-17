@@ -112,7 +112,14 @@ mod conditional_typing_matrix;
     feature = "xml"
 ))]
 mod default_read_back_matrix;
-#[cfg(all(test, feature = "yaml", feature = "json", feature = "toml"))]
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod dynamic_refs_matrix;
 #[cfg(all(
     test,
@@ -161,6 +168,15 @@ mod fold_copy_matrix;
     feature = "folding"
 ))]
 mod fold_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod harness;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -260,22 +276,20 @@ mod pairs_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
-    feature = "json",
     feature = "toml",
     feature = "hcl",
     feature = "xml"
 ))]
-mod present_keys_matrix;
+mod parse_words_matrix;
 #[cfg(all(
     test,
-    feature = "schema-validation",
     feature = "yaml",
     feature = "json",
     feature = "toml",
     feature = "hcl",
     feature = "xml"
 ))]
-mod qa_regressions;
+mod present_keys_matrix;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -312,6 +326,16 @@ mod schema_help_matrix;
     feature = "xml"
 ))]
 mod tab_through_matrix;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod tunnel_schema;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -352,6 +376,9 @@ mod aligned;
 // Keys and values written inline (`{ a = 1 }`, `[a, b]`), the building
 // blocks a language with such containers reads its lines with.
 pub(crate) mod inline;
+// Character columns of a line's tokens, counted once along the line.
+#[cfg(any(feature = "json", feature = "xml"))]
+mod columns;
 // An edit changing one scalar on its line, read off the line alone.
 #[cfg(any(
     feature = "json",
@@ -376,6 +403,9 @@ mod number_forms;
 // Integers past 64 bits a parser reads as floats: a syntax error.
 #[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod wide_integers;
+// Error columns some parsers count in bytes.
+#[cfg(any(feature = "json", feature = "hcl"))]
+mod byte_columns;
 // One sentence for a text nested deeper than its reader goes.
 #[cfg(any(
     feature = "json",
@@ -685,7 +715,7 @@ impl Language {
     }
 
     /// The line ranges of `source` that fold (see
-    /// [`ConfigLanguage::fold_ranges`]): 0-based, the first line staying
+    /// [`Text::fold_ranges`]): 0-based, the first line staying
     /// visible. Needs the `folding` feature.
     ///
     /// ```

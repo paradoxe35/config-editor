@@ -1,13 +1,15 @@
+//! Where the popups go and what the pointer is over: the frame fixed
+//! popups count from (a host's transformed container), the hover card's
+//! side and size, the cell under the pointer, and bringing the caret into
+//! view.
+
 use super::metrics::read_editor_metrics;
 use super::source_area::SourceArea;
 use super::state::EditorState;
 use crate::cssom::Declarations;
-use crate::reactive::later;
+use crate::editor::text::{TextSize, slice};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
-
-/// Hover delay in milliseconds, so moving across keys does not flash cards.
-pub(super) const HOVER_DELAY_MS: i32 = 350;
 
 /// Viewport edge margin for caret-anchored popups, in pixels.
 pub(super) const POPUP_MARGIN: f64 = 8.0;
@@ -277,33 +279,20 @@ pub(super) fn hover_card_geometry(anchor: CardAnchor, natural: f64) -> Declarati
     }
 }
 
-/// Places the caret and scrolls it into view, mirroring the scroll into
-/// `scroll_y` for the highlight overlay.
+/// Places the caret and scrolls it into view.
 ///
 /// `set_selection_range` alone does not reliably scroll the textarea.
-pub(super) fn set_caret_visible(
-    editor: &SourceArea,
-    text: &str,
-    offset: usize,
-    scroll_y: RwSignal<f64>,
-) {
-    let offset = offset.min(text.encode_utf16().count());
-    let _ = editor.set_selection_range(offset as u32, offset as u32);
-    reveal_offset(editor, text, offset, scroll_y);
+pub(super) fn set_caret_visible(editor: &SourceArea, text: &str, offset: TextSize) {
+    let offset = offset.min(TextSize::of(text));
+    let _ = editor.set_selection_range(offset, offset);
+    reveal_offset(editor, text, offset);
 }
 
-/// Scrolls UTF-16 `offset` into view without touching the selection.
-pub(super) fn reveal_offset(
-    editor: &SourceArea,
-    text: &str,
-    offset: usize,
-    scroll_y: RwSignal<f64>,
-) {
-    use super::keyboard::utf16_to_byte_index;
-
-    let offset = offset.min(text.encode_utf16().count());
-    let byte_offset = utf16_to_byte_index(text, offset);
-    let line = text[..byte_offset]
+/// Scrolls byte `offset` into view without touching the selection.
+pub(super) fn reveal_offset(editor: &SourceArea, text: &str, offset: TextSize) {
+    let offset = offset.min(TextSize::of(text));
+    let line = slice::before(text, offset)
+        .unwrap_or(text)
         .bytes()
         .filter(|byte| *byte == b'\n')
         .count();
@@ -342,9 +331,9 @@ pub(super) fn reveal_offset(
         (editor.scroll_height() as f64 - client_height).max(0.0),
     );
     editor.set_scroll_top(next_top as i32);
-    scroll_y.set(next_top);
     // Horizontally too: a caret back at the start of a line after a long one
     // must not stay scrolled off to the left.
+    let byte_offset = usize::from(offset);
     let line_start = text[..byte_offset].rfind('\n').map_or(0, |index| index + 1);
     let caret_x =
         super::completion::visual_column(&text[line_start..byte_offset]) * metrics.char_width;
@@ -355,12 +344,6 @@ pub(super) fn reveal_offset(
     } else if caret_x > current_left + client_width - 2.0 * metrics.char_width {
         editor.set_scroll_left((caret_x - client_width + 4.0 * metrics.char_width) as i32);
     }
-}
-
-/// Runs `callback` once the pointer has rested, if the editor is still
-/// mounted.
-pub(super) fn schedule_hover(state: EditorState, callback: impl FnOnce(EditorState) + 'static) {
-    later::after(state, HOVER_DELAY_MS, callback);
 }
 
 /// The box of an overlay on a code row (a problem's underline, a match, a
@@ -406,9 +389,9 @@ mod tests {
         ]
     }
 
-    /// QA 20: in a transformed, filtered or zoomed container the popups
-    /// landed 80 to 150 px off. A point measured in the window comes back to
-    /// the same point once placed, in every container.
+    /// A point measured in the window comes back to the same point once
+    /// placed, in every container a host may put the editor in
+    /// (transformed, filtered, zoomed).
     #[test]
     fn a_popup_lands_on_its_window_point_in_every_container() {
         let mut failures = Vec::new();
@@ -451,9 +434,8 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
-    /// QA 23 (L23-U3): a card with many problems ran off the window. It is
-    /// no taller than the window's room on its side of the line (it
-    /// scrolls), above or below, in every container.
+    /// A card with many problems is no taller than the window's room on its
+    /// side of the line (it scrolls), above or below, in every container.
     #[test]
     fn the_hover_card_is_no_taller_than_the_windows_room() {
         let mut failures = Vec::new();
@@ -498,14 +480,11 @@ mod tests {
         }
     }
 
-    /// QA 25 (U25-4): a key on an editor's first lines near the window's
-    /// bottom (the page scrolled so the editor starts low) opened its card
-    /// below, squeezed into the few pixels left and run off the window,
-    /// with the window's room above it unused. QA 26 (M26-U1): a card
-    /// below its line covered the next lines, where the pointer goes on.
-    /// As in VS Code, the card goes above whenever it fits there whole,
-    /// else below when it fits there, else where the window has more room,
-    /// in every container.
+    /// As in VS Code, the card goes above whenever it fits there whole (so
+    /// the next lines, where the pointer goes on, stay free; an editor
+    /// starting low on the page uses the room above it), else below when
+    /// it fits there, else where the window has more room, in every
+    /// container.
     #[test]
     fn the_hover_card_goes_above_when_it_fits_there() {
         let mut failures = Vec::new();
