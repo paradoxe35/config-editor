@@ -72,6 +72,11 @@ function checkView(snap, projected) {
   return null;
 }
 
+// Where each secret placeholder stands in `text`: `[from, to)` pairs.
+function placeholders(text) {
+  return [...text.matchAll(/«[^»\n]*»?/g)].map((found) => [found.index, found.index + found[0].length]);
+}
+
 function checkHost(snap, run) {
   // Locks and secrets (P1), judged on the host's language.
   if (typeof snap.value === 'string') {
@@ -86,8 +91,10 @@ function checkHost(snap, run) {
       for (const lock of run.locksOf(snap.activeId)) {
         const at = snap.text.indexOf(lock.text);
         if (at < 0 || snap.text.indexOf(lock.text, at + 1) >= 0) continue;
-        // A secret placeholder shows as a secret, locked or not.
+        // A secret placeholder shows as a secret, locked or not: so does a
+        // lock that holds only a piece of one.
         if (/[«»]/.test(lock.text)) continue;
+        if (placeholders(snap.text).some(([from, to]) => from < at + lock.text.length && at < to)) continue;
         const first = snap.text.slice(0, at).split('\n').length;
         const pieces = lock.text.split('\n');
         for (let index = 0; index < pieces.length; index += 1) {
