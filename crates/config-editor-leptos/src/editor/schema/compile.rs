@@ -86,11 +86,11 @@ fn build_compiled(
     let validation = crate::editor::diagnostics::Validation::build(&schema)?;
     // The validator resolves `$id` and `$anchor` references itself;
     // completion and hover read them as pointers.
-    // TODO(merge-test): v0.2.0 cloned the schema only when `to_pointers`
-    // had rewrites to make; here it is always cloned.
-    let before = schema.clone();
-    crate::editor::ui_refs::to_pointers(&mut schema);
-    let emitted = (before != schema).then_some(before);
+    // The schema as compiled is kept (`Schema::json`) only where the
+    // references rewritten here make it differ.
+    let rewrites = crate::editor::ui_refs::pointer_rewrites(&schema);
+    let emitted = (!rewrites.is_empty()).then(|| schema.clone());
+    crate::editor::ui_refs::rewrite(&mut schema, rewrites);
     let mut facts = Facts::of(&schema);
     facts
         .warnings
