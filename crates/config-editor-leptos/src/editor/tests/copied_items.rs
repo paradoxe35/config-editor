@@ -1,4 +1,4 @@
-//! QA `E38-5`: a list item copied in an Edit-as view (Ctrl+C, and
+//! A list item copied in an Edit-as view (Ctrl+C, and
 //! pasted in the same list) keeps the form its host writes it in, as a
 //! copied key does: an XML element's `xsi:type`, a YAML tag, a TOML hex
 //! number; with a pause between the copy and the paste or not.

@@ -113,7 +113,7 @@ mod tests {
         }
     }
 
-    /// QA 21: a problem inside a wider one showed only its own message on
+    /// A problem inside a wider one showed only its own message on
     /// hover. Every problem covering the place counts, multi-line ranges
     /// too; the character just past a problem is not on it.
     #[test]

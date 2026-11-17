@@ -166,7 +166,7 @@ mod tests {
         assert_eq!(rows.last(), Some(&49));
     }
 
-    /// D12.a11y-1: each rendered option knows its place among all of them.
+    /// Each rendered option knows its place among all of them.
     #[test]
     fn each_shown_option_knows_its_place_and_the_count() {
         let (_owner, state) = open_with(1200);

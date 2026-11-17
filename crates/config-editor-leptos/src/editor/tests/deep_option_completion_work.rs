@@ -1,5 +1,5 @@
 //! Key suggestions under a recursive `anyOf` whose options share a nested
-//! key (QA 38's SC38-1): the walk down to the caret's object follows each
+//! key: the walk down to the caret's object follows each
 //! level's options once, so its work grows with the depth, not with the
 //! number of option paths to it (2^depth). Counted (see `work_count`) at
 //! three depths, in every language.

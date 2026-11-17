@@ -3,7 +3,7 @@
 //! copy, a line copied, Ctrl+A Tab and its undo cost work linear in the
 //! copies, in every language. The copies are found from the paths of all
 //! their places asked at once, and asking one place's path never walks
-//! over every copy above it (QA 36: in YAML, each place's hover walked up
+//! over every copy above it (in YAML, each place's hover walked up
 //! over all the siblings above it; typing beside the last of 1,600 copies
 //! took 580 ms, three times as long for each doubling).
 

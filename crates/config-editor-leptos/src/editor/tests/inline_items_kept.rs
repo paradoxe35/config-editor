@@ -1,4 +1,4 @@
-//! QA 38 (low): an item added to or removed from a list its host writes
+//! An item added to or removed from a list its host writes
 //! inline (a TOML array, a YAML flow list, an HCL list), on one line or
 //! one item per line, changes only that item: the others keep their
 //! text (`0x1bb`, `'C:\b'`, `var.a`) and the list its punctuation (a

@@ -1,5 +1,5 @@
 //! Items moved in an Edit-as view while edited, added or removed: the
-//! round 22 cases, as reported (the property test in
+//! cases as first reported (the property test in
 //! `save_moves_properties` covers the class).
 
 use crate::editor::Language;
@@ -94,7 +94,7 @@ fn check_waits(
 #[test]
 fn comments_follow_items_moved_while_edited_added_or_removed() {
     let mut failures = Vec::new();
-    // H22-E2: a moved item also edited.
+    // A moved item also edited.
     let yaml = "l:\n  # A\n  - n: a\n    p: 1\n  # B\n  - n: b\n    p: 2\n";
     check(
         &mut failures,
@@ -124,7 +124,7 @@ fn comments_follow_items_moved_while_edited_added_or_removed() {
         r#"["c", "new", "a", "bb"]"#,
         "l:\n  # C\n  - c\n  - new\n  # A\n  - a\n  # B\n  - bb\n",
     );
-    // H22-E2 (XML) and M22-E2: repeated one-line elements with children.
+    // Repeated one-line elements with children.
     let xml = "<r>\n  <!-- A -->\n  <s n=\"a\"><p>1</p></s>\n  <!-- B -->\n  <s n=\"b\"><p>2</p></s>\n</r>\n";
     check(
         &mut failures,
@@ -154,7 +154,7 @@ fn comments_follow_items_moved_while_edited_added_or_removed() {
         r#"[{"n": "c"}, {"n": "b", "p": 2}]"#,
         "<r>\n  <s n=\"c\"/>\n  <!-- B -->\n  <s n=\"b\"><p>2</p></s>\n</r>\n",
     );
-    // M22-E1: TOML arrays of tables and HCL repeated blocks (aligned as
+    // TOML arrays of tables and HCL repeated blocks (aligned as
     // `terraform fmt` writes them), moved whole with their comments.
     let toml = "n = 1\n\n# A\n[[s]]\nn = \"a\"\np = 1 # pa\n\n# B\n[[s]]\nn = \"b\" # tb\n";
     check(
@@ -197,7 +197,7 @@ fn comments_follow_items_moved_while_edited_added_or_removed() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-/// H23-E1: a list that starts the document. The comments right above its
+/// A list that starts the document. The comments right above its
 /// first item are the item's (they move and go with it); a file's header
 /// is the comments a blank line ends, and stays.
 #[test]
@@ -310,7 +310,7 @@ fn comments_follow_the_items_of_a_list_that_starts_the_document() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-/// M23-E2, revised by QA `FZ38-3`: every repeated HCL block or TOML
+/// Every repeated HCL block or TOML
 /// `[[table]]` removed leaves the view holding an empty list, which the
 /// host does not write (no `tag = []` attribute for a block type): the
 /// save waits, rather than drop the key the view still holds. Deleting the
@@ -361,7 +361,7 @@ fn emptying_a_list_written_as_blocks_or_tables_waits() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-/// M24-E1, revised by QA `FZ38-3`: every labelled HCL block removed
+/// Every labelled HCL block removed
 /// leaves the view holding an empty map at its type (or label), which the
 /// host does not write (`svc {}` or `resource "aws_s3" {}` Terraform
 /// refuses): the save waits, rather than drop the key the view still
@@ -384,7 +384,7 @@ fn emptying_the_labels_of_blocks_waits() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
-/// D18.docs-1: one item removed and another added in the same save, the
+/// One item removed and another added in the same save, the
 /// kept items shifted by them (none moved past another): each kept item
 /// keeps its comment, the removed one's goes with it, and the new one has
 /// none. In every host's list form.

@@ -1,10 +1,10 @@
 //! A secret field's element copied in an XML view (`Shift+Alt+Down`, or
 //! the element typed again below it): the field becomes a list of copies
 //! of the placeholder. The copy is flagged as a copy, as a copied line is
-//! in every language (QA 36: the host's own line was flagged as standing
+//! in every language (the host's own line was flagged as standing
 //! for another field's secret), and the save waits, since the host would
 //! read a list of copies as plain text and the secret would be gone
-//! (round 29 saved).
+//!.
 
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 

@@ -1,7 +1,7 @@
 //! A text nested deeper than its reader goes says so in one sentence in
-//! every language, at the place it goes too deep (D23.a11y-4); and YAML
+//! every language, at the place it goes too deep; and YAML
 //! reads a file as large as it is written, with no count of keys, items or
-//! documents of its own (a stream is told it is one, however long) (D23.editing-2).
+//! documents of its own (a stream is told it is one, however long).
 
 use crate::editor::languages::Language;
 

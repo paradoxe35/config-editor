@@ -1,7 +1,7 @@
 //! The host's leading byte order mark outlasts every edit: the text on
 //! screen never holds it, so nothing done to the first line (cut, deleted,
 //! moved, duplicated, indented, typed before, pasted over) reaches it, and
-//! the host hears it once, at the start (round 29 lost, moved or doubled it).
+//! the host hears it once, at the start.
 
 use leptos::prelude::*;
 

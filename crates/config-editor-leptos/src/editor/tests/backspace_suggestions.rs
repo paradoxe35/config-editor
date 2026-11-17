@@ -1,8 +1,8 @@
 //! Backspace asks for the suggestions again only when the list showed
 //! options since it was asked for: taking back what the filter emptied it
-//! with brings them back (`D13.a11y-1`), while a list that showed none has
+//! with brings them back, while a list that showed none has
 //! none to bring back, and working it out again cost each Backspace in a
-//! large HCL or XML text a read of the whole text (QA `L30-P2`).
+//! large HCL or XML text a read of the whole text.
 
 use leptos::prelude::*;
 

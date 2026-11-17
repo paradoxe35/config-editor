@@ -3,7 +3,7 @@
 //! of every placeholder's reach looks up no more fields for more of them,
 //! and one beside a
 //! placeholder judges each field once, never each place the mask is
-//! written against each field holding it (QA 32: XML with 1000 such
+//! written against each field holding it (XML with 1000 such
 //! fields took 1.2 s a key, YAML with 4000 1.8 s), in every language,
 //! while the text parses and while it has a syntax error.
 

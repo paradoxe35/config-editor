@@ -1,6 +1,6 @@
 //! A map's or list's last entry deleted in a YAML view leaves `deps:`
 //! with nothing under it, which reads as null: the save writes the view's
-//! value (QA `FZ38-2`: the host read back as an empty block the view did
+//! value (the host read back as an empty block the view did
 //! not hold), a null where the host's language writes one (JSON, HCL),
 //! else it waits with the reason (TOML and XML hold no null).
 

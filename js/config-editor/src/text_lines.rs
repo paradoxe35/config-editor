@@ -1,6 +1,6 @@
 //! A host's text split into lines once, for the ranges given in it: each
 //! range is checked against its lines and turned into lines and columns by
-//! lookups (QA 21: each of 3000 ranges split the whole text again, and an
+//! lookups (each of 3000 ranges split the whole text again, and an
 //! update froze for most of a second). LF, CRLF and a lone CR each end a
 //! line, as everywhere else in the API. A leading byte order mark is no
 //! part of the document: string indices count it (they index the text as
@@ -235,7 +235,7 @@ mod tests {
     }
 
     /// A byte order mark is no column (line 1, column 1 is the character
-    /// after it, as in the editor) but a string index (`L30-4`: a host's
+    /// after it, as in the editor) but a string index (a host's
     /// `{ start, end }` in its own text landed one character right).
     #[test]
     fn a_byte_order_mark_is_an_index_but_no_column() {

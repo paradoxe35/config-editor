@@ -98,7 +98,7 @@ fn random_documents_get_problems_exactly_when_the_reference_finds_them_invalid()
     });
 }
 
-/// The shape of SC38-2: a field the base properties only describe, typed
+/// A field the base properties only describe, typed
 /// by an `allOf`, written as XML text.
 #[test]
 fn a_field_typed_in_an_all_of_reads_as_its_type_in_xml() {

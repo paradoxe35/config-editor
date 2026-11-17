@@ -167,7 +167,7 @@ fn a_host_text_the_view_cannot_hold_is_edited_in_the_hosts_language_until_it_con
 }
 
 /// Asking for the host's language while such a text waits ends the wait
-/// (round 26 answered "Cannot switch to YAML yet"); a host text that
+/// a host text that
 /// converts again makes the switch.
 #[test]
 fn a_waiting_switch_ends_on_asking_for_the_hosts_language_or_goes_on_a_text_that_converts() {

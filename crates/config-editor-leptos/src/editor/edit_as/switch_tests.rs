@@ -95,7 +95,7 @@ fn in_key(text: &str) -> usize {
     text[..at].encode_utf16().count() + 2
 }
 
-/// Undoing a switch leaves a caret where it was, nothing selected (round 16
+/// Undoing a switch leaves a caret where it was, nothing selected (it once
 /// selected the whole document, so the next key replaced it); the switch
 /// and its redo keep the caret's column in the key.
 #[test]
@@ -193,7 +193,7 @@ fn a_switch_from_or_into_a_language_that_cannot_write_is_refused_at_once() {
 }
 
 /// Undoing a switch back to the host's own text tells the host nothing
-/// (round 26 sent the unchanged value again); after an edit the host
+/// after an edit the host
 /// heard, undoing back to its first text does tell it. Every pair.
 #[test]
 fn undoing_a_switch_back_to_the_hosts_text_sends_nothing() {

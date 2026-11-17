@@ -1,4 +1,4 @@
-//! H23-E2: an XML attribute and a child element of one element with the
+//! An XML attribute and a child element of one element with the
 //! same name (`<r a="1"><a>2</a></r>`). The model keys the attribute
 //! `@a`, so the two never merge into one list, and every view edits each
 //! without turning the attribute into an element.

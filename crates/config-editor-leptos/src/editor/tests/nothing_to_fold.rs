@@ -1,4 +1,4 @@
-//! QA 32, A32-2: a fold key that changes nothing says so ("Nothing to
+//! A fold key that changes nothing says so ("Nothing to
 //! fold", "Nothing to unfold") instead of staying silent; one that folds or
 //! opens says what it did, as before.
 

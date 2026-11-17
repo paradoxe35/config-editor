@@ -12,7 +12,7 @@
 //! footer's classes keep a class's weight for a host's own toolbar or
 //! footer (`ConfigEditorToolbar`, `ConfigEditorFooter`), whose contents are
 //! the page's; each such rule also names the built-in toolbar or footer
-//! inside the frame with the shield, which is shielded (QA 32, UX32-2).
+//! inside the frame with the shield, which is shielded.
 
 use config_editor_leptos::PRESET_CSS;
 
@@ -180,7 +180,7 @@ fn the_editor_root_rules_reach_an_editor_in_a_documents_view() {
     assert!(missing.is_empty(), "without `{twin}`: {missing:#?}");
 }
 
-/// QA 32, UX32-1: the page's inherited text properties stop at the roots:
+/// The page's inherited text properties stop at the roots:
 /// each is set on them, and the frame (and the documents view's column)
 /// is inline-level, which keeps the page's text decoration off the text.
 #[test]

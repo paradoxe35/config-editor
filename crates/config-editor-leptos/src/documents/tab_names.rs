@@ -63,7 +63,7 @@ pub(super) fn split_end(name: &str) -> (&str, &str) {
 /// list of the documents relabels only the groups whose names changed
 /// ([`TabNames::relabel`]), each in one pass over its names (each tab
 /// looking through every other name made a re-list of a thousand tabs
-/// take seconds, QA 27 and 30).
+/// take seconds).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct TabNames {
     groups: HashMap<String, Arc<Group>>,

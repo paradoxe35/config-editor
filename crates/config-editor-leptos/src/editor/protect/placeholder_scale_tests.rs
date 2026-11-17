@@ -362,7 +362,7 @@ fn placeholders_of_a_text_that_does_not_parse_cost_one_reading() {
 }
 
 /// One placeholder held in many fields is read and found looking each of
-/// its places up once (hard round 23's `D23.perf-1`: each held place was
+/// its places up once (each held place was
 /// compared with every place found before it, 2 s to mount at 2,098
 /// fields).
 #[test]

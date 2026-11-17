@@ -1,6 +1,6 @@
 //! Map keys put in another order in an Edit-as view reach the host, each
 //! entry moving with its own-line comments, its trailing comment and the
-//! lines its value runs on (round 26: the view and the host disagreed on
+//! lines its value runs on (the view and the host disagreed on
 //! the order, the data equal).
 
 use crate::editor::Language;
@@ -219,7 +219,7 @@ type Case = (
 
 /// A map's own keys reordered in a view reach the host beside members the
 /// view shows as keys but the host writes elsewhere: an XML element's
-/// attributes, a YAML map's merged keys (round 29: the order was dropped,
+/// attributes, a YAML map's merged keys (the order was dropped,
 /// the save reported done).
 #[test]
 fn own_keys_reordered_beside_attributes_and_merged_keys_move_in_the_host() {

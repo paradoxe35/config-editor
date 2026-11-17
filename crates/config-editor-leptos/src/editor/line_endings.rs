@@ -379,8 +379,8 @@ mod tests {
 }
 
 /// Edits in every language, in its own view and from every other, reach
-/// `on_change` and `on_save` with the host's CRLF line endings (round 16
-/// turned every line ending into LF).
+/// `on_change` and `on_save` with the host's CRLF line endings, not
+/// turned into LF.
 #[cfg(all(
     test,
     feature = "yaml",
@@ -464,8 +464,8 @@ mod editor_tests {
         format!("{}\r\n{}{ending}{}\n", lines[0], lines[1], lines[2])
     }
 
-    /// Each untouched line keeps its own ending (round 17 made every line
-    /// the majority's), in every language, in its own view and from every
+    /// Each untouched line keeps its own ending (not the
+    /// majority's), in every language, in its own view and from every
     /// other.
     #[test]
     fn untouched_lines_keep_their_own_endings() {

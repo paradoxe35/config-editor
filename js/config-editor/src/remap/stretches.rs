@@ -4,7 +4,7 @@
 //! replaced in a list of the same items) that replaced as many lines as it
 //! had, each line by one alike (the same text around what changed), is
 //! narrowed line by line, so a range on one of its lines stays on that
-//! line (QA 32: such a list was one stretch, and every range in it grew
+//! line (such a list was one stretch, and every range in it grew
 //! over all of it). Any other run stays one stretch: its lines tell where
 //! their characters went, and a range over it only grows.
 

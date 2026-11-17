@@ -1,4 +1,4 @@
-//! Ranges moved between texts that differ in many places (QA 31: past
+//! Ranges moved between texts that differ in many places (past
 //! ~512 diff steps every range between the first and the last change grew
 //! over all of it), and the diff's work counted: linear in the texts for a
 //! few changes, and bounded per line with many.
@@ -218,7 +218,7 @@ fn the_diff_works_in_time_linear_in_the_text() {
 /// A list of the same items replaced as a whole, past what Myers takes,
 /// with no line written once to anchor it (all one value, pairs of
 /// values, every other item changed): each item's range stays on its own
-/// line, and the list after it maps exactly (QA 32: the whole list was one
+/// line, and the list after it maps exactly (the whole list was one
 /// stretch, every range in it grew over all of it).
 #[test]
 fn a_changed_list_of_repeated_lines_keeps_each_range_on_its_line() {

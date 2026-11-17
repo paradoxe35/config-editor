@@ -2,7 +2,7 @@
 //! made of, each kept once: languages live as long as the page, so their
 //! texts are never freed, but registering a label again (on every mount of
 //! a component, say) reuses the ones an earlier registration made instead
-//! of leaking new copies (QA 27: 5000 registrations grew memory by 2 MB).
+//! of leaking new copies (5000 registrations grew memory by 2 MB).
 
 use std::cell::RefCell;
 use std::collections::HashSet;

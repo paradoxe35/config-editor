@@ -1,7 +1,7 @@
 //! A schema text that is empty, or only white space (a byte order mark
 //! too), says so, in the `emptySchema` text, not with a JSON reader's
 //! words ("EOF while parsing a value"): thrown by `Schema::compile` and
-//! shown inline (QA 33, FW33-2).
+//! shown inline.
 
 use crate::EditorStrings;
 use crate::editor::Language;

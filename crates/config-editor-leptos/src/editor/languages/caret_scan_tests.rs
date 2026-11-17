@@ -1,4 +1,4 @@
-//! QA 21 (U21-6): a keystroke in a long JSON or XML document read the
+//! A keystroke in a long JSON or XML document read the
 //! whole document for the span (and path) of every key and value to find
 //! the caret's place, twice (its suggestions' context, the caret's path):
 //! a long task on every key. The caret's place reads no spans now.

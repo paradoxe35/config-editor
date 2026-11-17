@@ -2,10 +2,10 @@
 //! list of secrets with attributes (`<key id="a">«secret»</key>`) or
 //! without, a secret attribute, or a lone secret element. Above, between
 //! and below the secrets, a key at a time with auto-closing on and off,
-//! or pasted, the new element is taken (QA 38: refused at `<key ` with
+//! or pasted, the new element is taken (refused at `<key ` with
 //! "nothing can be written beside it"); text glued to a placeholder is
 //! still refused; and beside a list of secrets the new item is no problem.
-//! (A lone secret made an item, PT38-5, is a LOW finding left for later.)
+//! (A lone secret made an item is a known gap, left for later.)
 
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
@@ -203,7 +203,7 @@ fn a_new_element_beside_xml_secrets_is_taken_anywhere_and_flagged_only_off_a_lis
                         ));
                     }
                     // A lone secret made an item by a second element of
-                    // its name (PT38-5, LOW): flagging it needs the schema's
+                    // its name (a known gap): flagging it needs the schema's
                     // reading of the field; deferred past v0.1.0.
                     let _ = (found, saved);
                 }

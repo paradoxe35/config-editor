@@ -4,7 +4,7 @@
 //! after another) and hover never panic, and an accepted suggestion leaves
 //! its selection inside the new text. Byte offsets cut inside a character,
 //! and ranges read backwards from half-typed text, are the class this
-//! guards (FE38-7, FE38-8, FE38-10, FE38-11).
+//! guards.
 
 use super::docs::{CUSTOM, LANGUAGES, document, literal, offset, units};
 use super::runner::{Case, Failure, Rng, cases, run};

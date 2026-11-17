@@ -7,7 +7,7 @@
 //!
 //! The range used to take in what was inserted at its start: the new line
 //! joined the lock, the next key went in, and every key after it (Backspace
-//! and undo included) was refused, the text left broken (QA 32, HO32-1).
+//! and undo included) was refused, the text left broken.
 
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 

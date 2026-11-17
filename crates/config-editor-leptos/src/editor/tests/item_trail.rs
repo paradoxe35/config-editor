@@ -1,8 +1,7 @@
 //! The editor keeps the edits made to an Edit-as view between saves, and
 //! each typing pause's save reads which item is which from them: an item
-//! cut and pasted after a pause keeps its `xsi:type` (QA `E32-2`), and the
-//! first of two items with the same data deleted takes its own away (QA
-//! `E32-3`), as typed in the editor.
+//! cut and pasted after a pause keeps its `xsi:type`, and the
+//! first of two items with the same data deleted takes its own away, as typed in the editor.
 
 use super::super::edit::Edit;
 use super::super::languages::Language;
@@ -134,7 +133,7 @@ fn deleted_in(view: Language, sizes: &[u32], deleted: usize) -> (Owner, EditorSt
     (owner, state)
 }
 
-/// QA `E33-1`: an item deleted in a view, then `edit_as` switched before
+/// An item deleted in a view, then `edit_as` switched before
 /// the typing pause saved the edit: the next save keeps each remaining
 /// item's own `xsi:type`, in every view and switched to every other one
 /// (the host's language too), the items' data alike or not.
@@ -208,7 +207,7 @@ fn a_switch_converting_unsaved_edits_keeps_the_links() {
     }
 }
 
-/// QA `E33-4`: an item deleted and saved, `edit_as` switched, then the
+/// An item deleted and saved, `edit_as` switched, then the
 /// switch undone: the view's text is the one saved before, so it saves as
 /// the host text it was saved as, not converted again (a list of one read
 /// back otherwise than the lone element the host holds, and the save

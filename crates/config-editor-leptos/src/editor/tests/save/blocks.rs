@@ -79,8 +79,7 @@ fn block_scalars_keep_their_indicators_and_folding_through_any_view() {
 }
 
 /// A redundant keep indicator (`+` on a block ending in one line break,
-/// which reads as clipping) stays as the host wrote it (hard round 28's
-/// `D28.editing-1`: `>2+` became `>2`).
+/// which reads as clipping) stays as the host wrote it (`>2+` once became `>2`).
 #[test]
 fn a_redundant_keep_indicator_stays() {
     const KEPT: &str =
@@ -159,7 +158,7 @@ fn a_block_scalar_given_a_leading_space_takes_an_indentation_indicator() {
 
 /// Text with a tab after a line's indentation is block content, in a list
 /// item as under a key: the value is spliced in place and the comments
-/// stay (round 16 regenerated the whole document for a list item).
+/// stay.
 #[test]
 fn block_scalar_text_with_tabs_is_spliced_in_place_in_lists_and_maps() {
     let hosts = [
@@ -186,7 +185,7 @@ fn block_scalar_text_with_tabs_is_spliced_in_place_in_lists_and_maps() {
             "      ",
         ),
         // A comment line and a key after the block, in the item's map
-        // (round 17 wrote the whole document).
+        //.
         (
             "list of maps with a comment",
             "# c\nl:\n  - s: |\n      x\n    # kc\n    j: 2\nn: 1 # n\n",

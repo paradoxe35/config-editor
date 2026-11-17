@@ -460,7 +460,7 @@ fn pause_work(language: Language, blocks: usize) -> Vec<usize> {
 }
 
 /// The typing pause after a key costs work linear in the fields sharing
-/// one mask, in every language (QA 33: YAML with 500, 1000, 2000 such
+/// one mask, in every language (YAML with 500, 1000, 2000 such
 /// fields paused 92, 288, 755 ms: each placeholder's field was looked for
 /// among every field given its token, to accept it for the schema).
 #[cfg(feature = "schema-validation")]

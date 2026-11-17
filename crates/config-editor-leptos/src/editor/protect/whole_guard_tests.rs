@@ -125,7 +125,7 @@ fn whole_edit_work(
 /// text parses and while it has a syntax error: with none it costs the
 /// check nothing; with one per service, four times the text costs about
 /// four times the extra work of each kind, and parses the text a few times
-/// at most (QA 31: on the large sample pasted four times, broken by its
+/// at most (on the large sample pasted four times, broken by its
 /// repeated keys, the check read the whole text for its placeholders'
 /// fields with a parse for each of dozens of lines blanked, and Ctrl+A Tab
 /// took 4.5 s).

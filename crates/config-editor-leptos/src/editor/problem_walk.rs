@@ -193,7 +193,7 @@ mod tests {
         }
     }
 
-    /// QA 19: F8 with 3000 host problems in a 6000-line document froze
+    /// F8 with 3000 host problems in a 6000-line document froze
     /// 350-1050 ms per press: each problem's offset was found by counting
     /// the lines from the top. The walk is found in one pass over the text.
     #[test]

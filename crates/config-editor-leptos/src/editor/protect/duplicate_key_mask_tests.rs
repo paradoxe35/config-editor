@@ -2,7 +2,7 @@
 //! field's block (Alt+Down, Alt+Up, cut and paste): the block writes the
 //! key twice and the text does not parse. Each copy is judged in the value
 //! it is written in: text typed or pasted beside either is refused from
-//! the first character, and the host never hears it glued (QA 34: the
+//! the first character, and the host never hears it glued (the
 //! copy the language did not find took the first letter, then its line was
 //! kept whole: no Backspace, undo, nor renaming or deleting the other).
 //! The way back stays open: undoing the move, deleting or renaming either

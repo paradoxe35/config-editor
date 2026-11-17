@@ -1,6 +1,6 @@
 //! A recursive node reached again for the same value (an `allOf` whose
 //! members each hold the node, members naming one definition) costs work
-//! linear in the document, in every language (SF38-3): the validator
+//! linear in the document, in every language: the validator
 //! explained the value once for every chain of members above it, the same
 //! errors each time, so with an error at every level they grew as
 //! members^depth (0.8 s at depth 11, out of memory at 16, for 2 KB).

@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(found.len(), MAX_LINES);
     }
 
-    /// QA 19: the cap counts every line drawn, not every problem: 200
+    /// The cap counts every line drawn, not every problem: 200
     /// ranges of 200 lines draw 200 underlines, not 40,000, quickly.
     #[test]
     fn the_cap_counts_every_underlined_line_of_every_problem() {
@@ -233,7 +233,7 @@ mod tests {
         let planned = plan(&problems, &lines, |_| false);
         assert_eq!(planned.drawn.len(), MAX_DRAWN);
         assert!(planned.cut);
-        // Every problem's start first (QA 20: the first one took the whole
+        // Every problem's start first (the first one took the whole
         // budget, hiding the others).
         let mut starts: Vec<usize> = planned.drawn.iter().map(|(index, _)| *index).collect();
         starts.dedup();
@@ -271,7 +271,7 @@ mod tests {
         assert_eq!((planned.drawn.len(), planned.cut), (20, false));
     }
 
-    /// QA 20: the cap went in list order, so a wide info (or 250 hints
+    /// The cap went in list order, so a wide info (or 250 hints
     /// listed first) hid a later error's underline. The most serious
     /// problems are drawn first, each kind in list order, across every
     /// mix of severities.

@@ -192,7 +192,7 @@ fn tab_leaves_only_in_the_tab_mode_or_right_after_an_idle_escape() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// QA 32, A32-1: where `Ctrl+M` does not work (a read-only editor), the
+/// Where `Ctrl+M` does not work (a read-only editor), the
 /// key is not taken: no switch, no announcement.
 #[test]
 fn ctrl_m_switches_nothing_where_it_does_not_work() {
@@ -243,7 +243,7 @@ fn a_problem_covers_its_underline_and_the_caret_just_past_it() {
     let word = problem(2, Some(3), Some(7));
     let point = problem(2, Some(5), None);
     let line = problem(4, None, None);
-    // QA 21: a host's range over several lines covered no caret past its
+    // A host's range over several lines covered no caret past its
     // first line (a tap there showed nothing, the note said nothing).
     let range = Diagnostic {
         end_line: Some(6),
@@ -483,7 +483,7 @@ fn the_caret_note_says_why_a_locked_value_is_read_only_in_every_language() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// QA 20: `Ctrl+K Ctrl+I` read "Port to listen on.. Default: 7835": a
+/// `Ctrl+K Ctrl+I` read "Port to listen on.. Default: 7835": a
 /// description written as a sentence got a second full stop.
 #[test]
 fn the_docs_announcement_has_one_full_stop_after_each_part() {
@@ -511,7 +511,7 @@ fn the_docs_announcement_has_one_full_stop_after_each_part() {
     );
 }
 
-/// QA 23: the card's Documentation link was not in its announcement, so a
+/// The card's Documentation link was not in its announcement, so a
 /// screen reader never heard of it (nor of `Alt+Enter`, which opens it).
 #[test]
 fn the_docs_announcement_names_the_documentation_link() {
@@ -612,7 +612,7 @@ fn a_read_only_editor_says_why_when_an_edit_is_refused() {
     assert_eq!(untrack(|| state.read_only_reason()), None);
 }
 
-/// QA 26: the editing commands the browser types nothing for (cutting a
+/// The editing commands the browser types nothing for (cutting a
 /// line, Ctrl+/, Ctrl+Enter, undo) were refused in a read-only editor
 /// without a word, while typing said it cannot edit. Every edit the
 /// editor refuses there says so, whatever made it.

@@ -4,8 +4,8 @@
 //! runs for the text, each line's parent (the nearest line above indented
 //! less) is read once and a lookup jumps from parent to parent, a step
 //! per indentation level; outside one, the lines above are read one by
-//! one as before. (QA 36: thousands of places asked at once under one key,
-//! each walked up over every sibling above it: quadratic.)
+//! one as before (thousands of places asked at once under one key, each
+//! walked up over every sibling above it, were quadratic).
 
 use std::rc::Rc;
 

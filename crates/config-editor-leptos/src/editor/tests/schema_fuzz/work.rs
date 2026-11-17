@@ -4,7 +4,7 @@
 //! there), and a random value of it nested 4, 8 and 16 levels deep. Each
 //! kind of work (see `work_count`) may grow at most 2.5 times when the
 //! depth doubles (bytes read, against the text's bytes): super-linear
-//! work like QA 37/38's SC37-2, SC38-1 or SC38-3 fails here.
+//! work, such as an error path exponential in the depth, fails here.
 
 use serde_json::{Value, json};
 

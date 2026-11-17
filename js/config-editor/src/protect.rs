@@ -40,7 +40,7 @@ pub(crate) fn paths_from(list: &JsValue, name: &str) -> Result<Vec<FieldPath>, J
 /// to `host_text`, when they name places `host_text` lacks (a line or index
 /// past its end, a column past its line's end) and all fit `before`: a
 /// framework's render lists a newer text with ranges a host worked out on
-/// the text it rendered before (QA 38, FW38-3: read in the newer text, a
+/// the text it rendered before (read in the newer text, a
 /// lock fell on the line above its field, or the list was refused).
 pub(crate) fn ranges_in(
     list: &JsValue,

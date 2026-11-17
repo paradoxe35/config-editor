@@ -176,7 +176,7 @@ mod tests {
     use super::entries_at;
     use crate::{Diagnostic, DiagnosticOrigin, EditorStrings, Severity};
 
-    /// QA 19: several problems at one place each keep their own source,
+    /// Several problems at one place each keep their own source,
     /// code and docs link, the most serious first (a warning's source was
     /// shown under an error's message).
     #[test]
@@ -261,7 +261,7 @@ mod tests {
         );
     }
 
-    /// D23.ux-4: a host's thousands of problems at one place are cut to
+    /// A host's thousands of problems at one place are cut to
     /// the editor's own cap, the one F8 went to kept, with a note that
     /// more follow (they all rendered, with no note).
     #[test]

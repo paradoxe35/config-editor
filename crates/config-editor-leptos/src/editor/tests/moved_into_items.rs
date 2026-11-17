@@ -1,4 +1,4 @@
-//! QA `E37-1` (low): TOML keys moved together from a table into an item
+//! TOML keys moved together from a table into an item
 //! of an array of tables keep their forms (a datetime, a hex
 //! number), and the item gains no blank line.
 

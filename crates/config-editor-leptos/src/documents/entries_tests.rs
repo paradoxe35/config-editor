@@ -157,7 +157,7 @@ fn the_plus_only_asks_and_the_document_the_host_adds_is_selected_and_focused() {
     });
 }
 
-/// QA 23: a "+" the host did not answer stayed armed, and a document the
+/// A "+" the host did not answer stayed armed, and a document the
 /// host added on its own much later took the selection and the focus.
 #[test]
 fn a_plus_the_host_does_not_answer_in_time_selects_nothing_added_later() {
@@ -211,7 +211,7 @@ fn without_on_add_nothing_is_asked() {
     assert_eq!(documents.active_id().as_deref(), Some("main"));
 }
 
-/// QA 23: closing the active tab with `Delete` sent the focus into the next
+/// Closing the active tab with `Delete` sent the focus into the next
 /// document's editor, so a second `Delete` edited its text. From the tab
 /// list the focus stays on the tabs (the one now selected); from the
 /// closed editor it goes into the next one; from outside it stays there.
@@ -222,7 +222,7 @@ fn closing_the_active_document_keeps_the_focus_where_it_was() {
     assert_eq!(focus_place(false, false), Focus::Keep);
 }
 
-/// QA 27: a host selecting another document from `on_select` lost it: the
+/// A host selecting another document from `on_select` lost it: the
 /// outer selection's focus went to its own document afterwards.
 #[test]
 fn a_document_the_host_selects_in_answer_to_a_selection_stands() {

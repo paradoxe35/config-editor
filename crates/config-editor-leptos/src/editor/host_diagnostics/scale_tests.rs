@@ -1,7 +1,7 @@
 //! Thousands of host problems on a long document, in every language: placed
 //! and merged with the editor's own in one split of the text and in work
 //! growing with the text and the problems, not with their product, as this
-//! runs again after each pause in typing (QA 20: 3000 ranges on 6000 lines
+//! runs again after each pause in typing (3000 ranges on 6000 lines
 //! took a quarter of a second per edit, each range splitting the text again
 //! and each problem compared with every other).
 

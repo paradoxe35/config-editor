@@ -1,6 +1,6 @@
 //! A save never sends text that does not parse, in any language: typed
 //! invalid text and a host text its reader refuses wait, in the host's own
-//! view and in an Edit-as view (round 19's `D19.docs-1`).
+//! view and in an Edit-as view.
 
 #![cfg(all(
     feature = "yaml",

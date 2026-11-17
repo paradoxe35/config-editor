@@ -470,7 +470,7 @@ const KEYS: &[&str] = &[
     "[k]",
     "a,b",
     "\u{fffe}k",
-    // Plain where every reader takes them as text (round 19 quoted them).
+    // Plain where every reader takes them as text.
     "foo bar",
     "Über",
     "a/b",
@@ -687,7 +687,7 @@ fn yaml_key_written<'a>(saved: &'a str, pointer: &str, to: &str) -> Option<(&'a 
 /// folded over lines, a TOML multi-line string, a heredoc, XML text) edited
 /// a little from another view keeps its lines: a character typed at its
 /// start, its end, or in the middle of one of its lines changes that line
-/// only, and the value reads back (round 20: YAML joined `"l1\n  l2"` into
+/// only, and the value reads back (YAML joined `"l1\n  l2"` into
 /// `"l1 l2Q"`).
 #[test]
 fn a_small_edit_of_a_string_over_lines_keeps_its_lines() {
@@ -839,7 +839,7 @@ fn any_string_written_whole_holds_no_raw_character_a_reader_refuses() {
 }
 
 /// A file's CRLF line endings read as LF inside multi-line values, in the
-/// headless parse as in the editor (round 17: the parse read `\r\n`).
+/// headless parse as in the editor (the parse read `\r\n`).
 #[test]
 fn crlf_inside_multi_line_values_reads_as_lf() {
     let mut failures = Vec::new();

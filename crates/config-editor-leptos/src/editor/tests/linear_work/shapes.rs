@@ -19,13 +19,13 @@ pub(super) enum Shape {
     Distinct,
     /// [`Shape::Same`]'s items, each holding a secret placeholder, and in a
     /// host's own language a key holding one written `size` times (a line
-    /// copied again and again, QA 36's SP36-1).
+    /// copied again and again).
     Secrets,
     /// [`Shape::Distinct`]'s items beside a map of `size` keys, each line
     /// locked by a range of its own (`read_only_ranges`).
     Locks,
     /// One value nested `size` deep under a recursive `anyOf` of the
-    /// schema, wrong at every level (QA 37's SC37-2): only validated.
+    /// schema, wrong at every level: only validated.
     Deep,
 }
 
@@ -142,7 +142,7 @@ pub(super) fn locks(text: &str) -> Vec<TextRange> {
 
 /// The schema of every shape: the items an `anyOf` of an object and a
 /// text, their mode a `oneOf`, and the nested value a recursive `anyOf`
-/// (QA 37's SC37-2 schema).
+/// (the schema that once made the error path exponential).
 pub(super) fn schema() -> std::sync::Arc<SchemaBundle> {
     let node = json!({"anyOf": [
         {"type": "object", "properties": {

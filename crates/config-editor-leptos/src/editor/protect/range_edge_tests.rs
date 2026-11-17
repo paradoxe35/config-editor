@@ -1,4 +1,4 @@
-//! A host range over line breaks protects them as text (BR38-3): a line
+//! A host range over line breaks protects them as text: a line
 //! break typed inside it, or its own last line break taken away (the line
 //! after it cut, everything after it deleted), changes its text and is
 //! refused, however a line diff of the two texts would pair their lines.

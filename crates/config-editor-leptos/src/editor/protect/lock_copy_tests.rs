@@ -5,7 +5,7 @@
 //! one closing their block, which leaves the text broken, with the locked
 //! text written once or repeated in 12 blocks. The locks
 //! stay where they were, on the same text; an edit into one is still
-//! refused, and the copy takes typing (QA 33: such a paste was refused,
+//! refused, and the copy takes typing (such a paste was refused,
 //! the edit read as starting inside the lock its text began like).
 
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]

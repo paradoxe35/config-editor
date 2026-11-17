@@ -1,9 +1,9 @@
 //! An element cut in an Edit-as view and pasted under another element
 //! keeps its namespace: no view shows a declaration or a prefix, so the
-//! user could neither see nor fix one that changed. QA `E36-3`: moved out
+//! user could neither see nor fix one that changed. Moved out
 //! of the element declaring its prefix (or a prefixed attribute's or
 //! child's), it declares the prefix itself, bound as the host bound it.
-//! QA `E37-6`: moved into or out of a default namespace (`xmlns="…"`), or
+//! Moved into or out of a default namespace (`xmlns="…"`), or
 //! where its prefix is bound to another namespace, it declares its own
 //! (`xmlns=""`, `xmlns="urn:d"`, `xmlns:c="urn:c"`). Moved within its
 //! namespace, it declares nothing. From every view, pasted at once, after
@@ -323,8 +323,8 @@ fn an_element_moved_keeps_its_namespace() {
                 let saved = state.sync().host_text.get_value();
                 let problems = crate::check_syntax(Language::XML, &saved);
                 // A copy keeps its source's namespace like a moved element
-                // (QA 37, E37-5: a copy of an existing item keeps its form);
-                // only a brand-new element takes its siblings' (E34-3).
+                // (a copy of an existing item keeps its form);
+                // only a brand-new element takes its siblings'.
                 let kept = saved != case.host && saved.contains(case.expected);
                 if !kept || !problems.is_empty() {
                     let waits: Vec<String> = state

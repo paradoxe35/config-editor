@@ -2,7 +2,7 @@
 //! several lines take the indent of the tag's first line and one unit
 //! more, as do their own children and the end tag: the tag's other lines
 //! (its attributes, aligned however the host likes) say nothing of the
-//! element's depth (QA `E31-2`: under a tab-indented `<bean` over lines, a
+//! element's depth (under a tab-indented `<bean` over lines, a
 //! child got the attribute line's indent and more, and `</bean>` two tabs).
 
 use crate::editor::Language;

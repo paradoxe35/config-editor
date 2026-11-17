@@ -3,7 +3,7 @@
 //! key is an attribute, and a save writes it
 //! as one where its prefix is declared, or waits naming the prefix. An
 //! element renamed to one waits too: it would become an attribute
-//! (hard-bar QA `D23.editing-1`: an attribute renamed `y:attr` was written
+//! (an attribute renamed `y:attr` was written
 //! as a child element, the text moved, and an element renamed `x:child` was
 //! dropped, both saves accepted).
 

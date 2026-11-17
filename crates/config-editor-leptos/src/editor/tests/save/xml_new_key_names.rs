@@ -1,9 +1,8 @@
-//! A key added in a view under a prefixed element (QA `E33-3`: a new
+//! A key added in a view under a prefixed element (a new
 //! `<include-filter>` under `<context:component-scan>`, an `<annotation>`
 //! under `<xs:element>`, a `Qty` under `<m:GetPrice>` were each saved in
 //! the default namespace): the new element takes the prefix of its
-//! nearest sibling when it has some (the one before it, else after: QA
-//! `E34-3`, siblings of two prefixes), else its parent's. Each new element's
+//! nearest sibling when it has some (the one before it, else after, for siblings of two prefixes), else its parent's. Each new element's
 //! namespace is read as a namespace-aware reader reads it.
 
 use super::xml_prefix_items::expanded_names;

@@ -3,7 +3,7 @@
 //! patches only that key's lines (no whole document written anew), and
 //! no other value is ever written in another form, reading the same (a
 //! TOML hex number as decimal, a datetime as a string, an HCL expression
-//! as text, a YAML tag or quoting dropped, XML markup lost: QA `E37-2`).
+//! as text, a YAML tag or quoting dropped, XML markup lost).
 //! A save that cannot keep every form waits; here only for what the view
 //! or host cannot hold at all, never for want of a patch.
 

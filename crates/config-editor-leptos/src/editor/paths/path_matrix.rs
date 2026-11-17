@@ -144,7 +144,7 @@ fn range_of_selects_the_field_in_every_language() {
     report(failures);
 }
 
-/// QA 21: on a quoted key's closing quote (TOML), or just after a `}` in a
+/// On a quoted key's closing quote (TOML), or just after a `}` in a
 /// string (HCL `"${x}"`), `path_at` gave the table or block around the
 /// field (so did a host range starting there).
 #[test]

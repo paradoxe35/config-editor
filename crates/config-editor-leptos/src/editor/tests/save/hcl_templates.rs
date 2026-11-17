@@ -150,7 +150,7 @@ fn a_heredoc_template_keeps_its_interpolation_when_edited() {
     }
 }
 
-/// M25-E2: a document's expressions (templates `"${var.x}-y"`, heredocs
+/// A document's expressions (templates `"${var.x}-y"`, heredocs
 /// holding `${…}`, references `var.z`, in lists and blocks too) are read
 /// as their text, as an escaped literal `"$${only}"` is: converting lists
 /// each one as a loss, so a round trip that writes it back as text does not

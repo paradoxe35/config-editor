@@ -10,7 +10,7 @@ use super::codec;
 use super::save_properties::{ALL, Random, comment_pairs, hosts, pointers, schema};
 use serde_json::Value;
 
-/// Hosts with lists the round 21 testers moved: block and flow items with
+/// Hosts with lists, moved: block and flow items with
 /// comment lines above them, repeated XML elements with children and
 /// attributes, TOML and HCL lists of inline tables.
 fn moving_hosts() -> Vec<(Language, &'static str)> {

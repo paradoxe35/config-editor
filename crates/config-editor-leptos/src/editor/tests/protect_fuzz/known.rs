@@ -1,5 +1,5 @@
 //! Classes of failure an open finding explains, each naming it (NEW: found
-//! by this test, not in qa38-findings.md yet): the standing test lets
+//! by this test, not yet in the findings list): the standing test lets
 //! them through; the finding's fix removes the entry.
 
 use super::Class;

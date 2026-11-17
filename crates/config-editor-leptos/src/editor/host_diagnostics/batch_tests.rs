@@ -1,6 +1,6 @@
 //! Thousands of host problems by path or range, placed in the host's own
 //! language and through every Edit-as view: each text is read a fixed
-//! number of times however many problems there are (QA 21: each path read
+//! number of times however many problems there are (each path read
 //! the whole document again, and each range read the host's text from the
 //! top and looked its field up in both texts: 3000 problems took 24 s at
 //! mount and seconds after every edit).
@@ -334,7 +334,7 @@ fn found_on_every_line(host: Language, items: usize) -> [usize; 4] {
 
 /// Ranges starting where no field's key or value is written (a block's
 /// key, a closer, a blank line) are read from the text, all in one pass:
-/// none splits the whole text or reads its indent unit again (QA 26: each
+/// none splits the whole text or reads its indent unit again (each
 /// YAML block key's line split the host's text, each XML one read the
 /// indent unit off its first 400 lines: half a second per pause with 5000
 /// ranges on 8000 lines).

@@ -139,7 +139,7 @@ fn edit_as_on_several_yaml_documents_is_refused_saying_why() {
     }
 }
 
-/// M24-E3: tagged list items (flow and block maps, lists, scalars) moved
+/// Tagged list items (flow and block maps, lists, scalars) moved
 /// or removed from every view carry their tags and comments, as a pure
 /// reorder or deletion can.
 #[test]

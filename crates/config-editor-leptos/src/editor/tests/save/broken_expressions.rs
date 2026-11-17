@@ -1,5 +1,5 @@
 //! An HCL expression edited in another view into text that reads as no
-//! expression waits, saying so (QA round 37: it said the value would be
+//! expression waits, saying so (it said the value would be
 //! written "in another form … though it reads the same"), in place or
 //! after the attribute moved.
 

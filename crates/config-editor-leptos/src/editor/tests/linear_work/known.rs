@@ -40,7 +40,7 @@ pub(super) const ALLOWED: &[Known] = &[
     // explained at most 256 times (`diagnostics::explanation`), so below
     // that bound the work follows the option tree and past it grows
     // linearly with the depth; `schema_error_cost` checks it at depths
-    // 8, 12 and 16 (QA 37, SC37-2), too slow for this matrix's 25 setups.
+    // 8, 12 and 16, too slow for this matrix's 25 setups.
     Known {
         finding: "options explained up to a fixed bound",
         work: &[Work::ErrorVisit, Work::OptionTried, Work::BranchWalk],

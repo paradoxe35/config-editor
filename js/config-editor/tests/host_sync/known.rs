@@ -12,7 +12,7 @@ pub(crate) struct Known {
     pub(crate) class: Class,
     /// Whether it is the class at this kind of step.
     pub(crate) step: fn(&str) -> bool,
-    /// The finding (qa38-findings.md), or why it is by design.
+    /// The finding, or why it is by design.
     pub(crate) finding: &'static str,
 }
 

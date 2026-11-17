@@ -1,6 +1,6 @@
 //! The colours inside an HCL string: its text, and the template sequences
 //! written into it (`"web-${var.env}"`, `"%{ if x }on%{ endif }"`), which
-//! are expressions, not text (QA 28: they took the string's colour).
+//! are expressions, not text (they took the string's colour).
 
 use super::super::super::highlight::{TokenKind, Tokens};
 use super::tokens::template_end;
@@ -59,7 +59,7 @@ mod tests {
             .collect()
     }
 
-    /// QA 28 (F3): `${…}` in a string was one string token.
+    /// `${…}` in a string was one string token.
     #[test]
     fn template_sequences_in_strings_are_interpolations() {
         for (line, expected) in [

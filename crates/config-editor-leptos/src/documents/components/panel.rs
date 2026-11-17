@@ -116,7 +116,7 @@ fn focus_when_mounted(documents: Documents, entry: &Entry) {
         documents.focus_editor.set(None);
         // Once the panel has lost `inert`: at the end of this task, so the
         // keys pressed right after the switch (`Enter`, then `End`) land in
-        // the editor, not on the tab (QA 30, L30-6); a panel still inert
+        // the editor, not on the tab; a panel still inert
         // then is shown by the next frame.
         let id = id.clone();
         later::soon(documents, move |documents| {

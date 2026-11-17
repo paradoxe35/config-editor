@@ -1,9 +1,8 @@
-//! QA `E35-1`: a map key of an XML host (not a list item) cut in an
+//! A map key of an XML host (not a list item) cut in an
 //! Edit-as view and pasted back after a pause, a switch or a round trip
 //! through the host's language keeps its written name (prefix), its
-//! attribute or element form and its markup, as a cut item does (QA
-//! `E34-1`), wherever among its siblings it is pasted, at once too (QA
-//! `E37-4`: a prefixed key moved in one save waited); never is it saved
+//! attribute or element form and its markup, as a cut item does, wherever among its siblings it is pasted, at once too
+//! (a prefixed key moved in one save used to wait); never is it saved
 //! as a new key with that markup lost.
 
 use super::super::edit::Edit;

@@ -72,7 +72,7 @@ fn AddButton(documents: Documents) -> impl IntoView {
 
 /// Scrolls the strip so the active tab shows whole, after each switch and
 /// after anything that moves or widens it: tabs added, closed or reordered
-/// (QA 30, L30-5: a host reordering the tabs left the active one out of
+/// (a host reordering the tabs left the active one out of
 /// view) and names changed.
 fn reveal_active_tab(documents: Documents) {
     let names = documents.follows.names.read();

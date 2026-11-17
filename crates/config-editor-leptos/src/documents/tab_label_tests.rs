@@ -3,7 +3,7 @@
 
 use super::{TabLabel, TabNames, folder_end, split_end, tab_label};
 
-/// QA 24: long names sharing a start were cut alike at phone width;
+/// Long names sharing a start were cut alike at phone width;
 /// the end that tells them apart stays whole.
 #[test]
 fn a_long_name_keeps_its_end_whole() {
@@ -50,13 +50,13 @@ fn cut(label: &TabLabel) -> String {
     format!("{}{ellipsis}{}", label.kept, label.end)
 }
 
-/// QA 26 (L26-U4): at phone width `eu-west-1/production/limits.toml`
+/// At phone width `eu-west-1/production/limits.toml`
 /// and `staging/eu/limits.toml` both read "e…limits.toml". Tabs with
 /// the same file's name, cut as far as a narrow tab cuts, never read
 /// the same.
 #[test]
 fn tabs_sharing_a_name_never_read_alike_cut() {
-    // QA 30: a folder written with two separators at its end
+    // A folder written with two separators at its end
     // (`é//a.toml`) cut a letter in two and panicked.
     let sets: [&[&str]; 6] = [
         &[
@@ -106,9 +106,9 @@ fn tabs_sharing_a_name_never_read_alike_cut() {
     }
 }
 
-/// QA 23 (L23-U7): on a phone the tabs showed "conf.d/new-…", all
+/// On a phone the tabs showed "conf.d/new-…", all
 /// alike. The folder is the part a narrow strip leaves out, unless
-/// another tab has the same file's name. QA 25 (U25-8): tabs sharing a
+/// another tab has the same file's name. Tabs sharing a
 /// file's name showed the start of their folders ("clusters…", alike,
 /// or one letter), or cut the file's name ("prod/limits…"): they show
 /// the end of the folder that tells them apart, then the whole name.
@@ -158,7 +158,7 @@ fn a_tab_shows_what_tells_its_file_apart() {
 }
 
 /// Labelling every tab reads each name a few times, however many tabs
-/// (round 27's `D27.memory-1`: each tab read every other name, a re-list
+/// (each tab read every other name, a re-list
 /// of 1,000 renamed files froze the page for 45 s).
 #[test]
 fn labelling_every_tab_reads_each_name_a_few_times() {
@@ -236,7 +236,7 @@ fn reference_start(name: &str, names: &[String]) -> String {
 }
 
 /// The label of `name` worked out tab by tab, each looking through every
-/// other name (how labels were worked out until QA 30): what labelling a
+/// other name (how labels were once worked out): what labelling a
 /// group at a time must match.
 fn reference(name: &str, names: &[String]) -> TabLabel {
     let base = &name[base_at(name)..];

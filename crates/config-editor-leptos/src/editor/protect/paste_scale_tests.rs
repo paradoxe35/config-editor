@@ -1,7 +1,7 @@
 //! A large paste into a text with many host ranges, in every language:
 //! the check and the locks after it walk the text from the top a few times
 //! for the whole paste, so the work grows with the text and the locks,
-//! never with their product (QA 33: 1,000 lines pasted into a text with
+//! never with their product (1,000 lines pasted into a text with
 //! 300 ranges froze it for 10 to 16 s, each line's path a walk from the
 //! top).
 

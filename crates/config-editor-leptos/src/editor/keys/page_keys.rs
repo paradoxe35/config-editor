@@ -272,7 +272,7 @@ mod tests {
         );
     }
 
-    /// QA 26: the column was counted in UTF-16 units, so a page key from
+    /// The column was counted in UTF-16 units, so a page key from
     /// after an emoji or a tab landed right or left of where `ArrowDown`
     /// does. Every line pair pages from its first line's end onto the
     /// on-screen column below it.

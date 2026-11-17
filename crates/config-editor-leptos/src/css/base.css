@@ -444,8 +444,8 @@
 }
 
 /* At most 80% of the window, and short enough that the editor with its
-   tab bar and footer fits a short window whole (QA 21: in a 300px window
-   the footer was cut off). */
+   tab bar and footer fits a short window whole (in a 300px window the
+   footer was once cut off). */
 :not(#\#):not(#\#) .config-editor__surface {
   position: relative;
   flex: 1 1 auto;
@@ -2144,7 +2144,7 @@
     color: HighlightText;
   }
   /* Every part of the selected suggestion, over the rules that color
-     them there (QA 24: its type kept its grey on Highlight). */
+     them there (its type kept its grey on Highlight). */
   .config-editor__completion-active *,
   :not(#\#):not(#\#) .config-editor__completion-active .config-editor__completion-match,
   :not(#\#):not(#\#) .config-editor__completion-active .config-editor__completion-type,
@@ -2165,8 +2165,8 @@
     box-shadow: inset 0 -2px ButtonText;
   }
   /* The selection tinted, not the system Highlight: the highlighted code is
-     painted over the text area, in CanvasText (hard-bar D3.a11y-1: 2.07:1
-     over Highlight in the light scheme, 2.62:1 in the dark one), so the fill
+     painted over the text area, in CanvasText (2.07:1 over Highlight in the
+     light scheme, 2.62:1 in the dark one), so the fill
      stays near Canvas, which that text always reads on. */
   :not(#\#):not(#\#) .config-editor__input {
     forced-color-adjust: none;
@@ -2177,7 +2177,7 @@
     color: transparent;
   }
   /* The find field's focus: its border is CanvasText either way, so a ring
-     shows it (hard-bar D18.a11y-2). */
+     shows it. */
   :not(#\#):not(#\#) .config-editor__find-field:focus-within {
     outline: 2px solid Highlight;
     outline-offset: 1px;

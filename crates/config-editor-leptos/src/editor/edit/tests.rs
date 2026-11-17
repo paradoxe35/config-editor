@@ -346,7 +346,7 @@ fn typed_then_host(edit_as: Option<Language>, start: &str, host: &str) -> (Owner
     (owner, state)
 }
 
-/// M22-E3: a host change is no step; undo takes back the user's edit and
+/// A host change is no step; undo takes back the user's edit and
 /// keeps the host's, also editing as another language.
 #[test]
 fn undo_after_a_host_change_keeps_the_hosts_change() {

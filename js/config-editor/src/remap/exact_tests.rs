@@ -1,4 +1,4 @@
-//! A host's ranges carried by what the diff knows (QA 38, H38-3: a newer
+//! A host's ranges carried by what the diff knows (a newer
 //! version of the file locked every changed line after the lock, and a lock
 //! whose line moved further down was dropped; the host-sync random test: a
 //! lock sharing its line with other text lost its place, and the nearest

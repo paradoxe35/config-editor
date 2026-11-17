@@ -282,7 +282,7 @@ fn a_placeholder_follows_its_field_through_a_renamed_key_above_it() {
 }
 
 /// Saved at once, inside the typing pause after items shifted around a
-/// placeholder or a key above it was renamed (round 19's `D19.editing-1`):
+/// placeholder or a key above it was renamed:
 /// the save follows the placeholder to its field as the pause would, and
 /// sends the host with the secret in its new place, in every host and
 /// view.

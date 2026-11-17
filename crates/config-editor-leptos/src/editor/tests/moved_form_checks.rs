@@ -1,5 +1,5 @@
 //! A moved key whose host form cannot be written where it is pasted makes
-//! the save wait (QA `E36-1`: never saved in another form with no problem
+//! the save wait (never saved in another form with no problem
 //! shown), and the save of a moved key compares only its own scalars with
 //! where it was cut from, at any document size.
 
@@ -132,7 +132,7 @@ fn a_typed_value_is_saved_without_reading_the_items() {
 }
 
 /// The pause saving a copied key compares it alone with the items it may
-/// be a copy of, at any size (QA `E37-5`).
+/// be a copy of, at any size.
 #[test]
 fn a_copied_key_is_kept_with_the_same_work_at_any_size() {
     let work = |count: usize| {
@@ -165,8 +165,7 @@ fn a_copied_key_is_kept_with_the_same_work_at_any_size() {
 }
 
 /// A paste of many copied keys at once compares each with the keys
-/// holding the same data only: work in proportion to them (QA `E37-5`,
-/// beside QA `SP37-1`'s large edits).
+/// holding the same data only: work in proportion to them.
 #[test]
 fn many_copied_keys_are_kept_with_work_in_proportion() {
     let work = |count: usize| {

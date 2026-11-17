@@ -3,7 +3,7 @@
 //! work linear in the text, in every language: each placeholder is judged
 //! in the copy of its field it is written in, and the copies of all of
 //! them are found in a few readings of the text, never a few for each
-//! (QA 34: on the large YAML sample pasted four times, Ctrl+A Tab read the
+//! (on the large YAML sample pasted four times, Ctrl+A Tab read the
 //! text thousands of times, and its undo hung the page).
 
 use leptos::prelude::*;
@@ -135,8 +135,8 @@ fn line_moved(language: Language, copies: usize) -> usize {
 
 /// One line moved in the first copy of its keys reads the text the same
 /// few times at any size: work for the lookups it makes, not every copy of
-/// every field near it (QA 35:
-/// Alt+Down on the large sample written four times was 1.5 times slower).
+/// every field near it (Alt+Down on the large sample written four times was once 1.5
+/// times slower).
 #[test]
 fn a_line_moved_reads_only_the_copies_it_looks_up() {
     super::super::parse_cache::hold();

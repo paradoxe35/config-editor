@@ -1,4 +1,4 @@
-//! A YAML anchor key moved in an Edit-as view (QA round 37): moved
+//! A YAML anchor key moved in an Edit-as view: moved
 //! above another key, still before its aliases, they stay aliases, at
 //! once or cut and pasted with a typing pause between (the cut's save
 //! writes them out, the paste brings the anchor back); moved below its

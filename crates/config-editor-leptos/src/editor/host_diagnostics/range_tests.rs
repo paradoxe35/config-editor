@@ -88,7 +88,7 @@ fn range_of(text: &str, needle: &str) -> TextRange {
     TextRange::new(start, end)
 }
 
-/// QA 19 (H19-F9): a range starting in a line's indentation (a whole line
+/// A range starting in a line's indentation (a whole line
 /// selected from its start) goes to the field written on that line, as one
 /// starting at its first character does, not to the field around it.
 #[test]

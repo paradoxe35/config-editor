@@ -550,7 +550,7 @@ fn ctrl_slash_takes_strings_entries_and_plain_values_exactly() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// QA 17: Ctrl+/ over a selection holding a commented line and starting or
+/// Ctrl+/ over a selection holding a commented line and starting or
 /// ending mid-line comments whole lines: the text still parses (an XML
 /// comment never ends inside an element), and Ctrl+/ again gives it back.
 #[test]

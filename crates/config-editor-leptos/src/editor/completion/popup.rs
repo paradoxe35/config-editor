@@ -226,7 +226,7 @@ pub(crate) fn completion_popup_style(
 mod tests {
     use super::visual_column;
 
-    /// QA 17: an underline after `é` written as `e` + U+0301 sat one column
+    /// An underline after `é` written as `e` + U+0301 sat one column
     /// to the right: the mark takes no column of its own, in every overlay
     /// that places itself by column (problems, matches, locks, fold chips).
     #[test]

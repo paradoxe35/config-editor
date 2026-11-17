@@ -2,7 +2,7 @@
 //! above it, renamed to its name (`<d>` to `<db>`, `d {` to `db {`). The
 //! field the host gave the placeholder for (`/config/db/password`) is now
 //! an item's (`/config/db/0/password`): the placeholder there is flagged
-//! as standing for the host's field, in XML as in HCL (QA 37: XML took it
+//! as standing for the host's field, in XML as in HCL (XML took it
 //! for a copy of its own line, said nothing, and the save went through).
 //! A copy of the secret's own line stays the field's first copy (see
 //! `xml_copies_tests`).

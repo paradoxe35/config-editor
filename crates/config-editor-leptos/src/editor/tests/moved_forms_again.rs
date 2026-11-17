@@ -1,4 +1,4 @@
-//! QA `E37-1`/`E37-5`: a key keeps the form its host writes it in through
+//! A key keeps the form its host writes it in through
 //! every move of a session (moved again after a pause, its source a key
 //! pasted earlier), whichever way it is cut (a whole line, a line's
 //! text) or pasted (over a selected line), and so does a copy of it or

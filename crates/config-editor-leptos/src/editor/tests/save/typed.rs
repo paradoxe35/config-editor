@@ -258,7 +258,7 @@ fn a_yaml_str_tagged_value_edited_from_every_view_stays_plain() {
 
 /// An element copied in an XML view (a value become a list):
 /// each copy keeps the type of the host's value it copies, strings stay
-/// strings (round 29 read `"1"` copied as `[1, 1]`).
+/// strings.
 #[test]
 fn an_element_copied_in_an_xml_view_keeps_the_host_type_of_what_it_copies() {
     let hosts = [

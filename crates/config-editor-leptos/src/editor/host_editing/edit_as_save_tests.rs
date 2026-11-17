@@ -1,7 +1,7 @@
 //! Saves from an Edit-as view: a value the host's language cannot carry
-//! exactly waits (round 20's `D20.docs-1`), and a formatting-only edit,
+//! exactly waits, and a formatting-only edit,
 //! which leaves the host's text as it was, leaves the document clean once
-//! converted (round 17's `D17.ux-1`). In every host and view.
+//! converted. In every host and view.
 
 #![cfg(all(
     feature = "yaml",

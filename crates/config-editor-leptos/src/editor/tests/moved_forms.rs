@@ -1,4 +1,4 @@
-//! QA `E36-1`/`E36-2`: a key cut in an Edit-as view and pasted back, at
+//! A key cut in an Edit-as view and pasted back, at
 //! once, after a pause, a switch to another view or to the host's
 //! language, in its own block or another, keeps the form its host writes
 //! it in that no view shows (an HCL expression or heredoc, a TOML
@@ -174,7 +174,7 @@ enum At {
 }
 
 /// Where it is pasted: in `a` beside `mid`, or in `b` beside `other`,
-/// or over `other`'s line selected whole (QA `E38-1`, `E38-2`).
+/// or over `other`'s line selected whole.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Place {
     SameBlock,
@@ -388,7 +388,7 @@ pub(super) fn paste(state: EditorState, lines: &str, name: &str, after: bool) {
     ));
 }
 
-/// `lines` pasted over the line of `name`, selected whole (QA `E38-1`).
+/// `lines` pasted over the line of `name`, selected whole.
 fn paste_over(state: EditorState, lines: &str, name: &str) {
     let before = state.doc().text.get_untracked();
     let line = key_line(&before, name);

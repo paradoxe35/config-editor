@@ -1,4 +1,4 @@
-//! QA `E37-1`/`E37-5`: an HCL object attribute (`tags = { … }`) moved or
+//! An HCL object attribute (`tags = { … }`) moved or
 //! copied in an Edit-as view into a nested block, or another resource,
 //! stays an object attribute (Terraform rejects a `tags` block), in the
 //! views that write it over lines of its own, pasted at its own indent or

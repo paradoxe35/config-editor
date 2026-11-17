@@ -1,6 +1,6 @@
 //! A second copy of a read-only field's key typed in its block, a key at
 //! a time, with auto-closing on and off: no span's text changes, so every
-//! key is taken (the guard reads no half-typed names: QA 37 left JSON's
+//! key is taken (the guard reads no half-typed names: JSON once left
 //! `"password" "x",` when the `:` was refused after the stepped-over `"`).
 //! The locked value keeps its text and still refuses typing, and the save
 //! waits while the duplicate is there (it does not parse, or it shadows

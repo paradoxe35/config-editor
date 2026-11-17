@@ -46,7 +46,7 @@ pub(super) fn newline(source: &str, cursor: usize) -> Newline {
 /// Enter right after a complete value, before a key or an item written on
 /// the same line (`port: 1|host: x`): the rest is an entry of its own, at
 /// the line's indentation for an item, at its item's content column for a
-/// key, not a continued value (QA `E35-1b`). `None` after a key with no
+/// key, not a continued value. `None` after a key with no
 /// value or an opener, where the rest goes deeper.
 fn entry_after_caret(source: &str, line_start: usize, byte: usize) -> Option<String> {
     let line = &source[line_start..byte];

@@ -2,9 +2,9 @@
 //! its key is written as many times and the text does not parse. Every
 //! copy is judged in the value it is written in, however many there are:
 //! text typed beside any copy is refused and the host never hears it
-//! glued (QA 35: past the fourth copy, typing beside the last reached the
+//! glued (past the fourth copy, typing beside the last reached the
 //! host), and the way back stays open on every copy: its line deleted,
-//! its mask deleted, the copy undone (QA 35: at five copies and more, all
+//! its mask deleted, the copy undone (at five copies and more, all
 //! were refused on the last copy). Each copy past the host's is flagged
 //! as a copy, and a token two fields share as the secret of the one it
 //! left.
@@ -268,7 +268,7 @@ fn flagged(language: Language, host: &str, text: &str) -> Vec<(Option<usize>, St
 }
 
 /// A copy of a secret's line in its own field is said to be one, never to
-/// stand for another field's secret (QA 35: "/b/key: this placeholder
+/// stand for another field's secret ("/b/key: this placeholder
 /// stands for the secret of /b/key, not this field's").
 #[test]
 fn a_copy_of_a_secret_line_is_flagged_as_a_copy() {
@@ -294,7 +294,7 @@ fn a_copy_of_a_secret_line_is_flagged_as_a_copy() {
 
 /// A token two fields share, written in a third, is said to stand for the
 /// secret of the field it is missing from, or of both when neither misses
-/// it (QA 35: the first of them was named, also when the other lost it).
+/// it (the first of them was named, also when the other lost it).
 #[test]
 fn a_moved_token_two_fields_share_names_the_field_it_left() {
     let strings = crate::strings::default_strings();

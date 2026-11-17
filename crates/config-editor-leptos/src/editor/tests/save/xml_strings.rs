@@ -1,4 +1,4 @@
-//! M23-E1: strings an XML host would read back as other values (`""` as
+//! Strings an XML host would read back as other values (`""` as
 //! an empty element, `"null"`, `"true"`, `"1"`): from every view the save
 //! waits with the reason; strings XML keeps are saved.
 

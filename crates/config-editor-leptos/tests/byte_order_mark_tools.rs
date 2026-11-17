@@ -4,7 +4,7 @@
 //! is a character of the text given), and none panics. Astral, other
 //! non-ASCII and ASCII characters sit in each kind of place (keys, values,
 //! element text, attributes, comments), on the first line too, in documents
-//! that read and in ones that do not (QA 31: an XML text with a mark and an
+//! that read and in ones that do not (an XML text with a mark and an
 //! emoji in an element's text panicked `convert`).
 #![cfg(all(
     feature = "yaml",

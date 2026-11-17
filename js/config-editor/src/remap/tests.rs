@@ -5,9 +5,8 @@ use super::{Remap, moved_between, reads_as};
 use crate::text_lines::TextLines;
 
 /// Ranges given for the text on screen of a BOM or CRLF document name
-/// the places they name there: nothing moves (hard rounds 1–2's
-/// `D1.host-1`, one character right after a BOM, and `D24.host-1`,
-/// every line after the first locked in a CRLF file).
+/// the places they name there: nothing moves (one character right
+/// after a BOM, and every line after the first locked in a CRLF file).
 #[test]
 fn ranges_for_the_shown_text_of_a_bom_or_crlf_document_stay() {
     let range = TextRange::new(TextPosition::new(3, 3), TextPosition::new(3, 7));
@@ -177,7 +176,7 @@ fn stored(text: &str, form: usize) -> String {
 /// without a byte order mark), and random ranges of them: every character
 /// of a range that the edits kept is inside the range mapped (a lock never
 /// shrinks), and a range on lines no edit touched covers the same text,
-/// edits before and after it included (`H30-2`: two separate edits locked
+/// edits before and after it included (two separate edits locked
 /// everything between them).
 #[test]
 fn a_range_between_any_number_of_edits_maps_exactly_and_never_shrinks() {
@@ -261,7 +260,7 @@ fn a_range_between_any_number_of_edits_maps_exactly_and_never_shrinks() {
 
 /// A store's copy of the document (LF for CRLF or a lone CR, no byte order
 /// mark) reads as the document; a text that differs in anything else does
-/// not (QA 33, HO33-3: ranges given again with it stay where they are).
+/// not (ranges given again with it stay where they are).
 #[test]
 fn a_text_written_another_way_reads_as_the_document() {
     let document = "\u{feff}a: 1\r\nb: 2\r\n";

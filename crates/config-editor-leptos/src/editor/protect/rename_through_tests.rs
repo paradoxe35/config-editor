@@ -4,7 +4,7 @@
 //! `"db"` retyped as `"webapp"` beside a locked `"web"`, `dynamic
 //! "egress"` as `"ingress_v2"` beside a locked `dynamic "ingress"`), or
 //! through the locked field's own name: the name on its way is no second
-//! key holding the field, and is never refused (QA 38: the run was
+//! key holding the field, and is never refused (the run was
 //! refused at `db`, leaving `d:`). A rename ending on the locked name
 //! itself is a duplicate: taken (no span's text changes), and never saved
 //! while it is there. In YAML, JSON, TOML, HCL and XML, for secrets,

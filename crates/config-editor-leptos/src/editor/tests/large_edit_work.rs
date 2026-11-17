@@ -2,7 +2,7 @@
 //! over itself with a few changes) is one edit spanning the document: the
 //! typing pause saving it follows the view's items through it with work in
 //! proportion to them, with items written alike or not, and reads the
-//! texts as often at any size (QA `SP37-1`: each cut item looked for over
+//! texts as often at any size (each cut item looked for over
 //! the whole insert against every place taken, and each item among all
 //! those followed, froze the page for seconds; and items cut by the edit
 //! and written back as they were, taken for the next one written alike,

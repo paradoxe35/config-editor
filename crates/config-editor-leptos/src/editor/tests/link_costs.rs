@@ -1,8 +1,7 @@
 //! What the links of an Edit-as view's items cost: a Replace all over
-//! nested maps or many small lists grows its work with the document only
-//! (QA `SP38-1`, `SP38-3`), a whole text pasted leaves no lasting work for
-//! the keys typed after it (QA `SP38-2`), and cut, paste and undo over and
-//! over keep no more than a fixed few records (QA `MEM38-1`).
+//! nested maps or many small lists grows its work with the document only, a whole text pasted leaves no lasting work for
+//! the keys typed after it, and cut, paste and undo over and
+//! over keep no more than a fixed few records.
 
 use super::super::edit::Edit;
 use super::super::languages::Language;
@@ -187,7 +186,7 @@ fn a_whole_text_pasted_leaves_later_keys_no_more_work() {
     }
 }
 
-/// QA `MEM38-1`'s steps: an XML host's prefixed element (`c:in`) cut in a JSON
+/// The steps of the leak check: an XML host's prefixed element (`c:in`) cut in a JSON
 /// view, pasted twice, a pause, the three edits undone; `cycles`
 /// times. What the links and records hold after.
 fn cycled(cycles: usize) -> (usize, usize) {

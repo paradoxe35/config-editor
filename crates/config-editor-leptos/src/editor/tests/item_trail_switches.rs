@@ -1,4 +1,4 @@
-//! QA `E34-1`: an item of an XML host cut in an Edit-as view and pasted
+//! An item of an XML host cut in an Edit-as view and pasted
 //! back after a switch (to another view, or the host's language and back)
 //! keeps its markup (`xsi:type`, a namespace declaration, a prefix), as it
 //! does across pauses and saves: the session keeps the items cut, and a

@@ -1,9 +1,9 @@
 //! Every kind of edit costs work that grows with the document no faster
 //! than the document: one standing matrix, counted (see `work_count`), so
-//! a slowdown like QA 36's SP36-1 (a secret line's copies, quadratic),
-//! SP36-2 (the suggestions parsing again), QA 37's SP37-1 (a large edit
-//! in an Edit-as view going through the item trail) or SC37-2 (the
-//! validation's error path, exponential in a recursive `anyOf`) fails here
+//! a slowdown such as a secret line's copies (quadratic), the suggestions
+//! parsing again, a large edit in an Edit-as view going through the item
+//! trail, or the validation's error path (exponential in a recursive
+//! `anyOf`) fails here
 //! without a tester.
 //!
 //! The matrix: native editing in every language and Edit-as for every

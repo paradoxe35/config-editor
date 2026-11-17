@@ -216,24 +216,24 @@ pub(super) const KNOWN: &[Known] = &[
                 .is_some_and(serde_json::Map::is_empty)
         },
     },
-    // By design (SC37-2) each value's options are explained a bounded
+    // By design each value's options are explained a bounded
     // number of times, the work following the option tree below that
     // bound: only a schema recursing through options (`anyOf`, `oneOf`,
     // `allOf`) does that work.
     Known {
-        finding: "decided (SC37-2): a value's options are explained up to a fixed bound",
+        finding: "decided: a value's options are explained up to a fixed bound",
         property: "work",
         class: "validate: OptionTried grows",
         applies: |case| recurses_through_options(&case.schema),
     },
     Known {
-        finding: "decided (SC37-2): a value's options are explained up to a fixed bound",
+        finding: "decided: a value's options are explained up to a fixed bound",
         property: "work",
         class: "validate: BranchWalk grows",
         applies: |case| recurses_through_options(&case.schema) && !deprecates(&case.schema),
     },
     Known {
-        finding: "decided (SC37-2): a value's options are explained up to a fixed bound",
+        finding: "decided: a value's options are explained up to a fixed bound",
         property: "work",
         class: "validate: ErrorVisit grows",
         applies: |case| recurses_through_options(&case.schema),

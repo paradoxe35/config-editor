@@ -4,7 +4,7 @@
 //! with empty lines, lines of only blanks and lines at every indent put
 //! inside them, go through the highlighter, folding, Enter at every line,
 //! Edit as and the edit pipeline, each case under a time cap. A loop that
-//! stops advancing (round 21: an empty line inside a YAML block scalar
+//! stops advancing (an empty line inside a YAML block scalar
 //! froze the tab) fails here, naming the case, instead of hanging the
 //! suite.
 

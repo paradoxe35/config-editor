@@ -1,5 +1,5 @@
 //! A host's ranges carried from one text to another by what the diff
-//! knows, never by a guess (QA 38: looking for the nearest copy of a
+//! knows, never by a guess (looking for the nearest copy of a
 //! range's text picked the wrong one of two equal values, and left the
 //! locked one editable).
 //!

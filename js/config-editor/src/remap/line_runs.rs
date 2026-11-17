@@ -3,7 +3,7 @@
 //! written once in each text anchoring them (patience diff), and Myers run
 //! only inside the gaps between anchors. A gap too big for Myers that no
 //! line anchors is one changed run on its own: never the whole stretch
-//! from the first change to the last (QA 31: past ~512 edit steps every
+//! from the first change to the last (past ~512 edit steps every
 //! range between two changes grew over all of it).
 
 use std::collections::HashMap;

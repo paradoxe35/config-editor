@@ -1,4 +1,4 @@
-//! QA 34, UX34-4: Ctrl+Enter on a folded line opens the new line after the
+//! Ctrl+Enter on a folded line opens the new line after the
 //! whole folded block (its hidden lines and the closing line a fold leaves
 //! shown), at the folded line's indentation, and the fold stays closed, as
 //! the other line commands take a fold as one unit. In every language.

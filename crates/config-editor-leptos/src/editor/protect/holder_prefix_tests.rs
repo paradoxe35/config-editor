@@ -11,7 +11,7 @@
 //! read-only ranges, typed a key at a time with auto-closing on and off.
 //! So is a new HCL block of a locked block's type with other labels
 //! (`resource "aws_s3_bucket" "logs"` after a locked `resource
-//! "aws_instance" "web"`), and a TOML table beside it (QA 37: with
+//! "aws_instance" "web"`), and a TOML table beside it (with
 //! auto-closing off, the line was wiped when its `{` was typed).
 
 use leptos::prelude::*;

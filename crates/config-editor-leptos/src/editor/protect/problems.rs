@@ -93,7 +93,7 @@ pub(crate) fn unknown_placeholders(
     // How many more of each known token may be real: as many as the host
     // wrote. A token followed as real while the text does not parse takes
     // one, so a copy of its line past it is flagged as one, however many
-    // copies there are (QA 36: a line copied once was not flagged, its
+    // copies there are (a line copied once was not flagged, its
     // copy taking the field's place beside the followed token).
     let mut real_left: HashMap<&str, usize> = HashMap::new();
     for known in known {
@@ -303,7 +303,7 @@ fn moved_or_extra(
 /// (`/b/key/1`, `/b/c/1/key`). The first copy is the field's, the others copies of it.
 /// A block holding the field over other lines that became a list (another
 /// block renamed to its name) moved the field: `/config/db/0/password` is
-/// not `/config/db/password` (QA 37).
+/// not `/config/db/password`.
 fn in_own_field(
     behavior: &dyn ConfigLanguage,
     document: Option<&Value>,

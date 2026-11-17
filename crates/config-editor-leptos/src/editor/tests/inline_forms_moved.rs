@@ -1,4 +1,4 @@
-//! QA `E38-3`/`E38-4`: a map or list its host writes on one line (a TOML
+//! A map or list its host writes on one line (a TOML
 //! inline table, an HCL one-line object attribute, a YAML flow map or
 //! list) moved or copied to another map in an Edit-as view, or moved in
 //! a paste of the whole view, is written on one line where it lands, as

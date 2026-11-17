@@ -1,5 +1,5 @@
 //! A wrong value deep in a recursive `anyOf` costs work linear in its
-//! depth, in every language (SC37-2): the explanation of a value that
+//! depth, in every language: the explanation of a value that
 //! matches none of the options read each option's errors again for each
 //! option above it (twice per level for a rule tree whose options exclude
 //! each other), and the validator kept a value's errors once for every
@@ -214,7 +214,7 @@ fn values(value: &Value) -> usize {
 }
 
 /// A wrong value at every level of recursive options that do not exclude
-/// each other (SC38-3): each value was explained by up to 256 chains of
+/// each other: each value was explained by up to 256 chains of
 /// options, each explanation holding the errors of the values below it,
 /// so the time grew with the depth times the values below (1.2 s a key at
 /// 120 levels). Each option now explains each value once: the work for

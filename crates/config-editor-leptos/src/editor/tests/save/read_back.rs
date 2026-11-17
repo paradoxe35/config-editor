@@ -1,6 +1,6 @@
 //! A save is the host's text only when it reads back as the view holds the
 //! document, keys in the order the user moved them to; otherwise it waits
-//! with a problem on the value (hard-bar QA `D25.editing-1`: an XML
+//! with a problem on the value (an XML
 //! attribute moved below the element's text, or two attributes swapped,
 //! showed the move in the view while the host stayed as it was, and the
 //! save was accepted).
