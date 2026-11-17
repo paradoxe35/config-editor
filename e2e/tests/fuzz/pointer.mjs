@@ -119,14 +119,24 @@ function cardMismatch(seen) {
 // stays; with `escape`, Escape closes it.
 export async function hover(run, action) {
   const { page } = run;
+  // Where the first row is: a notice that shows late (a typing pause after
+  // a comment typed in XML) pushes the rows down under a pointer that rests.
+  const rowsTop = () => page.evaluate(() => window.__fz.root()?.querySelector('.config-editor__code-line')?.getBoundingClientRect().top ?? null);
   const point = await page.evaluate(({ at, column }) => window.__fz.pointInView(at, column), action);
   if (!point) return null;
+  const top = await rowsTop();
   await page.mouse.move(point.x, point.y, { steps: 2 });
   // The card waits out a pause (350 ms); one for another key may take a
   // moment to go.
   await page.waitForTimeout(450);
   let seen = await page.evaluate(({ x, y }) => window.__fz.hoverCard(x, y), point);
   if (cardMismatch(seen)) {
+    // A browser sends a mouse move to a pointer that rests when the layout
+    // moves under it (the headless one does not): the card follows it.
+    if ((await rowsTop()) !== top) {
+      await page.mouse.move(point.x, point.y);
+      await page.waitForTimeout(450);
+    }
     await page.waitForTimeout(500);
     seen = await page.evaluate(({ x, y }) => window.__fz.hoverCard(x, y), point);
     const wrong = cardMismatch(seen);
