@@ -52,7 +52,7 @@ step_clippy() {
 }
 
 step_test() {
-  run_tests test -p config-editor-leptos
+  run_tests test -p config-editor-leptos --features xsd
   # The memory tests count this thread's live allocations: other tests
   # running at the same time would move the count, so they run alone.
   run_tests test -p config-editor-leptos --lib keeps_no_memory -- --ignored --test-threads=1

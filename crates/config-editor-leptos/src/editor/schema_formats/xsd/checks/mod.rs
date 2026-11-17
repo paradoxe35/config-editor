@@ -534,7 +534,7 @@ fn node_at<'n>(top: Option<Node<'n>>, document: &Value, pointer: &str) -> Option
                     node = None;
                 } else {
                     listed = None;
-                    node = elements.first().map(|element| Node::Element(*element));
+                    node = elements.first().map(|element| Node::Element(element));
                 }
             }
             Value::Array(items) => {
@@ -543,7 +543,7 @@ fn node_at<'n>(top: Option<Node<'n>>, document: &Value, pointer: &str) -> Option
                 node = listed
                     .as_ref()
                     .and_then(|elements| elements.get(index))
-                    .map(|element| Node::Element(*element));
+                    .map(|element| Node::Element(element));
                 listed = None;
             }
             _ => return None,
