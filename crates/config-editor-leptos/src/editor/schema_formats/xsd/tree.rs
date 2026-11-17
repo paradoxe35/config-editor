@@ -9,6 +9,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
 use super::super::super::schema::SchemaError;
+use super::super::super::text::{TextSize, text_size};
 
 /// The XML Schema namespace.
 pub(super) const XSD_NS: &str = "http://www.w3.org/2001/XMLSchema";
@@ -110,7 +111,8 @@ impl Lines {
     }
 
     /// One-based line and character column of byte `at` in `text`.
-    fn place(&self, text: &str, at: usize) -> (usize, usize) {
+    fn place(&self, text: &str, at: TextSize) -> (usize, usize) {
+        let at = usize::from(at);
         let line = self.0.partition_point(|start| *start <= at);
         let start = self.0[line - 1];
         let column = text
@@ -137,8 +139,8 @@ pub(super) fn read_at(text: &str, location: &str) -> Result<Node, SchemaError> {
 /// The document's root element, or why `text` is no XML.
 pub(super) fn read(text: &str) -> Result<Node, SchemaError> {
     let lines = Lines::of(text);
-    let error = |at: usize, message: String| {
-        let (line, column) = lines.place(text, at.min(text.len()));
+    let error = |at: TextSize, message: String| {
+        let (line, column) = lines.place(text, at.min(text_size(text.len())));
         SchemaError(format!("{message} (line {line}, column {column})"))
     };
     let mut reader = Reader::from_str(text);
@@ -150,10 +152,13 @@ pub(super) fn read(text: &str) -> Result<Node, SchemaError> {
     let mut stack: Vec<Node> = Vec::new();
     let mut root: Option<Node> = None;
     loop {
-        let start = reader.buffer_position() as usize;
-        let event = reader
-            .read_event()
-            .map_err(|problem| error(reader.error_position() as usize, problem.to_string()))?;
+        let start = text_size(reader.buffer_position() as usize);
+        let event = reader.read_event().map_err(|problem| {
+            error(
+                text_size(reader.error_position() as usize),
+                problem.to_string(),
+            )
+        })?;
         match event {
             Event::Eof => break,
             Event::Start(element) | Event::Empty(element) if root.is_some() && stack.is_empty() => {
@@ -198,7 +203,10 @@ pub(super) fn read(text: &str) -> Result<Node, SchemaError> {
         }
     }
     if !stack.is_empty() {
-        return Err(error(text.len(), "an element is never closed".to_string()));
+        return Err(error(
+            text_size(text.len()),
+            "an element is never closed".to_string(),
+        ));
     }
     root.ok_or_else(|| SchemaError("no root element".to_string()))
 }
@@ -244,7 +252,7 @@ fn open(
     parent: &Prefixes,
     lines: &Lines,
     text: &str,
-    start: usize,
+    start: TextSize,
 ) -> Result<Node, String> {
     let mut attributes = Vec::new();
     let mut declared: Vec<(Option<String>, String)> = Vec::new();
@@ -281,7 +289,8 @@ fn open(
         .find(|(known, _)| *known == prefix)
         .map(|(_, uri)| uri.clone())
         .filter(|uri| !uri.is_empty());
-    let at = start + text[start..].find('<').unwrap_or(0);
+    let start = usize::from(start);
+    let at = text_size(start + text[start..].find('<').unwrap_or(0));
     let (line, column) = lines.place(text, at);
     Ok(Node {
         namespace,

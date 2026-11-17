@@ -491,7 +491,7 @@ impl Markup for XmlBehavior {
     }
 
     fn text_key(&self) -> Option<&'static str> {
-        Some("#text")
+        Some(super::XML_TEXT_KEY)
     }
 
     fn delimiters(&self) -> (char, char) {

@@ -257,7 +257,7 @@ pub(in super::super) enum Symbol {
 
 /// A content model ready to run (built once per model and check).
 pub(in super::super) enum Automaton {
-    States { states: Vec<State>, start: usize },
+    States { states: Vec<State>, first: usize },
     All { items: Vec<Occurs>, min: u64 },
 }
 
@@ -357,7 +357,7 @@ impl Automaton {
         let start = builder.build(model, accept)?;
         Some(Automaton::States {
             states: builder.states,
-            start,
+            first: start,
         })
     }
 
@@ -365,12 +365,12 @@ impl Automaton {
     pub(in super::super) fn run(&self, children: &[Child<'_>]) -> Result<(), Mismatch> {
         match self {
             Automaton::All { items, min } => run_all(items, *min, children),
-            Automaton::States { states, start } => run_states(states, *start, children),
+            Automaton::States { states, first } => run_states(states, *first, children),
         }
     }
 }
 
-fn run_states(states: &[State], start: usize, children: &[Child<'_>]) -> Result<(), Mismatch> {
+fn run_states(states: &[State], first: usize, children: &[Child<'_>]) -> Result<(), Mismatch> {
     let mut seen = vec![usize::MAX; states.len()];
     let mut round = 0;
     let mut closure = |from: Vec<usize>, round: usize| -> Vec<usize> {
@@ -402,7 +402,7 @@ fn run_states(states: &[State], start: usize, children: &[Child<'_>]) -> Result<
         }
         found.into_iter().collect()
     };
-    let mut current = closure(vec![start], round);
+    let mut current = closure(vec![first], round);
     for (index, child) in children.iter().enumerate() {
         let next: Vec<usize> = current
             .iter()
