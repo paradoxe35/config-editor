@@ -195,6 +195,7 @@ const CONFIG_LANGUAGE = {
       "itemMarker",
       "literalQuotes",
       "writtenSeparator",
+      "scalars",
     ],
   },
   parse: { custom: "parse" },
