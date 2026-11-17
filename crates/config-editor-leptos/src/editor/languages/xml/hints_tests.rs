@@ -7,7 +7,7 @@
 use serde_json::{Value, json};
 
 use crate::editor::Language;
-use crate::editor::diagnostics::Schema;
+use crate::editor::schema::Schema;
 
 const SCHEMA: &str = r#"{
   "properties": {
@@ -57,7 +57,7 @@ fn a_value_the_schema_marks_an_attribute_converts_to_one_from_every_language() {
 fn the_text_keeps_its_form_and_only_a_new_value_follows_the_schema() {
     use crate::editor::bridge::Bridge;
     use std::sync::Arc;
-    let bundle = Arc::new(crate::editor::diagnostics::build_schema(SCHEMA).unwrap());
+    let bundle = Arc::new(crate::editor::schema::build_schema(SCHEMA).unwrap());
     // `port` written as an element stays one; `proto`, added in the YAML
     // view, is new: an attribute.
     let host = "<server>\n  <port>80</port>\n  <name>edge</name>\n</server>\n";

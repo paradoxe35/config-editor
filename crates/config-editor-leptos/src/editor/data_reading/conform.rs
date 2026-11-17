@@ -6,7 +6,7 @@
 //! Each node read otherwise than parsed is noted in the [`DataReading`].
 
 use super::DataReading;
-use super::text::{other_reading, text_literal};
+use super::text::{Space, other_reading, text_literal};
 use crate::editor::applies::{Entry, Here, Seen, Types, listed, scalar_text, type_includes};
 use crate::editor::completion::describes_array;
 use crate::editor::language::{Repetition, SchemaPathSegment, pointer_key};
@@ -16,8 +16,19 @@ use serde_json::Value;
 /// by repeating their key: each lone value (or, for blocks, lone object)
 /// where only an array is allowed becomes a one-item array (a single XML
 /// `<dns>` element is `dns: [...]`), and XML text is typed by the schema.
-pub(super) fn conform(value: Value, schema: &Value, repetition: Repetition) -> DataReading {
-    conform_at(value, &Entry::schema(schema), schema, repetition)
+pub(super) fn conform(
+    value: Value,
+    schema: &Value,
+    repetition: Repetition,
+    text_scalars: bool,
+) -> DataReading {
+    conform_at(
+        value,
+        &Entry::schema(schema),
+        schema,
+        repetition,
+        text_scalars,
+    )
 }
 
 /// [`conform`] where `at` is what applies to `value` (every subschema at
@@ -27,12 +38,14 @@ pub(super) fn conform_at(
     at: &Entry<'_>,
     root: &Value,
     repetition: Repetition,
+    text_scalars: bool,
 ) -> DataReading {
     let mut reading = DataReading::default();
     let mut pointer = String::new();
     let mut node = NodeAt {
         root,
         repetition,
+        text_scalars,
         pointer: &mut pointer,
         reading: &mut reading,
     };
@@ -48,6 +61,9 @@ pub(super) fn conform_at(
 struct NodeAt<'p, 'r> {
     root: &'r Value,
     repetition: Repetition,
+    /// Every scalar is text in the language's syntax (see
+    /// `LanguageTraits::scalars_are_text`): read as the type the schema gives.
+    text_scalars: bool,
     pointer: &'p mut String,
     reading: &'p mut DataReading,
 }
@@ -67,7 +83,7 @@ impl NodeAt<'_, '_> {
         );
         let branches = applied.branches();
         let types = applied.types();
-        if repetition == Repetition::Elements {
+        if self.text_scalars {
             let parsed = (!is_filled(value)).then(|| value.clone());
             read_text(value, at, &branches, types, root);
             if let Some(parsed) = parsed.filter(|parsed| parsed != value) {
@@ -139,7 +155,7 @@ impl NodeAt<'_, '_> {
             }
             _ => {}
         }
-        if repetition == Repetition::Elements {
+        if self.text_scalars {
             self.reread_for_object(value, at, &children);
         }
     }
@@ -327,6 +343,10 @@ fn read_text(value: &mut Value, at: &Entry<'_>, branches: &[&Value], types: Type
     let empty = match value {
         Value::Number(_) | Value::Bool(_) | Value::Null => {
             let text = scalar_text(value);
+            if let Some(truth) = spelled_boolean(&text, branches, types) {
+                *value = Value::Bool(truth);
+                return;
+            }
             if read_as_text(value, &text, at, branches, types, root) {
                 *value = Value::String(text);
             }
@@ -336,6 +356,21 @@ fn read_text(value: &mut Value, at: &Entry<'_>, branches: &[&Value], types: Type
             // Text the schema takes as it is stays text (`007` for "an
             // integer or a string").
             let fits = |candidate: &Value| at.accepts(candidate, root) == Some(true);
+            if let Some(truth) = spelled_boolean(text, branches, types) {
+                *value = Value::Bool(truth);
+                return;
+            }
+            // `x-whitespace`: the value checked is the text with its
+            // whitespace replaced or collapsed; saving keeps it as written
+            // (the parse's text is noted by the caller).
+            if types.allows_type("string") && !types.allows_type("number") {
+                let space = Space::of(branches);
+                let folded = space.apply(text);
+                if folded != *text {
+                    *value = Value::String(folded);
+                    return;
+                }
+            }
             if let Some(typed) = text_literal(text)
                 && allowed(&typed)
                 && !fits(&Value::String(text.clone()))
@@ -356,6 +391,30 @@ fn read_text(value: &mut Value, at: &Entry<'_>, branches: &[&Value], types: Type
         *value = Value::String(String::new());
     } else if allowed(&Value::Null) {
         *value = Value::Null;
+    }
+}
+
+/// The truth value `text` spells where the schemas list their own
+/// spellings (`x-true`, `x-false`: XSD's `1` and `0`), when a boolean is
+/// allowed there.
+fn spelled_boolean(text: &str, branches: &[&Value], types: Types) -> Option<bool> {
+    if !types.allows_type("boolean") {
+        return None;
+    }
+    let spells = |keyword: &str| {
+        branches
+            .iter()
+            .filter_map(|branch| branch.get(keyword).and_then(Value::as_array))
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|spelling| spelling == text.trim())
+    };
+    if spells("x-true") {
+        Some(true)
+    } else if spells("x-false") {
+        Some(false)
+    } else {
+        None
     }
 }
 

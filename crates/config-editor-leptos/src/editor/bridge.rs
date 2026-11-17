@@ -397,7 +397,7 @@ impl Bridge {
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
         let sources = view_sources;
-        let told = SaveTold::new(sources.as_ref());
+        let told = SaveTold::new(sources.as_ref()).with_schema(self.shape());
         let rendered = codec::render_told(&value, host, Some(previous_host), self.shape(), told)?;
         // The host's text is patched to read back exactly as a full render
         // would (losses included), so its comments and formatting survive: a

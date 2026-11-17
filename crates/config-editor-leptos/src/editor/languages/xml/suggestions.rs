@@ -396,8 +396,17 @@ pub(super) fn write_insert(key: &str, plan: &InsertPlan<'_>, context: &InsertCon
     if !writes_key(&XmlBehavior, key) {
         return None;
     }
+    // A schema marking attributes (`"xml": {"attribute": true}`) tells
+    // them from elements: a start tag offers only those (when the element
+    // has any), the content only the others.
     if context.position == EntryPosition::Attribute {
+        if !plan.attribute && context.attributes_marked {
+            return None;
+        }
         return attribute_insert(key, plan);
+    }
+    if plan.attribute {
+        return None;
     }
     let (base_indent, unit) = (context.base_indent, context.unit);
     // An object or list value is elements of its own (a list's items

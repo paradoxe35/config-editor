@@ -23,6 +23,9 @@ pub struct InsertPlan<'a> {
     pub list: bool,
     /// The key is a list whose items are objects (a TOML `[[array]]`).
     pub list_of_objects: bool,
+    /// A schema at the key marks it an XML attribute
+    /// (`"xml": {"attribute": true}`); other languages ignore it.
+    pub attribute: bool,
 }
 
 /// The value an [`InsertPlan`] writes.
@@ -124,8 +127,20 @@ impl<'a> InsertPlan<'a> {
             object: object.is_some(),
             list: array.is_some(),
             list_of_objects,
+            attribute: marks_attribute(&Here::walk(
+                at.cloned().unwrap_or_else(|| Entry::schema(property)),
+                root,
+                Seen::default(),
+            )),
         }
     }
+}
+
+/// Whether a schema applying at `here` marks it an XML attribute.
+pub(super) fn marks_attribute(here: &Here<'_>) -> bool {
+    here.branches()
+        .iter()
+        .any(|branch| branch.pointer("/xml/attribute") == Some(&Value::Bool(true)))
 }
 
 /// Whether the items of the list `array` describes are text.

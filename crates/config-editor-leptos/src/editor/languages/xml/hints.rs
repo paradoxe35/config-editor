@@ -1,20 +1,12 @@
 //! What the schema says of how XML writes a value: the OpenAPI XML object's
 //! `"xml": {"attribute": true}` on a property makes it an attribute.
 //! Other views ignore the keyword (as the validator does), so one schema
-//! serves every language.
+//! serves every language. The schema is read with the one walker
+//! (`applies`); the suggestions' side of the keyword is decided in core
+//! (`InsertPlan::attribute`, `InsertContext::attributes_marked`).
 
 use super::*;
-use super::super::super::completion::{child_schemas, resolve_branches, schema_at_path};
-use super::super::super::language::SchemaPathSegment;
-
-/// Whether one of `schemas` (the schemas of one value) marks it an
-/// attribute: `"xml": {"attribute": true}` on a branch.
-pub(super) fn hinted_attribute(schemas: &[&Value], root: &Value) -> bool {
-    schemas
-        .iter()
-        .flat_map(|schema| resolve_branches(schema, root))
-        .any(|branch| branch.pointer("/xml/attribute") == Some(&Value::Bool(true)))
-}
+use super::super::super::applies::{Next, Walking, each_value};
 
 /// The key paths (array indices left out, as [`AttributePaths`] holds
 /// them) of the scalars of `value` that `schema` marks attributes, but not
@@ -22,68 +14,57 @@ pub(super) fn hinted_attribute(schemas: &[&Value], root: &Value) -> bool {
 /// what it writes, the schema only decides what is new.
 pub(super) fn schema_attribute_paths(value: &Value, schema: &Value, old: Option<&Value>) -> AttributePaths {
     let mut found = AttributePaths::new();
-    walk(value, &[schema], schema, old, &mut Vec::new(), &mut found, 0);
+    each_value(
+        value,
+        schema,
+        Walking { decided: false, repeats_arrays: true },
+        &mut |at| {
+            let Some((keys, old_here)) = follow(value, old, at.pointer) else {
+                return Next::Past;
+            };
+            let scalar = matches!(
+                value.pointer(at.pointer),
+                Some(Value::String(_) | Value::Number(_) | Value::Bool(_))
+            );
+            let marked = at
+                .here
+                .branches()
+                .iter()
+                .any(|branch| branch.pointer("/xml/attribute") == Some(&Value::Bool(true)));
+            if scalar && marked && old_here.is_none() && !keys.is_empty() {
+                found.insert(keys);
+            }
+            Next::Into
+        },
+    );
     found
 }
 
-fn walk(
-    value: &Value,
-    schemas: &[&Value],
-    root: &Value,
-    old: Option<&Value>,
-    path: &mut Vec<String>,
-    found: &mut AttributePaths,
-    depth: usize,
-) {
-    if depth > 64 || schemas.is_empty() {
-        return;
-    }
-    match value {
-        Value::Object(map) => {
-            for (key, child) in map {
-                let segment = SchemaPathSegment::Key(key.clone());
-                let child_schemas: Vec<&Value> = schemas
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
-                let old_child = old.and_then(|old| old.get(key));
-                path.push(key.clone());
-                let scalar = matches!(child, Value::String(_) | Value::Number(_) | Value::Bool(_));
-                if scalar && old_child.is_none() && hinted_attribute(&child_schemas, root) {
-                    found.insert(path.clone());
-                } else {
-                    walk(child, &child_schemas, root, old_child, path, found, depth + 1);
-                }
-                path.pop();
+/// The keys on the way to `pointer` in `value` (array indices left out),
+/// and what `old` holds there.
+fn follow<'o>(value: &Value, old: Option<&'o Value>, pointer: &str) -> Option<(Vec<String>, Option<&'o Value>)> {
+    let mut keys = Vec::new();
+    let (mut here, mut before) = (value, old);
+    for token in pointer.split('/').skip(1) {
+        let token = token.replace("~1", "/").replace("~0", "~");
+        match here {
+            Value::Object(map) => {
+                here = map.get(&token)?;
+                before = before.and_then(|before| before.get(&token));
+                keys.push(token);
             }
-        }
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                let segment = SchemaPathSegment::ArrayItem(index);
-                let item_schemas: Vec<&Value> = schemas
-                    .iter()
-                    .flat_map(|schema| child_schemas(schema, root, &segment))
-                    .collect();
-                let old_item = old.and_then(|old| match old {
+            Value::Array(items) => {
+                let index: usize = token.parse().ok()?;
+                here = items.get(index)?;
+                before = before.and_then(|before| match before {
                     Value::Array(items) => items.get(index),
                     // A lone element read where the list now is.
                     other if index == 0 => Some(other),
                     _ => None,
                 });
-                walk(item, &item_schemas, root, old_item, path, found, depth + 1);
             }
+            _ => return None,
         }
-        _ => {}
     }
-}
-
-/// Whether the element at `path` has a property the schema marks an
-/// attribute.
-pub(super) fn holder_has_attributes(root: &Value, path: &[SchemaPathSegment]) -> bool {
-    schema_at_path(root, path, true)
-        .into_iter()
-        .flat_map(|schema| resolve_branches(schema, root))
-        .filter_map(|branch| branch.get("properties").and_then(Value::as_object))
-        .flat_map(|properties| properties.values())
-        .any(|property| hinted_attribute(&[property], root))
+    Some((keys, before))
 }

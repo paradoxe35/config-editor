@@ -157,6 +157,10 @@ pub struct InsertContext<'a> {
     /// ([`Typing::rewritable_keys`]): the entry is one more item,
     /// written the same way (another HCL block).
     pub another_item: bool,
+    /// The schema marks some property of the container an XML attribute
+    /// (`"xml": {"attribute": true}`): a start tag offers those alone, and
+    /// the content the others.
+    pub attributes_marked: bool,
 }
 
 /// How a multi-line insert is laid out when the caret follows containers

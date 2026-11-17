@@ -44,3 +44,39 @@ pub(crate) fn other_reading(value: &Value) -> Option<Value> {
         _ => None,
     }
 }
+
+/// What a schema's `x-whitespace` asks of a string's whitespace.
+#[derive(Clone, Copy)]
+pub(super) enum Space {
+    Preserve,
+    /// Each tab, line feed and carriage return is a space.
+    Replace,
+    /// Replaced, then runs of spaces made one and the ends trimmed.
+    Collapse,
+}
+
+impl Space {
+    /// The rule of `branches`: the strictest one any gives.
+    pub(super) fn of(branches: &[&Value]) -> Self {
+        let rules = branches
+            .iter()
+            .filter_map(|branch| branch.get("x-whitespace").and_then(Value::as_str));
+        let mut space = Space::Preserve;
+        for rule in rules {
+            match rule {
+                "collapse" => return Space::Collapse,
+                "replace" => space = Space::Replace,
+                _ => {}
+            }
+        }
+        space
+    }
+
+    pub(super) fn apply(self, text: &str) -> String {
+        match self {
+            Space::Preserve => text.to_string(),
+            Space::Replace => text.replace(['\t', '\n', '\r'], " "),
+            Space::Collapse => text.split_whitespace().collect::<Vec<_>>().join(" "),
+        }
+    }
+}
