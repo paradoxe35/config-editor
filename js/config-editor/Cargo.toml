@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 console_error_panic_hook = "0.1.7"
 js-sys = "0.3"
 leptos = { version = "0.8.23", features = ["csr"] }
-# `xsd`: XML Schema as a schema format (+46 KB gzip, measured by
+# `xsd`: XML Schema as a schema format (+72 KB gzip, measured by
 # scripts/wasm-sizes.sh), shipped in the one npm wasm.
 config-editor-leptos = { path = "../../crates/config-editor-leptos", features = ["xsd"] }
 serde = { version = "1", features = ["derive"] }

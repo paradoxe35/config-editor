@@ -2266,17 +2266,19 @@ headless functions) is left out by the linker, feature or not.
 
 | Build                                                           | wasm, gzip -9 |
 | --------------------------------------------------------------- | ------------- |
-| Everything (the default features)                               | 2615 KB       |
-| YAML + JSON, every optional feature, no `schema-validation`     | 1367 KB       |
-| YAML + JSON, every optional feature, with `schema-validation`   | 2174 KB       |
-| Minimal: YAML only, no optional feature, no `schema-validation` | 1093 KB       |
-| Saved by leaving out `schema-validation` (from everything)      | -805 KB       |
+| Everything (the default features)                               | 2668 KB       |
+| YAML + JSON, every optional feature, no `schema-validation`     | 1420 KB       |
+| YAML + JSON, every optional feature, with `schema-validation`   | 2232 KB       |
+| Minimal: YAML only, no optional feature, no `schema-validation` | 1144 KB       |
+| Added by `xsd` (to everything)                                  | +72 KB        |
+| XML + `xsd`, every optional feature, no `schema-validation`     | 1404 KB       |
+| Saved by leaving out `schema-validation` (from everything)      | -809 KB       |
 | Saved by leaving out `search` (from everything)                 | -41 KB        |
-| Saved by leaving out `folding` (from everything)                | -35 KB        |
-| Saved by leaving out `diff` (from everything)                   | -32 KB        |
-| Saved by leaving out `protect` (from everything)                | -147 KB       |
+| Saved by leaving out `folding` (from everything)                | -36 KB        |
+| Saved by leaving out `diff` (from everything)                   | -31 KB        |
+| Saved by leaving out `protect` (from everything)                | -150 KB       |
 
-Measured 2026-11-16 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
+Measured 2026-11-17 with rustc 1.99.1, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
 
 <!-- wasm-sizes:end -->
 
