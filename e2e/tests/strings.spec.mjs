@@ -386,7 +386,11 @@ test("every built-in text comes from the strings setting", async ({ page }) => {
   );
   await look();
 
-  // A read-only field, and an edit it refuses.
+  // A read-only field, and an edit it refuses. Replace All changed
+  // `public_address` above: undone, so it reads as the host gave it (a
+  // field locked after it was changed locks nothing until it does).
+  await input(page).focus();
+  await page.keyboard.press("Control+z");
   await page.locator("#lock-address").check();
   await expect(page.locator(".config-editor__lock-marker")).toHaveCount(1);
   await look();

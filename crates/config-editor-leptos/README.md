@@ -1189,6 +1189,11 @@ view! {
   taken with "Reload" from the changed-outside-the-editor notice, may change
   read-only values (and bring their own secret placeholders). A refused
   edit changes nothing, so it leaves the dirty flag as it was.
+- A field named in `read_only_paths` after the user changed it holds the
+  user's text, not the host's: it locks nothing, every edit there goes
+  through (Backspace, undo, the line typed again), and the save waits with
+  the `save_held_before_lock` reason. Once it reads as the host's text
+  gives it, it is locked.
 - With folding, an edit that removes or changes a fold holding a locked
   value is refused like any other, and the fold stays closed. A folded
   block holding a read-only line or a secret placeholder shows its lock or

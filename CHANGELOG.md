@@ -175,7 +175,8 @@ do more. Here they are in one place.
 - Give `readOnlyRanges` with the text they were worked out for (the `value`,
   an echo, or `rangesFor`); the editor moves them to the document. A range
   whose text was changed before it was locked locks nothing, and the save
-  waits until that text is back.
+  waits until that text is back; so does a field named in `readOnlyPaths`
+  after it was changed.
 - In a custom language that gives no positions (`spans`), a locked field is
   checked by value, not by place. While the text does not parse, edits go
   through and the save waits until it parses again.

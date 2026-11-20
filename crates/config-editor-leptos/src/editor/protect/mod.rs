@@ -443,6 +443,15 @@ mod lock_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod locked_after_change_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod many_copies_tests;
 #[cfg(all(
     test,

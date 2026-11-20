@@ -469,6 +469,18 @@ impl<'r, 'a> Placer<'r, 'a> {
     /// The field at `pointer`, locked for `reason`, placed by the first
     /// step that finds it.
     pub(super) fn place(&mut self, pointer: String, reason: Reason) -> Placed {
+        // Changed before the host named it, its text on screen is the
+        // user's, not the host's: like a host range whose text was changed
+        // before it was given, it locks no span (every way back is taken)
+        // and is held at the host's value, placed by its path once it
+        // reads so again.
+        if self
+            .held
+            .iter()
+            .any(|pin| pin.pointer == pointer && pin.cause == HoldCause::ChangedBeforeLock)
+        {
+            return Placed::Unplaced(pointer, reason);
+        }
         // Followed from the text before by position while the text does
         // not parse, or the field reads otherwise than pinned (held):
         // nothing else says where its pinned text is.

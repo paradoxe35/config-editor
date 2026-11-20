@@ -793,6 +793,11 @@ editor.update({ readOnlyPaths: ["/limits", "/tls/cert"] }); // at runtime
   nothing reaches you: `onChange` and `value` wait, and `save()` waits
   (returns `false`, saying which field and what happened to it) until it
   reads as given again.
+- A field named in `readOnlyPaths` after the user changed it holds the
+  user's text, not yours: it locks nothing, every edit there goes through
+  (Backspace, undo, the line typed again), and `save()` waits with a
+  "Not saved: … was changed before the host made it read-only" reason. Once
+  it reads as your text gives it, it is locked.
 - Whitespace, comments and punctuation around a locked field stay free
   (also whitespace inside it, such as a space after `:`); in YAML the
   lines inside a locked block keep their indent (it is structure). A syntax error anywhere
