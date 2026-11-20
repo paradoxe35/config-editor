@@ -207,6 +207,9 @@ export class EditorBinding extends Binding {
   #reset = null;
   // Each live prop as last applied.
   #applied = {};
+  // The `readOnlyRanges` (JSON) a new value last came with that the editor
+  // refused: values go alone until the parent renders other ranges.
+  #badRanges = null;
   // The bound value each positional prop (`readOnlyRanges`,
   // `hostDiagnostics`) was given with, when its list last changed: its
   // places are in that text, sent along as `rangesFor`, on a re-mount too.
@@ -359,14 +362,36 @@ export class EditorBinding extends Binding {
     const value = props.value;
     // The editor tells the parent's echoes from its own values (`echoes`).
     const handled = value === this.#handledValue && props.valueRevision === this.#handledRevision;
+    // A new value goes with the read-only ranges the parent renders with
+    // it, changed or not: they are read in that text (a parent that
+    // renders the same ranges with a text of its own means them for that
+    // text), never carried into it by a diff that cannot tell where its
+    // lines went.
+    let rangesWithValue = false;
     if (this.instance && value !== undefined && !handled) {
+      this.#handledValue = value;
+      this.#handledRevision = props.valueRevision;
+      const ranges = JSON.stringify(props.readOnlyRanges ?? []);
+      this.#applied.readOnlyRanges = ranges;
+      this.#givenFor.readOnlyRanges = value;
+      rangesWithValue = true;
+      // The revision the parent stored with it, when it passes it back:
+      // its echo is then matched exactly.
+      const revision = props.valueRevision;
+      const update = revision === undefined ? { value } : { value, valueRevision: revision };
       this.guard((editor) => {
-        this.#handledValue = value;
-        this.#handledRevision = props.valueRevision;
-        // The revision the parent stored with it, when it passes it back:
-        // its echo is then matched exactly.
-        const revision = props.valueRevision;
-        editor.update(revision === undefined ? { value } : { value, valueRevision: revision });
+        if (ranges === this.#badRanges) return editor.update(update);
+        try {
+          editor.update({ ...update, readOnlyRanges: JSON.parse(ranges) });
+        } catch (error) {
+          // Ranges that fit neither this text nor the one the last ones
+          // came with are reported once; the value still applies (the
+          // editor keeps the locks it had, carried into it), and so do the
+          // next ones until the parent renders other ranges.
+          this.#badRanges = ranges;
+          this.report(error);
+          editor.update(update);
+        }
       });
     }
     // The live props that changed, each in its own `update`: a bad one
@@ -380,6 +405,7 @@ export class EditorBinding extends Binding {
     if (changed("readOnly", props.readOnly ?? false)) update.readOnly = props.readOnly ?? false;
     if (changed("readOnlyReason", props.readOnlyReason ?? null)) update.readOnlyReason = props.readOnlyReason ?? null;
     for (const name of ["hostDiagnostics", "readOnlyPaths", "readOnlyRanges"]) {
+      if (name === "readOnlyRanges" && rangesWithValue) continue;
       const list = JSON.stringify(props[name] ?? []);
       // A new list is given with the bound value now.
       if (this.#applied[name] !== list) this.#givenFor[name] = value;

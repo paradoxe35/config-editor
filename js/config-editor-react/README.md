@@ -444,6 +444,8 @@ always applies (also before the editor has mounted, from an effect: it is
 applied when the editor mounts) and is reported through `onChange` so the
 parent's state follows.
 
+`readOnlyRanges` go to the editor with each new `value`, changed or not, and are read in that text: a parent that renders the same ranges with a text of its own (a file loaded, a reset in its state) locks exactly what they name there. Until the ranges come with a value again (between `setValue` and the next render), the locks are carried into the new text by a diff: where it cannot tell where a lock went, the whole changed lines stay locked.
+
 </details>
 
 ## Ref

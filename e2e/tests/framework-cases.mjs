@@ -133,6 +133,40 @@ export function frameworkCases(name) {
       await expect.poll(host).toBe(typed);
     });
 
+    // The locks a parent renders with a text of its own are read in that
+    // text: the binding sends them with it, though their JSON did not
+    // change (sent apart, the editor carried them by a diff that cannot
+    // tell where an all-new header went, and locked every changed line).
+    for (const query of ['', '?late']) {
+      test(`${query || '(controlled)'}: a parent's locks given with a new text of its own lock what they name there, nothing more`, async ({ page: browserPage }) => {
+        const errors = [];
+        browserPage.on('pageerror', (error) => errors.push(String(error)));
+        browserPage.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+        await browserPage.goto(page(name) + query);
+        await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+        await browserPage.locator('#lock-first-line').check();
+        await browserPage.waitForTimeout(200);
+        const text = '# new header\nlisten: 1\npublic_address: a.example\n';
+        await browserPage.evaluate((text) => window.setParentValue(text), text);
+        await expect(input(browserPage)).toHaveValue(text);
+        await browserPage.waitForTimeout(300);
+        const typeAfter = async (what, typed) => {
+          await input(browserPage).evaluate((element, what) => {
+            const at = element.value.indexOf(what) + what.length;
+            element.focus();
+            element.setSelectionRange(at, at);
+          }, what);
+          await browserPage.keyboard.type(typed);
+        };
+        await typeAfter('listen: 1', '9');
+        await typeAfter('a.example', '8');
+        await typeAfter('# new header', 'Z');
+        await expect(input(browserPage)).toHaveValue('# new header\nlisten: 19\npublic_address: a.example8\n');
+        await expect(saved(browserPage)).toHaveText('# new header\nlisten: 19\npublic_address: a.example8\n', { timeout: 5000 });
+        expect(errors).toEqual([]);
+      });
+    }
+
     for (const mode of ['', '?uncontrolled']) {
       test(`a re-mount keeps the edited document ${mode || '(controlled)'}`, async ({ page: browserPage }) => {
         await browserPage.goto(page(name) + mode);
