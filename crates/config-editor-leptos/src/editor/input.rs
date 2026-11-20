@@ -399,11 +399,15 @@ pub(super) fn gutter_move(state: EditorState, event: &web_sys::MouseEvent) {
 /// elsewhere. The press is the start of a click on a line number or a marker
 /// or of a drag from one: a drag ends over the text, and the keys typed after
 /// it belong to the editor, not to the page the press would blur it to.
+/// As a click in the text does (and as in VS Code), it closes the
+/// suggestion list; what the press is on still does its own (selects the
+/// line, folds, opens the change).
 pub(super) fn gutter_press(state: EditorState, event: &web_sys::MouseEvent) {
     if event.button() != 0 {
         return;
     }
     event.prevent_default();
+    state.close_suggestions();
     if let Some(element) = state.textarea() {
         let _ = element.focus_in_place();
     }
