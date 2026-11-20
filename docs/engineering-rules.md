@@ -273,8 +273,26 @@ contributors.
    on disk.
 7. **Secrets stay in one ignored file.** They never go in commands, URLs,
    logs or commits. Scripts read them from that file.
-8. **A test spec with a syntax error must fail CI,** not silently skip its
-   tests. Check that your test planner reports when it finds no tests.
+8. **Shard slow test suites (end-to-end, browser) across machines:**
+   - **Build once.** One job builds the app and packages and saves the build.
+     Every test machine runs from that same build, so no machine builds its
+     own.
+   - **Machines from the test count.** A planning step lists the tests and
+     starts one machine per N tests, so the run stays fast as the suite
+     grows.
+   - **Deal tests one by one** (round-robin), not in runs by file. Slow specs
+     often sit next to each other, and a run-based split (Playwright's
+     `--shard`) puts them all on one machine.
+   - **Timed tests get machines of their own,** one worker each, so the other
+     tests don't skew their numbers.
+   - **The planner fails when a spec fails to load or no test is listed.** A
+     spec with a syntax error otherwise lists zero tests, and the run reports
+     success while skipping everything.
+   - **Merge the shard reports** into one report, so a failure is easy to
+     find.
+   - **Keep the shared build until the whole run is done.** If a cleanup step
+     deletes it early, a single failed shard can't be re-run.
+   - **Locally, run only the specs you touched.** CI runs the full suite.
 
 ## 12. Rust
 
