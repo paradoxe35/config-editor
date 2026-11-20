@@ -870,17 +870,25 @@ fn check_forms(
             }
         }
     }
+    let moved_away = moved_away(&start.value, now);
     for (pointer, value) in pointers(now) {
         let Some(form) = after.get(&pointer) else {
             continue;
         };
+        // Under a map or list whose entries moved elsewhere, a value at a
+        // pointer the start held is no value left alone there: it came
+        // from somewhere, and is judged as moved from where its name held it.
+        let left_in_place = !moved_away
+            .iter()
+            .any(|from| pointer.starts_with(&format!("{from}/")));
         let parent = &pointer[..pointer.rfind('/').unwrap_or(0)];
         let new_parent = !parent.is_empty() && start.value.pointer(parent).is_none();
         // A scalar left alone across views that read it otherwise (an XML
         // view reads every scalar as text, a switch writes the next view
         // from that reading) keeps the host's value and text: `'8080'`
         // stays a string, not the number with the same text.
-        if let Some(held) = start.value.pointer(&pointer)
+        if left_in_place
+            && let Some(held) = start.value.pointer(&pointer)
             && held != value
             && scalar_text(held).is_some()
             && scalar_text(held) == scalar_text(value)
@@ -896,7 +904,7 @@ fn check_forms(
             )
             .written(form, &pointer, false, new_parent));
         }
-        if start.value.pointer(&pointer) == Some(value) {
+        if left_in_place && start.value.pointer(&pointer) == Some(value) {
             if changed_before.contains(&pointer) {
                 continue;
             }
@@ -1021,6 +1029,47 @@ fn reshaped(was: &Value, now: Option<&Value>) -> bool {
         (Value::Object(_) | Value::Array(_), _) => true,
         _ => false,
     }
+}
+
+/// The maps and lists (not empty, not the root) of `start` whose place in
+/// `now` holds other entries while a new place (one the start held
+/// otherwise) holds all of them as they were: their entries moved there
+/// (a block header deleted and another copied above them in an HCL view
+/// nests a map in a copy of its key), so what their place holds now came
+/// from elsewhere.
+fn moved_away(start: &Value, now: &Value) -> Vec<String> {
+    let held: Vec<(String, &Value)> = pointers(now);
+    pointers(start)
+        .into_iter()
+        .filter(|(pointer, was)| {
+            !pointer.is_empty()
+                && !is_empty_container(was)
+                && (was.is_object() || was.is_array())
+                && reshaped(was, now.pointer(pointer))
+                && held.iter().any(|(other, value)| {
+                    other != pointer && value == was && start.pointer(other) != Some(*was)
+                })
+        })
+        .map(|(pointer, _)| pointer)
+        .collect()
+}
+
+#[test]
+fn a_map_held_whole_elsewhere_while_its_place_holds_others_moved_away() {
+    use serde_json::json;
+    let start = json!({"a": {"k1": {"b": 5}, "k3": {"b": 6}}});
+    let nested = json!({"a": {"k1": {"k1": {"b": 5}, "b": 6}}});
+    assert_eq!(moved_away(&start, &nested), vec!["/a/k1".to_string()]);
+    // Copied, its place still holding it: nothing moved away.
+    let copied = json!({"a": {"k1": {"b": 5}, "k3": {"b": 6}, "k4": {"b": 5}}});
+    assert!(moved_away(&start, &copied).is_empty());
+    // Its entries cut, a map alike that the start held too is no place
+    // they moved to.
+    let twins = json!({"a": {"k1": {"b": 5}, "k2": {"b": 5}}});
+    assert!(moved_away(&twins, &json!({"a": {"k1": {}, "k2": {"b": 5}}})).is_empty());
+    // Its place holding other entries, held nowhere whole: rebuilt.
+    let rebuilt = json!({"a": {"k1": {"b": 5, "c": 1}, "k3": {"c": 1}}});
+    assert!(moved_away(&start, &rebuilt).is_empty());
 }
 
 /// A container counts as rebuilt only when its keys, its length or its
