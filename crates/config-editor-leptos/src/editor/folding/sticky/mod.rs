@@ -115,22 +115,28 @@ impl Sticky {
 }
 
 /// Where the view of the text area `element`, scrolled to `scroll` pixels,
-/// is, for at most `max_lines` sticky lines: never more than a quarter of
-/// its rows, as VS Code keeps them.
+/// is, for at most `max_lines` sticky lines (see [`most_lines`]).
 fn view_of(element: &web_sys::HtmlTextAreaElement, scroll: f64, max_lines: usize) -> View {
     let metrics = read_editor_metrics(element);
     let rows = f64::from(element.client_height()) / metrics.line_height.max(1.0);
+    View {
+        top: scroll - metrics.padding_top,
+        line_height: metrics.line_height,
+        max_lines: most_lines(rows, max_lines),
+    }
+}
+
+/// How many sticky lines a view `rows` rows tall shows, for at most
+/// `max_lines`: never more than a quarter of its rows, as VS Code keeps
+/// them, and at least one.
+fn most_lines(rows: f64, max_lines: usize) -> usize {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         reason = "a small, non-negative count of rows"
     )]
-    let quarter = (rows * 0.25).round().max(1.0) as usize;
-    View {
-        top: scroll - metrics.padding_top,
-        line_height: metrics.line_height,
-        max_lines: max_lines.min(quarter),
-    }
+    let quarter = (rows / 4.0).floor().max(1.0) as usize;
+    max_lines.min(quarter)
 }
 
 /// The view of `area` as it is scrolled now.

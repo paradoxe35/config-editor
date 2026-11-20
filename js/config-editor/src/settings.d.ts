@@ -104,7 +104,7 @@ export interface EditorSettings {
    */
   stickyScroll?: boolean;
   /**
-   * The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never over a quarter of the text area.
+   * The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never more than fit in a quarter of the text area (at least one).
    *
    * @default 5
    */

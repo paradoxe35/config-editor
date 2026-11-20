@@ -99,7 +99,8 @@ pub struct EditorSettings {
     /// feature.
     pub sticky_scroll: bool,
     /// The most lines sticky scroll shows, 1 to 20 (others are taken as the
-    /// nearest), and never over a quarter of the text area.
+    /// nearest), and never more than fit in a quarter of the text area (at
+    /// least one).
     pub sticky_scroll_max_lines: StickyScrollLines,
     /// Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off,
     /// the key is left to the browser and only the handle's `save` saves.

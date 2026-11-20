@@ -8,6 +8,7 @@ use super::super::super::languages::Language;
 use super::super::super::projection::Projection;
 use super::super::super::test_state::TestEditor;
 use super::super::super::work_count::{Work, counted};
+use super::most_lines;
 use super::scopes::{Scopes, View, without_bare_roots};
 use crate::EditorSettings;
 use crate::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError};
@@ -210,6 +211,24 @@ fn a_root_that_only_opens_a_bracket_does_not_stick_in_any_language() {
         })
         .collect();
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn the_sticky_lines_never_take_more_than_a_quarter_of_the_rows() {
+    for (rows, max_lines, wanted) in [
+        (10.0, 20, 2),
+        (11.9, 20, 2),
+        (12.0, 20, 3),
+        (40.0, 5, 5),
+        (3.0, 20, 1),
+        (0.0, 20, 1),
+    ] {
+        assert_eq!(
+            most_lines(rows, max_lines),
+            wanted,
+            "{rows} rows, at most {max_lines}"
+        );
+    }
 }
 
 #[test]

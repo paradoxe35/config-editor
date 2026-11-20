@@ -215,7 +215,7 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 | `go_to_line`               | `true`                      | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                                             |
 | `folding`                  | `true`                      | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
 | `sticky_scroll`            | `true`                      | Sticky scroll, as in VS Code: the lines opening the blocks around the top line stay at the top while the text scrolls; a click goes back to one. Works with `folding` off too. In Rust, needs the `folding` Cargo feature.                                                         |
-| `sticky_scroll_max_lines`  | `StickyScrollLines::new(5)` | The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never over a quarter of the text area.                                                                                                                                                          |
+| `sticky_scroll_max_lines`  | `StickyScrollLines::new(5)` | The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never more than fit in a quarter of the text area (at least one).                                                                                                                               |
 | `save_shortcut`            | `true`                      | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.                                                                                                                                             |
 | `strings`                  | English (see below)         | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`.                                                                                       |
 
@@ -1566,9 +1566,9 @@ While the text scrolls, the lines that open the blocks around the top line
 Code's sticky scroll does: the innermost is pushed up as its block ends,
 and a click on one scrolls back to it with the caret at its start. At most
 `sticky_scroll_max_lines` lines show (5 by default, 1 to 20), and never
-more than a quarter of the text area. A root that only opens a bracket
-(JSON's `{`) names nothing and does not stick: the lines start at its first
-key, as in VS Code. They come from the same blocks as
+more than fit in a quarter of the text area (always one). A root that only
+opens a bracket (JSON's `{`) names nothing and does not stick: the lines
+start at its first key, as in VS Code. They come from the same blocks as
 folding ([`fold_ranges`](#custom-languages), also with the `folding`
 setting off), so they work in every language, a custom one too, in an
 Edit-as view and with folds closed, and they show each line as the text
