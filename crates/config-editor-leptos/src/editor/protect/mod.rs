@@ -629,6 +629,8 @@ mod taken_tests;
     feature = "xml"
 ))]
 mod tests;
+#[cfg(all(test, feature = "yaml", feature = "xml"))]
+mod token_piece_tests;
 #[cfg(all(
     test,
     feature = "yaml",
