@@ -5,6 +5,82 @@ use super::ops::{Op, Put, Take};
 use super::replay;
 use crate::editor::languages::Language;
 
+/// P3: a TOML time moved past a line in a YAML view after a save keeps its
+/// host form (a time, not the text of one).
+#[test]
+fn a_toml_time_moved_by_a_line_command_after_a_save_keeps_its_form() {
+    replay(
+        Language::TOML,
+        Language::YAML,
+        "[alpha]\nk1 = 1979-05-27\nk2 = 07:32:00\n[beta]\nk3 = 07:32:00\nk4 = \"plain\" # note 1\n",
+        &[
+            Op::Type {
+                line: 51,
+                column: 2,
+                text: "\"",
+            },
+            Op::Pause,
+            Op::MoveLine {
+                line: 57,
+                down: true,
+            },
+        ],
+    );
+}
+
+/// P2: a YAML alias left alone stays an alias when a TOML view's cuts and
+/// pastes move the lines around it.
+#[test]
+fn a_yaml_alias_left_alone_stays_an_alias_across_toml_pastes() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "alpha:\n  k1:\n    - 3\n  k2: 0x1F # note 1\n  k3:\n    base: &bk3 5\n    copy: *bk3\n  k4: 'single'\nbeta:\n  k5: 'single'\n  k6: !!str 5\n  k7:\n    base: &bk7 5\n    copy: *bk7\ngamma:\n  k8:\n    base: &bk8 5\n    copy: *bk8\n  k9: !Ref Param # note 4\ndelta:\n  k10: \"double\"\n  k11: >-\n  k12: 1.50\n  k13: [a, 'b', 3] # note 5\n",
+        &[
+            Op::Cut {
+                line: 35,
+                how: Take::Entry,
+            },
+            Op::DeleteLine { line: 55 },
+            Op::Paste {
+                line: 46,
+                how: Put::Before,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 63,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P2: a list item copied in a YAML view and the key renamed by a replace
+/// in a TOML view saves the list as the view shows it.
+#[test]
+fn a_list_item_copied_then_a_key_replaced_saves_the_list_as_shown() {
+    replay(
+        Language::HCL,
+        Language::YAML,
+        "alpha {\n  k1 = var.on ? 1 : 2 # note 2\n  k2 = var.name\n  k3 = [1, 2] # note 5\n  k4 { one = true } # note 6\n}\nbeta {\n  k5 = [1, 2]\n  k6 { one = true } # note 9\n}\n",
+        &[
+            Op::CopyLine {
+                line: 32,
+                down: true,
+            },
+            Op::Enter {
+                line: 31,
+                column: 1001,
+            },
+            Op::Switch { to: 2 },
+            Op::ReplaceAll {
+                pick: 28,
+                suffix: "Y",
+            },
+        ],
+    );
+}
+
 /// P2: an edit made in the host's own language stays in the host text when a
 /// view of another language saves after it.
 #[test]

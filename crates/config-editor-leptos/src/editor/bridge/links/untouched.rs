@@ -151,15 +151,22 @@ impl Links {
                             .as_ref()
                             .filter(|shown| shown.language == label)?;
                         let at = format!("{}{rest}", shown.pointer);
-                        if shown.kept.as_ref().is_some_and(|kept| !kept.contains(&at)) {
-                            return None;
-                        }
-                        Some(Candidate {
-                            host: source.host.clone(),
-                            from: format!(
-                                "{}{rest}",
-                                source.holding.value_of(source.pointer.clone())
+                        // A text a switch wrote names each scalar's own
+                        // source: the item holding it may hold items moved
+                        // or copied within it.
+                        let (host, from) = match &shown.kept {
+                            Some(kept) => kept.get(&at)?.clone(),
+                            None => (
+                                source.host.clone(),
+                                format!(
+                                    "{}{rest}",
+                                    source.holding.value_of(source.pointer.clone())
+                                ),
                             ),
+                        };
+                        Some(Candidate {
+                            host,
+                            from,
                             shown: shown.text.clone(),
                             at,
                             pointer,

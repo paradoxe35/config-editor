@@ -10,7 +10,7 @@ use super::super::super::text::TextSize;
 use super::super::super::work_count::{Work, note, note_many};
 use super::items::{Shared, items, items_and_shared, line_starts, shared_starts};
 use super::{Holding, HostPaths, HostReading, Link, Links, Shown, Source, content, outer_first};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// What a save is told of the view's items: each one's source, by its
@@ -384,10 +384,10 @@ impl Links {
     ) -> Links {
         // The scalars the user left as the editor wrote them, which the
         // new text writes at the same pointers.
-        let kept: Arc<HashSet<String>> = Arc::new(
+        let kept: Arc<super::KeptScalars> = Arc::new(
             self.untouched(from_language, from_text)
                 .into_iter()
-                .map(|untouched| untouched.pointer)
+                .map(|untouched| (untouched.pointer, (untouched.host, untouched.from)))
                 .collect(),
         );
         let sources: HashMap<String, Arc<Source>> = self
