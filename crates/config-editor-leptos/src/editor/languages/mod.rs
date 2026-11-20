@@ -416,7 +416,7 @@ mod number_forms;
 #[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod wide_integers;
 // Error columns some parsers count in bytes.
-#[cfg(any(feature = "json", feature = "hcl"))]
+#[cfg(feature = "json")]
 mod byte_columns;
 // One sentence for a text nested deeper than its reader goes.
 #[cfg(any(

@@ -144,6 +144,49 @@ fn syntax_errors_report_the_parser_line_and_column() {
     assert!(error.column.is_some());
 }
 
+/// A syntax error after a string of wide characters (two-, three- and
+/// four-byte, a letter and its accent) on its line is placed on the token
+/// it is at, as after ASCII: the parser's place is a byte, the editor's a
+/// character.
+#[test]
+fn a_syntax_error_after_multibyte_text_lands_on_its_token() {
+    let shapes = [
+        "websocket {\n  host = \"{}\"  challenge = \"http\"\n}\n",
+        "n = \"{}\" x\n",
+        "a = 1\nn = \"{}\" x\n",
+        "n = \"{}\" \"tail\"\n",
+        "n = \"{}\" x",
+    ];
+    let fills = ["abcdef", "éééééé", "日本日本日本", "😀😀😀😀😀😀", "e\u{301}e\u{301}"];
+    let mut failures = Vec::new();
+    for shape in shapes {
+        // The error's line, its column less the fill's characters, and the
+        // text it marks.
+        let place = |fill: &str| {
+            let source = shape.replace("{}", fill);
+            let error = LANGUAGE.parse(&source).expect_err(&source);
+            let (line, column) = (error.line.unwrap_or(0), error.column.unwrap_or(0));
+            let marked: String = source
+                .split('\n')
+                .nth(line.saturating_sub(1))
+                .unwrap_or_default()
+                .chars()
+                .skip(column.saturating_sub(1))
+                .take(3)
+                .collect();
+            (line, column.checked_sub(fill.chars().count()), marked)
+        };
+        let ascii = place(fills[0]);
+        for fill in &fills[1..] {
+            let found = place(fill);
+            if found != ascii {
+                failures.push(format!("{shape:?} with {fill}: {found:?}, not {ascii:?}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 #[test]
 fn references_and_interpolations_parse_as_text() {
     let document = parse_ok("a = var.foo\nb = \"hi ${var.name}\"\n");

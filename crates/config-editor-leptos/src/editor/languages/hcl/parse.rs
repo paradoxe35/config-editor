@@ -1,7 +1,7 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
-use crate::editor::text::{text_size, byte_range};
+use crate::editor::text::{byte_range, slice, text_size};
 
 /// References, interpolations, and function calls arrive as their
 /// `${ ... }`-style source text; a heredoc without them reads as its text,
@@ -13,16 +13,9 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
     let value = read().map_err(|error| {
         // Only syntax errors carry a location; others fall back to the top.
         let (line, column) = match &error {
-            hcl::Error::Parse(parse) => {
-                let location = parse.location();
-                (location.line(), location.column())
-            }
+            hcl::Error::Parse(parse) => error_place(source, parse.location()),
             _ => (1, 1),
         };
-        let line_count = source.split('\n').count().max(1);
-        let line = line.clamp(1, line_count);
-        // hcl-edit counts the column in bytes; the editor's are characters.
-        let column = super::super::byte_columns::char_column(source, line, column.max(1));
         let (line, column, message) = match super::super::wide_integers::out_of_range(source, line, column) {
             Some((column, message)) => (line, column, message),
             None => {
@@ -54,6 +47,23 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
         });
     }
     Ok(value)
+}
+
+/// The one-based line and character column of the parser's error at
+/// `location` in `source`. It is placed by its byte offset (texts the
+/// parser reads keep every byte of `source` in place): hcl-edit's own
+/// column counts characters only when the character at the error is
+/// ASCII, bytes otherwise. At the end of the text it points one past the
+/// last character, which its column says.
+fn error_place(source: &str, location: &hcl_edit::parser::Location) -> (usize, usize) {
+    let at = slice::char_start(source, text_size(location.offset()));
+    let (line, column) = line_column(source, at);
+    // Past the end, the error is at the last byte: inside its character,
+    // or on an ASCII one whose column hcl-edit gives one more.
+    let past_end = location.offset() + 1 == source.len()
+        && (location.offset() != usize::from(at) || location.column() == column + 1);
+    let last = source.split('\n').nth(line - 1).map_or(0, |text| text.chars().count());
+    (line, (column + usize::from(past_end)).min(last + 1))
 }
 
 /// The text a span (line, first and end character columns) covers.
