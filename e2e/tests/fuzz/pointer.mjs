@@ -18,12 +18,30 @@ const shownText = (page) =>
     language: window.__fz.root()?.querySelector('.config-editor__frame')?.getAttribute('aria-label') ?? null,
   }));
 
+// Notes the text on screen and its language when the next drag begins
+// (its `dragstart`), as `window.__fzDragBegan`; `null` while none has.
+const watchDragStart = (page) =>
+  page.evaluate(() => {
+    window.__fzDragBegan = null;
+    if (window.__fzDragWatch) document.removeEventListener('dragstart', window.__fzDragWatch, true);
+    window.__fzDragWatch = () => {
+      document.removeEventListener('dragstart', window.__fzDragWatch, true);
+      window.__fzDragBegan = {
+        text: window.__fz.editor()?.text,
+        language: window.__fz.root()?.querySelector('.config-editor__frame')?.getAttribute('aria-label') ?? null,
+      };
+    };
+    document.addEventListener('dragstart', window.__fzDragWatch, true);
+  });
+
 // Selects `length` characters at `fraction` of the text, grabs the
 // selection and drops it at a point of the text: the text after is the
 // text the drag began in (the move refused, or dropped on itself) or the
-// same characters moved, none lost or doubled. The text is read once the
-// drag has begun: a switch waiting for the document may land before (on
-// the typing pause), never while it goes on.
+// same characters moved, none lost or doubled. The text is read when the
+// drag begins (its `dragstart`): a switch waiting for the document may land
+// before (on the typing pause), also while the button is down before the
+// pointer moved far enough to begin a drag, never while one goes on. A
+// press that began no drag selected text and moved none.
 export async function dragMove(run, action) {
   const { page } = run;
   const picked = await page.evaluate(({ at: fraction, length }) => {
@@ -43,14 +61,19 @@ export async function dragMove(run, action) {
   const box = await textBox(page);
   if (!from || !box) return null;
   const to = at(box, action.x, action.y);
+  await watchDragStart(page);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(from.x + 4, from.y, { steps: 3 });
-  const began = await shownText(page);
-  if (typeof began.text !== 'string') return null;
-  if (began.text !== picked.text) run.reached('the text rewritten before a drag began');
   await page.mouse.move(to.x, to.y, { steps: 8 });
   await page.mouse.up();
+  const began = await page.evaluate(() => window.__fzDragBegan);
+  if (!began) {
+    run.reached('a press that began no drag');
+    return null;
+  }
+  if (typeof began.text !== 'string') return null;
+  if (began.text !== picked.text) run.reached('the text rewritten before a drag began');
   const dropped = await shownText(page);
   if (dropped.language !== began.language)
     return { check: 'drag-move', detail: `the view switched from ${began.language} to ${dropped.language} during a drag` };
