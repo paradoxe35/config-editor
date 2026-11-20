@@ -982,7 +982,7 @@
 
 :not(#\#):not(#\#) .config-editor__sticky-line:last-child,
 :not(#\#):not(#\#) .config-editor__sticky-number:last-child {
-  box-shadow: 0 1px 0 var(--config-editor-border);
+  box-shadow: inset 0 -1px 0 var(--config-editor-border);
 }
 
 :not(#\#):not(#\#) .config-editor__sticky-line:hover .config-editor__sticky-code,

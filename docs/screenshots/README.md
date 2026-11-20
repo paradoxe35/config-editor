@@ -89,6 +89,12 @@ Gutter chevrons and `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`; a folded block shows `…
 
 ![Every top-level block folded](folding.png)
 
+### Sticky scroll
+
+The lines a scrolled-away block starts with stay pinned above the text, with their line numbers and colors.
+
+![Header lines pinned above scrolled text](sticky-scroll.png)
+
 ## Host control
 
 ### Read-only fields
