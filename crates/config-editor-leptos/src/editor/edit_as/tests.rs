@@ -358,3 +358,36 @@ fn a_refused_edit_as_is_placed_at_the_hosts_error() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// A save that waits on a list item is marked on that item in the view,
+/// not on its list's opening bracket.
+#[test]
+fn a_wait_on_a_list_item_is_marked_on_the_item() {
+    let host = "jobs:\n  test:\n    python-version:\n      - 3.9\n      - 3.10\n";
+    let mut failures = Vec::new();
+    for edit in [Language::JSON, Language::TOML, Language::HCL] {
+        let bridge = Bridge::new(Language::YAML, edit, None).unwrap();
+        let shown = bridge.to_edit(host).unwrap().text;
+        let at = super::super::bridge::locate_error(
+            edit.behavior(),
+            &shown,
+            &SaveError::CannotKeep {
+                pointer: "/jobs/test/python-version/1".to_string(),
+            },
+        );
+        let marked = at
+            .line
+            .and_then(|line| shown.lines().nth(line - 1))
+            .zip(at.column.zip(at.end_column))
+            .map(|(line, (from, to))| {
+                line.chars()
+                    .skip(from - 1)
+                    .take(to - from)
+                    .collect::<String>()
+            });
+        if marked.as_deref() != Some("3.1") {
+            failures.push(format!("{edit}: marks {marked:?} in\n{shown}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

@@ -45,6 +45,14 @@ mod emptied_containers;
     feature = "hcl",
     feature = "xml"
 ))]
+mod end_appends;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod exact;
 #[cfg(all(
     feature = "yaml",

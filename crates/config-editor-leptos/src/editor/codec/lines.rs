@@ -267,13 +267,16 @@ fn patch_lines(
                     None => match place[..old_index].iter().rposition(Option::is_some) {
                         // Lines of code between it and the insert that
                         // the host does not write there (keys a YAML merge
-                        // brings in, written as its one line): before the
-                        // host line of the next placed one, past them.
+                        // brings in, written as its one line, or a value in
+                        // a spelling of its own): before the host line of
+                        // the next placed one (at the end, the host's end),
+                        // past them.
                         Some(placed)
                             if let Some(below) = below_unwritten(
                                 &rendered_old,
                                 &place,
                                 (placed, old_index),
+                                host.len(),
                                 &|line| {
                                     let code = comparable(language, line);
                                     !code.is_empty() && !punctuation(&code)
@@ -504,19 +507,27 @@ fn outermost_by_line(
 
 /// The host line of the first placed rendered line from `at` on, when a
 /// line of code between the placed one at `placed` and `at` has no host
-/// line: what the host writes for those lines (a YAML merge's one line)
-/// sits somewhere before that line, not right after `placed`'s.
+/// line: what the host writes for those lines (a YAML merge's one line, a
+/// number in its own spelling such as `3.10`) sits somewhere before that
+/// line, not right after `placed`'s. With nothing written from `at` on
+/// (an insert at the very end of the document, no closer after it), the
+/// end of the host, `host_len`: those lines are the host's last.
 fn below_unwritten(
     rendered: &[&str],
     place: &[Option<usize>],
     (placed, at): (usize, usize),
+    host_len: usize,
     code: &dyn Fn(&str) -> bool,
 ) -> Option<usize> {
     let unwritten = (placed + 1..at).any(|index| place[index].is_none() && code(rendered[index]));
     if !unwritten {
         return None;
     }
-    place[at..].iter().find_map(|line| *line)
+    match place[at..].iter().find_map(|line| *line) {
+        Some(below) => Some(below),
+        None if rendered[at..].iter().all(|line| line.trim().is_empty()) => Some(host_len),
+        None => None,
+    }
 }
 
 /// Whether `line` (trimmed) is only brackets and item separators (`}`,

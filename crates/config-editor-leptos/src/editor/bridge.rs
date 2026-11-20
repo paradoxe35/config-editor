@@ -1162,7 +1162,10 @@ fn located(
     severity: Severity,
 ) -> Diagnostic {
     // A value missing from the text (the view dropped it) is placed on its
-    // nearest ancestor that is there.
+    // nearest ancestor that is there; a value inside an ancestor written
+    // between brackets (an item of a TOML or HCL `[…]`), which the
+    // language's own lookup does not reach, on itself.
+    let wanted = FieldPath::from(pointer).texts();
     let mut at = pointer;
     let span = loop {
         let path = FieldPath::from(at);
@@ -1170,7 +1173,11 @@ fn located(
             .value_span(source, &path)
             .or_else(|| behavior.key_span(source, &path))
         {
-            break Some(span);
+            let rest = wanted.get(path.segments().len()..).unwrap_or_default();
+            let inside = (!rest.is_empty())
+                .then(|| codec::in_flow_container(behavior, source, span, rest, false))
+                .flatten();
+            break Some(inside.unwrap_or(span));
         }
         match at.rsplit_once('/') {
             Some((parent, _)) if !parent.is_empty() => at = parent,
