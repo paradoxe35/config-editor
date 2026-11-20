@@ -52,7 +52,8 @@
 //! host still on an older text then hears the document again: once all the
 //! echoes are in, the host holds the document. A copy of the text the host
 //! holds, given again while it is on its way, may be its echo (with a later
-//! text lost before it): it counts as news once.
+//! text lost before it): it counts as news once, and once more after each
+//! reset (its echo may come after the reset and replace it in the store).
 //!
 //! That pause is the one place time enters: an echo lost in a host's render
 //! cannot be told from one still on its way by the texts alone.
@@ -407,6 +408,9 @@ impl Echoes {
         }
         let print = Print::of(value);
         let kind = self.kind(print);
+        // A reset (`replaceValue`) gave the host another text since it gave
+        // this one.
+        let reset_since = self.last_given != Some(print);
         self.last_given = Some(print);
         self.last_listed = Some(print);
         let same = self.same(value, print, current);
@@ -415,8 +419,12 @@ impl Echoes {
             // a text sent after it may have come and gone in the same
             // render of the host's). That copy stays an echo, but is not
             // counted on to come; while the host is on an older text, it is
-            // taken for news once.
+            // taken for news once. After a reset it is news again while a
+            // copy is on its way: that copy may be what came, stored over
+            // the reset's text, and the listing that drops the reset's
+            // leaves the host on it.
             Kind::Again => {
+                let over_reset = reset_since && self.copies.contains_key(&print);
                 let copy = self.copies.get_mut(&print).and_then(|copies| {
                     copies
                         .iter_mut()
@@ -424,14 +432,15 @@ impl Echoes {
                         .inspect(|_| work::note(work::Work::CopyVisited))
                         .find(|sent| !sent.doubted)
                 });
-                match copy {
+                let doubted = match copy {
                     Some(copy) => {
                         copy.counted_out = true;
                         copy.doubted = !same;
                         copy.doubted
                     }
                     None => false,
-                }
+                };
+                doubted || over_reset
             }
             // The newest copy (a typo fixed sends the same text twice): a
             // host handing back only the latest text hands back that one.
@@ -1146,6 +1155,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// P4: a text typed and sent twice (a key, then the same text told
+    /// again), a reset, the text listed twice (its echo, then the whole
+    /// list for another document), a second reset, then the last copy of
+    /// that text comes back late: a host storing it over the reset and
+    /// listing it drops the reset's listing, so it holds the old text until
+    /// it hears the document again.
+    #[test]
+    fn a_late_echo_listed_after_a_second_reset_brings_the_document_again() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("a: 1\n");
+        echoes.sent("a: 12\n");
+        echoes.sent("a: 12\n");
+        echoes.replaced("b: 1\n");
+        assert_ne!(echoes.received("a: 12\n", "b: 1\n", NONE), Echo::Apply);
+        assert_ne!(echoes.received("a: 12\n", "b: 1\n", NONE), Echo::Apply);
+        echoes.replaced("b: 2\n");
+        assert!(!echoes.settle("b: 2\n"));
+        assert_eq!(
+            echoes.received("a: 12\n", "b: 2\n", NONE),
+            Echo::Settle,
+            "the host may hold the old text for good"
+        );
+        assert!(echoes.settle("b: 2\n"));
+        assert_eq!(echoes.received("b: 2\n", "b: 2\n", NONE), Echo::Apply);
     }
 
     /// A reset to the text the host listed last with nothing typed since

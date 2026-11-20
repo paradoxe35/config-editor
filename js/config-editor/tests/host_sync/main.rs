@@ -434,4 +434,72 @@ mod repros {
             Class::NotConvergedOnGivenAgain,
         );
     }
+
+    /// P4: a text sent twice, a reset, that text listed twice, a second
+    /// reset, then the last copy of the text comes back: the host stores it
+    /// over the reset and its listing drops the reset's, so the editor
+    /// waits out the pause and tells the host the document again.
+    #[test]
+    fn repro_documents_late_echo_after_a_second_reset_hears_the_document() {
+        assert_ok(
+            Setup {
+                view: Documents,
+                base: 0,
+                other: 2,
+                form: Lines,
+            },
+            &[
+                Act::Delete { at: 25242, len: 2 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 1503,
+                    dup: false,
+                    ranges: false,
+                    same_task: true,
+                },
+                Act::Type { at: 50182, ch: 'a' },
+                Act::Type { at: 8875, ch: 'x' },
+                Act::Delete { at: 3239, len: 1 },
+                Act::Select { doc: 1 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Settle,
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: Twice(65224),
+                    same_task: false,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Own {
+                    doc: 1,
+                    edit: 62647,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: Twice(42024),
+                    same_task: false,
+                },
+            ],
+        );
+    }
 }
