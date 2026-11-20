@@ -234,29 +234,52 @@ pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize)
 /// either way. Not measured yet (`natural` 0, unseen), or a one-line tip:
 /// below unless the room there is short.
 pub(super) fn hover_card_geometry(anchor: CardAnchor, natural: f64) -> Declarations {
+    hover_card_on_side(anchor, hover_card_above(anchor, natural))
+}
+
+/// The window's room above and below the line `anchor` is on (the card is
+/// fixed: it may reach past the editor).
+fn card_rooms(anchor: CardAnchor) -> (f64, f64) {
+    let CardAnchor {
+        frame,
+        line_top,
+        line_height,
+        ..
+    } = anchor;
+    let room_below = frame.viewport_height - POPUP_MARGIN - (line_top + line_height + POPUP_GAP);
+    let room_above = line_top - POPUP_GAP - POPUP_MARGIN;
+    (room_above, room_below)
+}
+
+/// Whether the hover card at `anchor`, `natural` pixels tall, goes above
+/// its line (see [`hover_card_geometry`]).
+pub(super) fn hover_card_above(anchor: CardAnchor, natural: f64) -> bool {
+    let (room_above, room_below) = card_rooms(anchor);
+    if natural > 0.0 {
+        natural <= room_above || (natural > room_below && room_above > room_below)
+    } else {
+        room_below < HOVER_CARD_ESTIMATED_HEIGHT && room_above > room_below
+    }
+}
+
+/// The hover card's style at `anchor` on its side (`above` the line or
+/// below it), no taller than the window's room there (it scrolls).
+pub(super) fn hover_card_on_side(anchor: CardAnchor, above: bool) -> Declarations {
     let CardAnchor {
         frame,
         x,
         line_top,
         line_height,
     } = anchor;
-    let (viewport_width, viewport_height) = (frame.viewport_width, frame.viewport_height);
+    let viewport_width = frame.viewport_width;
     // At most the window's width, so narrow screens do not clip the text.
     let width = HOVER_CARD_MAX_WIDTH.min(viewport_width - 2.0 * POPUP_MARGIN);
     let left = x.clamp(
         POPUP_MARGIN,
         (viewport_width - width - POPUP_MARGIN).max(POPUP_MARGIN),
     );
-    // The window's room on each side of the line (the card is fixed: it
-    // may reach past the editor).
-    let room_below = viewport_height - POPUP_MARGIN - (line_top + line_height + POPUP_GAP);
-    let room_above = line_top - POPUP_GAP - POPUP_MARGIN;
+    let (room_above, room_below) = card_rooms(anchor);
     let left = frame.left(left);
-    let above = if natural > 0.0 {
-        natural <= room_above || (natural > room_below && room_above > room_below)
-    } else {
-        room_below < HOVER_CARD_ESTIMATED_HEIGHT && room_above > room_below
-    };
     let top = if above {
         frame.top(line_top)
     } else {
