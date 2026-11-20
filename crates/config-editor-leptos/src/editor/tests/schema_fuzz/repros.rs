@@ -1165,3 +1165,19 @@ fn a_hosts_null_text_under_a_renamed_key_is_the_documented_kept_text() {
         json!({"d": "null"}),
     );
 }
+
+/// A save whose only difference from the view is a documented XML
+/// spelling (a list cut to one element) is that class, though the view
+/// also holds a value XML writes only by its schema (`null` under
+/// `type: null`), which reads back as the view holds it.
+#[test]
+fn a_documented_spelling_names_the_save_beside_a_null_the_schema_reads_back() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"properties": {"name": {"anyOf": [{"type": "object"}, {"type": "array"}]},
+            "mode": {"type": "null"}}}),
+        json!({"name": "f"}),
+        json!({"name": [{"size": false}], "mode": null}),
+    );
+}

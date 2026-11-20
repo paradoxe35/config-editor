@@ -143,11 +143,14 @@ pub(super) fn check(case: &Case) -> Verdict {
                 paired: paired.as_ref(),
             })
         });
-        let class = if host == Language::XML && xml_cannot_hold(&view_value) {
+        // A documented spelling explains each value the save reads
+        // otherwise; a value XML cannot hold elsewhere in the view (a null
+        // the schema reads back) is no part of the difference.
+        let class = spelled.unwrap_or(if host == Language::XML && xml_cannot_hold(&view_value) {
             "a save writes what XML cannot hold, without waiting"
         } else {
-            spelled.unwrap_or("a save reads otherwise than the view")
-        };
+            "a save reads otherwise than the view"
+        });
         return Verdict::Fails(failure(class, seen("")));
     }
     let view_problems = both.view_problems((edit, &typed), (host, &saved), inexact);
