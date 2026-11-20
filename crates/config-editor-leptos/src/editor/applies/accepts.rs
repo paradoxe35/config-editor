@@ -7,8 +7,10 @@
 //! `properties`, `patternProperties`, `additionalProperties`,
 //! `propertyNames`, dependent schemas and keys, items, `contains`,
 //! `pattern`, bounds, the combinators) are checked, a keyword of one kind
-//! of value passes every other kind, and a condition using anything else
-//! is undecided (both branches are offered).
+//! of value passes every other kind, and a condition using another
+//! keyword of a draft is undecided (both branches are offered). A word no
+//! draft defines (`items: {"x_one": {}}`) fails nothing, as validators
+//! ignore it.
 
 use super::node::{Entry, Node};
 use super::{item_schema, named_properties, ref_target, refs_stand_alone};
@@ -137,6 +139,19 @@ const ANNOTATIONS: [&str; 16] = [
     "readOnly",
     "writeOnly",
     "format",
+];
+
+/// Keywords of a JSON Schema draft that may fail a value and [`decide`]
+/// does not read: a schema using one is undecided.
+const UNREAD: [&str; 8] = [
+    "$dynamicRef",
+    "$recursiveRef",
+    "contentSchema",
+    "contentEncoding",
+    "contentMediaType",
+    "divisibleBy",
+    "disallow",
+    "extends",
 ];
 
 /// `Some(false)` if any is false, else `None` if any is unknown, else true.
@@ -386,7 +401,9 @@ fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<b
                     branch.map_or(Some(true), sub)
                 }
                 "then" | "else" => Some(true),
-                _ => None,
+                keyword if UNREAD.contains(&keyword) => None,
+                // A word no draft defines fails nothing: validators ignore it.
+                _ => Some(true),
             }
         }))
 }

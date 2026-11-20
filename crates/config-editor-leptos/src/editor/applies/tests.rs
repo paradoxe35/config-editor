@@ -271,6 +271,18 @@ fn draft_07_refs_stand_alone_when_values_are_checked() {
     assert_eq!(decides(&beside, &json!(3), &later), Some(false));
 }
 
+/// A word no draft defines fails nothing, as validators ignore it; a
+/// draft's keyword the check does not read leaves the value undecided.
+#[test]
+fn words_no_draft_defines_fail_nothing() {
+    let root = json!({});
+    let list = json!({"type": "array", "items": {"x_one": {}}});
+    assert_eq!(decides(&list, &json!([{"c": "t"}]), &root), Some(true));
+    assert_eq!(decides(&list, &json!({"c": "t"}), &root), Some(false));
+    let content = json!({"contentSchema": {"type": "integer"}});
+    assert_eq!(decides(&content, &json!("1"), &root), None);
+}
+
 #[test]
 fn values_are_found_at_their_path() {
     let document = json!({"a": {"b": [{"c": 1}]}, "x": {"y": 2}});

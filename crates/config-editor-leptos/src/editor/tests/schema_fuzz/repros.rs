@@ -884,3 +884,27 @@ fn a_fill_nested_under_a_one_of_option_is_met_or_has_a_field_no_value_meets() {
         json!(null),
     );
 }
+
+/// A lone XML element an inner `oneOf` refuses as an object (no keys
+/// allowed) is the one item of the list the other option takes: the valid
+/// reading, with no problem.
+#[test]
+fn a_lone_element_an_inner_option_refuses_is_the_item_of_the_list_the_other_takes() {
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"x_one": {"oneOf": [
+            {"oneOf": [{"type": "object", "additionalProperties": false}]},
+            {"type": "array", "items": {"x_one": {}}}]}}}),
+        json!({"x_one": [{"c": "t"}]}),
+        json!(null),
+    );
+    // The same, its item's text read as the item's schema wants it.
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"x_one": {"oneOf": [
+            {"oneOf": [{"type": "object", "additionalProperties": false}]},
+            {"type": "array", "items": {"properties": {"c": {"type": "string"}}}}]}}}),
+        json!({"x_one": [{"c": "true"}]}),
+        json!(null),
+    );
+}

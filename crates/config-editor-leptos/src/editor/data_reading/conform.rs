@@ -108,6 +108,16 @@ impl NodeAt<'_, '_> {
             *value = Value::Array(vec![value.take()]);
             let pointer = self.pointer.clone();
             self.reading.list_of_one_at(&pointer);
+        } else if repetition == Repetition::Elements
+            && value.is_object()
+            && {
+                // The options the object refutes may be the list's.
+                let blind = Here::walk(at.clone(), root, Seen::default());
+                blind.types().allows_type("array") && names_list(blind.types(), &blind.branches())
+            }
+            && at.accepts_near(value, root) == Some(false)
+        {
+            self.read_as_item(value, at);
         }
         // Each child read with every schema that applies to it there.
         let segments: Vec<SchemaPathSegment> = match &*value {
@@ -141,6 +151,46 @@ impl NodeAt<'_, '_> {
         }
         if repetition == Repetition::Elements {
             self.reread_for_object(value, at, &children);
+        }
+    }
+
+    /// `value` (a lone XML object the schemas at it refuse, whose one-item
+    /// list they do not take as parsed) made a list's one item where the
+    /// schemas take that list once the item's text is read as the item's
+    /// schemas want it (`<c>true</c>` as the text an item's `c` asks), the
+    /// text so read noted. Only the item's own scalars are read here (its
+    /// children are read as any list's item after): the trial costs the
+    /// object's members, not what they hold.
+    fn read_as_item(&mut self, value: &mut Value, at: &Entry<'_>) {
+        let root = self.root;
+        let mut item = value.clone();
+        let list = Here::walk(at.clone(), root, Seen::default());
+        let item_at = list.child_typed(&SchemaPathSegment::ArrayItem(0));
+        let here = Here::walk(item_at, root, Seen::value(Some(&item)));
+        let mut read = Vec::new();
+        if let Value::Object(map) = &mut item {
+            for (key, child) in map.iter_mut() {
+                if is_filled(child) {
+                    continue;
+                }
+                let child_at = here.child_typed(&SchemaPathSegment::Key(key.clone()));
+                let applied = Here::walk(child_at.clone(), root, Seen::default());
+                let parsed = child.clone();
+                read_text(child, &child_at, &applied.branches(), applied.types(), root);
+                if *child != parsed {
+                    read.push((pointer_key(key), parsed));
+                }
+            }
+        }
+        let list = Value::Array(vec![item]);
+        if read.is_empty() || at.accepts_near(&list, root) != Some(true) {
+            return;
+        }
+        *value = list;
+        let pointer = self.pointer.clone();
+        self.reading.list_of_one_at(&pointer);
+        for (key, parsed) in read {
+            self.note_retyped(format!("{pointer}/0/{key}"), parsed);
         }
     }
 
