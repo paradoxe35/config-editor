@@ -4,16 +4,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // P5: a letter typed in an Edit-as view of a large XML config reaches the
-// host in time that grows with the document, not faster. The host is K
-// copies of the large XML sample's elements, each under an element of its
-// own inside the config root, shown as JSON; one letter is typed into the
-// first `tunnel.example.com`, and the time is from the key to the save the
-// host is sent. Timed: runs alone after the other specs (see the config).
+// host in time that grows with the document, not faster. The host is the
+// large XML sample with its services (most of it) K times over, each copy
+// of a service named apart, shown as JSON; one letter is typed into the
+// first `tunnel.example.com`, and the time is from the key to the save
+// holding it. Timed: runs alone after the other specs (see the config).
 
-// Four times the document may take at most this many times as long: about
-// 3 here (the typing pause is in both), 9 and more when the save read
-// each element's lines again for each of its lines.
-const RATIO = 6;
+// Four times the services may take at most this many times as long: about
+// 2.4 here (the typing pause is in both), 6.5 when the save read each
+// element's lines again for each of its lines.
+const RATIO = 4;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const sample = readFileSync(
@@ -21,17 +21,18 @@ const sample = readFileSync(
   'utf8',
 );
 
-/** `copies` copies of the sample's elements, each under an element of its own. */
+/** The sample with each service `copies` times, the copies named apart (`web-1`). */
 function host(copies) {
-  const lines = sample.trimEnd().split('\n');
-  const open = lines.findIndex((line) => line.includes('config-root="true"'));
-  const head = lines.slice(0, open + 1);
-  const body = lines.slice(open + 1, -1).map((line) => `  ${line}`);
-  const parts = Array.from({ length: copies }, (_, at) => [`  <copy${at}>`, ...body, `  </copy${at}>`]);
-  return [...head, ...parts.flat(), lines.at(-1), ''].join('\n');
+  const lines = sample.split('\n');
+  const open = lines.indexOf('  <services>');
+  const close = lines.indexOf('  </services>');
+  const services = lines.slice(open + 1, close);
+  const copy = (at) => services.map((line) => (at > 0 ? line.replace(/^( {4}<\/?)([\w.-]+)/, `$1$2-${at}`) : line));
+  const all = Array.from({ length: copies }, (_, at) => copy(at)).flat();
+  return [...lines.slice(0, open + 1), ...all, ...lines.slice(close)].join('\n');
 }
 
-/** Milliseconds from a letter typed to the host's save, in a JSON view of `copies` copies. */
+/** Milliseconds from a letter typed to the host's save, in a JSON view of `copies` copies of the services. */
 async function typed(page, baseURL, copies) {
   await page.addInitScript((text) => {
     window.configEditorSample = text;
