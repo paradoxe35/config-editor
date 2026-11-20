@@ -106,10 +106,17 @@ async function markedLock(page, state, lock) {
   return { ...lock, text: lock.text.slice(start, end) };
 }
 
-export async function host(page, call, arg) {
+// What `host` returns when the text it was to give ranges with moved.
+export const MOVED = 'moved';
+
+// Calls the page's host. With `onText`, only while the text ranges given
+// alone name places in is still `onText` (see `fz.rangesText`): else
+// gives nothing and returns `MOVED`.
+export async function host(page, call, arg, onText) {
   return page.evaluate(
-    ([call, arg]) => {
+    ([call, arg, onText, moved]) => {
       const fz = window.__fz;
+      if (onText !== undefined && fz.rangesText() !== onText) return moved;
       const id = fz.activeId();
       const vanilla = !!window.documentsView || !!window.editor;
       const calls = {
@@ -128,9 +135,11 @@ export async function host(page, call, arg) {
             saved.textContent = text;
             window.editor.update({ value: text, readOnlyRanges: ranges });
           } else {
+            // The parent lists the text it set with the ranges it worked
+            // out on it, not the one a late echo of `setValue` would bring.
             fz.extra = { ...fz.extra, readOnlyRanges: ranges };
             if (how === 'setValue') window.editorHandle.current?.setValue(text);
-            else window.setParentValue(text);
+            window.setParentValue(text);
             window.setExtraProps({ ...fz.extra });
           }
         },
@@ -147,13 +156,14 @@ export async function host(page, call, arg) {
           }
         },
         docValue: ({ text, how, ranges }) => {
+          // The host lists the text it replaced the document with, with the
+          // ranges it worked out on it (not the one a late echo of
+          // `setValue` would bring).
           if (how === 'setValue') {
-            // The host lists the text it replaced the document with.
             if (vanilla) window.documentsView.replaceValue(id, text);
             else window.documentsHandle.current?.setValue(id, text);
-            if (vanilla) window.updateFile(id, { value: text, readOnlyRanges: ranges });
-            else window.updateFile(id, { readOnlyRanges: ranges });
-          } else window.updateFile(id, { value: text, readOnlyRanges: ranges });
+          }
+          window.updateFile(id, { value: text, readOnlyRanges: ranges });
         },
         docEcho: () => typeof fz.host() === 'string' && window.updateFile(id, { value: fz.host() }),
         docProps: (props) => window.updateFile(id, props),
@@ -176,7 +186,7 @@ export async function host(page, call, arg) {
       };
       calls[call](arg);
     },
-    [call, arg],
+    [call, arg, onText, MOVED],
   );
 }
 
@@ -195,6 +205,25 @@ export function lockIndices(value, { at: fraction, length, line }) {
   while (low(start)) start -= 1;
   while (low(end)) end += 1;
   return end > start ? { start, end } : null;
+}
+
+// Gives the page a lock from `spec` (see `lockIndices`) and notes it in
+// the run's model. The host works the range out on the text it gives it
+// with, which a late echo may leave older than the editor's even after a
+// settle: given only while that text holds (a few tries).
+export async function giveLock(run, spec) {
+  const { page } = run;
+  for (let tries = 0; tries < 5; tries += 1) {
+    const state = await page.evaluate(() => ({ text: window.__fz.rangesText(), id: window.__fz.activeId() }));
+    if (typeof state.text !== 'string') return;
+    const range = lockIndices(state.text, spec);
+    if (!range) return;
+    const call = run.kind === 'single' ? 'singleProps' : 'docProps';
+    if ((await host(page, call, { readOnlyRanges: [range] }, state.text)) === MOVED) continue;
+    run.locked = true;
+    run.setLock(state.id, 'range', { range, text: state.text.slice(range.start, range.end) });
+    return;
+  }
 }
 
 // Whether `got` is what a copy of `want` (an `fz.selected()`) puts on the
@@ -373,16 +402,9 @@ export async function perform(run, action) {
     case 'echo':
       await settle(page, 600);
       return host(page, run.kind === 'single' ? 'singleEcho' : 'docEcho');
-    case 'lock': {
+    case 'lock':
       if (!(await settle(page))) return;
-      const state = await page.evaluate(() => ({ value: window.__fz.editor()?.value, id: window.__fz.activeId() }));
-      if (typeof state.value !== 'string') return;
-      const range = lockIndices(state.value, action.range);
-      if (!range) return;
-      run.locked = true;
-      run.setLock(state.id, 'range', { range, text: state.value.slice(range.start, range.end) });
-      return host(page, run.kind === 'single' ? 'singleProps' : 'docProps', { readOnlyRanges: [range] });
-    }
+      return giveLock(run, action.range);
     case 'lockPath': {
       // A locked path may hold undo back (it would write the path again).
       run.locked = true;

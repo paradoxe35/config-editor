@@ -69,6 +69,11 @@ export function installProbe({ kind, vanilla }) {
     const file = fz.files().find((candidate) => candidate.id === (id ?? fz.activeId()));
     return file ? file.value : null;
   };
+  // The text `readOnlyRanges` given alone name places in: the text the host
+  // lists them with (its own, which a late echo may leave older than the
+  // editor's), or on the vanilla editor page, whose `update` gives no value
+  // with them, the editor's document.
+  fz.rangesText = () => (kind === 'single' && vanilla ? window.editor.value : fz.host());
   // The editor on screen: the selected tab's panel's, or the one whose
   // textarea takes up room.
   fz.root = () => {
