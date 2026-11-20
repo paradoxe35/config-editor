@@ -17,6 +17,7 @@ mod documents;
 mod edit_as;
 mod fill;
 mod known;
+mod list_search;
 mod probe;
 mod random;
 mod reference;

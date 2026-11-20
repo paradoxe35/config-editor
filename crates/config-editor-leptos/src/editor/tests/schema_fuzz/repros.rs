@@ -1057,3 +1057,22 @@ fn a_key_whose_dependent_schema_refuses_a_lone_element_read_as_a_list_is_not_sug
         json!({"size": ""}),
     );
 }
+
+/// A fill decides an `if` by the siblings it writes: `mode` written as
+/// text never meets `mode: {const: false}`, so the `else` applies and
+/// `a` is written as it allows (open: the fill reads the `if` as
+/// undecided and writes `0`).
+#[test]
+#[ignore = "open: a fill does not decide an if by the siblings it writes"]
+fn a_fill_decides_an_if_by_the_siblings_it_writes() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"else": {"properties": {"a": {"exclusiveMinimum": 0}}},
+            "properties": {"mode": {"type": "string"}}, "required": ["mode", "a"],
+            "then": {"properties": {"a": {"enum": [0]}}},
+            "if": {"properties": {"mode": {"const": false}}}}]}},
+            "properties": {"c": {"$ref": "#/$defs/d0"}}}),
+        json!({"c": false}),
+        json!(null),
+    );
+}

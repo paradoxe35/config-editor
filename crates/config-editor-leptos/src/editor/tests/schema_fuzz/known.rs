@@ -24,8 +24,8 @@ pub(super) const KNOWN: &[Known] = &[
     // `completion::least`: a list is written empty only where no list
     // meets every schema at it that the language writes (more items asked
     // than `items: false` lets be, an item only `null` meets in TOML). The
-    // checks name this class only where the fill's own list plan, asked
-    // at the list's place, finds none (`Both::no_list_meets`).
+    // checks name this class only where a bounded search of their own
+    // (`list_search`), not the editor's plan, finds no such list.
     Known {
         finding: "documented: a list no written list meets is written empty",
         property: "fill",
@@ -37,6 +37,49 @@ pub(super) const KNOWN: &[Known] = &[
         property: "suggestions",
         class: "a suggested key writes an empty list where no list meets every schema",
         applies: |_| true,
+    },
+    // The search's bound read off the schema is past the longest list it
+    // tries: an empty list there is left undecided, not judged.
+    Known {
+        finding: "decided: a list longer than the search tries is not judged",
+        property: "fill",
+        class: "a fill writes an empty list where a bounded search finds none",
+        applies: |_| true,
+    },
+    Known {
+        finding: "decided: a list longer than the search tries is not judged",
+        property: "suggestions",
+        class: "a suggested key writes an empty list where a bounded search finds none",
+        applies: |_| true,
+    },
+    // Each language's insert writes a key's own list as `[]`, the caret
+    // inside to type its items (README, "required children on accept"),
+    // so a list asking items at once (`minItems`, `contains`) is refused
+    // until they are typed. The checks name this class only for the
+    // accepted key's own value read as `[]`.
+    Known {
+        finding: "documented: a key's own list is written empty, the caret inside",
+        property: "fill",
+        class: "a fill writes the key's own list empty, the caret inside",
+        applies: |_| true,
+    },
+    Known {
+        finding: "documented: a key's own list is written empty, the caret inside",
+        property: "suggestions",
+        class: "a suggested key writes its own list empty, the caret inside",
+        applies: |_| true,
+    },
+    // Open: a fill writes the children of an object without reading the
+    // siblings it wrote, so an `if` they decide (`mode: ""` never meets
+    // `mode: {const: false}`) is read as undecided, and a value only the
+    // branch not taken allows may be written (`a: 0` where `else` asks
+    // `exclusiveMinimum: 0`). Found once the broad list allowance went;
+    // repro `a_fill_decides_an_if_by_the_siblings_it_writes` (ignored).
+    Known {
+        finding: "open: a fill does not decide an if by the siblings it writes",
+        property: "fill",
+        class: "a fill writes a value its schema refuses (",
+        applies: |case| if_with_both_branches(&case.schema),
     },
     // The edit_as save classes below are told value by value
     // (`xml_spelling`): each names the one value a documented XML spelling
@@ -82,30 +125,6 @@ pub(super) const KNOWN: &[Known] = &[
         property: "suggestions",
         class: "a suggested key adds a problem elsewhere (required)",
         applies: |_| true,
-    },
-    // Each language's insert writes a key's own list as `[]`, the caret
-    // inside to type its items (README, "required children on accept"),
-    // so a list asking items at once (`minItems`, `contains`) is refused
-    // until they are typed.
-    Known {
-        finding: "documented: a key's own list is written empty, the caret inside",
-        property: "fill",
-        class: "a fill writes a value its schema refuses (",
-        applies: |case| asks_list_items(&case.schema),
-    },
-    // The same list told by the count of its items: a key at the root
-    // whose own list asks items (its schema, or one it refers to).
-    Known {
-        finding: "documented: a key's own list is written empty, the caret inside",
-        property: "fill",
-        class: "a fill writes too few list items",
-        applies: |case| root_list_asks_items(&case.schema),
-    },
-    Known {
-        finding: "documented: a key's own list is written empty, the caret inside",
-        property: "suggestions",
-        class: "a suggested key writes a value its schema refuses (",
-        applies: |case| asks_list_items(&case.schema),
     },
     // A required key no value meets (`a: {enum: []}`, or `x_a: {const: 0}`
     // under a pattern typing `x_` keys strings) has no fill the schema
@@ -235,32 +254,6 @@ pub(super) const KNOWN: &[Known] = &[
         applies: |case| recurses_through_options(&case.schema),
     },
 ];
-
-/// Whether a key `schema` names at the root is a list asking items
-/// (`minItems`, `contains`) by a schema applying to it there.
-fn root_list_asks_items(schema: &Value) -> bool {
-    let mut keys = schema
-        .get("properties")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(|keys| keys.keys());
-    keys.any(|key| {
-        let mut at = Vec::new();
-        schemas_at(schema, schema, std::slice::from_ref(key), 0, &mut at);
-        at.iter().any(|applying| {
-            applying.get("minItems").is_some() || applying.get("contains").is_some()
-        })
-    })
-}
-
-/// Whether `schema` has a list asking items (`minItems`, `contains`).
-fn asks_list_items(schema: &Value) -> bool {
-    let mut found = false;
-    walk(schema, &mut |node| {
-        found |= node.get("minItems").is_some() || node.get("contains").is_some();
-    });
-    found
-}
 
 /// Whether some value of `schema` is one no value meets: a schema listing
 /// none (`enum: []`), or schemas applying to one value together (a schema,
@@ -550,6 +543,25 @@ fn says_list(schema: &Value) -> bool {
         .any(|keyword| schema.get(*keyword).is_some())
 }
 
+/// Whether `schema` has an `if` testing a property with both a `then`
+/// and an `else` saying something of properties.
+fn if_with_both_branches(schema: &Value) -> bool {
+    let mut found = false;
+    walk(schema, &mut |node| {
+        let branch = |keyword: &str| {
+            node.get(keyword)
+                .and_then(|branch| branch.get("properties"))
+        };
+        found |= node
+            .get("if")
+            .and_then(|test| test.get("properties"))
+            .is_some()
+            && branch("then").is_some()
+            && branch("else").is_some();
+    });
+    found
+}
+
 /// The finding allowing `class` of `property` for `case`, if one does.
 pub(super) fn excused(property: &str, class: &str, case: &Case) -> Option<&'static str> {
     KNOWN
@@ -605,22 +617,26 @@ mod tests {
         assert!(fill(additional(Value::Null)).is_none());
         assert!(fill(json!({"properties": {"x_one": {"const": 0}}, "patternProperties": {"^y_": {"type": "string"}}})).is_none());
 
-        // A key's own list is written empty: a root key's list asking
-        // items, through a reference too; not a list below it.
-        let own_list = |schema: Value| {
-            excused(
-                "fill",
-                "a fill writes too few list items (minItems)",
-                &case(Language::YAML, schema, json!({})),
-            )
-        };
+        // A list written too short is excused by no schema shape: the
+        // checks name the key's own `[]` and the lists no search meets
+        // classes of their own.
         let strings = json!({"minItems": 2, "items": {"type": "string"}});
-        assert!(own_list(json!({"properties": {"c": strings}})).is_some());
-        assert!(
-            own_list(json!({"$defs": {"d": strings}, "properties": {"c": {"$ref": "#/$defs/d"}}}))
-                .is_some()
-        );
-        assert!(own_list(json!({"properties": {"c": {"properties": {"l": strings}}}})).is_none());
+        for schema in [
+            json!({"properties": {"c": strings}}),
+            json!({"properties": {"c": {"properties": {"l": strings}}}}),
+        ] {
+            for class in [
+                "a fill writes too few list items (minItems)",
+                "a fill writes a value its schema refuses (anyOf)",
+            ] {
+                let found = excused(
+                    "fill",
+                    class,
+                    &case(Language::YAML, schema.clone(), json!({})),
+                );
+                assert!(found.is_none(), "{class} {schema}");
+            }
+        }
 
         let secret = |language: Language, doc: Value| {
             excused(

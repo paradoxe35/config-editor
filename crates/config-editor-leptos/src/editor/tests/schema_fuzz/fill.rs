@@ -9,6 +9,7 @@ use crate::editor::language::pointer_key;
 use serde_json::Value;
 
 use super::documents::{Shape, document};
+use super::list_search::{Search, unmet};
 use super::random::Rng;
 use super::reference::{Both, annotations_fit, compile, holds_empty};
 use super::runner::{Case, Property, Verdict, failure, language, run};
@@ -123,16 +124,23 @@ pub(super) fn check(case: &Case) -> Verdict {
                 continue;
             }
             let keyword = error.kind().keyword();
+            let unmet = || unmet(&both, language, (&case.schema, &case.doc), &read, &at);
             let class = match keyword {
-                "required" => "a fill leaves out a required child",
-                "minItems" | "minContains" | "contains"
-                    if both.no_list_meets(language, &read, &at) =>
-                {
-                    "a fill writes an empty list where no list meets every schema"
+                // Each language's insert writes a key's own list empty or
+                // with its one first item, the caret inside to type the
+                // items (`[]`, YAML's `- ` read as `[null]`, XML's
+                // `<a></a>` read as `[{}]`, a list of objects' first one).
+                _ if at == pointer && read.pointer(&at).is_some_and(own_list) => {
+                    "a fill writes the key's own list empty, the caret inside"
                 }
-                "minItems" | "minContains" | "contains" => "a fill writes too few list items",
+                "required" => "a fill leaves out a required child",
+                "minItems" | "minContains" | "contains" => {
+                    unmet_class(unmet()).unwrap_or("a fill writes too few list items")
+                }
                 _ if holds_empty(error.instance()) => continue,
-                _ => "a fill writes a value its schema refuses",
+                // A problem above an empty list (an option holding it) that
+                // no list there meets is that list's.
+                _ => unmet_class(unmet()).unwrap_or("a fill writes a value its schema refuses"),
             };
             return Verdict::Fails(failure(
                 format!("{class} ({keyword})"),
@@ -145,6 +153,24 @@ pub(super) fn check(case: &Case) -> Verdict {
     } else {
         Verdict::Skipped
     }
+}
+
+/// The class of a problem an empty list explains, by what the search for
+/// a list there found.
+fn unmet_class(found: Option<Search>) -> Option<&'static str> {
+    match found? {
+        Search::None => Some("a fill writes an empty list where no list meets every schema"),
+        Search::Undecided => Some("a fill writes an empty list where a bounded search finds none"),
+        Search::Found => None,
+    }
+}
+
+/// Whether `value` is a key's own list as an insert writes it: empty, or
+/// its one item the caret's place (an empty slot, or the first object
+/// with its required children), as each language reads it. What is
+/// inside that item is judged at its own places.
+pub(super) fn own_list(value: &Value) -> bool {
+    value.as_array().is_some_and(|items| items.len() <= 1)
 }
 
 /// Whether the problem at `at` (a `keyword` one) goes once the values
@@ -282,48 +308,6 @@ fn only_a_list_in_a_list_is_left_alone() {
     for at in ["", "/a", "/a/1", "/a/1/b", "/a/1/b/0", "/c", "/c/0", "/x/0"] {
         assert!(!in_a_list_in_a_list(&read, at), "{at}");
     }
-}
-
-/// The one list allowance asks the fill's list plan at the list's place:
-/// an empty list there is excused only where no list meets every schema
-/// at it that the language writes, whatever splits the rules.
-#[test]
-fn an_empty_list_is_excused_only_where_the_list_plan_finds_none() {
-    use serde_json::json;
-    let excused = |language: Language, list: Value, read: Value| {
-        let schema = json!({"properties": {"c": {"properties": {"l": list}}}});
-        let both = compile(&schema).unwrap();
-        both.no_list_meets(language, &json!({"c": {"l": read}}), "/c/l")
-    };
-    let empty = || json!([]);
-    let none = [
-        json!({"type": "array", "minItems": 1, "items": false}),
-        json!({"minItems": 1, "contains": {"type": "integer"}, "items": false}),
-        json!({"allOf": [{"minItems": 1}], "items": false}),
-        json!({"minItems": 2, "maxItems": 1}),
-        json!({"minItems": 2, "uniqueItems": true, "items": {"enum": ["a"]}}),
-        json!({"contains": {"type": "integer"}, "minContains": 2, "maxContains": 1}),
-    ];
-    for list in none {
-        assert!(excused(Language::YAML, list.clone(), empty()), "{list}");
-        assert!(!excused(Language::YAML, list.clone(), json!([0])), "{list}");
-    }
-    let some = [
-        json!({"minItems": 2, "prefixItems": [{"minimum": 0}]}),
-        json!({"minItems": 1, "prefixItems": [{}], "items": {"type": "string"}}),
-        json!({"contains": {"type": "string"}}),
-        json!({"minItems": 1, "prefixItems": [{"type": "integer"}], "items": false}),
-        json!({"type": "array", "allOf": [{"minItems": 1, "contains": {"type": "integer"}}]}),
-        json!({"minItems": 1, "prefixItems": [{"type": "array"}], "contains": {"type": "integer"}}),
-    ];
-    for list in some {
-        assert!(!excused(Language::YAML, list.clone(), empty()), "{list}");
-    }
-    // A first item only `null` meets: no list TOML writes, one YAML does.
-    let null_first = json!({"minItems": 1, "prefixItems": [{"type": "null"}],
-        "contains": {"type": "integer"}});
-    assert!(excused(Language::TOML, null_first.clone(), empty()));
-    assert!(!excused(Language::YAML, null_first, empty()));
 }
 
 /// Only the values a language cannot write are put back, where the read

@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use super::documents::{Shape, document};
+use super::list_search::{Search, unmet};
 use super::random::Rng;
 use super::reference::{Both, annotations_fit, compile, holds_empty};
 use super::runner::{Case, Property, Verdict, failure, language, run};
@@ -117,10 +118,22 @@ pub(super) fn check(case: &Case) -> Verdict {
             if inside && (keyword == "required" || after.pointer(&at).is_none_or(holds_empty)) {
                 continue;
             }
-            let no_list = matches!(keyword.as_str(), "minItems" | "minContains" | "contains")
-                && both.no_list_meets(language, &after, &at);
-            let class = if inside && no_list {
-                "a suggested key writes an empty list where no list meets every schema".to_string()
+            let own = at == key && after.pointer(&at).is_some_and(super::fill::own_list);
+            // A problem at or above an empty list no list there meets is
+            // that list's.
+            let unmet = || unmet(&both, language, (&case.schema, &case.other), &after, &at);
+            let class = if inside && own {
+                // Each language's insert writes a key's own list empty or
+                // with its first item, the caret inside to type the items.
+                format!("a suggested key writes its own list empty, the caret inside ({keyword})")
+            } else if let Some(found) = inside.then(unmet).flatten() {
+                match found {
+                    Search::Undecided => {
+                        "a suggested key writes an empty list where a bounded search finds none"
+                    }
+                    _ => "a suggested key writes an empty list where no list meets every schema",
+                }
+                .to_string()
             } else if inside {
                 format!("a suggested key writes a value its schema refuses ({keyword})")
             } else {
