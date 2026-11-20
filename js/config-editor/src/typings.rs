@@ -5,12 +5,6 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
-/** A built-in language name (`"yaml"`, `"json"`, `"toml"`, `"hcl"`, `"xml"`) or one from `registerLanguage`. */
-export type LanguageName = string;
-
-/** A bundled theme slug, such as `"vscode-dark"`, `"vscode-light"`, `"nord"`. See `themes()`. */
-export type ThemeName = string;
-
 /** What `new ConfigEditor` takes: the document and its callbacks, and every setting of `EditorSettings`. */
 export interface EditorOptions extends EditorSettings {
   /** The document, in `language`. */

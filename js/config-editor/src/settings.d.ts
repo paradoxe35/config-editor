@@ -1577,3 +1577,27 @@ export type ThemeColorToken =
 
 /** Color overrides: a CSS color per token, e.g. `{ bg: "#101418", key: "#7dd3fc" }`. */
 export type ThemeColorMap = Partial<Record<ThemeColorToken, string>>;
+
+/** A built-in language name (from `Language::ALL` in the crate; its file extensions name it too, `"yml"`, `"tf"`) or one from `registerLanguage`. */
+export type LanguageName =
+  | "yaml"
+  | "json"
+  | "toml"
+  | "hcl"
+  | "xml"
+  | (string & {});
+
+/** A bundled theme slug (from `EditorTheme::ALL` in the crate). See `themes()`. */
+export type ThemeName =
+  | "vscode-dark"
+  | "vscode-light"
+  | "obsidian"
+  | "obsidian-light"
+  | "dracula"
+  | "nord"
+  | "atom-one-dark"
+  | "github-light"
+  | "github-dark"
+  | "solarized-light"
+  | "vira-inspired"
+  | (string & {});

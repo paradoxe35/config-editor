@@ -149,3 +149,10 @@ binding.detach();
 new DocumentsBinding("tabs", { documents: [] }).handle.saveAll();
 const kind: "boolean" | "number" | "string" | "object" = SETTING_TYPES.showFooter;
 void [found, bound, kind, noChanges, review, sent, unsaved, folded, savedIds, shown, active, dirtyMain];
+
+// The built-in theme and language names are literals of `ThemeName` and `LanguageName` (editors complete them); any other string still type-checks.
+import type { LanguageName, ThemeName } from "@pngwasi/config-editor";
+const builtInThemes: Extract<ThemeName, "vscode-dark" | "nord" | "github-light">[] = ["vscode-dark", "nord", "github-light"];
+const builtInLanguages: Extract<LanguageName, "yaml" | "json" | "toml" | "hcl" | "xml">[] = ["yaml", "json", "toml", "hcl", "xml"];
+const registered: LanguageName = "dockerfile"; const picked: ThemeName = String(Date.now());
+void [builtInThemes, builtInLanguages, registered, picked];
