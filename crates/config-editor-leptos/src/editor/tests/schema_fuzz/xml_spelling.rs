@@ -174,13 +174,37 @@ fn held<'a>(sides: &Sides<'a>, at: &str, saved: &Value) -> Option<&'a Value> {
     if same.is_some() {
         return same;
     }
-    match (holder, sides.view.pointer(parent)) {
+    match (holder, shown_at(sides, parent)) {
         (Value::Object(held), Some(Value::Object(shown))) => held
             .iter()
             .find(|(key, value)| kind(value) == kind(saved) && !shown.contains_key(*key))
             .map(|(_, value)| value),
         _ => None,
     }
+}
+
+/// The view's value at the saved value's `pointer`: a list the save kept
+/// where the view shows its one item has no index in the view, so a `/0`
+/// where the view holds no list is the item itself.
+fn shown_at<'v>(sides: &Sides<'v>, pointer: &str) -> Option<&'v Value> {
+    let mut at = sides.view;
+    let mut saved = String::new();
+    for segment in pointer.split('/').skip(1) {
+        let kept_list = sides
+            .saved
+            .pointer(&saved)
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.len() == 1);
+        saved.push('/');
+        saved.push_str(segment);
+        at = match at {
+            Value::Array(items) => items.get(segment.parse::<usize>().ok()?)?,
+            _ if segment == "0" && kept_list => at,
+            Value::Object(map) => map.get(&unescaped_key(segment))?,
+            _ => return None,
+        };
+    }
+    Some(at)
 }
 
 /// The class of a value saved in the host's type, by what the schema
