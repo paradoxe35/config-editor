@@ -110,12 +110,13 @@ impl NodeAt<'_, '_> {
             self.reading.list_of_one_at(&pointer);
         } else if repetition == Repetition::Elements
             && value.is_object()
+            && applied.refutes()
+            && at.accepts_near(value, root) == Some(false)
             && {
                 // The options the object refutes may be the list's.
                 let blind = Here::walk(at.clone(), root, Seen::default());
                 blind.types().allows_type("array") && names_list(blind.types(), &blind.branches())
             }
-            && at.accepts_near(value, root) == Some(false)
         {
             self.read_as_item(value, at);
         }
