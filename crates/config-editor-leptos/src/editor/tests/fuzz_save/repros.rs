@@ -5,6 +5,58 @@ use super::ops::{Op, Put, Take};
 use super::replay;
 use crate::editor::languages::Language;
 
+/// P2: a TOML comment above a table header keeps its place when an HCL
+/// edit is switched to YAML and the table's line is joined there.
+#[test]
+#[ignore = "open: a comment above a TOML header that writes an implicit parent and its child (`[beta.x]`) is lost when the child is removed (save seed 7300000019)"]
+fn a_toml_comment_above_a_table_survives_a_switch_and_a_joined_line() {
+    replay(
+        Language::TOML,
+        Language::HCL,
+        "[alpha]\nk1 = 07:32:00\nk2 = \"\"\"\nmulti\nline\"\"\"\n# note 7\n[beta]\nk3 = { x = 1, y = \"two\" } # note 2\n",
+        &[
+            Op::Type {
+                line: 5,
+                column: 1001,
+                text: "x",
+            },
+            Op::Switch { to: 0 },
+            Op::Backspace {
+                line: 6,
+                column: 1000,
+                count: 3,
+            },
+        ],
+    );
+}
+
+/// P3: a YAML flow list moved in a TOML view to the first key of a list
+/// item keeps its flow form.
+#[test]
+fn a_yaml_flow_list_moved_to_a_list_items_first_key_keeps_its_form() {
+    replay(
+        Language::YAML,
+        Language::JSON,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n      app: web\n  template:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                hello\n                world\n            - name: LEVEL\n              value: !!str 3\n          resources:\n            limits: {cpu: 500m, memory: 128Mi}\n",
+        &[
+            Op::Switch { to: 2 },
+            Op::MoveLine {
+                line: 53,
+                down: true,
+            },
+            Op::Cut {
+                line: 18,
+                how: Take::Text,
+            },
+            Op::PasteWhole { line: 16 },
+            Op::Paste {
+                line: 62,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
 /// P3: a TOML time moved past a line in a YAML view after a save keeps its
 /// host form (a time, not the text of one).
 #[test]
