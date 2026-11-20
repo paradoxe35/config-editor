@@ -8,7 +8,6 @@ use crate::editor::languages::Language;
 /// P2: a TOML comment above a table header keeps its place when an HCL
 /// edit is switched to YAML and the table's line is joined there.
 #[test]
-#[ignore = "open: a comment above a TOML header that writes an implicit parent and its child (`[beta.x]`) is lost when the child is removed (save seed 7300000019)"]
 fn a_toml_comment_above_a_table_survives_a_switch_and_a_joined_line() {
     replay(
         Language::TOML,

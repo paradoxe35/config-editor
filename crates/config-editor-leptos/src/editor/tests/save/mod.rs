@@ -185,6 +185,8 @@ mod newline_strings;
     feature = "xml"
 ))]
 mod number_forms;
+#[cfg(all(feature = "yaml", feature = "json", feature = "toml", feature = "hcl"))]
+mod parent_comments;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
