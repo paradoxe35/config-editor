@@ -560,7 +560,7 @@ impl Bridge {
                 codec::unmoved_comments(host, previous, old, target)
             }) {
                 return Err(ConvertError::Unsupported(format!(
-                    "these items cannot be moved with their comments: move them editing as {} (at {pointer})",
+                    "these items cannot be moved with their comments: move them while editing as {} (at {pointer})",
                     self.host.label()
                 ))
                 .into());
@@ -764,7 +764,7 @@ impl Bridge {
             &deleted,
         ) {
             return Err(ConvertError::Unsupported(format!(
-                "this edit would drop the comment `{words}` of a line it leaves as it was: make it editing as {} (at {pointer})",
+                "this edit would drop the comment `{words}` of a line it leaves as it was: make this edit while editing as {} (at {pointer})",
                 self.host.label()
             ))
             .into());
@@ -779,7 +779,7 @@ impl Bridge {
             edit_text,
         ) {
             return Err(ConvertError::Unsupported(format!(
-                "this edit would drop the comment `{words}`, which the view still shows: delete it in the view too, or make the edit editing as {}",
+                "this edit would drop the comment `{words}`, which the view still shows: delete it in the view too, or make the edit while editing as {}",
                 self.host.label()
             ))
             .into());

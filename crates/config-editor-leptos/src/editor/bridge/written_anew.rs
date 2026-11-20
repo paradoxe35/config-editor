@@ -43,7 +43,7 @@ pub(super) fn refused(
         .unwrap_or_else(|| "/".to_string());
     Some(
         ConvertError::Unsupported(format!(
-            "this edit can only be saved by writing the whole document anew, which would drop the comments of the {} file: make it editing as {} (at {pointer})",
+            "this edit can only be saved by writing the whole document anew, which would drop the comments of the {} file: make this edit while editing as {} (at {pointer})",
             host.label(),
             host.label()
         ))
