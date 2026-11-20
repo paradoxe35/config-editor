@@ -103,10 +103,17 @@ pub(super) fn split_key_path(text: &str) -> Option<Vec<String>> {
     let mut segments = Vec::new();
     let mut current = String::new();
     let mut quote: Option<char> = None;
+    // A backslash in a basic (`"`) key escapes the next character
+    // (`"be\"ta"` is one key); a literal (`'`) key has no escapes.
+    let mut escaped = false;
     for character in text.chars() {
         if let Some(active) = quote {
             current.push(character);
-            if character == active {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' && active == '"' {
+                escaped = true;
+            } else if character == active {
                 quote = None;
             }
         } else if matches!(character, '"' | '\'') {
@@ -134,8 +141,18 @@ pub(super) fn split_key_path(text: &str) -> Option<Vec<String>> {
     )
 }
 
-/// Strips one layer of basic/literal quotes from a key segment.
+/// Strips one layer of basic/literal quotes from a key segment, a basic
+/// key's escapes read as TOML reads them (`"be\"ta"` is `be"ta`).
 pub(super) fn unquote_key(segment: &str) -> String {
+    if segment.len() >= 2
+        && segment.starts_with('"')
+        && segment.ends_with('"')
+        && segment.contains('\\')
+        && let Ok(table) = toml::from_str::<toml::Table>(&format!("{segment} = 0"))
+        && let Some(key) = table.keys().next()
+    {
+        return key.clone();
+    }
     if segment.len() >= 2
         && ((segment.starts_with('"') && segment.ends_with('"'))
             || (segment.starts_with('\'') && segment.ends_with('\'')))

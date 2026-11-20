@@ -27,6 +27,19 @@ fn schema() -> SchemaBundle {
     .unwrap()
 }
 
+/// A key with an escape (`["be\"ta"]`, `"a\\b" = 1`) is found as the key
+/// TOML reads, in a header and before `=`: its values' places are known.
+#[test]
+fn keys_with_escapes_name_their_values() {
+    let source = "[\"be\\\"ta\"]\nk3 = 07:32:00\n\"a\\\\b\" = 1\n[plain]\n'lit\\eral' = 2\n";
+    let paths: Vec<FieldPath> = ["/be\"ta/k3", "/be\"ta/a\\b", "/plain/lit\\eral"]
+        .into_iter()
+        .map(FieldPath::from)
+        .collect();
+    let spans = LANGUAGE.value_spans(source, &paths);
+    assert!(spans.iter().all(Option::is_some), "{spans:?}");
+}
+
 fn complete(source: &str, schema: &SchemaBundle) -> Vec<Completion> {
     completions(
         source,
