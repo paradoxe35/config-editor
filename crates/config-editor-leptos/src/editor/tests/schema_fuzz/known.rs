@@ -554,17 +554,26 @@ fn says_list(schema: &Value) -> bool {
         .any(|keyword| schema.get(*keyword).is_some())
 }
 
-/// Whether `schema` asks items of a list whose items may be anything.
+/// Whether `schema` asks items of a list one of which may be anything: of
+/// the items its `minItems` (and its `contains`'s `minContains`) asks, one
+/// whose schemas (its `prefixItems` entry, else `items`; and `contains`
+/// for the first ones) say nothing of it, as `completion::least` reads
+/// them.
 fn lists_of_anything(schema: &Value) -> bool {
     let mut found = false;
     walk(schema, &mut |node| {
-        let asks = node.get("minItems").is_some() || node.get("contains").is_some();
-        let anything = node
-            .get("prefixItems")
-            .and_then(Value::as_array)
-            .is_none_or(|prefix| prefix.iter().all(|item| *item == json!({})))
-            && node.get("items").is_none_or(|items| *items == json!({}));
-        found |= asks && anything;
+        let size = |keyword: &str| node.get(keyword).and_then(Value::as_u64);
+        let contains = node.get("contains");
+        let containing = contains.map_or(0, |_| size("minContains").unwrap_or(1));
+        let asked = size("minItems").unwrap_or(0).max(containing);
+        let free = |item: Option<&Value>| item.is_none_or(|item| *item == json!({}));
+        let item = |index: u64| {
+            node.get("prefixItems")
+                .and_then(|prefix| prefix.get(usize::try_from(index).ok()?))
+                .or_else(|| node.get("items").filter(|items| !items.is_array()))
+        };
+        found |= (0..asked.min(64))
+            .any(|index| free(item(index)) && (index >= containing || free(contains)));
     });
     found
 }
@@ -640,6 +649,17 @@ mod tests {
                 .is_some()
         );
         assert!(own_list(json!({"properties": {"c": {"properties": {"l": strings}}}})).is_none());
+        // A list below it asking an item no schema gives a value for: the
+        // least list is empty; not where each item asked has a value.
+        let child = |list: Value| json!({"properties": {"c": {"properties": {"l": list}}}});
+        let short = json!({"minItems": 2, "prefixItems": [{"minimum": 0}]});
+        assert!(own_list(child(short)).is_some());
+        let anything = json!({"minItems": 1, "prefixItems": [{}], "items": {"type": "string"}});
+        assert!(own_list(child(anything)).is_some());
+        let full = json!({"minItems": 2, "prefixItems": [{"minimum": 0}, {"minimum": 0}]});
+        assert!(own_list(child(full)).is_none());
+        let contained = json!({"contains": {"type": "string"}});
+        assert!(own_list(child(contained)).is_none());
 
         let secret = |language: Language, doc: Value| {
             excused(
