@@ -938,7 +938,10 @@ fn an_entry_typed_into_a_map_written_twice_with_a_placeholder_is_taken() {
                 name: 7,
                 paste: true,
             },
-            Act::Type { at: 60354, text: 10 },
+            Act::Type {
+                at: 60354,
+                text: 10,
+            },
             Act::Entry {
                 anchor: 0,
                 name: 16,
