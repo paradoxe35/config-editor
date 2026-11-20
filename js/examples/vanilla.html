@@ -19,9 +19,7 @@
     <header>
       <h1>config-editor</h1>
       <label>Edit as
-        <select id="edit-as">
-          <option value="">Same</option><option>json</option><option>toml</option><option>hcl</option><option>xml</option><option>env</option>
-        </select>
+        <select id="edit-as"></select>
       </label>
       <label>Theme <select id="theme"></select></label>
       <label><input id="read-only" type="checkbox" /> Read-only</label>
@@ -39,7 +37,7 @@
     <pre id="saved"></pre>
     </main>
     <script type="module">
-      import { ConfigEditor, loadConfigEditor, registerLanguage, themes } from "../config-editor/index.js";
+      import { ConfigEditor, languages, loadConfigEditor, registerLanguage, themes } from "../config-editor/index.js";
       import { validate } from "../config-editor/tools.js";
 
       await loadConfigEditor();
@@ -94,6 +92,12 @@
       saved.textContent = initial;
       // For tests: `?options={...}` adds or overrides constructor options.
       const extra = JSON.parse(new URLSearchParams(location.search).get("options") ?? "{}");
+      // The host's language, which the select shows as "Same" (""), and
+      // every other language, built-in or registered, to edit as.
+      const host = extra.language ?? "yaml";
+      const editAsSelect = document.getElementById("edit-as");
+      editAsSelect.append(new Option("Same", ""));
+      for (const { name } of languages()) if (name !== host) editAsSelect.append(new Option(name, name));
       // The Edit-as language on screen ("" for the host's own).
       let onScreen = "";
       const editor = new ConfigEditor(document.getElementById("editor"), {
@@ -108,9 +112,8 @@
         // back across a switch (the host's own language is "Same").
         onEditAsChange: (language) => {
           document.body.dataset.editing = language;
-          const select = document.getElementById("edit-as");
-          onScreen = [...select.options].some((option) => option.value === language) ? language : "";
-          select.value = onScreen;
+          onScreen = language === host ? "" : language;
+          editAsSelect.value = onScreen;
         },
         onPathChange: (path) => (document.getElementById("breadcrumb").textContent = path.pointer || "/"),
         secrets: { hint: "Keeps the stored secret" },
@@ -134,7 +137,7 @@
       themeSelect.onchange = () => editor.update({ theme: themeSelect.value });
       // The select shows the language on screen: a switch that waits (the
       // document cannot convert yet, its problem says why) shows once done.
-      document.getElementById("edit-as").onchange = (event) => {
+      editAsSelect.onchange = (event) => {
         editor.update({ editAs: event.target.value || null });
         event.target.value = onScreen;
       };
