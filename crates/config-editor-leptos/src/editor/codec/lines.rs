@@ -211,8 +211,14 @@ fn patch_lines(
         }
         let host_keys = host_keys.get_or_init(|| outermost_by_line(language, previous, old));
         let new_keys = new_keys.get_or_init(|| outermost_by_line(language, &after, new));
+        // A map the host line opens with a key of its own inside it (not
+        // a list whose items each line opens).
+        let a_map = |pointer: &str| {
+            old.pointer(pointer).is_some_and(Value::is_object)
+                && new.pointer(pointer).is_some_and(Value::is_object)
+        };
         match (host_keys.get(&below), new_keys.get(&new_line)) {
-            (Some(host), Some(new)) if host == new => below,
+            (Some(host), Some(new)) if host == new && a_map(host) => below,
             _ => slot,
         }
     };
