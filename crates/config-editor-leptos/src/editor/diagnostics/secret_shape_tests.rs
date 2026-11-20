@@ -114,9 +114,131 @@ fn a_save_reason_never_quotes_a_secret_read_in_any_shape() {
             let json = serde_json::Value::String(value.clone());
             let message =
                 format!("the host reads the text {value} back as [{json}], not {json} (at /db)");
-            let shown = save_message(&message, &text, Some(&schema.bundle), language.behavior());
+            let shown = save_message(
+                &message,
+                &text,
+                Some(&schema.bundle),
+                language.behavior(),
+                super::Placeholders::default(),
+            );
             if shown.contains(SECRET) || !shown.ends_with("(at /db)") {
                 failures.push(format!("{language}: {text:?}: {shown}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// P1: a save's reason never quotes the string written around a
+/// placeholder (a token glued to text is a secret's value), in every
+/// language and with no schema: the holder query finds that string where
+/// the placeholder is written, glued in a field or in a list's item.
+#[test]
+fn a_save_reason_never_quotes_the_string_holding_a_placeholder_in_any_language() {
+    const TOKEN: &str = "«secret 0b1c»";
+    let pattern: super::PlaceholderPattern = Box::new(|text: &str| {
+        text.match_indices(TOKEN)
+            .map(|(at, token)| at..at + token.len())
+            .collect()
+    });
+    let patterns = [pattern];
+    // The host's token, given in a field.
+    let accepted = [(TOKEN.to_string(), "/db/password".to_string())];
+    let mut failures = Vec::new();
+    let values = [
+        serde_json::json!({"db": {"user": "app", "password": format!("{TOKEN}MYPASS")}}),
+        serde_json::json!({"db": {"password": format!("hunter {TOKEN}")}, "port": 1}),
+        serde_json::json!({"keys": [format!("{TOKEN}k3y"), "other"]}),
+    ];
+    for language in Language::ALL.iter().copied() {
+        for value in &values {
+            let value = if language == Language::XML {
+                serde_json::json!({ "config": value })
+            } else {
+                value.clone()
+            };
+            let text = language.serialize(&value).expect("written");
+            let data = language.parse(&text).expect("parses");
+            let mut quoted = Vec::new();
+            quote_strings(&data, &mut quoted);
+            for held in quoted.iter().filter(|held| held.contains(TOKEN)) {
+                let json = serde_json::Value::String(held.clone());
+                let message = format!("cannot write {held} as {json} (at /db)");
+                let shown = save_message(
+                    &message,
+                    &text,
+                    None,
+                    language.behavior(),
+                    super::Placeholders {
+                        accepted: &accepted,
+                        patterns: &patterns,
+                    },
+                );
+                let secret = held.replace(TOKEN, "");
+                if shown.contains(secret.trim()) || shown.contains(TOKEN) {
+                    failures.push(format!("{language}: {text:?}: {shown}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// P1: a schema problem on a value holding a placeholder with text beside
+/// it (in a field the schema does not mark secret) never quotes that
+/// value, in every language: it asks the same holder query.
+#[test]
+fn a_schema_problem_never_quotes_the_string_holding_a_placeholder_in_any_language() {
+    const TOKEN: &str = "«secret 0b1c»";
+    const SCHEMA: &str = r##"{"type": "object", "properties": {
+        "config": {"$ref": "#"},
+        "note": {"type": "string", "maxLength": 3},
+        "keys": {"type": "array", "items": {"type": "string", "maxLength": 3}}
+    }}"##;
+    let schema = Schema::compile(SCHEMA).expect("compiles");
+    let pattern: super::PlaceholderPattern = Box::new(|text: &str| {
+        text.match_indices(TOKEN)
+            .map(|(at, token)| at..at + token.len())
+            .collect()
+    });
+    let patterns = [pattern];
+    // The host's token, given in a field.
+    let accepted = [(TOKEN.to_string(), "/db/password".to_string())];
+    let mut failures = Vec::new();
+    let values = [
+        serde_json::json!({"note": format!("{TOKEN}MYPASS")}),
+        serde_json::json!({"keys": [format!("k3y {TOKEN}"), "a"]}),
+    ];
+    for language in Language::ALL.iter().copied() {
+        for value in &values {
+            let value = if language == Language::XML {
+                serde_json::json!({ "config": value })
+            } else {
+                value.clone()
+            };
+            let text = language.serialize(&value).expect("written");
+            let (problems, _) = super::validate_keyed(
+                &text,
+                Some(&schema.bundle),
+                None,
+                true,
+                language.behavior(),
+                super::Placeholders {
+                    accepted: &accepted,
+                    patterns: &patterns,
+                },
+                default_strings(),
+            );
+            if problems.is_empty() {
+                failures.push(format!("{language}: no problem in {text:?}"));
+            }
+            for problem in problems {
+                if ["MYPASS", "k3y"]
+                    .iter()
+                    .any(|secret| problem.message.contains(secret))
+                {
+                    failures.push(format!("{language}: {text:?}: {}", problem.message));
+                }
             }
         }
     }

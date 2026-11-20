@@ -42,6 +42,16 @@ mod follow_items;
 mod foreign;
 mod glued;
 mod guard;
+mod holder;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod holder_tests;
 mod hooks;
 mod host_ranges;
 #[cfg(test)]
@@ -57,6 +67,15 @@ mod rewritten;
 mod save;
 mod scan;
 mod secrets;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod span_matrix_tests;
 mod suggest;
 mod texts;
 mod tokens;
@@ -73,6 +92,23 @@ pub(crate) use live::{Inputs, ProtectInit, ProtectState};
 pub(crate) use marks::{mentions_marks, mentions_secrets};
 pub(crate) use save::ReadOnlyChange;
 pub(crate) use texts::{moved_placeholder, save_refused};
+
+/// The texts of the strings of `document` (the parse of `text`, read in
+/// `behavior`) holding a placeholder `find` finds in `text` (byte
+/// ranges), each the string written around it (see `holder`): what a
+/// message about `text` must not quote, a token glued to text being a
+/// secret's value.
+pub(crate) fn placeholder_holders(
+    behavior: &dyn super::language::ConfigLanguage,
+    text: &str,
+    document: &serde_json::Value,
+    find: &dyn Fn(&str) -> Vec<std::ops::Range<usize>>,
+) -> Vec<String> {
+    holder::Holders::found_by(behavior, text, document, find)
+        .texts()
+        .map(str::to_string)
+        .collect()
+}
 
 #[cfg(test)]
 mod follow_tests;

@@ -17,8 +17,9 @@ use super::super::parse_cache;
 use super::super::paths::{field_range, written_value_span};
 use super::super::text::{slice, text_size};
 use super::super::work_count::{Work, note};
+use super::holder::{Holder, Holders};
 use super::locate::LineIndex;
-use super::tokens::{Known, field_value};
+use super::tokens::{Known, SecretMatcher, field_value};
 use crate::EditorStrings;
 use crate::strings::fill;
 
@@ -83,143 +84,134 @@ pub(super) enum Holding<'a> {
     Within(&'a Value),
 }
 
-/// What `known`'s field (a token given whole) holds of it in `document`,
-/// read in `behavior`.
+/// What `known`'s field (a token given whole) holds of it, read off the
+/// scalars holding each place its token is written (`holders`, of a text
+/// whose parse is `document`, read in `behavior`; see `holder`): the
+/// field's own value, a copy of it (in a language that repeats a key or
+/// an element for a list, each copy written where the field's element is
+/// written again, its parents' too), or a string inside a list or map the
+/// field became.
 pub(super) fn holding<'a>(
     behavior: &dyn ConfigLanguage,
     document: &'a Value,
+    holders: &Holders<'a>,
     known: &Known,
 ) -> Holding<'a> {
     note(Work::TokenScan);
     let Some(field) = known.field.as_deref() else {
         return Holding::Not;
     };
-    match field_value(document, field) {
-        Some(Value::String(value)) if known.alone_in(value) => Holding::Alone(value),
-        Some(Value::String(value)) if value.contains(&known.token) => Holding::Beside(value),
-        Some(value @ Value::Array(items)) => {
-            let items: Vec<&Value> = items.iter().collect();
-            copied(behavior, &items, known).unwrap_or_else(|| {
-                if holds(value, &known.token) {
-                    Holding::Within(value)
-                } else {
-                    Holding::Not
-                }
-            })
-        }
-        Some(value @ Value::Object(_)) if holds(value, &known.token) => Holding::Within(value),
-        Some(_) => Holding::Not,
-        // The element holding the field written more than once (an
-        // attribute's element copied, in a language that repeats an
-        // element for a list): the field's value in each copy.
-        None => through_copies(behavior, document, field)
-            .and_then(|items| copied(behavior, &items, known))
-            .unwrap_or(Holding::Not),
+    let repetition = behavior.repetition();
+    let places: Vec<&Option<Holder<'a>>> = holders.of(&known.token).collect();
+    // A language that cannot say where a value is written: the field's own
+    // value, as the parse reads it there.
+    if !places.is_empty() && places.iter().all(|place| place.is_none()) {
+        return match field_value(document, field) {
+            Some(Value::String(text)) if known.alone_in(text) => Holding::Alone(text),
+            Some(Value::String(text)) if text.contains(&known.token) => Holding::Beside(text),
+            _ => Holding::Not,
+        };
     }
-}
-
-/// What `items`, the field's value in each copy of an element (in a
-/// language that repeats an element for a list), hold of `known`'s token;
-/// none when they are no such copies.
-fn copied<'a>(
-    behavior: &dyn ConfigLanguage,
-    items: &[&'a Value],
-    known: &Known,
-) -> Option<Holding<'a>> {
-    // In a language that repeats any element for a list, a copy may hold
-    // the field's element written more than once itself (a list in a
-    // list): each element is a copy of the field's value.
-    let flat;
-    let items = if behavior.repetition() == Repetition::Elements {
-        flat = elements(items);
-        &flat[..]
-    } else {
-        items
-    };
-    // Copies each holding the token alone: flagged and held by `moved_off`.
-    if behavior.repetition() != Repetition::None
-        && items.len() > 1
-        && items
-            .iter()
-            .all(|item| item.as_str().is_some_and(|text| known.alone_in(text)))
-    {
-        return Some(Holding::Not);
-    }
-    // In a language that repeats any element for a list, a string item is
-    // one written as an element of its own, never one written in a list.
-    if behavior.repetition() != Repetition::Elements {
-        return None;
-    }
-    let strings = || items.iter().filter_map(|item| item.as_str());
-    // One with text beside the token: glued, whichever copy it is.
-    if let Some(beside) =
-        strings().find(|text| text.contains(&known.token) && !known.alone_in(text))
-    {
-        return Some(Holding::Beside(beside));
-    }
-    // A second element of the field's name written beside its own: a new
-    // item, the token still an item's whole value.
-    strings()
-        .find(|text| known.alone_in(text))
-        .map(Holding::Alone)
-}
-
-/// The values of `items` with each list read as its items, at any depth.
-fn elements<'a>(items: &[&'a Value]) -> Vec<&'a Value> {
-    let mut flat = Vec::with_capacity(items.len());
-    let mut next: Vec<&'a Value> = items.iter().rev().copied().collect();
-    while let Some(item) = next.pop() {
-        match item {
-            Value::Array(inner) => next.extend(inner.iter().rev()),
-            other => flat.push(other),
+    // The strings holding it as the field's value or a copy of it (with
+    // whether a list step sets it apart), and whether one is inside it.
+    let mut own: Vec<(&'a str, bool)> = Vec::new();
+    let mut within = false;
+    for holder in places.iter().copied().flatten() {
+        match relation(&holder.pointer, field, repetition) {
+            Some(Relation::Own) => own.push((holder.text, false)),
+            Some(Relation::Copy) => own.push((holder.text, true)),
+            Some(Relation::Inside) => within = true,
+            None => {}
         }
     }
-    flat
+    let container = || field_value(document, field).unwrap_or(&Value::Null);
+    let copies = own.len() > 1 || own.iter().any(|(_, indexed)| *indexed);
+    if within || (copies && repetition == Repetition::None) {
+        return Holding::Within(container());
+    }
+    if copies {
+        // Copies each holding the token alone: flagged and held by
+        // `moved_off`.
+        if own.len() > 1 && own.iter().all(|(text, _)| known.alone_in(text)) {
+            return Holding::Not;
+        }
+        // In a language that repeats only a key for a list (not any
+        // element), the copies are a list the field became.
+        if repetition != Repetition::Elements {
+            return Holding::Within(container());
+        }
+        // One with text beside the token: glued, whichever copy it is; a
+        // second element of the field's name written beside its own is a
+        // new item, the token still an item's whole value.
+        if let Some((beside, _)) = own.iter().find(|(text, _)| !known.alone_in(text)) {
+            return Holding::Beside(beside);
+        }
+        return own
+            .first()
+            .map_or(Holding::Not, |(text, _)| Holding::Alone(text));
+    }
+    match own.first() {
+        Some((text, _)) if known.alone_in(text) => Holding::Alone(text),
+        Some((text, _)) => Holding::Beside(text),
+        None => Holding::Not,
+    }
 }
 
-/// In a language that repeats any element for a list, the values at
-/// `pointer` in `document` read through each list on the way whose item
-/// the pointer does not name (an element holding the field written more
-/// than once); none when no such list is on the way.
-fn through_copies<'a>(
-    behavior: &dyn ConfigLanguage,
-    document: &'a Value,
-    pointer: &str,
-) -> Option<Vec<&'a Value>> {
-    if behavior.repetition() != Repetition::Elements {
-        return None;
-    }
-    let mut at = vec![document];
-    let mut fanned = false;
-    for segment in pointer.split('/').skip(1) {
-        let key = crate::editor::language::unescaped_key(segment);
-        let mut next = Vec::with_capacity(at.len());
-        for value in at {
-            match value {
-                Value::Object(map) => next.extend(map.get(&key)),
-                Value::Array(items) => match key.parse::<usize>() {
-                    Ok(index) => next.extend(items.get(index)),
-                    Err(_) => {
-                        fanned = true;
-                        next.extend(items.iter().filter_map(|item| item.get(&key)));
-                    }
-                },
-                _ => {}
+/// How a string at `holder` stands to the field at `field`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Relation {
+    /// The field's value.
+    Own,
+    /// A copy of it: the field's element written again, or a parent's, in
+    /// a language that repeats one for a list, or an item of the list the
+    /// field became.
+    Copy,
+    /// A string inside a map the field became.
+    Inside,
+}
+
+/// The relation of the string at `holder` to the field at `field` (see
+/// [`Relation`]); `None`: another field's. Where a language repeats a key
+/// or an element for a list, a lone item's `/0` may be left out; where it
+/// repeats any element, a list step the field does not name may stand
+/// anywhere on the way (a parent's element written again).
+pub(super) fn relation(holder: &str, field: &str, repetition: Repetition) -> Option<Relation> {
+    let repeats = repetition != Repetition::None;
+    let index = |segment: &str| !segment.is_empty() && segment.bytes().all(|b| b.is_ascii_digit());
+    let (held, wanted): (Vec<&str>, Vec<&str>) = (
+        holder.split('/').skip(1).collect(),
+        field.split('/').skip(1).collect(),
+    );
+    let (mut at, mut inserted) = (0, false);
+    for segment in &wanted {
+        // A list step the field names is that item, or a lone item's
+        // `/0` left out.
+        if index(segment) {
+            if held.get(at) == Some(segment) {
+                at += 1;
+            } else if !(repeats && *segment == "0" && !held.get(at).is_some_and(|step| index(step)))
+            {
+                return None;
             }
+            continue;
         }
-        at = next;
+        while repetition == Repetition::Elements && held.get(at).is_some_and(|step| index(step)) {
+            at += 1;
+            inserted = true;
+        }
+        if held.get(at) != Some(segment) {
+            return None;
+        }
+        at += 1;
     }
-    (fanned && !at.is_empty()).then_some(at)
-}
-
-/// Whether one of the strings `value` holds holds `token`.
-fn holds(value: &Value, token: &str) -> bool {
-    match value {
-        Value::String(text) => text.contains(token),
-        Value::Array(items) => items.iter().any(|item| holds(item, token)),
-        Value::Object(map) => map.values().any(|item| holds(item, token)),
-        _ => false,
-    }
+    let rest = &held[at..];
+    Some(if rest.iter().any(|step| !index(step)) {
+        Relation::Inside
+    } else if inserted || !rest.is_empty() {
+        Relation::Copy
+    } else {
+        Relation::Own
+    })
 }
 
 /// The first of `known`'s tokens the host gave as its field's whole value
@@ -227,12 +219,14 @@ fn holds(value: &Value, token: &str) -> bool {
 /// else beside it.
 pub(crate) fn first_glued<'a>(
     behavior: &dyn ConfigLanguage,
-    document: &Value,
+    (text, document): (&str, &Value),
     known: &'a [Known],
+    matcher: &SecretMatcher,
 ) -> Option<&'a Known> {
+    let holders = Holders::read(behavior, text, document, matcher);
     known
         .iter()
-        .find(|known| glued_in(behavior, document, known))
+        .find(|known| glued_in(behavior, document, &holders, known))
 }
 
 /// The first token the host gave whole (among `known`) that `document`
@@ -270,10 +264,15 @@ fn walk_strings(value: &Value, visit: &mut dyn FnMut(&str)) {
 /// Whether `known` (a token given whole) has something beside it in its
 /// field in `document` (read in `behavior`): text, or the list or map the
 /// field became.
-pub(super) fn glued_in(behavior: &dyn ConfigLanguage, document: &Value, known: &Known) -> bool {
+pub(super) fn glued_in(
+    behavior: &dyn ConfigLanguage,
+    document: &Value,
+    holders: &Holders<'_>,
+    known: &Known,
+) -> bool {
     known.whole.is_some()
         && matches!(
-            holding(behavior, document, known),
+            holding(behavior, document, holders, known),
             Holding::Beside(_) | Holding::Within(_)
         )
 }
@@ -290,7 +289,7 @@ pub(super) fn only_taken_from(before: &str, after: &str) -> bool {
 /// with other text beside it, where `old` did not: a save waiting.
 pub(crate) fn glued_in_save(
     behavior: &dyn ConfigLanguage,
-    known: &[Known],
+    (known, matcher): (&[Known], &SecretMatcher),
     old: &str,
     new: &str,
     reading: Option<&Value>,
@@ -300,13 +299,18 @@ pub(crate) fn glued_in_save(
     }
     let after = super::super::codec::read(behavior, new, reading).ok()?;
     let before = super::super::codec::read(behavior, old, reading).ok();
+    let holders_after = Holders::read(behavior, new, &after, matcher);
+    let holders_before = before
+        .as_ref()
+        .map(|before| Holders::read(behavior, old, before, matcher));
     known
         .iter()
-        .filter(|known| glued_in(behavior, &after, known))
+        .filter(|known| glued_in(behavior, &after, &holders_after, known))
         .find(|known| {
             before
                 .as_ref()
-                .is_none_or(|before| !glued_in(behavior, before, known))
+                .zip(holders_before.as_ref())
+                .is_none_or(|(before, holders)| !glued_in(behavior, before, holders, known))
         })
         .and_then(|known| known.field.clone())
 }
@@ -316,7 +320,7 @@ pub(crate) fn glued_in_save(
 pub(crate) fn glued_placeholders(
     behavior: &dyn ConfigLanguage,
     text: &str,
-    known: &[Known],
+    (known, matcher): (&[Known], &SecretMatcher),
     strings: &EditorStrings,
 ) -> Vec<Diagnostic> {
     if !known.iter().any(|known| known.whole.is_some()) {
@@ -326,9 +330,10 @@ pub(crate) fn glued_placeholders(
     let Some(document) = parsed.as_ref().as_ref().ok() else {
         return Vec::new();
     };
+    let holders = Holders::read(behavior, text, document, matcher);
     known
         .iter()
-        .filter(|known| glued_in(behavior, document, known))
+        .filter(|known| glued_in(behavior, document, &holders, known))
         .filter_map(|known| {
             let field = known.field.as_deref()?;
             let message = glued_message(strings, field);

@@ -291,10 +291,11 @@ impl ProtectState {
         let origin = self
             .protected
             .with_untracked(|protected| protected.origin.clone());
-        let still = self
-            .secrets
-            .known
-            .with_untracked(|known| held.still(behavior, known, text, origin.as_deref()));
+        let still = self.secrets.known.with_untracked(|known| {
+            self.secrets.matcher.with_value(|matcher| {
+                held.still(behavior, (known, matcher), text, origin.as_deref())
+            })
+        });
         still.then_some(held.field)
     }
 
@@ -1041,7 +1042,11 @@ impl EditorState {
             .with_untracked(|text| parse_cache::parsed(self.behavior(), text));
         let document = parsed.as_ref().as_ref().ok()?;
         let pointer = secrets.known.with_untracked(|known| {
-            first_glued(self.behavior(), document, known).and_then(|known| known.field.clone())
+            let text = self.doc().text.get_untracked();
+            secrets.matcher.with_value(|matcher| {
+                first_glued(self.behavior(), (&text, document), known, matcher)
+                    .and_then(|known| known.field.clone())
+            })
         })?;
         Some(self.strings_untracked(|strings| glued_message(strings, &pointer)))
     }
@@ -1079,9 +1084,11 @@ impl EditorState {
         let secrets = self.protect().secrets;
         let glued = self.config().schema.with_value(|schema| {
             let reading = schema.as_deref().map(|bundle| &bundle.schema);
-            secrets
-                .known
-                .with_untracked(|known| glued_in_save(behavior, known, old, new, reading))
+            secrets.known.with_untracked(|known| {
+                secrets.matcher.with_value(|matcher| {
+                    glued_in_save(behavior, (known, matcher), old, new, reading)
+                })
+            })
         });
         if let Some(pointer) = glued {
             return Err(SaveError::GluedPlaceholder { pointer });

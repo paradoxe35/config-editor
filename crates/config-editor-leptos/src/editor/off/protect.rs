@@ -295,6 +295,15 @@ pub(super) fn mentions_secrets(_schema: &Value) -> bool {
     false
 }
 
+pub(super) fn placeholder_holders(
+    _behavior: &dyn ConfigLanguage,
+    _text: &str,
+    _document: &Value,
+    _find: &dyn Fn(&str) -> Vec<std::ops::Range<usize>>,
+) -> Vec<String> {
+    Vec::new()
+}
+
 #[cfg(feature = "schema-validation")]
 pub(super) fn secret_pointers(
     _document: &Value,

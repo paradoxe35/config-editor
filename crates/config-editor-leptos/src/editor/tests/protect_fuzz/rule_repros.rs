@@ -821,3 +821,98 @@ fn a_quote_typed_before_a_copied_xml_secret_is_not_glued() {
         ],
     );
 }
+
+/// P1: in Dot's one-line map, a `<>` typed into the secret's key and then
+/// a `:` after the map's key, so the parse reads the whole map as one
+/// string holding the placeholder: refused.
+#[test]
+fn a_map_read_as_one_string_after_typed_marks_never_glues_its_placeholder() {
+    let setup = Setup {
+        case: 11,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Type { at: 33234, text: 6 },
+            Act::Type { at: 27726, text: 4 },
+        ],
+    );
+}
+
+/// P1: in Dot's one-line map, a quote typed before the secret's key after
+/// a Replace All, so the parse reads the rest of the map as one string
+/// holding the placeholder: refused.
+#[test]
+fn a_quote_typed_into_a_one_line_map_never_glues_its_placeholder() {
+    let setup = Setup {
+        case: 11,
+        lock: Lock::Secret,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Type { at: 45546, text: 5 },
+            Act::ReplaceAll { pair: 0 },
+            Act::Type { at: 40032, text: 4 },
+        ],
+    );
+}
+
+/// P1: a YAML list whose key is renamed, then marks typed so the parse
+/// reads the list's lines as one plain string: the placeholder is never
+/// read with the text around it.
+#[test]
+fn marks_typed_into_a_renamed_yaml_list_never_glue_its_placeholder() {
+    let setup = Setup {
+        case: 1,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 5061 },
+            Act::Type { at: 15438, text: 0 },
+            Act::ReplaceAll { pair: 7 },
+            Act::Cut { line: 58223 },
+            Act::Undo,
+            Act::Type { at: 55108, text: 6 },
+            Act::Type { at: 15502, text: 7 },
+        ],
+    );
+}
+
+/// P1: entries added to a YAML block so the secret's line, with a brace
+/// typed after its key, reads under a new key: the placeholder is never
+/// read with the text around it.
+#[test]
+fn entries_added_above_a_broken_secret_line_never_glue_its_placeholder() {
+    let setup = Setup {
+        case: 0,
+        lock: Lock::Secret,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 2,
+                name: 16,
+                paste: false,
+            },
+            Act::Type { at: 10560, text: 9 },
+            Act::Entry {
+                anchor: 3,
+                name: 15,
+                paste: false,
+            },
+        ],
+    );
+}

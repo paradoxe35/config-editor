@@ -182,7 +182,12 @@ impl ProtectState {
                     .collect();
                 problems.retain(|problem| !flagged.contains(&(problem.line, problem.column)));
                 problems.extend(foreign);
-                problems.extend(glued_placeholders(behavior, text, known, strings));
+                problems.extend(glued_placeholders(
+                    behavior,
+                    text,
+                    (known, matcher),
+                    strings,
+                ));
                 problems
             })
         })

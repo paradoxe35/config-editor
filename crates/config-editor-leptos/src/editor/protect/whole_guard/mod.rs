@@ -50,7 +50,10 @@ use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::paths::written_value_span;
 use super::super::text_change::changed_bytes;
+use std::cell::OnceCell;
+
 use super::glued::{Holding, holding, only_taken_from};
+use super::holder::Holders;
 use super::reach::reaches_none_by;
 use super::tokens::{Known, SecretMatcher, field_value};
 
@@ -159,9 +162,10 @@ impl Placeholders<'_> {
                         parses: Some(true),
                     };
                 }
+                let holders = Holders::read(self.behavior, after, document, self.matcher);
                 let read = self
-                    .glued_in_parsed(before, after, document)
-                    .or_else(|| self.glued_where_moved(before, after, document, changed));
+                    .glued_in_parsed(before, after, document, &holders)
+                    .or_else(|| self.glued_where_moved(before, after, &holders, changed));
                 // Refused when the edit writes at a placeholder's edges (or
                 // over it), or repairs the text (nothing before says what
                 // its value held) but one held already; else the parse's
@@ -275,7 +279,7 @@ impl Held {
     pub(crate) fn still(
         &self,
         behavior: &dyn ConfigLanguage,
-        known: &[Known],
+        (known, matcher): (&[Known], &SecretMatcher),
         text: &str,
         origin: Option<&str>,
     ) -> bool {
@@ -283,6 +287,7 @@ impl Held {
         let Ok(document) = parsed.as_ref() else {
             return true;
         };
+        let holders = OnceCell::new();
         let host = origin.map(|origin| parse_cache::parsed(behavior, origin));
         let host = host.as_ref().and_then(|host| host.as_ref().as_ref().ok());
         self.tokens
@@ -298,7 +303,17 @@ impl Held {
                     };
                     match host {
                         Some(host) => field_value(document, field) != field_value(host, field),
-                        None => !matches!(holding(behavior, document, known), Holding::Alone(_)),
+                        None => !matches!(
+                            holding(
+                                behavior,
+                                document,
+                                holders.get_or_init(|| {
+                                    Holders::read(behavior, text, document, matcher)
+                                }),
+                                known
+                            ),
+                            Holding::Alone(_)
+                        ),
                     }
                 });
                 let beside = |value: &Value| beside_count(value, token);
@@ -378,14 +393,20 @@ impl Placeholders<'_> {
     /// made a list or map stays as it was, and one made a list or map
     /// by an edit off the token's lines is flagged, not refused; after a
     /// repair (`before` does not parse) it holds the token alone.
-    fn glued_in_parsed(&self, before: &str, after: &str, document: &Value) -> Option<String> {
+    fn glued_in_parsed(
+        &self,
+        before: &str,
+        after: &str,
+        document: &Value,
+        holders: &Holders<'_>,
+    ) -> Option<String> {
         // Read the text before only for a value not as the host wrote it.
         let behavior = self.behavior;
         let mut changed = self
             .index
             .all()
             .map(|at| &self.known[at])
-            .filter(|known| match holding(behavior, document, known) {
+            .filter(|known| match holding(behavior, document, holders, known) {
                 Holding::Not => false,
                 Holding::Alone(now) => known.whole.as_deref() != Some(now),
                 Holding::Beside(_) | Holding::Within(_) => true,
@@ -394,10 +415,14 @@ impl Placeholders<'_> {
         changed.peek()?;
         let earlier = parse_cache::parsed(behavior, before);
         let earlier = earlier.as_ref().as_ref().ok();
+        let holders_before =
+            earlier.map(|earlier| Holders::read(behavior, before, earlier, self.matcher));
         changed
             .find(|known| {
-                let was = earlier.map(|earlier| holding(behavior, earlier, known));
-                match (was, holding(behavior, document, known)) {
+                let was = earlier
+                    .zip(holders_before.as_ref())
+                    .map(|(earlier, holders)| holding(behavior, earlier, holders, known));
+                match (was, holding(behavior, document, holders, known)) {
                     // Bare where the host wrote whitespace around it (a
                     // block's last line break joined away): refused only
                     // where it held the host's form.

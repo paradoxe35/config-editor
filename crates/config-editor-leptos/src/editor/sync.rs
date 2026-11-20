@@ -1127,8 +1127,19 @@ fn without_secret_quotes(
             SaveError::Convert(codec::ConvertError::Parse(parse))
         }
         SaveError::Convert(codec::ConvertError::Unsupported(message)) => {
+            let protect = state.protect();
+            let (accepted, patterns) = (protect.accepted_tokens(), protect.placeholder_patterns());
             let message = state.config().schema.with_value(|schema| {
-                save_message(&message, source, schema.as_deref(), language.behavior())
+                save_message(
+                    &message,
+                    source,
+                    schema.as_deref(),
+                    language.behavior(),
+                    Placeholders {
+                        accepted: &accepted,
+                        patterns: &patterns,
+                    },
+                )
             });
             SaveError::Convert(codec::ConvertError::Unsupported(message))
         }

@@ -66,6 +66,15 @@ impl<'s> Secrets<'s> {
         }
     }
 
+    /// These secrets, and `texts` hidden as a secret's text is.
+    pub(in crate::editor::diagnostics) fn hiding(
+        mut self,
+        texts: impl IntoIterator<Item = String>,
+    ) -> Self {
+        self.texts.extend(texts);
+        self
+    }
+
     /// Whether `value` (at `pointer`) is a secret field's or inside one.
     pub(in crate::editor::diagnostics) fn holds(&self, pointer: &str, value: &Value) -> bool {
         self.is_secret_text(value)
