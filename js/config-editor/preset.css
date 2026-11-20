@@ -510,6 +510,7 @@
 :not(#\#):not(#\#) .config-editor__line-number-modified { color: var(--config-editor-line-number-modified, var(--config-editor-modified)); }
 :not(#\#):not(#\#) .config-editor__line-number-error::before {
   position: absolute;
+  z-index: 2;
   top: 8px;
   left: calc(var(--config-editor-marker-column) - 13px);
   width: 5px;
@@ -519,9 +520,11 @@
   content: "";
 }
 
-/* A read-only line: a lock before the number. */
+/* A read-only line: a lock before the number. Above the change bars' hit
+   areas (see the change bar), so it takes its own pointer and title. */
 :not(#\#):not(#\#) .config-editor__lock-marker {
   position: absolute;
+  z-index: 2;
   top: calc(50% - 5px);
   left: calc(var(--config-editor-marker-column) - 25px);
   width: 9px;
@@ -539,9 +542,11 @@
   fill: currentColor;
 }
 
-/* A line with a secret placeholder: a key before the number. */
+/* A line with a secret placeholder: a key before the number, above the
+   change bars' hit areas as the lock is. */
 :not(#\#):not(#\#) .config-editor__secret-marker {
   position: absolute;
+  z-index: 2;
   top: calc(50% - 5px);
   left: calc(var(--config-editor-marker-column) - 25px);
   width: 10px;
@@ -567,10 +572,16 @@
 }
 
 /* A changed line's bar: last in the marker column, before the number.
-   Above the next row, which its hit area overlaps by a pixel. */
+   The markers of a line stack in two layers of the gutter's rows: the
+   change markers' large hit areas (their `::after`, z-index 1; a row's
+   over the row above, which it overlaps by a pixel), then every marker
+   drawn (the lock or key, the problem dot, the bar, the removed lines'
+   mark; z-index 2). Each marker is then what the pointer finds on it,
+   and a bar's area still takes the pointer around the others. The
+   buttons have no z-index of their own, which would lift their hit areas
+   with them. */
 :not(#\#):not(#\#) .config-editor__diff-marker {
   position: absolute;
-  z-index: 1;
   top: 0;
   left: calc(var(--config-editor-marker-column) - 6px);
   bottom: 0;
@@ -580,44 +591,53 @@
   background: transparent;
 }
 
-:not(#\#):not(#\#) .config-editor__diff-marker-added { background: var(--config-editor-added); }
-:not(#\#):not(#\#) .config-editor__diff-marker-modified { background: var(--config-editor-modified); }
-
 :not(#\#):not(#\#) .config-editor__diff-marker-added,
 :not(#\#):not(#\#) .config-editor__diff-marker-modified {
   cursor: pointer;
-  transition: width 100ms ease, right 100ms ease, box-shadow 100ms ease;
 }
+
+:not(#\#):not(#\#) .config-editor__diff-marker-added::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-modified::before {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  content: "";
+  transition: width 100ms ease, left 100ms ease, box-shadow 100ms ease;
+}
+
+:not(#\#):not(#\#) .config-editor__diff-marker-added::before { background: var(--config-editor-added); }
+:not(#\#):not(#\#) .config-editor__diff-marker-modified::before { background: var(--config-editor-modified); }
 
 :not(#\#):not(#\#) .config-editor__diff-marker-added::after,
 :not(#\#):not(#\#) .config-editor__diff-marker-modified::after {
   position: absolute;
+  z-index: 1;
   content: "";
 }
 
-:not(#\#):not(#\#) .config-editor__diff-marker-added:hover,
-:not(#\#):not(#\#) .config-editor__diff-marker-added:focus-visible,
-:not(#\#):not(#\#) .config-editor__diff-marker-modified:hover,
-:not(#\#):not(#\#) .config-editor__diff-marker-modified:focus-visible {
-  left: calc(var(--config-editor-marker-column) - 7px);
+:not(#\#):not(#\#) .config-editor__diff-marker-added:hover::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-added:focus-visible::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-modified:hover::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-modified:focus-visible::before {
+  left: -1px;
   width: 5px;
 }
 
-:not(#\#):not(#\#) .config-editor__diff-marker-added:hover,
-:not(#\#):not(#\#) .config-editor__diff-marker-added:focus-visible {
-  background: var(--config-editor-added);
+:not(#\#):not(#\#) .config-editor__diff-marker-added:hover::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-added:focus-visible::before {
   box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-added) 70%, transparent);
 }
 
-:not(#\#):not(#\#) .config-editor__diff-marker-modified:hover,
-:not(#\#):not(#\#) .config-editor__diff-marker-modified:focus-visible {
-  background: var(--config-editor-modified);
+:not(#\#):not(#\#) .config-editor__diff-marker-modified:hover::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-modified:focus-visible::before {
   box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-modified) 70%, transparent);
 }
 
 :not(#\#):not(#\#) .config-editor__diff-deleted {
   position: absolute;
-  z-index: 1;
   top: -3px;
   left: calc(var(--config-editor-marker-column) - 12px);
   width: 9px;
@@ -635,6 +655,7 @@
 
 :not(#\#):not(#\#) .config-editor__diff-deleted::before {
   position: absolute;
+  z-index: 2;
   top: 4px;
   right: 0;
   width: 3px;
@@ -2104,6 +2125,7 @@
 }
 :not(#\#):not(#\#) .config-editor__diff-deleted::after {
   position: absolute;
+  z-index: 1;
   top: -6px;
   left: calc(12px - var(--config-editor-marker-column));
   width: var(--config-editor-marker-column);
@@ -2140,8 +2162,8 @@
 @media (forced-colors: active) {
   :not(#\#):not(#\#) .config-editor__find-button[aria-disabled="true"] { color: GrayText; }
   :not(#\#):not(#\#) .config-editor__line-number-error::before,
-  :not(#\#):not(#\#) .config-editor__diff-marker-added,
-  :not(#\#):not(#\#) .config-editor__diff-marker-modified,
+  :not(#\#):not(#\#) .config-editor__diff-marker-added::before,
+  :not(#\#):not(#\#) .config-editor__diff-marker-modified::before,
   :not(#\#):not(#\#) .config-editor__diff-deleted::before,
   :not(#\#):not(#\#) .config-editor__lock-marker,
   :not(#\#):not(#\#) .config-editor__secret-marker,
@@ -2157,8 +2179,8 @@
     forced-color-adjust: none;
   }
   :not(#\#):not(#\#) .config-editor__line-number-error::before { background: CanvasText; }
-  :not(#\#):not(#\#) .config-editor__diff-marker-added,
-  :not(#\#):not(#\#) .config-editor__diff-marker-modified { background: Highlight; }
+  :not(#\#):not(#\#) .config-editor__diff-marker-added::before,
+  :not(#\#):not(#\#) .config-editor__diff-marker-modified::before { background: Highlight; }
   :not(#\#):not(#\#) .config-editor__diff-deleted::before { background: CanvasText; }
   :not(#\#):not(#\#) .config-editor__lock-marker,
   :not(#\#):not(#\#) .config-editor__secret-marker { color: CanvasText; }
@@ -2247,8 +2269,8 @@
 @media (prefers-reduced-motion: reduce) {
   :not(#\#):not(#\#) .config-editor__fold-toggle,
   :not(#\#):not(#\#) .config-editor__find-expand,
-  :not(#\#):not(#\#) .config-editor__diff-marker-added,
-  :not(#\#):not(#\#) .config-editor__diff-marker-modified,
+  :not(#\#):not(#\#) .config-editor__diff-marker-added::before,
+  :not(#\#):not(#\#) .config-editor__diff-marker-modified::before,
   :not(#\#):not(#\#) .config-editor__diff-deleted::before {
     transition: none;
   }

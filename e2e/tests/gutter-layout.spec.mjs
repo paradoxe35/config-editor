@@ -232,3 +232,99 @@ test.describe('the gutter markers stay clickable', () => {
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   });
 });
+
+/** The centre of `locator`'s own box, or of its `pseudo` box, in page coordinates. */
+const centreOf = (locator, pseudo) =>
+  locator.evaluate((element, pseudo) => {
+    const box = element.getBoundingClientRect();
+    if (!pseudo) return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    const style = getComputedStyle(element, pseudo);
+    return {
+      x: box.left + parseFloat(style.left) + parseFloat(style.width) / 2,
+      y: box.top + parseFloat(style.top) + parseFloat(style.height) / 2,
+    };
+  }, pseudo);
+
+/** Whether the element at `point` is the one `selector` finds there, else what it is. */
+const hitAt = (page, point, selector) =>
+  page.evaluate(
+    ({ x, y, selector }) => {
+      // An icon's drawing is the icon.
+      const hit = document.elementFromPoint(x, y);
+      const element = hit instanceof SVGElement ? hit.closest('span') : hit;
+      return element.matches(selector) ? 'itself' : `${element.tagName}.${element.className}`;
+    },
+    { ...point, selector },
+  );
+
+/**
+ * Opens a document whose line 1 is read-only, has a problem (a key the
+ * schema does not know) and is changed, and whose line 3 follows a removed
+ * line and starts a fold.
+ */
+async function markedLines(page, baseURL) {
+  page.errors = [];
+  page.on('pageerror', (error) => page.errors.push(String(error)));
+  await page.addInitScript(() => {
+    window.configEditorSample = 'nonsense_key: 1\nname: x\ngone: 1\nblock:\n  a: 1\n';
+  });
+  await page.goto(`${baseURL}?sample=page&lock=/nonsense_key`);
+  const e = editor(page);
+  await e.input.waitFor();
+  const before = await gutterGeometry(page);
+  await e.input.click();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('End');
+  await page.keyboard.type(' # c');
+  await page.keyboard.press('Control+g');
+  await page.keyboard.type('3\n');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Delete');
+  const row = (line) => page.locator(`.config-editor__gutter div[data-line="${line}"]`);
+  const marks = {
+    row,
+    before,
+    lock: row(1).locator('.config-editor__lock-marker'),
+    bar: row(1).locator('.config-editor__diff-marker'),
+    removed: row(3).locator('.config-editor__diff-deleted'),
+    chevron: page.locator('.config-editor__fold-toggle[data-line="3"]'),
+  };
+  await expect(row(1)).toHaveClass(/config-editor__line-number-error/, { timeout: 5000 });
+  await expect(marks.lock).toBeVisible();
+  await expect(marks.bar).toBeVisible();
+  await expect(marks.removed).toHaveCount(1);
+  return marks;
+}
+
+test.describe('the gutter markers sharing a line', () => {
+  test('each marker is the element at its own centre', async ({ page, baseURL }) => {
+    const { row, lock, bar, removed, chevron } = await markedLines(page, baseURL);
+    await page.locator('.config-editor__gutter').hover();
+    await expect(chevron).toBeVisible();
+
+    const markers = [
+      ['the lock', await centreOf(lock), '.config-editor__lock-marker'],
+      ['the problem dot', await centreOf(row(1), '::before'), '.config-editor__line-number-error'],
+      ['the change bar', await centreOf(bar), '.config-editor__diff-marker'],
+      ['the removed lines', await centreOf(removed, '::before'), '.config-editor__diff-deleted'],
+      ['the chevron', await centreOf(chevron), '.config-editor__fold-toggle'],
+    ];
+    for (const [name, centre, selector] of markers) {
+      expect(await hitAt(page, centre, selector), `${name} is under its own centre`).toBe('itself');
+    }
+    // The lock's title shows on hover; a click on it or on the dot selects
+    // the line, and opens no change.
+    expect(await lock.getAttribute('title')).toBeTruthy();
+    for (const [, centre] of markers.slice(0, 2)) {
+      await page.mouse.click(centre.x, centre.y);
+      await expect(page.locator('.config-editor__diff-peek')).toHaveCount(0);
+    }
+    // The bar keeps its area around them: at the gutter's edge it still opens.
+    const gutter = await page.locator('.config-editor__gutter').boundingBox();
+    await page.mouse.click(gutter.x + 1, markers[2][1].y);
+    await expect(page.locator('.config-editor__diff-peek')).toBeVisible();
+    expect(page.errors).toEqual([]);
+  });
+
+});
