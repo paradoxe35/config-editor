@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::super::language::{ConfigLanguage, ParseError, Span};
 use super::super::parse_cache;
+use super::super::text::{byte_range, slice};
 use super::span_memo::batch_cached;
 use super::{FieldPath, key_span, line_start, spanning, split_line, value_span};
 
@@ -123,7 +124,9 @@ fn join(
         };
         let gap = last.end..range.start;
         let own = gap.start >= gap.end
-            || source[gap.clone()].trim().is_empty()
+            || slice::within(source, byte_range(gap.clone()))
+                .trim()
+                .is_empty()
             || !keys
                 .get_or_insert_with(|| {
                     batch_cached(source, || KeyStarts::of(behavior, source, document))
@@ -141,15 +144,14 @@ fn join(
 /// `range`'s end carried over the closers of the containers the text in it
 /// opens and leaves open (`}`, `]`, an end tag).
 fn closed(behavior: &dyn ConfigLanguage, source: &str, range: Range<usize>) -> usize {
-    let mut depth = behavior.unclosed_containers(&source[range.clone()]);
+    let mut depth = behavior.unclosed_containers(slice::within(source, byte_range(range.clone())));
     let mut end = range.end;
     while depth > 0 {
-        let rest = &source[end..];
-        let skipped = rest.len() - rest.trim_start().len();
-        let Some(length) = behavior.container_closer_len(&rest[skipped..]) else {
+        let rest = slice::within(source, byte_range(end..source.len())).trim_start();
+        let Some(length) = behavior.container_closer_len(rest) else {
             break;
         };
-        end += skipped + length;
+        end = source.len() - rest.len() + length;
         depth -= 1;
     }
     end
@@ -254,7 +256,10 @@ impl KeyStarts {
 /// Whether `other` is `pointer`, inside it, or holds it.
 fn related(other: &str, pointer: &str) -> bool {
     let within = |inner: &str, outer: &str| {
-        inner == outer || (inner.starts_with(outer) && inner[outer.len()..].starts_with('/'))
+        inner == outer
+            || inner
+                .strip_prefix(outer)
+                .is_some_and(|rest| rest.starts_with('/'))
     };
     within(other, pointer) || within(pointer, other)
 }

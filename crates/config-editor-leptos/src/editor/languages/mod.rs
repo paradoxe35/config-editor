@@ -186,6 +186,8 @@ mod harness;
     feature = "xml"
 ))]
 mod highlight_matrix;
+#[cfg(all(test, feature = "xml"))]
+mod hook_lengths_tests;
 #[cfg(all(
     test,
     feature = "yaml",

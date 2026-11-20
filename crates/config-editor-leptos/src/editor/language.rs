@@ -2017,6 +2017,13 @@ impl Typing for Defaults {}
 impl Hover for Defaults {}
 impl SaveLayout for Defaults {}
 
+/// Whether a hook's length of what starts `text` ends inside it, on a
+/// character boundary: a custom language's longer length, or one inside a
+/// character, is no markup the editor can cut, so it counts as none.
+fn is_prefix(text: &str, length: usize) -> bool {
+    text.is_char_boundary(length)
+}
+
 /// The hooks of every group, read through the language: each from the
 /// group the language refines, else its default.
 impl dyn ConfigLanguage {
@@ -2117,7 +2124,9 @@ impl dyn ConfigLanguage {
 
     /// See [`Text::container_closer_len`].
     pub fn container_closer_len(&self, text: &str) -> Option<usize> {
-        self.text().container_closer_len(self, text)
+        self.text()
+            .container_closer_len(self, text)
+            .filter(|length| is_prefix(text, *length))
     }
 
     /// See [`Typing::newline`].
@@ -2372,11 +2381,14 @@ impl dyn ConfigLanguage {
     pub fn closing_markup_len(&self, text: &str) -> Option<usize> {
         self.markup()
             .and_then(|group| group.closing_markup_len(text))
+            .filter(|length| is_prefix(text, *length))
     }
 
     /// See [`Markup::key_markup_len`].
     pub fn key_markup_len(&self, text: &str) -> Option<usize> {
-        self.markup().and_then(|group| group.key_markup_len(text))
+        self.markup()
+            .and_then(|group| group.key_markup_len(text))
+            .filter(|length| is_prefix(text, *length))
     }
 
     /// See [`Markup::element_end`].

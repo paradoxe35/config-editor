@@ -5,6 +5,8 @@
 //! index, or the document. `range_of` (and so `reveal`), a host problem's
 //! place and a lock on the path agree, in every language.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::super::diagnostics::Severity;
 use super::super::edit::Edit;
