@@ -197,16 +197,23 @@ export function lockIndices(value, { at: fraction, length, line }) {
   return end > start ? { start, end } : null;
 }
 
+// Whether `got` is what a copy of `want` (an `fz.selected()`) puts on the
+// clipboard.
+function copied(got, want) {
+  if (want.rest) return got.startsWith(want.text) && (want.rest.startsWith(got) || `${want.rest}\n`.startsWith(got));
+  return want.line ? got === want.text || got === `${want.text}\n` : got === want.text;
+}
+
 // Null when the clipboard holds what a copy of `want` (`fz.selected()`
-// before it) puts there, else the `copy` failure.
+// before it) puts there, else the `copy` failure. The editor may rewrite
+// its text between that reading and the key (an Edit-as switch waiting
+// for the text to parse goes through after the typing pause): the copy
+// then took the selection as the text after it left it, read again now.
 export async function copyFits(page, want) {
   const got = await page.evaluate(() => navigator.clipboard.readText());
-  const fits = want.rest
-    ? got.startsWith(want.text) && (want.rest.startsWith(got) || `${want.rest}\n`.startsWith(got))
-    : want.line
-      ? got === want.text || got === `${want.text}\n`
-      : got === want.text;
-  if (fits) return null;
+  if (copied(got, want)) return null;
+  const now = await page.evaluate(() => window.__fz.selected());
+  if (now && now.doc !== want.doc && copied(got, now)) return null;
   return {
     check: 'copy',
     detail: `copied ${JSON.stringify(got).slice(0, 120)}, selection ${JSON.stringify(want.text).slice(0, 120)}`,

@@ -110,7 +110,7 @@ export function installProbe({ kind, vanilla }) {
     );
   // What a copy of the selection should put on the clipboard: the text
   // selected, hidden lines included; the caret's whole line when nothing
-  // is selected.
+  // is selected. `doc` is the text it was read from.
   fz.selected = () => {
     const editor = fz.editor();
     const input = fz.root()?.querySelector('.config-editor__input');
@@ -125,13 +125,18 @@ export function installProbe({ kind, vanilla }) {
       if (token.index < start && start < after) start = token.index;
       if (token.index < end && end < after) end = after;
     }
-    if (start !== end) return { text: text.slice(start, end), line: false };
+    if (start !== end) return { text: text.slice(start, end), line: false, doc: text };
     const lineStart = text.lastIndexOf('\n', start - 1) + 1;
     const next = text.indexOf('\n', start);
     // A closed fold on the line: its block goes too (and what closes it).
     const line = text.slice(0, start).split('\n').length;
     const folds = folded.some((range) => range.startLine === line);
-    return { text: text.slice(lineStart, next < 0 ? text.length : next + 1), line: true, rest: folds ? text.slice(lineStart) : null };
+    return {
+      text: text.slice(lineStart, next < 0 ? text.length : next + 1),
+      line: true,
+      rest: folds ? text.slice(lineStart) : null,
+      doc: text,
+    };
   };
   // The editor's own problems per document ('' on a single-editor page),
   // as `onProblems` reports them (a callback given later hears them at
