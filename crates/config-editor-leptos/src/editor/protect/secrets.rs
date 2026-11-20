@@ -284,11 +284,14 @@ impl EditorState {
         }
         // What the edit replaced, as it said: a token pasted over another
         // shares its first characters, which a diff of the texts would
-        // keep. Read off the texts only when it did not say.
+        // keep. So the change as made, not narrowed to what differs (which
+        // would keep those characters and paste only the token's rest).
+        // Read off the texts only when it did not say.
         let caret = edit.caret();
         let recorded = edit
-            .change()
-            .and_then(|change| change.hull())
+            .told()
+            .then(|| edit.made().hull())
+            .flatten()
             .map(|(was, _)| was);
         let region = recorded
             .or_else(|| ended_at_caret(&tokens, &edit.before, &edit.text, caret))

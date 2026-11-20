@@ -249,6 +249,7 @@ impl EditorState {
         _before: &str,
         _after: &str,
         _caret: TextSize,
+        _recorded: Option<crate::editor::text::TextRange>,
         _stepped: bool,
     ) {
     }

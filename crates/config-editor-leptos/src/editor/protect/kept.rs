@@ -69,15 +69,16 @@ impl EditorState {
     }
 
     /// Panics unless the edit from `before` to `after`, its caret at
-    /// `caret`, which the gate took, kept `spans` (see the module). An undo
-    /// or redo (`stepped`) goes back to a text as it was, placeholders
-    /// typed whole or not.
+    /// `caret` (what it replaced `recorded`, when it said), which the gate
+    /// took, kept `spans` (see the module). An undo or redo (`stepped`)
+    /// goes back to a text as it was, placeholders typed whole or not.
     pub(crate) fn assert_spans_kept(
         &self,
         spans: &Spans,
         before: &str,
         after: &str,
         caret: TextSize,
+        recorded: Option<TextRange>,
         stepped: bool,
     ) {
         let followed = self.protect().ranges.get_untracked();
@@ -96,7 +97,10 @@ impl EditorState {
                 );
             }
         }
-        let region = edited_bytes(before, after, caret);
+        // What the edit replaced, as it recorded it (a token pasted over
+        // another shares its first characters, which a diff would keep);
+        // read off the texts when it did not say.
+        let region = recorded.unwrap_or_else(|| edited_bytes(before, after, caret));
         let rewritten =
             super::rewritten::rewritten_region(&spans.tokens, before, after, &region).is_some();
         if !rewritten

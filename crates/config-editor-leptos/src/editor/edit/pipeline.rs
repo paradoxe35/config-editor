@@ -140,7 +140,16 @@ impl EditorState {
         let after = self.place_selection(&edit, rewritten, kept);
         #[cfg(test)]
         if let Some((spans, stepped)) = spans {
-            self.assert_spans_kept(&spans, &edit.before, &edit.text, edit.caret(), stepped);
+            let recorded = edit.told().then(|| edit.made().hull()).flatten();
+            let recorded = recorded.map(|(replaced, _)| replaced);
+            self.assert_spans_kept(
+                &spans,
+                &edit.before,
+                &edit.text,
+                edit.caret(),
+                recorded,
+                stepped,
+            );
         }
 
         trace(Stage::Record);
