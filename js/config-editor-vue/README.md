@@ -453,6 +453,18 @@ user may have passed through, call `setValue(text)` on the instance, which
 always applies (also before the editor has mounted) and is reported through
 `@update:model-value`.
 
+With revisions there is no pause: `@update:model-value` gives each text a revision as its second argument. Store it beside the text and pass it back as the `valueRevision` prop (keep only the newest revision you were given, never go back to an older one; leave it out for a text of your own); `v-model` keeps the value alone, so bind `modelValue` and the event yourself. The echo is then matched exactly, and the editor never sends a text again by itself: a parent that loses one (a save that failed) passes the newest text it was given again, with its revision. See [Hosts that echo](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#hosts-that-echo).
+
+```vue
+<ConfigEditor
+  :model-value="stored.text"
+  :value-revision="stored.revision"
+  @update:model-value="
+    (text, revision) => Object.assign(stored, { text, revision })
+  "
+/>
+```
+
 `readOnlyRanges` go to the editor with each new `modelValue`, changed or not, and are read in that text: a parent that renders the same ranges with a text of its own (a file loaded, a reset in its state) locks exactly what they name there. Ranges past that text's end that fit the text the last ones came with (the ranges a parent keeps rendering after `setValue`) are read in that one and moved. Until the ranges come with a `modelValue` again (between `setValue` and the next render), the locks are carried into the new text by a diff: where it cannot tell where a lock went, the whole changed lines stay locked.
 
 </details>
