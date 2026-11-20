@@ -1,31 +1,35 @@
-import { expect, test } from '@playwright/test';
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { expect, test } from "@playwright/test";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Locks the host clears hold back nothing any more: a key refused at a lock
 // goes through at the same place once the lock is cleared, and an Edit-as edit the typing pause could not convert
 // converts then.
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const js = join(root, 'js');
-const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm'));
-const example = (name) => pathToFileURL(join(js, 'examples', name)).href;
-const input = (page) => page.locator('#qa .config-editor__input');
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const js = join(root, "js");
+const built = existsSync(
+  join(js, "config-editor", "pkg", "config_editor_bg.wasm"),
+);
+const example = (name) => pathToFileURL(join(js, "examples", name)).href;
+const input = (page) => page.locator("#qa .config-editor__input");
 
 async function mount(page, options) {
-  await page.goto(example('vanilla.html'));
-  await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+  await page.goto(example("vanilla.html"));
+  await expect(page.locator("body")).toHaveAttribute("data-ready", "true", {
+    timeout: 20000,
+  });
   await page.evaluate(async (options) => {
-    const module = await import('../config-editor/index.js');
+    const module = await import("../config-editor/index.js");
     window.editor?.destroy();
-    const host = document.createElement('div');
-    host.id = 'qa';
+    const host = document.createElement("div");
+    host.id = "qa";
     document.body.prepend(host);
     window.changes = [];
     window.qa = new module.ConfigEditor(host, {
-      language: 'yaml',
-      value: 'a: 1\nb: 2\nc: 3\n',
+      language: "yaml",
+      value: "a: 1\nb: 2\nc: 3\n",
       ...options,
       onChange: (text) => window.changes.push(text),
     });
@@ -42,38 +46,96 @@ async function caretAfter(page, marker) {
 }
 
 const LOCKS = {
-  readOnlyPaths: { set: { readOnlyPaths: ['/a'] }, clear: { readOnlyPaths: null } },
+  readOnlyPaths: {
+    set: { readOnlyPaths: ["/a"] },
+    clear: { readOnlyPaths: null },
+  },
   readOnlyRanges: {
-    set: { readOnlyRanges: [{ startLine: 1, startColumn: 4, endLine: 1, endColumn: 5 }] },
+    set: {
+      readOnlyRanges: [
+        { startLine: 1, startColumn: 4, endLine: 1, endColumn: 5 },
+      ],
+    },
     clear: { readOnlyRanges: null },
   },
 };
 
-test.describe('locks the host clears', () => {
-  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+test.describe("locks the host clears", () => {
+  test.skip(!built, "js packages not built: run `npm run build` in js/");
 
   for (const [name, { set, clear }] of Object.entries(LOCKS)) {
-    test(`${name}: a key refused at the lock goes through once it is cleared`, async ({ page }) => {
+    test(`${name}: a key refused at the lock goes through once it is cleared`, async ({
+      page,
+    }) => {
       await mount(page, {});
       await page.evaluate((set) => window.qa.update(set), set);
-      await caretAfter(page, 'a: 1');
-      await page.keyboard.type('9');
-      expect(await page.evaluate(() => window.qa.value)).toBe('a: 1\nb: 2\nc: 3\n');
+      await caretAfter(page, "a: 1");
+      await page.keyboard.type("9");
+      expect(await page.evaluate(() => window.qa.value)).toBe(
+        "a: 1\nb: 2\nc: 3\n",
+      );
       await page.evaluate((clear) => window.qa.update(clear), clear);
       await page.waitForTimeout(300);
-      await page.keyboard.type('9');
-      await expect.poll(() => page.evaluate(() => window.qa.value)).toBe('a: 19\nb: 2\nc: 3\n');
+      await page.keyboard.type("9");
+      await expect
+        .poll(() => page.evaluate(() => window.qa.value))
+        .toBe("a: 19\nb: 2\nc: 3\n");
     });
 
-    test(`${name}: an Edit-as edit refused in the pause converts once it is cleared`, async ({ page }) => {
-      await mount(page, { editAs: 'json' });
+    test(`${name}: an Edit-as edit refused in the pause converts once it is cleared`, async ({
+      page,
+    }) => {
+      await mount(page, { editAs: "json" });
       await caretAfter(page, '"a": 1');
-      await page.keyboard.type('9');
+      await page.keyboard.type("9");
       await page.evaluate((set) => window.qa.update(set), set);
       await page.waitForTimeout(600);
       expect(await page.evaluate(() => window.changes)).toEqual([]);
       await page.evaluate((clear) => window.qa.update(clear), clear);
-      await expect.poll(() => page.evaluate(() => window.changes.at(-1))).toBe('a: 19\nb: 2\nc: 3\n');
+      await expect
+        .poll(() => page.evaluate(() => window.changes.at(-1)))
+        .toBe("a: 19\nb: 2\nc: 3\n");
+    });
+  }
+
+  // A framework binding gives each prop its own update: the paths cleared
+  // first, the ranges next, in one task. The edit the range held back
+  // (its key written again in a text that does not parse) reaches the
+  // host then, whichever order the host clears its locks in.
+  for (const order of [
+    ["readOnlyPaths", "readOnlyRanges"],
+    ["readOnlyRanges", "readOnlyPaths"],
+  ]) {
+    test(`an edit a range held reaches the host once the locks are cleared in two updates, ${order.join(" then ")}`, async ({
+      page,
+    }) => {
+      await mount(page, {});
+      await page.evaluate(() =>
+        window.qa.update({
+          readOnlyPaths: ["/c"],
+          readOnlyRanges: [{ start: 0, end: 4 }],
+        }),
+      );
+      await page.waitForTimeout(300);
+      await input(page).evaluate((element) => {
+        element.focus();
+        element.setSelectionRange(element.value.length, element.value.length);
+      });
+      await page.keyboard.type("a#");
+      await expect
+        .poll(() => page.evaluate(() => window.qa.text))
+        .toBe("a: 1\nb: 2\nc: 3\na#");
+      await page.waitForTimeout(300);
+      expect(await page.evaluate(() => window.changes)).not.toContain(
+        "a: 1\nb: 2\nc: 3\na#",
+      );
+      await page.evaluate(
+        (order) => order.forEach((name) => window.qa.update({ [name]: null })),
+        order,
+      );
+      await expect
+        .poll(() => page.evaluate(() => window.changes.at(-1)))
+        .toBe("a: 1\nb: 2\nc: 3\na#");
     });
   }
 });

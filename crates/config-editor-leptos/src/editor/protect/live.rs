@@ -597,39 +597,57 @@ fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> 
 }
 
 impl EditorState {
-    /// Places the host's ranges again each time the host changes them.
+    /// Places the host's ranges again each time the host changes them, and
+    /// asks again what the old locks refused each time it changes its
+    /// ranges or paths.
+    ///
+    /// One effect does both, in that order: with two, the one asking again
+    /// could run first when the host changes its paths and then its ranges
+    /// in one task (a framework binding gives each prop its own update),
+    /// judge the text by ranges not placed yet, and leave an edit the old
+    /// locks held back unsent once they are gone.
     pub(crate) fn connect_protection(&self) {
         let state = *self;
-
-        Effect::new(move |previous: Option<()>| {
+        // Counts the host's changes of its ranges: given again at the same
+        // places (for another text), they are placed anew too.
+        let ranges_given = Memo::new(move |seen: Option<&u64>| {
             state.protect().host_ranges.track();
-            // The first run places them only if the host changed them since
-            // the mount (in the same task: the effect runs after it).
-            let changed = previous.is_some()
-                || state
-                    .protect()
-                    .placed_at_mount
-                    .try_update_value(Option::take)
-                    .flatten()
-                    .is_some_and(|placed| {
-                        state
-                            .protect()
-                            .host_ranges
-                            .with_untracked(|ranges| *ranges != placed)
-                    });
-            if changed {
-                state.place_ranges();
-            }
+            seen.map_or(0, |seen| seen + 1)
         });
-        // New locks from the host: what the old ones refused is asked
-        // again (a key at the refused place, an Edit-as edit the pause
-        // could not convert).
-        Effect::new(move |previous: Option<()>| {
+        Effect::new(move |previous: Option<u64>| {
             state.protect().host_paths.track();
-            state.protect().host_ranges.track();
-            if previous.is_some() {
-                untrack(|| state.locks_changed_by_host());
-            }
+            let given = ranges_given.get();
+            untrack(|| match previous {
+                // The first run places them only if the host changed them
+                // since the mount (in the same task: the effect runs after
+                // it).
+                None => {
+                    let changed = state
+                        .protect()
+                        .placed_at_mount
+                        .try_update_value(Option::take)
+                        .flatten()
+                        .is_some_and(|placed| {
+                            state
+                                .protect()
+                                .host_ranges
+                                .with_untracked(|ranges| *ranges != placed)
+                        });
+                    if changed {
+                        state.place_ranges();
+                    }
+                }
+                // New locks from the host: what the old ones refused is
+                // asked again (a key at the refused place, an Edit-as edit
+                // the pause could not convert).
+                Some(placed) => {
+                    if placed != given {
+                        state.place_ranges();
+                    }
+                    state.locks_changed_by_host();
+                }
+            });
+            given
         });
     }
 
