@@ -79,6 +79,7 @@ fn listed_with_reason(
                 protected: &protected,
                 prefixes: &[],
                 strings,
+                tokens: &[],
             },
         );
         let c = listed.iter().find(|option| option.label.contains('c'));

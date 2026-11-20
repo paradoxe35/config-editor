@@ -149,11 +149,15 @@ const ELSEWHERE = {
   examples: "schema help tests",
   readOnlyText: "read-only ranges: protect tests",
   holdsReadOnly: "renaming a locked field’s key: protect tests",
+  holdsReadOnlyReason:
+    "renaming the key of a field the schema says why is read-only: protect tests (hold_cause_tests)",
   saveRefused: "an Edit-as save over a read-only value: protect tests",
   saveWaits:
     "a broken text in a custom language without spans: custom-languages-host spec",
   secretHint: "the page gives its own hint",
   secretValue: "schema messages on secret fields: protect tests",
+  secretInside:
+    "a schema message quoting a list or map holding a secret: tests/secret_inside_messages.rs",
   unknownPlaceholder: "protect tests",
   movedPlaceholder: "protect tests (moved_token_tests) and the locks-read-only spec",
   foreignPlaceholder:

@@ -472,3 +472,16 @@ fn every_cause_has_its_own_wording() {
         "{texts:#?}"
     );
 }
+
+/// A refused rename of a key holding a read-only field says why only when
+/// something says more than that the field is read-only.
+#[test]
+fn a_refused_rename_names_a_reason_only_when_one_is_given() {
+    let strings = default_strings();
+    assert_eq!(Reason::Field.holding(strings), "Holds a read-only field");
+    assert_eq!(Reason::Range.holding(strings), "Holds a read-only field");
+    assert_eq!(
+        Reason::Given("Set by your plan".into()).holding(strings),
+        "Holds a read-only field: Set by your plan"
+    );
+}

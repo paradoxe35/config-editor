@@ -29,7 +29,11 @@ impl Reason {
     /// Why renaming or moving the key above a field locked for this reason
     /// is refused.
     pub(crate) fn holding(&self, strings: &EditorStrings) -> String {
-        fill(&strings.holds_read_only, &[("reason", &self.text(strings))])
+        // The default reasons only say again that the field is read-only.
+        match self {
+            Reason::Given(reason) => fill(&strings.holds_read_only_reason, &[("reason", reason)]),
+            Reason::Field | Reason::Range => strings.holds_read_only.clone(),
+        }
     }
 
     /// "Read-only: …", the gutter lock's label.

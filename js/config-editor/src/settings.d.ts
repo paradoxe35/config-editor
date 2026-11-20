@@ -1000,11 +1000,17 @@ export interface EditorStrings {
    */
   readOnlyText?: string;
   /**
-   * Why renaming or moving the key above a read-only field is refused.
+   * Why renaming or moving the key above a read-only field is refused, when nothing says why the field is read-only.
+   *
+   * @default "Holds a read-only field"
+   */
+  holdsReadOnly?: string;
+  /**
+   * The same, for a field the schema says why is read-only (`x-readonly-reason`): `{reason}`.
    *
    * @default "Holds a read-only field: {reason}"
    */
-  holdsReadOnly?: string;
+  holdsReadOnlyReason?: string;
   /**
    * A save refused because it would change a read-only value.
    *
@@ -1119,6 +1125,12 @@ export interface EditorStrings {
    * @default "the secret value"
    */
   secretValue?: string;
+  /**
+   * What a schema problem writes in place of each secret inside a value it quotes (a list or map holding one).
+   *
+   * @default "…"
+   */
+  secretInside?: string;
   /**
    * A placeholder the host did not give, in a secret field.
    *

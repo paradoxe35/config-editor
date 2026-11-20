@@ -53,6 +53,7 @@ impl ProtectState {
             .secrets
             .options
             .with_value(|options| options.reference_prefixes.clone());
+        let tokens = self.secrets.tokens.get();
         self.host_paths.with(|host_paths| {
             self.protected.with(|protected| {
                 adjust(
@@ -67,6 +68,7 @@ impl ProtectState {
                         host_paths,
                         protected,
                         strings,
+                        tokens: &tokens,
                     },
                 )
             })

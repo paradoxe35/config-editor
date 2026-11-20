@@ -405,8 +405,12 @@ pub struct EditorStrings {
     pub read_only_field: String,
     /// Why text in a read-only range the host gave cannot change.
     pub read_only_text: String,
-    /// Why renaming or moving the key above a read-only field is refused.
+    /// Why renaming or moving the key above a read-only field is refused,
+    /// when nothing says why the field is read-only.
     pub holds_read_only: String,
+    /// The same, for a field the schema says why is read-only
+    /// (`x-readonly-reason`): `{reason}`.
+    pub holds_read_only_reason: String,
     /// A save refused because it would change a read-only value.
     pub save_refused: String,
     /// A save waiting for the text to be valid: the language cannot say
@@ -461,6 +465,9 @@ pub struct EditorStrings {
     pub secret_hint: String,
     /// What a schema problem says instead of a secret field's value.
     pub secret_value: String,
+    /// What a schema problem writes in place of each secret inside a value
+    /// it quotes (a list or map holding one).
+    pub secret_inside: String,
     /// A placeholder the host did not give, in a secret field.
     pub unknown_placeholder: String,
     /// One of the host's placeholders outside the field it stands in.
@@ -802,7 +809,8 @@ impl Default for EditorStrings {
             read_only_editor_reason: text("Cannot edit in a read-only editor: {reason}"),
             read_only_field: text("This field is read-only"),
             read_only_text: text("This text is read-only"),
-            holds_read_only: text("Holds a read-only field: {reason}"),
+            holds_read_only: text("Holds a read-only field"),
+            holds_read_only_reason: text("Holds a read-only field: {reason}"),
             save_refused: text("{pointer} is read-only and this change would alter it"),
             save_waits: text(
                 "Not saved: {pointer} is read-only, and it can be checked only once the text is valid",
@@ -848,6 +856,7 @@ impl Default for EditorStrings {
             secret_label: text("Secret placeholder"),
             secret_hint: text("Keeps the current secret unless you replace it"),
             secret_value: text("the secret value"),
+            secret_inside: text("…"),
             unknown_placeholder: text(
                 "{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead",
             ),
