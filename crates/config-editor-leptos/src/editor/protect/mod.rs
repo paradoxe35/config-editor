@@ -527,6 +527,15 @@ mod range_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod range_undo_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod ranges_while_held_tests;
 #[cfg(all(
     test,

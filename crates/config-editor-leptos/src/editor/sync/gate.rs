@@ -61,7 +61,10 @@ pub(crate) enum Made {
     /// save is checked as a whole too.
     Converted,
     /// A host text the view's text is known to stand for (an undo back to
-    /// a text saved before, a reload): the host's own, restored as it was.
+    /// a text saved before, a reload): the host's own, restored as it was,
+    /// and checked as a whole as a converted one is: the host's locks may
+    /// have come after it (a range over text typed since), and a locked
+    /// value never changes, whichever text it would go back to.
     Restored,
 }
 
@@ -94,8 +97,10 @@ impl EditorState {
             return Err(held);
         }
         match made {
-            Made::Typed | Made::Restored => Ok(()),
-            Made::Converted => self.check_host_save(previous, text).map_err(Held::Refused),
+            Made::Typed => Ok(()),
+            Made::Converted | Made::Restored => {
+                self.check_host_save(previous, text).map_err(Held::Refused)
+            }
         }
     }
 
