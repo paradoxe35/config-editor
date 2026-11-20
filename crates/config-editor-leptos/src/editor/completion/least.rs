@@ -35,37 +35,69 @@ pub(super) fn least_items(filler: &mut Filler<'_>, schema: &Value, depth: usize)
     } else {
         filler.items_left.min(1)
     };
-    let count = size("minItems").unwrap_or(0).max(containing).min(most);
-    filler.items_left -= count;
-    let list = List {
-        array,
-        contains,
-        containing,
-        max_contains: contains.and(size("maxContains")),
-        unique: array.get("uniqueItems") == Some(&Value::Bool(true)),
+    // The items matching `contains` come first; where the `prefixItems`
+    // there refuse them (`[{type: array}]` beside `contains: integer`),
+    // after those.
+    let prefix = array
+        .get("prefixItems")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let starts = if contains.is_some() && prefix > 0 {
+        vec![0, prefix]
+    } else {
+        vec![0]
     };
-    let mut items = Vec::with_capacity(count);
-    for index in 0..count {
-        match list.item(filler, index, &items, depth) {
-            Some(item) => items.push(item),
-            None => return empty(),
+    let left = filler.items_left;
+    let mut first = None;
+    for from in starts {
+        filler.items_left = left;
+        let count = size("minItems")
+            .unwrap_or(0)
+            .max(from + containing)
+            .min(most);
+        filler.items_left -= count;
+        let list = List {
+            array,
+            contains,
+            containing,
+            from,
+            max_contains: contains.and(size("maxContains")),
+            unique: array.get("uniqueItems") == Some(&Value::Bool(true)),
+        };
+        let mut items = Vec::with_capacity(count);
+        for index in 0..count {
+            match list.item(filler, index, &items, depth) {
+                Some(item) => items.push(item),
+                None => return empty(),
+            }
         }
+        let items = Value::Array(items);
+        if decides(array, &items, filler.root) != Some(false) {
+            return items;
+        }
+        first.get_or_insert(items);
     }
-    Value::Array(items)
+    first.unwrap_or_else(empty)
 }
 
 /// What a list schema asks of its items.
 struct List<'a> {
     array: &'a Value,
     contains: Option<&'a Value>,
-    /// How many of the first items match `contains`.
+    /// How many items match `contains`, from the item at `from` on.
     containing: usize,
+    from: usize,
     /// How many items may match `contains` at most.
     max_contains: Option<usize>,
     unique: bool,
 }
 
 impl List<'_> {
+    /// Whether the item at `index` is one written to match `contains`.
+    fn matching(&self, index: usize) -> bool {
+        (self.from..self.from + self.containing).contains(&index)
+    }
+
     /// The schema of the item at `index`.
     fn schema(&self, index: usize) -> Option<&Value> {
         self.array
@@ -86,13 +118,13 @@ impl List<'_> {
         depth: usize,
     ) -> Option<Value> {
         let item = self.schema(index);
-        let contains = self.contains.filter(|_| index < self.containing);
+        let contains = self.contains.filter(|_| self.matching(index));
         let written = item.or(contains)?;
         let root = filler.root;
         // Past the items matching `contains`, one more match would be
         // more than `maxContains` allows.
         let avoided = self.contains.filter(|schema| {
-            index >= self.containing
+            !self.matching(index)
                 && self.max_contains.is_some_and(|most| {
                     items
                         .iter()

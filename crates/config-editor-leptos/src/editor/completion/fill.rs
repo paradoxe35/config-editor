@@ -26,9 +26,41 @@ pub(super) fn fill_value_at(
     Filler::new(language, root).filled(schema, Some(at), 0)
 }
 
-/// The list a list `schema` describes is written as (see [`least_items`]).
-pub(super) fn least_list(language: &dyn ConfigLanguage, schema: &Value, root: &Value) -> Value {
-    least_items(&mut Filler::new(language, root), schema, 0)
+/// The list a list `schema` describes is written as (see [`least_items`]),
+/// where `at` names every schema applying to the value: its own least
+/// list where they take it, else the first of the other schemas' (an
+/// `allOf` member's `minItems` beside the property's `type: array`) that
+/// asks items and that they all take.
+pub(super) fn least_list(
+    language: &dyn ConfigLanguage,
+    schema: &Value,
+    at: &Entry<'_>,
+    root: &Value,
+) -> Value {
+    let mut filler = Filler::new(language, root);
+    let own = least_items(&mut filler, schema, 0);
+    if at.accepts(&own, root) != Some(false) {
+        return own;
+    }
+    Here::walk(at.clone(), root, Seen::default())
+        .certain()
+        .into_iter()
+        .filter(|branch| !std::ptr::eq(*branch, schema))
+        .filter_map(|branch| {
+            // A schema asking items of the list (`minItems`, `contains`)
+            // without naming its type is read as the list's.
+            let mut list = branch.as_object()?.clone();
+            if !list.contains_key("minItems") && !list.contains_key("contains") {
+                return None;
+            }
+            list.entry("type").or_insert_with(|| Value::from("array"));
+            Some(least_items(&mut filler, &Value::Object(list), 0))
+        })
+        .find(|list| {
+            list.as_array().is_some_and(|items| !items.is_empty())
+                && at.accepts(list, root) == Some(true)
+        })
+        .unwrap_or(own)
 }
 
 /// Values past each bound [`Filler::filled`] tries when its own are refused.

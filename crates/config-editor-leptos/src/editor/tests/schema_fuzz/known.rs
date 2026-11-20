@@ -204,6 +204,14 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a fill leaves out a required child",
         applies: |case| matches!(case.language.label(), "XML" | "TOML"),
     },
+    // The same in TOML for a list's item: a list asking an item only
+    // `null` meets is written empty.
+    Known {
+        finding: "documented: XML writes no empty list, TOML no null",
+        property: "fill",
+        class: "a fill writes too few list items",
+        applies: |case| case.language == Language::TOML && asks_null_item(&case.schema),
+    },
     // An empty document has no problems (`diagnostics::validate`): a view
     // holding `{}` whose host's text is empty disagrees by design.
     Known {
@@ -557,8 +565,8 @@ fn says_list(schema: &Value) -> bool {
 /// Whether `schema` asks items of a list one of which may be anything: of
 /// the items its `minItems` (and its `contains`'s `minContains`) asks, one
 /// whose schemas (its `prefixItems` entry, else `items`; and `contains`
-/// for the first ones) say nothing of it, as `completion::least` reads
-/// them.
+/// for the first ones) say nothing of it, or are `false` (no item meets it),
+/// as `completion::least` reads them.
 fn lists_of_anything(schema: &Value) -> bool {
     let mut found = false;
     walk(schema, &mut |node| {
@@ -566,14 +574,38 @@ fn lists_of_anything(schema: &Value) -> bool {
         let contains = node.get("contains");
         let containing = contains.map_or(0, |_| size("minContains").unwrap_or(1));
         let asked = size("minItems").unwrap_or(0).max(containing);
+        // No value to write for an item: every schema for it says nothing
+        // (none, or `{}`), or one is met by no item (`false`).
         let free = |item: Option<&Value>| item.is_none_or(|item| *item == json!({}));
+        let refused = |item: Option<&Value>| item == Some(&Value::Bool(false));
         let item = |index: u64| {
             node.get("prefixItems")
                 .and_then(|prefix| prefix.get(usize::try_from(index).ok()?))
                 .or_else(|| node.get("items").filter(|items| !items.is_array()))
         };
-        found |= (0..asked.min(64))
-            .any(|index| free(item(index)) && (index >= containing || free(contains)));
+        found |= (0..asked.min(64)).any(|index| {
+            let contained = contains.filter(|_| index < containing);
+            refused(item(index)) || refused(contained) || (free(item(index)) && free(contained))
+        });
+    });
+    found
+}
+
+/// Whether `schema` has a list asking items (`minItems`, `contains`) one
+/// of whose item schemas (`prefixItems`, `items`) only `null` meets.
+fn asks_null_item(schema: &Value) -> bool {
+    let mut found = false;
+    walk(schema, &mut |node| {
+        let asks = node.get("minItems").is_some() || node.get("contains").is_some();
+        let null = |item: &Value| {
+            item.get("type") == Some(&json!("null"))
+                || item.get("const") == Some(&Value::Null)
+                || item.get("enum") == Some(&json!([null]))
+        };
+        let prefix = node.get("prefixItems").and_then(Value::as_array);
+        found |= asks
+            && (prefix.is_some_and(|prefix| prefix.iter().any(null))
+                || node.get("items").is_some_and(null));
     });
     found
 }
@@ -660,6 +692,26 @@ mod tests {
         assert!(own_list(child(full)).is_none());
         let contained = json!({"contains": {"type": "string"}});
         assert!(own_list(child(contained)).is_none());
+        // A list asking an item no schema lets be (`items: false`).
+        let none = json!({"type": "array", "minItems": 1, "items": false});
+        assert!(own_list(child(none)).is_some());
+        let prefixed = json!({"minItems": 1, "prefixItems": [{"type": "integer"}], "items": false});
+        assert!(own_list(child(prefixed)).is_none());
+        let contained_none =
+            json!({"minItems": 1, "contains": {"type": "integer"}, "items": false});
+        assert!(own_list(child(contained_none)).is_some());
+        // A list item only `null` meets: excused in TOML only.
+        let null_first = child(json!({"minItems": 1, "prefixItems": [{"type": "null"}],
+            "contains": {"type": "integer"}}));
+        let excused_in = |language: Language| {
+            excused(
+                "fill",
+                "a fill writes too few list items (minItems)",
+                &case(language, null_first.clone(), json!({})),
+            )
+        };
+        assert!(excused_in(Language::TOML).is_some());
+        assert!(excused_in(Language::YAML).is_none());
 
         let secret = |language: Language, doc: Value| {
             excused(

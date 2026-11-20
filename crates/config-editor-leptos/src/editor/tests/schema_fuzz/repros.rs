@@ -960,4 +960,92 @@ fn values_under_a_key_renamed_in_an_xml_view_keep_the_documented_host_forms() {
         json!({"a": [""]}),
         json!({"port": ""}),
     );
+    // A key renamed inside a list of one the view shows as its item.
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({}),
+        json!({"port": [{"c": ["t"]}]}),
+        json!({"port": {"size": 1}}),
+    );
+}
+
+/// A required child list asking an item no schema lets be (`items:
+/// false`) is written empty: the documented least list.
+#[test]
+fn a_required_child_list_whose_items_are_refused_is_the_documented_empty_list() {
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1, "items": false}}}],
+            "properties": {"name": {"type": "array"}}, "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+    // Its `contains` asks an item `items: false` refuses.
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1,
+            "contains": {"type": "integer"}, "items": false}}}],
+            "properties": {"name": {"type": "array"}}, "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+}
+
+/// A required child list whose `minItems` and `contains` an `allOf`
+/// member gives beside the property's `type: array` is written with the
+/// items they ask, in every language.
+#[test]
+fn a_required_child_list_asked_items_by_an_all_of_member_is_written_with_them() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1,
+            "contains": {"type": "integer"}}}}],
+            "properties": {"name": {"type": "array"}}, "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+    // A first item only `null` meets (`[null, 0]`, which TOML cannot
+    // write: a documented limit).
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1,
+            "prefixItems": [{"type": "null"}], "contains": {"type": "integer"}}}}],
+            "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+    // Its `contains` item after the `prefixItems` item that refuses it
+    // (`[[], 0]`, which XML cannot write: a documented limit).
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1,
+            "prefixItems": [{"type": "array"}], "contains": {"type": "integer"}}}}],
+            "properties": {"name": {"type": "array"}}, "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+}
+
+/// A key whose dependent schema refuses a lone XML element read as the
+/// list's one item beside it (`port` a list, then also a string) is not
+/// suggested.
+#[test]
+fn a_key_whose_dependent_schema_refuses_a_lone_element_read_as_a_list_is_not_suggested() {
+    holds_everywhere(
+        super::suggestions::check,
+        json!({"dependentSchemas": {"size": {"properties": {"port": {"type": "string"}}}},
+            "properties": {"size": {}, "port": {"type": "array"}}}),
+        json!({"port": 0}),
+        json!({"size": ""}),
+    );
 }
