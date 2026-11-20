@@ -434,6 +434,15 @@ mod moved_whole_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod nested_copies_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod odd_syntax_tests;
 #[cfg(all(
     test,

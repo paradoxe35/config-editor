@@ -126,6 +126,16 @@ fn copied<'a>(
     items: &[&'a Value],
     known: &Known,
 ) -> Option<Holding<'a>> {
+    // In a language that repeats any element for a list, a copy may hold
+    // the field's element written more than once itself (a list in a
+    // list): each element is a copy of the field's value.
+    let flat;
+    let items = if behavior.repetition() == Repetition::Elements {
+        flat = elements(items);
+        &flat[..]
+    } else {
+        items
+    };
     // Copies each holding the token alone: flagged and held by `moved_off`.
     if behavior.repetition() != Repetition::None
         && items.len() > 1
@@ -152,6 +162,19 @@ fn copied<'a>(
     strings()
         .find(|text| known.alone_in(text))
         .map(Holding::Alone)
+}
+
+/// The values of `items` with each list read as its items, at any depth.
+fn elements<'a>(items: &[&'a Value]) -> Vec<&'a Value> {
+    let mut flat = Vec::with_capacity(items.len());
+    let mut next: Vec<&'a Value> = items.iter().rev().copied().collect();
+    while let Some(item) = next.pop() {
+        match item {
+            Value::Array(inner) => next.extend(inner.iter().rev()),
+            other => flat.push(other),
+        }
+    }
+    flat
 }
 
 /// In a language that repeats any element for a list, the values at

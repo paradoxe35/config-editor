@@ -794,3 +794,30 @@ fn a_cut_of_a_list_key_with_a_copy_holding_its_items_is_taken() {
     acts.push(Act::NewValue);
     assert_ok(&setup, &acts);
 }
+
+/// A quote typed before an XML secret's placeholder, after the element was
+/// copied and its copy's value cut: refused, or held while the value
+/// reads with text beside it.
+#[test]
+fn a_quote_typed_before_a_copied_xml_secret_is_not_glued() {
+    assert_ok(
+        &Setup {
+            case: 6,
+            lock: Lock::Secret,
+            host: None,
+            pairs: false,
+        },
+        &[
+            Act::Cut { line: 30074 },
+            Act::PasteCopy { line: 2739 },
+            Act::Entry {
+                anchor: 1,
+                name: 15,
+                paste: false,
+            },
+            Act::Cut { line: 52197 },
+            Act::Type { at: 345, text: 9 },
+            Act::Type { at: 36686, text: 5 },
+        ],
+    );
+}
