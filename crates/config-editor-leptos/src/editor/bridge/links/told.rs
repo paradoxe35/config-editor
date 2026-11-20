@@ -312,11 +312,18 @@ impl Links {
             // opens several tables, one ending where another's link ends)
             // is no pairing where the link's source names another item of
             // the line: that item is the link's (see the name pass below).
+            // A list item is named by its list's key: a value written once
+            // (`<k8>` shown alone) may be a list's item in the view.
+            let key_name = |pointer: &str| {
+                pointer
+                    .rsplit('/')
+                    .find(|segment| segment.parse::<usize>().is_err())
+                    .map(str::to_string)
+            };
             let named_otherwise = |item: usize, link: &Link| {
-                name(&items[item].1) != name(&link.source.pointer)
-                    && items
-                        .iter()
-                        .any(|(_, pointer)| name(pointer) == name(&link.source.pointer))
+                let theirs = key_name(&link.source.pointer);
+                key_name(&items[item].1) != theirs
+                    && items.iter().any(|(_, pointer)| key_name(pointer) == theirs)
             };
             for (index, (end, _)) in items.iter().enumerate() {
                 if item_used[index] || items[..index].iter().any(|(other, _)| other == end) {

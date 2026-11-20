@@ -5,6 +5,32 @@ use super::ops::{Op, Put, Take};
 use super::replay;
 use crate::editor::languages::Language;
 
+/// P3: a TOML octal number copied in an XML view (a list of two, saved)
+/// and one copy cut and pasted into another table keeps its host form.
+#[test]
+fn a_toml_octal_number_copied_then_moved_in_an_xml_view_keeps_its_form() {
+    replay(
+        Language::TOML,
+        Language::XML,
+        "[alpha]\nk1 = '''\nraw text\n'''\nk2 = \"\"\"\nmulti\nline\"\"\"\nk3 = 07:32:00\n[beta]\nk4 = \"\"\"\nmulti\nline\"\"\"\nk5 = 1_000 # note 4\nk6 = 07:32:00\nk7 = 3.5e2 # note 6\n[gamma]\nk8 = 0o17 # note 7\nk9 = 1_000\n",
+        &[
+            Op::CopyLine {
+                line: 51,
+                down: false,
+            },
+            Op::Pause,
+            Op::Cut {
+                line: 15,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 24,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
 /// P3: a YAML number in a host spelling (hex, octal, a tag) cut with a
 /// TOML array-of-tables header, saved, and the header pasted again keeps
 /// its host form: the links of the tables the header line opens pair by
