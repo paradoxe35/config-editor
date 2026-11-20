@@ -163,14 +163,19 @@ impl Placeholders<'_> {
                     };
                 }
                 let holders = Holders::read(self.behavior, after, document, self.matcher);
-                let read = self
-                    .glued_in_parsed(before, after, document, &holders)
-                    .or_else(|| self.glued_where_moved(before, after, &holders, changed));
+                let (read, way_back) = match self.glued_in_parsed(before, document, &holders) {
+                    Some((field, way_back)) => (Some(field), way_back),
+                    None => (
+                        self.glued_where_moved(before, after, &holders, changed),
+                        false,
+                    ),
+                };
                 // Refused when the edit writes at a placeholder's edges (or
                 // over it), or repairs the text (nothing before says what
                 // its value held) but one held already; else the parse's
                 // reading is held.
                 let tokens = match &read {
+                    Some(field) if way_back => Some(self.tokens_of(field)),
                     Some(field) if before_parses || self.holding => {
                         self.untouched(before, after, changed, field)
                     }
@@ -246,16 +251,20 @@ impl Placeholders<'_> {
         let mut tokens: Vec<String> = near_after
             .iter()
             .map(|(range, _)| after.get(range.clone()).unwrap_or_default().to_string())
-            .chain(
-                self.known
-                    .iter()
-                    .filter(|known| known.whole.is_some() && known.field.as_deref() == Some(field))
-                    .map(|known| known.token.clone()),
-            )
+            .chain(self.tokens_of(field))
             .collect();
         tokens.sort();
         tokens.dedup();
         Some(tokens)
+    }
+
+    /// The tokens the host gave the field at `field` as its whole value.
+    fn tokens_of(&self, field: &str) -> Vec<String> {
+        self.known
+            .iter()
+            .filter(|known| known.whole.is_some() && known.field.as_deref() == Some(field))
+            .map(|known| known.token.clone())
+            .collect()
     }
 
     /// The bytes of `text` its field writes as its value, when they hold
@@ -390,16 +399,16 @@ impl Placeholders<'_> {
     /// real before the edit or is made real by it (a key renamed back,
     /// a line uncommented or moved back into its block). A value that
     /// already had text beside it may only lose some, and one already
-    /// made a list or map stays as it was, and one made a list or map
-    /// by an edit off the token's lines is flagged, not refused; after a
-    /// repair (`before` does not parse) it holds the token alone.
+    /// made a list or map stays as it was; after a repair (`before` does
+    /// not parse) it holds the token alone. With the field, whether the
+    /// edit only took a copy of the token away (see below): taken and held
+    /// whatever it touches.
     fn glued_in_parsed(
         &self,
         before: &str,
-        after: &str,
         document: &Value,
         holders: &Holders<'_>,
-    ) -> Option<String> {
+    ) -> Option<(String, bool)> {
         // Read the text before only for a value not as the host wrote it.
         let behavior = self.behavior;
         let mut changed = self
@@ -417,12 +426,26 @@ impl Placeholders<'_> {
         let earlier = earlier.as_ref().as_ref().ok();
         let holders_before =
             earlier.map(|earlier| Holders::read(behavior, before, earlier, self.matcher));
+        let mut way_back = false;
         changed
             .find(|known| {
                 let was = earlier
                     .zip(holders_before.as_ref())
                     .map(|(earlier, holders)| holding(behavior, earlier, holders, known));
+                // Copies of its line each holding the token alone (read as
+                // none of the field's), one given another value or taken
+                // away: the way back, taken, and held while the list left
+                // holds other text beside the token.
+                let fewer_copies = || {
+                    holders_before.as_ref().is_some_and(|was| {
+                        was.of(&known.token).count() > holders.of(&known.token).count()
+                    })
+                };
                 match (was, holding(behavior, document, holders, known)) {
+                    (Some(Holding::Not), Holding::Within(Value::Array(_))) if fewer_copies() => {
+                        way_back = true;
+                        true
+                    }
                     // Bare where the host wrote whitespace around it (a
                     // block's last line break joined away): refused only
                     // where it held the host's form.
@@ -438,15 +461,6 @@ impl Placeholders<'_> {
                         !only_taken_from(was, now)
                     }
                     (Some(Holding::Within(was)), Holding::Within(now)) => was != now,
-                    // Made a map (an attribute or a child given to its
-                    // element): refused. Made a list: refused when the
-                    // edit is on the token's own lines (brackets put
-                    // around it); a sibling of its name written elsewhere
-                    // makes it an item, which the parse flags and the save
-                    // waits on.
-                    (_, Holding::Within(Value::Array(_))) => {
-                        on_token_lines(before, after, &known.token)
-                    }
                     // A repair leaving the token with only whitespace around
                     // it: a form of it (a kept block's last blank line moved
                     // away), the host's or bare, as when alone.
@@ -460,28 +474,16 @@ impl Placeholders<'_> {
                     (None, Holding::Beside(now)) => {
                         !self.host_wrote(before, known.field.as_deref().unwrap_or(""), now)
                     }
+                    // Text put beside it, or made a map (an attribute or a
+                    // child given to its element) or a list (brackets put
+                    // around it, a second element of its name): refused
+                    // where the edit writes at the token, else taken and
+                    // held (see `untouched`): the change event and the save
+                    // wait, the field flagged.
                     _ => true,
                 }
             })
             .and_then(|known| known.field.clone())
+            .map(|field| (field, way_back))
     }
-}
-
-/// Whether the edit from `before` to `after` changes a line of `before`
-/// writing `token`.
-fn on_token_lines(before: &str, after: &str, token: &str) -> bool {
-    let (start, old_end, _) = changed_bytes(before, after);
-    before.match_indices(token).any(|(at, _)| {
-        let line_start = before
-            .get(..at)
-            .unwrap_or_default()
-            .rfind('\n')
-            .map_or(0, |found| found + 1);
-        let line_end = before
-            .get(at..)
-            .unwrap_or_default()
-            .find('\n')
-            .map_or(before.len(), |found| at + found);
-        start <= line_end && line_start <= old_end
-    })
 }

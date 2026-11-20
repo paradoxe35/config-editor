@@ -1,12 +1,14 @@
 //! P1: in XML, where an element written twice reads as a list, a secret's
 //! placeholder stays the secret's alone however its element and the
 //! elements holding it are repeated around it: another element of the
-//! field's name beside it, its parent written again (`<db>2</db>`), or
-//! both, so the field reads as a list inside a list. Text typed at either
-//! edge of the placeholder never reads beside it, in the host's own XML and
-//! in an XML view of a JSON host.
+//! field's name beside it is refused (it would make the field a list with
+//! other text beside the placeholder); with its parent written again
+//! (`<db>2</db>`), text typed at either edge of the placeholder never reads
+//! beside it, in the host's own XML and in an XML view of a JSON host.
 
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
+use leptos::prelude::*;
 
 use super::super::Language;
 use super::super::secret_options::SecretOptions;
@@ -63,13 +65,28 @@ fn text_typed_at_a_secret_never_reads_beside_it_however_its_elements_repeat() {
                         if field_copy {
                             // An XML view of the JSON host writes the
                             // attribute as an element.
-                            let (field_end, sibling) = if shown(state).contains("</password>") {
+                            let element = shown(state).contains("</password>");
+                            let (field_end, sibling) = if element {
                                 ("</password>", "\n    <password>}</password>")
                             } else {
                                 (field_end, sibling)
                             };
                             let at = shown(state).find(field_end).expect("field") + field_end.len();
-                            if !paste(state, at..at, sibling) {
+                            let taken = paste(state, at..at, sibling);
+                            // The placeholder is its element's whole value:
+                            // a second element of its name would make the
+                            // field a list with other text beside it. A
+                            // second element holding the attribute is a
+                            // copy of its parent.
+                            // Taken only held: the change event and the
+                            // save wait.
+                            if element {
+                                if taken && !untrack(|| state.changes_held()) {
+                                    failures.push(format!("{case}: the sibling taken unheld"));
+                                }
+                                continue;
+                            }
+                            if !taken {
                                 failures.push(format!("{case}: the sibling refused"));
                                 continue;
                             }

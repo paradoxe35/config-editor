@@ -228,7 +228,7 @@ impl Placeholders<'_> {
                 was.is_some_and(
                     |was| match relation(&holder.pointer, &was.pointer, repetition) {
                         Some(Relation::Inside) => true,
-                        Some(Relation::Copy) => repetition != Repetition::Elements,
+                        Some(Relation::Copy | Relation::Item) => repetition != Repetition::Elements,
                         _ => false,
                     },
                 );

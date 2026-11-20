@@ -988,3 +988,40 @@ fn an_item_cut_from_a_list_written_twice_with_a_placeholder_is_taken() {
         ],
     );
 }
+
+/// A secret XML element's line copied, then one copy given a new value:
+/// replacing a placeholder whole is the way to write a new secret.
+#[test]
+fn a_copied_xml_secret_line_takes_a_new_value() {
+    let setup = Setup {
+        case: 6,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(&setup, &[Act::PasteCopy { line: 42109 }, Act::NewValue]);
+}
+
+/// The same copy given a new value, then an entry typed elsewhere: the
+/// list left is held, and the entry is no repair of the secret.
+#[test]
+fn an_entry_after_a_new_value_in_a_copied_xml_secret_line_is_taken() {
+    let setup = Setup {
+        case: 6,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 42109 },
+            Act::NewValue,
+            Act::Entry {
+                anchor: 2,
+                name: 14,
+                paste: false,
+            },
+        ],
+    );
+}

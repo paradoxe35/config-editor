@@ -116,6 +116,9 @@ pub(super) fn holding<'a>(
     // whether a list step sets it apart), and whether one is inside it.
     let mut own: Vec<(&'a str, bool)> = Vec::new();
     let mut within = false;
+    // Whether the field itself became a list (an item of it holds the
+    // token), not a parent written again.
+    let mut listed = false;
     // Each string once: copies written where one value is read (a map
     // written twice under one key, the parse keeping the last) are held by
     // that one string, never a list the field became.
@@ -127,6 +130,10 @@ pub(super) fn holding<'a>(
         match relation(&holder.pointer, field, repetition) {
             Some(Relation::Own) => own.push((holder.text, false)),
             Some(Relation::Copy) => own.push((holder.text, true)),
+            Some(Relation::Item) => {
+                own.push((holder.text, true));
+                listed = true;
+            }
             Some(Relation::Inside) => within = true,
             None => {}
         }
@@ -142,14 +149,26 @@ pub(super) fn holding<'a>(
         if own.len() > 1 && own.iter().all(|(text, _)| known.alone_in(text)) {
             return Holding::Not;
         }
-        // In a language that repeats only a key for a list (not any
-        // element), the copies are a list the field became.
-        if repetition != Repetition::Elements {
+        // The field made a list (a second element of its name written
+        // beside its own), in any language: the token was its whole value,
+        // so the list's other items are written beside it. Items empty or
+        // holding the token alone are none (a copy of its line with its
+        // mask deleted, on the way back). In a language that repeats only
+        // a key for a list (not any element), every copy is such an item.
+        let other_items = || {
+            matches!(container(), Value::Array(items) if items.iter().any(|item| match item {
+                Value::Null => false,
+                Value::String(text) => !text.is_empty() && !known.alone_in(text),
+                Value::Object(map) => !map.is_empty(),
+                Value::Array(items) => !items.is_empty(),
+                _ => true,
+            }))
+        };
+        if (listed && other_items()) || repetition != Repetition::Elements {
             return Holding::Within(container());
         }
-        // One with text beside the token: glued, whichever copy it is; a
-        // second element of the field's name written beside its own is a
-        // new item, the token still an item's whole value.
+        // One with text beside the token: glued, whichever copy it is (a
+        // parent's element written again holds a copy of the field).
         if let Some((beside, _)) = own.iter().find(|(text, _)| !known.alone_in(text)) {
             return Holding::Beside(beside);
         }
@@ -169,10 +188,12 @@ pub(super) fn holding<'a>(
 pub(super) enum Relation {
     /// The field's value.
     Own,
-    /// A copy of it: the field's element written again, or a parent's, in
-    /// a language that repeats one for a list, or an item of the list the
-    /// field became.
+    /// A copy of it: a parent's element written again, in a language
+    /// that repeats any element for a list.
     Copy,
+    /// An item of the list the field became (its own element, or key,
+    /// written again).
+    Item,
     /// A string inside a map the field became.
     Inside,
 }
@@ -214,7 +235,9 @@ pub(super) fn relation(holder: &str, field: &str, repetition: Repetition) -> Opt
     let rest = &held[at..];
     Some(if rest.iter().any(|step| !index(step)) {
         Relation::Inside
-    } else if inserted || !rest.is_empty() {
+    } else if !rest.is_empty() {
+        Relation::Item
+    } else if inserted {
         Relation::Copy
     } else {
         Relation::Own

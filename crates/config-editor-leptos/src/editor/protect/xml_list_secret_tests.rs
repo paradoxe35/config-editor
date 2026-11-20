@@ -229,12 +229,23 @@ fn a_new_element_beside_a_secret_element_is_a_new_field_or_item() {
     ] {
         let schema = schema.as_deref();
         // A second element of the secret's name typed after it, then the
-        // original token replaced.
+        // original token replaced. Where the schema does not make the field
+        // a list, the token is its whole value: the element that would make
+        // it a list beside the token is refused (its last key, which makes
+        // the text parse) or held.
         let (_owner, state) = mount_tls(schema);
         let at = end_of_key(state);
-        if !write(state, at..at, "\n  <key>abc</key>", true) {
+        let typed = write(state, at..at, "\n  <key>abc</key>", true);
+        let list = case == "a list";
+        if list && !typed {
             failures.push(format!(
                 "{case}: typing a second <key> refused at\n{}",
+                shown(state)
+            ));
+        }
+        if !list && typed && !untrack(|| state.changes_held()) {
+            failures.push(format!(
+                "{case}: a second <key> beside the whole secret taken unheld:\n{}",
                 shown(state)
             ));
         }

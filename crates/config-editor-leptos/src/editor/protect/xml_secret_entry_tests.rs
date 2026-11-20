@@ -2,10 +2,14 @@
 //! list of secrets with attributes (`<key id="a">«secret»</key>`) or
 //! without, a secret attribute, or a lone secret element. Above, between
 //! and below the secrets, a key at a time with auto-closing on and off,
-//! or pasted, the new element is taken (refused at `<key ` with
-//! "nothing can be written beside it"); text glued to a placeholder is
-//! still refused; and beside a list of secrets the new item is no problem.
-//! (A lone secret made an item is a known gap, left for later.)
+//! or pasted: beside a list of secrets the new item is taken and is no
+//! problem; beside a lone secret, whose placeholder is the field's whole
+//! value (a bare element the schema does not make a list), a second
+//! element of its name would make the field a list with other text beside
+//! the placeholder: refused where it writes at the placeholder, as YAML
+//! refuses `password: [«secret», x]`, else taken and held (flagged, the
+//! change event and the save waiting). Text glued to a placeholder is
+//! still refused.
 
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
@@ -93,7 +97,9 @@ fn cases() -> Vec<Case> {
             text: pick(&bare),
             schema: keys_schema(string_secret),
             entries: &["<key>new</key>", r#"<key id="c">new</key>"#],
-            list: true,
+            // One bare element reads as the field's whole value (the schema
+            // allows a string there): a second one would make it a list.
+            list: items == 2,
         });
         cases.push(Case {
             name: if items == 1 {
@@ -166,7 +172,7 @@ enum How {
 }
 
 #[test]
-fn a_new_element_beside_xml_secrets_is_taken_anywhere_and_flagged_only_off_a_list() {
+fn a_new_element_is_taken_beside_xml_secrets_in_a_list_and_held_beside_a_lone_one() {
     let mut failures = Vec::new();
     for case in cases() {
         let schema: serde_json::Value = serde_json::from_str(&case.schema).unwrap();
@@ -189,6 +195,20 @@ fn a_new_element_beside_xml_secrets_is_taken_anywhere_and_flagged_only_off_a_lis
                     }
                     let expected = format!("{}{typed}{}", &case.text[..end], &case.text[end..]);
                     let now = shown(state);
+                    // Beside a lone secret: refused, or taken and held.
+                    if !case.list {
+                        if now == expected {
+                            state.recheck_tokens();
+                            let found = problems(state, Language::XML, Some(&schema));
+                            if found.is_empty() || state.save() || !untrack(|| state.changes_held())
+                            {
+                                failures.push(format!(
+                                    "{label}: a lone secret made a list, not held (problems {found:?})"
+                                ));
+                            }
+                        }
+                        continue;
+                    }
                     if now != expected {
                         failures.push(format!("{label}: not taken, left\n{now}"));
                         continue;
@@ -197,15 +217,11 @@ fn a_new_element_beside_xml_secrets_is_taken_anywhere_and_flagged_only_off_a_lis
                     state.recheck_tokens();
                     let found = problems(state, Language::XML, Some(&schema));
                     let saved = state.save();
-                    if case.list && (!found.is_empty() || !saved) {
+                    if !found.is_empty() || !saved {
                         failures.push(format!(
                             "{label}: a new item flagged {found:?} (saved: {saved})"
                         ));
                     }
-                    // A lone secret made an item by a second element of
-                    // its name (a known gap): flagging it needs the schema's
-                    // reading of the field; deferred past v0.1.0.
-                    let _ = (found, saved);
                 }
             }
         }
