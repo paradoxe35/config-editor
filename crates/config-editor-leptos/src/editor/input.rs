@@ -64,10 +64,21 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
                 event.prevent_default();
                 return;
             }
-        } else if kind == "insertFromDrop" && state.drop_refused_early() {
-            event.prevent_default();
-            state.drop_done();
-            return;
+        } else if kind == "insertFromDrop" {
+            if state.drop_refused_early() {
+                event.prevent_default();
+                state.drop_done();
+                return;
+            }
+            // A drop inside a placeholder would take it whole, as any edit
+            // cutting one does: refused, its drag's delete undone. Read
+            // again: the delete before it is applied by now.
+            let (start, end) = textarea_selection(&element);
+            if state.cuts_a_token(start, end) {
+                event.prevent_default();
+                state.drop_refused();
+                return;
+            }
         }
         // A deletion with nothing selected reaches over the character
         // beside the caret.
