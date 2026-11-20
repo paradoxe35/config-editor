@@ -127,6 +127,15 @@ default.
 />
 ```
 
+Sticky scroll is on by default: while the text scrolls, the lines that open
+the blocks around the top line (parent keys, tables, elements) stay at the
+top, as in VS Code, and a click on one scrolls back to it.
+
+```svelte
+<!-- At most three lines; `stickyScroll={false}` turns it off. -->
+<ConfigEditor value={text} stickyScrollMaxLines={3} />
+```
+
 <!-- settings:start -->
 
 <!-- Generated from crates/config-editor-leptos/src/settings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
@@ -148,6 +157,8 @@ default.
 | `search`                 | `true`              | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                   |
 | `goToLine`               | `true`              | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                                             |
 | `folding`                | `true`              | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
+| `stickyScroll`           | `true`              | Sticky scroll, as in VS Code: the lines opening the blocks around the top line stay at the top while the text scrolls; a click goes back to one. Works with `folding` off too. In Rust, needs the `folding` Cargo feature.                                                         |
+| `stickyScrollMaxLines`   | `5`                 | The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never over a quarter of the text area.                                                                                                                                                          |
 | `saveShortcut`           | `true`              | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.                                                                                                                                             |
 | `strings`                | English (see below) | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`.                                                                                       |
 

@@ -44,6 +44,9 @@ WebAssembly.
 - The editing you expect from VS Code: auto-closed brackets, quotes and tags,
   smart indentation, comment toggling, find and replace with regular
   expressions, go to line, folding, `F8` through problems, undo and redo.
+- Sticky scroll (`stickyScroll`, `stickyScrollMaxLines`): the lines that open
+  the blocks around the top line stay at the top while the text scrolls, in
+  every language, and a click goes back to one.
 - Fast on large files: only the visible lines are rendered, and typing stays
   responsive in documents of nearly 10,000 lines. A keystroke reads the whole
   document once for each thing that needs it, and the colors of constructs

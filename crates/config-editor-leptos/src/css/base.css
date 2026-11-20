@@ -551,7 +551,8 @@
 
 /* A secret placeholder: a chip, drawn without changing the text's width
    (the textarea above holds the same characters). */
-:not(#\#):not(#\#) .config-editor__highlight .config-editor__secret {
+:not(#\#):not(#\#) .config-editor__highlight .config-editor__secret,
+:not(#\#):not(#\#) .config-editor__sticky .config-editor__secret {
   border-radius: 3px;
   background: var(--config-editor-secret-chip);
   box-shadow: inset 0 0 0 1px var(--config-editor-secret-chip-border);
@@ -559,7 +560,9 @@
 
 /* A read-only value, muted (its key keeps its color). */
 :not(#\#):not(#\#) .config-editor__highlight .config-editor__locked,
-:not(#\#):not(#\#) .config-editor__highlight .config-editor__locked > span {
+:not(#\#):not(#\#) .config-editor__highlight .config-editor__locked > span,
+:not(#\#):not(#\#) .config-editor__sticky .config-editor__locked,
+:not(#\#):not(#\#) .config-editor__sticky .config-editor__locked > span {
   color: var(--config-editor-locked);
 }
 
@@ -931,6 +934,70 @@
 :not(#\#):not(#\#) .config-editor__fold-chip--warning { box-shadow: inset 0 -2px var(--config-editor-warning); }
 :not(#\#):not(#\#) .config-editor__fold-chip--info { box-shadow: inset 0 -2px var(--config-editor-info); }
 :not(#\#):not(#\#) .config-editor__fold-chip--hint { box-shadow: inset 0 -2px var(--config-editor-hint); }
+
+/* Sticky scroll: the header lines of the blocks scrolled past, over the top
+   of the text and of the gutter, opaque, a line under the last one. Each
+   line sits at its depth's top (`--config-editor-sticky-top-<depth>`, set
+   with the scroll); the layers take the pointer only on their lines. */
+:not(#\#):not(#\#) .config-editor__sticky,
+:not(#\#):not(#\#) .config-editor__sticky-numbers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: var(--config-editor-sticky-height, 0);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky {
+  z-index: 4;
+  touch-action: pinch-zoom;
+  color: var(--config-editor-text);
+  white-space: pre;
+  tab-size: 2;
+  font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+  line-height: var(--config-editor-line-height);
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-numbers {
+  z-index: 2;
+  right: 0;
+  padding-right: inherit;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-line,
+:not(#\#):not(#\#) .config-editor__sticky-number {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1lh;
+  background: var(--config-editor-bg);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-number {
+  padding-right: inherit;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-line:last-child,
+:not(#\#):not(#\#) .config-editor__sticky-number:last-child {
+  box-shadow: 0 1px 0 var(--config-editor-border);
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-line:hover .config-editor__sticky-code,
+:not(#\#):not(#\#) .config-editor__sticky-number:hover {
+  text-decoration: underline;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-code {
+  display: inline-block;
+  transform: translateX(var(--config-editor-sticky-x, 0));
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-code span {
+  font: inherit;
+}
 
 :not(#\#):not(#\#) .config-editor__code-line-active { background: var(--config-editor-active-line); }
 :not(#\#):not(#\#) .config-editor__code-line-error { background: var(--config-editor-error-line); }
@@ -2080,6 +2147,7 @@
   :not(#\#):not(#\#) .config-editor__secret-marker,
   :not(#\#):not(#\#) .config-editor__search-match,
   :not(#\#):not(#\#) .config-editor__highlight .config-editor__secret,
+  :not(#\#):not(#\#) .config-editor__sticky .config-editor__secret,
   :not(#\#):not(#\#) .config-editor__completion-active,
   :not(#\#):not(#\#) .config-editor__find-toggle-on,
   :not(#\#):not(#\#) .config-editor__fold-chip--error,
@@ -2107,11 +2175,14 @@
   /* Its text too: the theme's string colour stays otherwise (forced
      colours do not reach inside `forced-color-adjust: none`). */
   :not(#\#):not(#\#) .config-editor__highlight .config-editor__secret,
-  .config-editor__highlight .config-editor__secret * {
+  .config-editor__highlight .config-editor__secret *,
+  :not(#\#):not(#\#) .config-editor__sticky .config-editor__secret,
+  .config-editor__sticky .config-editor__secret * {
     background: Canvas;
     color: CanvasText;
   }
-  :not(#\#):not(#\#) .config-editor__highlight .config-editor__secret {
+  :not(#\#):not(#\#) .config-editor__highlight .config-editor__secret,
+  :not(#\#):not(#\#) .config-editor__sticky .config-editor__secret {
     box-shadow: inset 0 0 0 1px CanvasText;
   }
   :not(#\#):not(#\#) .config-editor__completion-active,

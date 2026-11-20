@@ -42,6 +42,7 @@ which build on this package.
 - [Keyboard](#keyboard)
   - [Leaving the editor and screen readers](#leaving-the-editor-and-screen-readers)
   - [Folding](#folding)
+  - [Sticky scroll](#sticky-scroll)
 - [Saving and unsaved edits](#saving-and-unsaved-edits)
 - [Several documents](#several-documents)
 - [Reviewing changes](#reviewing-changes)
@@ -201,6 +202,8 @@ viewer.update({ showDiagnostics: true });
 | `search`                 | `true`              | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                   |
 | `goToLine`               | `true`              | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                                             |
 | `folding`                | `true`              | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
+| `stickyScroll`           | `true`              | Sticky scroll, as in VS Code: the lines opening the blocks around the top line stay at the top while the text scrolls; a click goes back to one. Works with `folding` off too. In Rust, needs the `folding` Cargo feature.                                                         |
+| `stickyScrollMaxLines`   | `5`                 | The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never over a quarter of the text area.                                                                                                                                                          |
 | `saveShortcut`           | `true`              | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.                                                                                                                                             |
 | `strings`                | English (see below) | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`.                                                                                       |
 
@@ -1222,6 +1225,22 @@ without the lines of closed folds, so read the document from `value` (or
 `text`), not from the element.
 
 </details>
+
+### Sticky scroll
+
+While the text scrolls, the lines that open the blocks around the top line
+(parent keys, tables, elements) stay at the top, outermost first, as in VS
+Code; the innermost is pushed up as its block ends, and a click on one
+scrolls back to it with the caret at its start. They come from the same
+blocks as folding (also with `folding: false`), in every language and in an
+Edit-as view, and show the text as the editor does (colors, locked values,
+secret placeholders). Screen readers skip them (they read the text itself),
+and a caret moved under them scrolls back into view below them.
+
+```ts
+const editor = new ConfigEditor(element, { value, stickyScrollMaxLines: 3 });
+editor.update({ stickyScroll: false }); // off
+```
 
 ## Saving and unsaved edits
 

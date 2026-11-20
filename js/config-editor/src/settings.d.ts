@@ -98,6 +98,18 @@ export interface EditorSettings {
    */
   folding?: boolean;
   /**
+   * Sticky scroll, as in VS Code: the lines opening the blocks around the top line stay at the top while the text scrolls; a click goes back to one. Works with `folding` off too. In Rust, needs the `folding` Cargo feature.
+   *
+   * @default true
+   */
+  stickyScroll?: boolean;
+  /**
+   * The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never over a quarter of the text area.
+   *
+   * @default 5
+   */
+  stickyScrollMaxLines?: number;
+  /**
    * Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.
    *
    * @default true

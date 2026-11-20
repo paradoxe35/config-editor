@@ -187,6 +187,7 @@ fn ts_type(rust_type: &str) -> &'static str {
         "EditorTheme" => "ThemeName",
         "ThemeColors" => "ThemeColorMap",
         "EditorStrings" => "EditorStrings",
+        "StickyScrollLines" => "number",
         other => panic!("no TypeScript type for `{other}`: add it to ts_type in tests/settings.rs"),
     }
 }
@@ -195,6 +196,7 @@ fn ts_type(rust_type: &str) -> &'static str {
 fn js_type(rust_type: &str) -> &'static str {
     match ts_type(rust_type) {
         "boolean" => "boolean",
+        "number" => "number",
         "string" | "ThemeName" => "string",
         _ => "object",
     }
@@ -222,6 +224,7 @@ fn rust_default(rust_type: &str, value: &Value) -> String {
             format!("`EditorTheme::{:?}`", slug.parse::<EditorTheme>().unwrap())
         }
         ("ThemeColors", _) => "none".to_string(),
+        ("StickyScrollLines", value) => format!("`StickyScrollLines::new({value})`"),
         ("EditorStrings", _) => "English (see below)".to_string(),
         (_, value) => code(value),
     }

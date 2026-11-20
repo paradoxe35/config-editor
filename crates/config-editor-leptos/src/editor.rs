@@ -421,7 +421,7 @@ pub fn ConfigEditor(
     popups::close_popups_on_escape_over_them(state);
     live_settings::follow(state);
     let rows = components::row_states(state);
-    folding::mount_fold_layers(state);
+    folding::mount_fold_layers(state, rows);
     let file_name = file_name
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| language.default_file_name().to_string());

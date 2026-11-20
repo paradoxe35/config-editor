@@ -147,5 +147,5 @@ binding.update({ value: "a: 1\n", onChange: (text) => emit(text), language: "yam
 const found: boolean = binding.handle.reveal("/web/listen"); const foundRange: boolean = binding.handle.revealRange({ start: 0, end: 4 }); void foundRange; const bound: string = binding.handle.value;
 binding.detach();
 new DocumentsBinding("tabs", { documents: [] }).handle.saveAll();
-const kind: "boolean" | "string" | "object" = SETTING_TYPES.showFooter;
+const kind: "boolean" | "number" | "string" | "object" = SETTING_TYPES.showFooter;
 void [found, bound, kind, noChanges, review, sent, unsaved, folded, savedIds, shown, active, dirtyMain];

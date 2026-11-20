@@ -350,6 +350,7 @@ const CRATE_EXPORTS = {
   SecretOptions: { type: 'SecretOptions' },
   StringsProblem: { exempt: 'the editor warns about each in the console, as it does in Rust' },
   Severity: { type: 'Severity' },
+  StickyScrollLines: { setting: 'stickyScrollMaxLines' },
   Suggestion: { exempt: 'what `Schema::suggestions` returns, a Rust-only check' },
   TextPosition: { type: 'EditorRange' },
   TextRange: { type: 'EditorRange' },

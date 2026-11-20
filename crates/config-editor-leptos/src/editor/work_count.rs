@@ -254,6 +254,13 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the JSON and XML columns note it")
     )]
     ColumnRecount,
+    /// A step finding the sticky lines at a scroll position (a binary
+    /// search, or a step up the tree of blocks, see `folding::sticky`).
+    #[cfg_attr(
+        not(feature = "folding"),
+        allow(dead_code, reason = "only sticky scroll notes it")
+    )]
+    StickyStep,
 }
 
 impl Work {
@@ -311,6 +318,7 @@ impl Work {
             Self::ScannedBytes => 48,
             Self::LineEndBytes => 49,
             Self::ColumnRecount => 50,
+            Self::StickyStep => 51,
         }
     }
 
@@ -368,12 +376,13 @@ impl Work {
         Self::ScannedBytes,
         Self::LineEndBytes,
         Self::ColumnRecount,
+        Self::StickyStep,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 51;
+const KINDS: usize = 52;
 
 #[cfg(test)]
 thread_local! {

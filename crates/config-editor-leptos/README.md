@@ -49,6 +49,7 @@ method and headless function here has a JS option, method or function there
   - [Keyboard and screen-reader access](#keyboard-and-screen-reader-access)
   - [Find and replace](#find-and-replace)
   - [Folding](#folding)
+  - [Sticky scroll](#sticky-scroll)
   - [Large documents](#large-documents)
 - [Headless API](#headless-api)
 - [XML mapping](#xml-mapping)
@@ -196,25 +197,27 @@ keys, `{ showFooter: true }`), and its TypeScript type is generated from it.
 
 <!-- Generated from crates/config-editor-leptos/src/settings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
-| Field                      | Default                   |                                                                                                                                                                                                                                                                                    |
-| -------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme`                    | `EditorTheme::VsCodeDark` | The bundled color theme.                                                                                                                                                                                                                                                           |
-| `colors`                   | none                      | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette.                                                                                                                                                                             |
-| `styled`                   | `true`                    | Inject the preset stylesheet. Off, serve it as a file (`preset.css` in the crate and the npm package, as a strict Content-Security-Policy needs) or style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript).                        |
-| `show_toolbar`             | `false`                   | Show the built-in toolbar: the file name, its language and the schema's state.                                                                                                                                                                                                     |
-| `show_footer`              | `false`                   | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count.                                                                                                                                                                              |
-| `show_diagnostics`         | `true`                    | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them).                                                                                                                                                                                      |
-| `show_diff`                | `true`                    | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature.                                                                                                      |
-| `completions`              | `true`                    | Schema completions (`Ctrl+Space`).                                                                                                                                                                                                                                                 |
-| `auto_trigger_completions` | `true`                    | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them.                                                                                                                                                                                        |
-| `hover_docs`               | `true`                    | Show the schema's title, description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.                                                                                                   |
-| `highlighting`             | `true`                    | Syntax colors.                                                                                                                                                                                                                                                                     |
-| `auto_closing`             | `true`                    | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace.                                                                                                                                                                                              |
-| `search`                   | `true`                    | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                   |
-| `go_to_line`               | `true`                    | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                                             |
-| `folding`                  | `true`                    | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
-| `save_shortcut`            | `true`                    | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.                                                                                                                                             |
-| `strings`                  | English (see below)       | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`.                                                                                       |
+| Field                      | Default                     |                                                                                                                                                                                                                                                                                    |
+| -------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme`                    | `EditorTheme::VsCodeDark`   | The bundled color theme.                                                                                                                                                                                                                                                           |
+| `colors`                   | none                        | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette.                                                                                                                                                                             |
+| `styled`                   | `true`                      | Inject the preset stylesheet. Off, serve it as a file (`preset.css` in the crate and the npm package, as a strict Content-Security-Policy needs) or style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript).                        |
+| `show_toolbar`             | `false`                     | Show the built-in toolbar: the file name, its language and the schema's state.                                                                                                                                                                                                     |
+| `show_footer`              | `false`                     | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count.                                                                                                                                                                              |
+| `show_diagnostics`         | `true`                      | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them).                                                                                                                                                                                      |
+| `show_diff`                | `true`                      | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature.                                                                                                      |
+| `completions`              | `true`                      | Schema completions (`Ctrl+Space`).                                                                                                                                                                                                                                                 |
+| `auto_trigger_completions` | `true`                      | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them.                                                                                                                                                                                        |
+| `hover_docs`               | `true`                      | Show the schema's title, description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.                                                                                                   |
+| `highlighting`             | `true`                      | Syntax colors.                                                                                                                                                                                                                                                                     |
+| `auto_closing`             | `true`                      | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace.                                                                                                                                                                                              |
+| `search`                   | `true`                      | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                   |
+| `go_to_line`               | `true`                      | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                                             |
+| `folding`                  | `true`                      | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
+| `sticky_scroll`            | `true`                      | Sticky scroll, as in VS Code: the lines opening the blocks around the top line stay at the top while the text scrolls; a click goes back to one. Works with `folding` off too. In Rust, needs the `folding` Cargo feature.                                                         |
+| `sticky_scroll_max_lines`  | `StickyScrollLines::new(5)` | The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never over a quarter of the text area.                                                                                                                                                          |
+| `save_shortcut`            | `true`                      | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.                                                                                                                                             |
+| `strings`                  | English (see below)         | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`.                                                                                       |
 
 <!-- settings:end -->
 
@@ -1556,6 +1559,32 @@ view! {
 }
 ```
 
+### Sticky scroll
+
+While the text scrolls, the lines that open the blocks around the top line
+(parent keys, tables, elements) stay at the top, outermost first, as VS
+Code's sticky scroll does: the innermost is pushed up as its block ends,
+and a click on one scrolls back to it with the caret at its start. At most
+`sticky_scroll_max_lines` lines show (5 by default, 1 to 20), and never
+more than a quarter of the text area. They come from the same blocks as
+folding ([`fold_ranges`](#custom-languages), also with the `folding`
+setting off), so they work in every language, a custom one too, in an
+Edit-as view and with folds closed, and they show each line as the text
+does (colors, muted read-only values, secret placeholders). They are
+decoration: hidden from screen readers (which read the text itself), never
+taking the focus, and a caret moved under them (a key, a click, an edit)
+scrolls back into view below them. Finding them on a scroll is a binary
+search and a walk up the blocks per line, whatever the document's size.
+Part of the `folding` Cargo feature.
+
+```rust
+let settings = EditorSettings {
+    sticky_scroll_max_lines: StickyScrollLines::new(3),
+    ..EditorSettings::default()
+};
+view! { <ConfigEditor value=text settings=settings /> }
+```
+
 ### Large documents
 
 Only the rows in view are rendered, and typing, scrolling, find, folding
@@ -1966,7 +1995,7 @@ All are on by default; turn off what you don't use to shrink the build.
 | `xml`               | `Language::XML` (`quick-xml`)                                                                                                                                                                                                                                             |
 | `search`            | [Find and replace](#find-and-replace) (`Ctrl+F`, `Ctrl+H`) and go to line (`Ctrl+G`).                                                                                                                                                                                     |
 | `diff`              | [Changes against the baseline](#changes-against-the-baseline): the gutter markers and their preview, revert, `Alt+F5`, the change count (`on_change_summary`) and `unified_diff`. Without it the baseline still drives the dirty flag and saving.                         |
-| `folding`           | [Folding](#folding): the chevrons, the folding keys and the handle's folding methods.                                                                                                                                                                                     |
+| `folding`           | [Folding](#folding): the chevrons, the folding keys and the handle's folding methods; [sticky scroll](#sticky-scroll).                                                                                                                                                    |
 | `protect`           | [Read-only fields](#read-only-fields) and [secrets](#secrets): the schema's `readOnly`, `writeOnly` and `x-secret`, `read_only_paths`, `read_only_ranges` and `secrets`. The whole-document `read_only` works without it.                                                 |
 
 ```toml

@@ -217,6 +217,15 @@ const scenes = {
     await hover(page, '.config-editor__gutter');
     await demoShot(page, 'folding');
   },
+  async 'sticky-scroll'(page) {
+    await open(page, '?sample=large&language=yaml');
+    await page.locator('.config-editor__input').first().evaluate((element) => {
+      element.scrollTop = 14 * parseFloat(getComputedStyle(element).lineHeight);
+      element.dispatchEvent(new Event('scroll'));
+    });
+    await pause(page, 300);
+    await demoShot(page, 'sticky-scroll');
+  },
   async 'read-only'(page) {
     await open(page, '?schema=protected&lock=/name');
     await page.locator('.config-editor__input').first().click();
