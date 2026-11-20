@@ -5,6 +5,43 @@ use super::ops::{Op, Put, Take};
 use super::replay;
 use crate::editor::languages::Language;
 
+/// P3: a YAML number in a host spelling (hex, octal, a tag) cut with a
+/// TOML array-of-tables header, saved, and the header pasted again keeps
+/// its host form: the links of the tables the header line opens pair by
+/// their names, not by an end two tables share by chance.
+#[test]
+fn a_yaml_number_kept_in_a_list_item_when_its_header_is_pasted_again_keeps_its_form() {
+    for replicas in ["0x3", "0o3", "!!int 3", "3 # three"] {
+        let host = format!(
+            "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {{app: web, tier: \"front\"}}\nspec:\n  replicas: {replicas}\n  selector:\n      app: web\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                hello\n                world\n            - name: LEVEL\n              value: !!str 3\n          resources:\n            limits: {{cpu: 500m, memory: 128Mi}}\n"
+        );
+        replay_hex(&host);
+    }
+}
+
+fn replay_hex(host: &str) {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        host,
+        &[
+            Op::Cut {
+                line: 16,
+                how: Take::Line,
+            },
+            Op::Paste {
+                line: 45,
+                how: Put::Before,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 19,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
 /// P2: a TOML comment above a table header keeps its place when an HCL
 /// edit is switched to YAML and the table's line is joined there.
 #[test]

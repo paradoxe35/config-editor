@@ -307,6 +307,17 @@ impl Links {
             // has no link a cut could have left. The rest pair by place.
             let mut item_used = vec![false; items.len()];
             let mut link_used = vec![false; links.len()];
+            let name = |pointer: &str| pointer.rsplit('/').next().map(str::to_string);
+            // An end two items share by chance (a pasted TOML header that
+            // opens several tables, one ending where another's link ends)
+            // is no pairing where the link's source names another item of
+            // the line: that item is the link's (see the name pass below).
+            let named_otherwise = |item: usize, link: &Link| {
+                name(&items[item].1) != name(&link.source.pointer)
+                    && items
+                        .iter()
+                        .any(|(_, pointer)| name(pointer) == name(&link.source.pointer))
+            };
             for (index, (end, _)) in items.iter().enumerate() {
                 if item_used[index] || items[..index].iter().any(|(other, _)| other == end) {
                     continue;
@@ -318,6 +329,9 @@ impl Links {
                     .filter(|at| !link_used[*at] && links[*at].range.end() == *end)
                     .collect();
                 for (item, link) in alike.iter().rev().zip(ending.iter().rev()) {
+                    if named_otherwise(*item, links[*link]) {
+                        continue;
+                    }
                     paired.push((items[*item].1.clone(), links[*link].source.clone()));
                     item_used[*item] = true;
                     link_used[*link] = true;
@@ -327,7 +341,6 @@ impl Links {
             // TOML `[a.b]` header left heading `a` once `[a]` is cut is
             // `b`'s, and a line moved into `b` moved its end), then they
             // pair by place.
-            let name = |pointer: &str| pointer.rsplit('/').next().map(str::to_string);
             for (index, link) in links.iter().enumerate() {
                 if link_used[index] {
                     continue;
