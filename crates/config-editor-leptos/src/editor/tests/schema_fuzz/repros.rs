@@ -925,11 +925,10 @@ fn a_number_respelled_where_the_view_reads_a_host_scalar_as_a_list_saves_the_lis
 }
 
 /// A required child list asking more items (`minItems: 2`) than its item
-/// schemas give values for (one `prefixItems` entry, no `items`) is
-/// written empty: the documented least list of items with no value to
-/// write.
+/// schemas say anything of (one `prefixItems` entry, no `items`) is
+/// written with all of them, the free one any value the language writes.
 #[test]
-fn a_required_child_list_with_an_item_of_no_value_is_the_documented_empty_list() {
+fn a_required_child_list_with_an_item_no_schema_types_is_written_with_it() {
     holds_everywhere_but_known(
         "fill",
         super::fill::check,
@@ -992,6 +991,15 @@ fn a_required_child_list_whose_items_are_refused_is_the_documented_empty_list() 
             "properties": {"name": {"type": "array"}}, "required": ["name"]}},
             "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
         json!({"x_two": 0}),
+        json!(null),
+    );
+    // Its `contains` no value meets (`enum: []`), in an `allOf` member.
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"properties": {"name": {"allOf": [{"properties": {"b": {
+            "contains": {"enum": []}, "items": {}}}}], "required": ["b"]}}}),
+        json!({"name": "t"}),
         json!(null),
     );
 }

@@ -360,8 +360,9 @@ fn fill<'a>(
         // A list the language cannot write (XML's empty one) is left out,
         // unless the schema takes a value that is no list there (list
         // keywords with no `type`): an empty value to type then.
-        let Some(list) = [least_list(language, child, at, root), empty]
+        let Some(list) = least_list(language, at, root)
             .into_iter()
+            .chain([empty])
             .find(|list| language_keeps(language, list, child, root))
         else {
             let takes_text = decides(child, &Value::String(String::new()), root) == Some(true);

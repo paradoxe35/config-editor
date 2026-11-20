@@ -3,7 +3,8 @@
 //! required children and a list's least items (see [`least`]), only what
 //! the language reads back as written.
 
-use super::least::{least_items, others};
+use super::least::{MAX_RETRIES, least_items};
+use super::others::others;
 use super::*;
 
 /// What an inserted block writes for a required child the caret does not
@@ -26,41 +27,16 @@ pub(super) fn fill_value_at(
     Filler::new(language, root).filled(schema, Some(at), 0)
 }
 
-/// The list a list `schema` describes is written as (see [`least_items`]),
-/// where `at` names every schema applying to the value: its own least
-/// list where they take it, else the first of the other schemas' (an
-/// `allOf` member's `minItems` beside the property's `type: array`) that
-/// asks items and that they all take.
-pub(super) fn least_list(
+/// The least list every schema at a list (`at`: its property, an `allOf`
+/// member, a reference, …) takes, as `language` writes it (see
+/// [`least_items`]); `None` when no list meets them all that the
+/// language writes.
+pub(crate) fn least_list(
     language: &dyn ConfigLanguage,
-    schema: &Value,
     at: &Entry<'_>,
     root: &Value,
-) -> Value {
-    let mut filler = Filler::new(language, root);
-    let own = least_items(&mut filler, schema, 0);
-    if at.accepts(&own, root) != Some(false) {
-        return own;
-    }
-    Here::walk(at.clone(), root, Seen::default())
-        .certain()
-        .into_iter()
-        .filter(|branch| !std::ptr::eq(*branch, schema))
-        .filter_map(|branch| {
-            // A schema asking items of the list (`minItems`, `contains`)
-            // without naming its type is read as the list's.
-            let mut list = branch.as_object()?.clone();
-            if !list.contains_key("minItems") && !list.contains_key("contains") {
-                return None;
-            }
-            list.entry("type").or_insert_with(|| Value::from("array"));
-            Some(least_items(&mut filler, &Value::Object(list), 0))
-        })
-        .find(|list| {
-            list.as_array().is_some_and(|items| !items.is_empty())
-                && at.accepts(list, root) == Some(true)
-        })
-        .unwrap_or(own)
+) -> Option<Value> {
+    least_items(&mut Filler::new(language, root), at, 0).map(Value::Array)
 }
 
 /// Values past each bound [`Filler::filled`] tries when its own are refused.
@@ -87,6 +63,11 @@ pub(super) struct Filler<'a> {
     /// List items still to be written at most ([`MAX_FILLED_ITEMS`] and
     /// [`RESERVED_ITEMS`]).
     pub(super) items_left: usize,
+    /// Item fills still to be tried again ([`MAX_RETRIES`]).
+    pub(super) retries_left: usize,
+    /// Whether a list was cut at the bound on items: past it, items are
+    /// written as filled, the lists in them short of what they ask.
+    pub(super) cut: bool,
 }
 
 impl<'a> Filler<'a> {
@@ -95,6 +76,8 @@ impl<'a> Filler<'a> {
             language,
             root,
             items_left: MAX_FILLED_ITEMS + RESERVED_ITEMS,
+            retries_left: MAX_RETRIES,
+            cut: false,
         }
     }
 
@@ -162,7 +145,11 @@ impl<'a> Filler<'a> {
             Value::Object(members) if members.is_empty() => self
                 .required_filled(schema, depth)
                 .unwrap_or(Value::Object(members)),
-            Value::Array(items) if items.is_empty() => least_items(self, schema, depth),
+            Value::Array(items) if items.is_empty() => {
+                let own = Entry::schema(schema);
+                least_items(self, at.unwrap_or(&own), depth)
+                    .map_or(Value::Array(items), Value::Array)
+            }
             other => other,
         };
         if take(self, &value) {

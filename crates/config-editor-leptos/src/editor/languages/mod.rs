@@ -237,6 +237,16 @@ mod least_list_matrix;
     feature = "hcl",
     feature = "xml"
 ))]
+mod list_plan_matrix;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod narrowed_keys_matrix;
 #[cfg(all(
     test,

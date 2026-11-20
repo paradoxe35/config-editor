@@ -82,6 +82,14 @@ impl<'s> Entry<'s> {
             .collect()))
     }
 
+    /// Each of `schemas` applying.
+    pub(crate) fn all_of(schemas: &[&'s Value]) -> Self {
+        Self(all(schemas
+            .iter()
+            .map(|schema| Rc::new(Node::Leaf(schema)))
+            .collect()))
+    }
+
     /// Whether nothing applies (a key no schema names).
     pub(crate) fn is_empty(&self) -> bool {
         is_empty(&self.0)

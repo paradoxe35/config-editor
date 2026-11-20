@@ -117,7 +117,11 @@ pub(super) fn check(case: &Case) -> Verdict {
             if inside && (keyword == "required" || after.pointer(&at).is_none_or(holds_empty)) {
                 continue;
             }
-            let class = if inside {
+            let no_list = matches!(keyword.as_str(), "minItems" | "minContains" | "contains")
+                && both.no_list_meets(language, &after, &at);
+            let class = if inside && no_list {
+                "a suggested key writes an empty list where no list meets every schema".to_string()
+            } else if inside {
                 format!("a suggested key writes a value its schema refuses ({keyword})")
             } else {
                 format!("a suggested key adds a problem elsewhere ({keyword})")

@@ -1,7 +1,9 @@
 //! What the checks compare with: the `jsonschema` crate's verdict on a
 //! value, and the editor's own reading and problems of a text.
 
-use crate::editor::language::pointer_key;
+use crate::editor::applies::Applies;
+use crate::editor::completion::least_list;
+use crate::editor::language::{SchemaPathSegment, pointer_key};
 use serde_json::Value;
 
 use crate::editor::Language;
@@ -91,6 +93,24 @@ impl Both {
             .into_iter()
             .filter(|problem| problem.severity == Severity::Error)
             .collect()
+    }
+
+    /// Whether `read` holds an empty list at `at` where no list meets
+    /// every schema there that `language` writes, as the fill's one list
+    /// plan answers it (`completion::least`): the documented reason a
+    /// fill writes a list with too few items.
+    pub(super) fn no_list_meets(&self, language: Language, read: &Value, at: &str) -> bool {
+        if read
+            .pointer(at)
+            .is_none_or(|value| *value != Value::Array(Vec::new()))
+        {
+            return false;
+        }
+        let root = self.read_schema();
+        let document = || Some(read);
+        let applies = Applies::new(root, false, &document);
+        let here = applies.at(&SchemaPathSegment::from_pointer(at));
+        least_list(language.behavior(), here.entry(), root).is_none()
     }
 
     pub(super) fn valid(&self, value: &Value) -> bool {
