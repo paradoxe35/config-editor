@@ -1239,9 +1239,30 @@ pub trait Text {
 
     /// How many containers `text` opens and leaves open: by default its
     /// [`LanguageConfig::brackets`] outside its quotes; XML counts the
-    /// elements it starts and does not end.
+    /// elements it starts and does not end. A language counting them
+    /// otherwise counts them so in [`closing_line`](Self::closing_line) too.
     fn unclosed_containers(&self, language: &dyn ConfigLanguage, text: &str) -> usize {
         super::flow_syntax::Flow::of(language).unclosed(text, language.config().brackets)
+    }
+
+    /// The first line from `last` (of `lines`, from 0) where the lines
+    /// from `first` through it, joined by line breaks, leave no container
+    /// open ([`unclosed_containers`](Self::unclosed_containers)); the last
+    /// line when none does: where an entry opened on line `first` ends.
+    /// Read once over the lines, so an entry of many lines costs its lines;
+    /// a language counting containers otherwise than by its brackets (XML
+    /// its elements) counts them here the same way.
+    fn closing_line(
+        &self,
+        language: &dyn ConfigLanguage,
+        lines: &[&str],
+        (first, last): (usize, usize),
+    ) -> usize {
+        super::flow_syntax::Flow::of(language).closing_line(
+            lines,
+            language.config().brackets,
+            (first, last),
+        )
     }
 
     /// What closes each container `text` opens and leaves open, innermost
@@ -2125,6 +2146,11 @@ impl dyn ConfigLanguage {
     /// See [`Text::unclosed_containers`].
     pub fn unclosed_containers(&self, text: &str) -> usize {
         self.text().unclosed_containers(self, text)
+    }
+
+    /// See [`Text::closing_line`].
+    pub fn closing_line(&self, lines: &[&str], (first, last): (usize, usize)) -> usize {
+        self.text().closing_line(self, lines, (first, last))
     }
 
     /// See [`Text::container_closers`].

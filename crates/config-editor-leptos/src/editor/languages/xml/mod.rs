@@ -252,6 +252,10 @@ impl Text for XmlBehavior {
         markup::open_elements(text)
     }
 
+    fn closing_line(&self, _language: &dyn ConfigLanguage, lines: &[&str], (first, last): (usize, usize)) -> usize {
+        markup::closing_line(lines, (first, last))
+    }
+
     fn container_closers(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<String> {
         markup::open_element_names(text)
             .into_iter()

@@ -212,6 +212,7 @@ const CONFIG_LANGUAGE = {
   key_markup_len: { exempt: RUST_ONLY_REFINEMENT },
   element_end: { exempt: SAVE_FORMS },
   unclosed_containers: { custom: 'brackets' },
+  closing_line: { custom: 'brackets' },
   container_closer_len: { custom: 'brackets' },
   container_closers: { custom: 'brackets' },
   content_texts: { exempt: RUST_ONLY_REFINEMENT },

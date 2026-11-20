@@ -261,6 +261,11 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only sticky scroll notes it")
     )]
     StickyStep,
+    /// A byte of an entry's lines read finding the line its containers
+    /// close on (`Text::closing_line`; one note per byte, see
+    /// [`note_many`]): an entry of many lines is read once, not once per
+    /// line.
+    ClosingLineBytes,
 }
 
 impl Work {
@@ -319,6 +324,7 @@ impl Work {
             Self::LineEndBytes => 49,
             Self::ColumnRecount => 50,
             Self::StickyStep => 51,
+            Self::ClosingLineBytes => 52,
         }
     }
 
@@ -377,12 +383,13 @@ impl Work {
         Self::LineEndBytes,
         Self::ColumnRecount,
         Self::StickyStep,
+        Self::ClosingLineBytes,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 52;
+const KINDS: usize = 53;
 
 #[cfg(test)]
 thread_local! {

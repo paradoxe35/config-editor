@@ -85,9 +85,12 @@ fn data(shape: Shape, size: usize) -> Value {
     }
 }
 
-/// The document of `shape` at `size`, as `host` writes it.
+/// The document of `shape` at `size`, as `host` writes it: in XML inside
+/// a config root, as config files usually are (its attribute makes a
+/// save read which host element each element is).
 pub(super) fn text(host: Language, shape: Shape, size: usize) -> String {
-    codec::serialize(host.behavior(), &data(shape, size), None)
+    let framing = (host.label() == "XML").then_some("<config config-root=\"true\"/>\n");
+    codec::serialize(host.behavior(), &data(shape, size), framing)
         .unwrap_or_else(|error| panic!("{host} writes {shape:?}: {error:?}"))
 }
 
