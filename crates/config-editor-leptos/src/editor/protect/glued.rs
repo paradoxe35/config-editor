@@ -116,7 +116,14 @@ pub(super) fn holding<'a>(
     // whether a list step sets it apart), and whether one is inside it.
     let mut own: Vec<(&'a str, bool)> = Vec::new();
     let mut within = false;
+    // Each string once: copies written where one value is read (a map
+    // written twice under one key, the parse keeping the last) are held by
+    // that one string, never a list the field became.
+    let mut seen = std::collections::HashSet::new();
     for holder in places.iter().copied().flatten() {
+        if !seen.insert(holder.pointer.as_str()) {
+            continue;
+        }
         match relation(&holder.pointer, field, repetition) {
             Some(Relation::Own) => own.push((holder.text, false)),
             Some(Relation::Copy) => own.push((holder.text, true)),

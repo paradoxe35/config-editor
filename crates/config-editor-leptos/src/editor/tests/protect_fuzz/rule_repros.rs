@@ -917,6 +917,37 @@ fn entries_added_above_a_broken_secret_line_never_glue_its_placeholder() {
     );
 }
 
+/// A Dot map written twice under one key, each holding the placeholder:
+/// an entry typed before the placeholder's entry in the map the parse
+/// keeps is an ordinary edit, taken.
+#[test]
+fn an_entry_typed_into_a_map_written_twice_with_a_placeholder_is_taken() {
+    let setup = Setup {
+        case: 11,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 47368 },
+            Act::Cut { line: 4262 },
+            Act::Entry {
+                anchor: 0,
+                name: 7,
+                paste: true,
+            },
+            Act::Type { at: 60354, text: 10 },
+            Act::Entry {
+                anchor: 0,
+                name: 16,
+                paste: false,
+            },
+        ],
+    );
+}
+
 /// A Dot list written twice under one key, a copy of the placeholder in
 /// each: cutting another item of the first list is an ordinary edit,
 /// taken (no string holds the placeholder with text beside it).
