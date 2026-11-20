@@ -698,7 +698,12 @@ impl<'r, 'a> Placer<'r, 'a> {
                     .ranges
                     .first()
                     .is_some_and(|first| first.start() <= start)
-                    && field.ranges.last().is_some_and(|last| end <= last.end())
+                    && field.ranges.last().is_some_and(|last| {
+                        // A language whose spans find no value under the
+                        // key (only the key itself) says nothing of where
+                        // its value ends: the range after the key is held.
+                        end <= last.end() || last.end() <= key.end()
+                    })
             });
             if !holds || slice::slice(before, *lost) != slice::slice(text, key) {
                 return moved;

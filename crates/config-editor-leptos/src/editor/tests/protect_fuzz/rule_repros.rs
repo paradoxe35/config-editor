@@ -757,3 +757,40 @@ fn xml_list_items_outside_their_list_next_to_a_held_item_take_an_entry() {
         assert_ok(&setup, &acts);
     }
 }
+
+/// Over-refusal: a list's key line copied above its items, then cut there:
+/// the cut is taken, the copy holds the items. P1: whichever line is cut
+/// or the value pasted over next, the held item stays protected.
+#[test]
+fn a_cut_of_a_list_key_with_a_copy_holding_its_items_is_taken() {
+    let setup = Setup {
+        case: 14,
+        lock: Lock::Path,
+        host: None,
+        pairs: false,
+    };
+    let base = || {
+        vec![
+            Act::Line {
+                line: 29977,
+                command: 0,
+            },
+            Act::Type { at: 25433, text: 4 },
+            Act::Line {
+                line: 45228,
+                command: 2,
+            },
+            Act::Cut { line: 33489 },
+            Act::Cut { line: 33260 },
+        ]
+    };
+    assert_ok(&setup, &base());
+    for line in 0..4 {
+        let mut acts = base();
+        acts.push(Act::Cut { line });
+        assert_ok(&setup, &acts);
+    }
+    let mut acts = base();
+    acts.push(Act::NewValue);
+    assert_ok(&setup, &acts);
+}
