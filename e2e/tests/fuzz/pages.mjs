@@ -293,8 +293,11 @@ export function installProbe({ kind, vanilla }) {
       card: true,
       key: card.querySelector('.config-editor__hover-key')?.textContent ?? null,
       // The pointer is in the card, which took it (one that lets it
-      // through to the text under it is marked `data-passing`).
-      inside: card.matches(':hover') && !card.hasAttribute('data-passing'),
+      // through to the text under it is marked `data-passing`). Read off
+      // what is at the point, not `:hover`: a headless browser moves the
+      // hover only on a mouse move, so a card that let a pointer through
+      // and then took it where it stopped keeps `:hover` on the text.
+      inside: !card.hasAttribute('data-passing') && card.contains(document.elementFromPoint(x, y)),
       under,
       pointer,
       center: { x: box.left + box.width / 2, y: box.top + Math.min(box.height / 2, 24) },
