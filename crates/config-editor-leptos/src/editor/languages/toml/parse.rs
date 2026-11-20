@@ -8,6 +8,14 @@ use crate::editor::text::{text_size, byte_range};
 pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
     let document: toml::Table = source.parse().map_err(|error: toml::de::Error| {
         let line_count = source.split('\n').count().max(1);
+        if let Some(extra) = error.span().and_then(|span| extra_word(source, span)) {
+            let (line, column) = line_column(source, text_size(extra));
+            return ParseError {
+                message: super::words::OUT_OF_PLACE.to_string(),
+                line: Some(line),
+                column: Some(column),
+            };
+        }
         let (line, column) = error
             .span()
             .map(|span| line_column(source, text_size(span.start)))
@@ -38,6 +46,23 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
             .map(|(key, value)| (key.clone(), toml_to_json(value)))
             .collect(),
     ))
+}
+
+/// The parser reads words apart on a line as one value (a date and a time
+/// may stand apart: `1979-05-27 07:32:00`), so `a = 1 2` is refused from
+/// its `1`. When the refused `span` is the value after a key's `=` and its
+/// first word is a whole value on its own, the mistake is the word after
+/// it: its byte.
+fn extra_word(source: &str, span: std::ops::Range<usize>) -> Option<usize> {
+    let line_start = source.get(..span.start)?.rfind('\n').map_or(0, |at| at + 1);
+    if !source[line_start..span.start].trim_end().ends_with('=') {
+        return None;
+    }
+    let words = source.get(span.clone())?;
+    let first_end = words.find(char::is_whitespace)?;
+    format!("x = {}", &words[..first_end]).parse::<toml::Table>().ok()?;
+    let rest = &words[first_end..];
+    Some(span.start + first_end + rest.len() - rest.trim_start().len())
 }
 
 /// A TOML value in the shared data model: dates and times are their TOML

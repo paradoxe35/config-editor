@@ -604,13 +604,25 @@ export interface EditorStrings {
    */
   modifiedLine?: string;
   /**
-   * For removed lines.
+   * For one removed line.
+   *
+   * @default "Removed line"
+   */
+  removedLine?: string;
+  /**
+   * For several removed lines.
    *
    * @default "Removed lines"
    */
   removedLines?: string;
   /**
-   * For lines removed after the last one.
+   * For one line removed after the last one.
+   *
+   * @default "Removed line at end of document"
+   */
+  removedLineAtEnd?: string;
+  /**
+   * For several lines removed after the last one.
    *
    * @default "Removed lines at end of document"
    */

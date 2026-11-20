@@ -287,11 +287,24 @@ pub(super) fn open_element(
     }
     let mut attrs = Map::new();
     for attribute in element.attributes() {
-        let attribute = attribute.map_err(|error| match error {
-            AttrError::Duplicated(..) => {
-                syntax_error(source, start, format!("duplicate attribute in <{name}>"))
+        let attribute = attribute.map_err(|error| {
+            // The reader counts from the tag's name, just after its `<`:
+            // the error points at the attribute or value in the way.
+            let at = start
+                + 1
+                + match error {
+                    AttrError::ExpectedEq(at)
+                    | AttrError::ExpectedValue(at)
+                    | AttrError::UnquotedValue(at)
+                    | AttrError::ExpectedQuote(at, _)
+                    | AttrError::Duplicated(at, _) => at,
+                };
+            match error {
+                AttrError::Duplicated(..) => {
+                    syntax_error(source, at, format!("duplicate attribute in <{name}>"))
+                }
+                other => syntax_error(source, at, other.to_string()),
             }
-            other => syntax_error(source, start, other.to_string()),
         })?;
         let key = attribute.key.into_inner().to_string();
         if !super::names::is_name(&key) {

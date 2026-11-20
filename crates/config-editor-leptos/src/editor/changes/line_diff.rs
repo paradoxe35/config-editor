@@ -31,12 +31,16 @@ pub(in crate::editor) struct DiffPeek {
 }
 
 impl DiffPeek {
-    /// The preview's title: "Added line", "Modified line", ….
+    /// The preview's title: "Added line", "Modified line", "Removed
+    /// lines", … (one removed line in the singular).
     pub(in crate::editor) fn title<'a>(&self, strings: &'a crate::EditorStrings) -> &'a str {
+        let one = self.before.len() == 1;
         match self.kind {
             PeekKind::Added => &strings.added_line,
             PeekKind::Modified => &strings.modified_line,
+            PeekKind::Removed if one => &strings.removed_line,
             PeekKind::Removed => &strings.removed_lines,
+            PeekKind::RemovedAtEnd if one => &strings.removed_line_at_end,
             PeekKind::RemovedAtEnd => &strings.removed_lines_at_end,
         }
     }
@@ -630,6 +634,35 @@ mod tests {
             failures.push(format!("added blank: {:?}", added.current));
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// The preview of one removed line is titled in the singular, of
+    /// several in the plural, before a line and at the end alike.
+    #[test]
+    fn a_removed_lines_preview_counts_its_lines_in_the_title() {
+        let strings = crate::EditorStrings::default();
+        let peek = |kind, removed: usize| DiffPeek {
+            line: 1,
+            kind,
+            before: vec!["x".to_string(); removed],
+            after: Vec::new(),
+        };
+        for (kind, removed, wanted) in [
+            (PeekKind::Removed, 1, "Removed line"),
+            (PeekKind::Removed, 2, "Removed lines"),
+            (PeekKind::RemovedAtEnd, 1, "Removed line at end of document"),
+            (
+                PeekKind::RemovedAtEnd,
+                3,
+                "Removed lines at end of document",
+            ),
+        ] {
+            assert_eq!(
+                peek(kind, removed).title(&strings),
+                wanted,
+                "{removed} removed"
+            );
+        }
     }
 
     #[test]

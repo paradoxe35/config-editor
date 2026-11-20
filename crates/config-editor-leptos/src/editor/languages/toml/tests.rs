@@ -108,6 +108,28 @@ fn syntax_errors_report_a_position() {
     assert!(error.column.is_some());
 }
 
+/// A word after a whole value (`a = 1 2`) is the mistake, not the value
+/// before it: the parser reads the words as one (a date and a time may
+/// stand apart), so the error is pointed at the first word too many.
+#[test]
+fn a_word_after_a_whole_value_is_pointed_at() {
+    for (source, line, column) in [
+        ("a = 1 2\n", 1, 7),
+        ("a = 1   2 3\n", 1, 9),
+        ("x = 0\nport = true no\n", 2, 13),
+        ("when = 1979-05-27 x\n", 1, 19),
+    ] {
+        let error = LANGUAGE.parse(source).unwrap_err();
+        assert_eq!((error.line, error.column), (Some(line), Some(column)), "{source:?}: {error:?}");
+        assert!(error.message.contains("does not belong here"), "{source:?}: {}", error.message);
+    }
+    // A date and a time apart are one value; words that are no value at
+    // all are still pointed at from their start.
+    assert!(LANGUAGE.parse("when = 1979-05-27 07:32:00\n").is_ok());
+    let error = LANGUAGE.parse("a = hello world\n").unwrap_err();
+    assert_eq!(error.column, Some(5), "{error:?}");
+}
+
 #[test]
 fn tables_parse_into_nested_values() {
     let document = match LANGUAGE.parse("[server]\nhost = \"example.com\"\n") {

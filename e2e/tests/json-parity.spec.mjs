@@ -254,7 +254,7 @@ test.describe('focus', () => {
     await page.locator('.config-editor__diff-deleted').first().click();
     const preview = page.locator('.config-editor__diff-peek');
     await expect(preview).toHaveCount(1);
-    await expect(preview).toContainText('Removed lines');
+    await expect(preview).toContainText('Removed line ·');
     await expect(preview).toContainText('public_address');
     await expect(preview).toContainText('tunnel.example.com');
     expect(await preview.getByRole('heading', { name: 'After' }).count()).toBe(0);

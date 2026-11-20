@@ -249,9 +249,13 @@ pub struct EditorStrings {
     pub added_line: String,
     /// For a modified line.
     pub modified_line: String,
-    /// For removed lines.
+    /// For one removed line.
+    pub removed_line: String,
+    /// For several removed lines.
     pub removed_lines: String,
-    /// For lines removed after the last one.
+    /// For one line removed after the last one.
+    pub removed_line_at_end: String,
+    /// For several lines removed after the last one.
     pub removed_lines_at_end: String,
     /// The gutter marker of an added line.
     pub show_added: String,
@@ -724,7 +728,9 @@ impl Default for EditorStrings {
             go_to_line_invalid: text("Type a line number between 1 and {lines}"),
             added_line: text("Added line"),
             modified_line: text("Modified line"),
+            removed_line: text("Removed line"),
             removed_lines: text("Removed lines"),
+            removed_line_at_end: text("Removed line at end of document"),
             removed_lines_at_end: text("Removed lines at end of document"),
             show_added: text("Show added line {line}"),
             show_added_title: text("Show added line"),
