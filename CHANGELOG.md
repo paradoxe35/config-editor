@@ -44,6 +44,9 @@ WebAssembly.
 - The editing you expect from VS Code: auto-closed brackets, quotes and tags,
   smart indentation, comment toggling, find and replace with regular
   expressions, go to line, folding, `F8` through problems, undo and redo.
+- Line numbers select whole lines, as in VS Code: a click selects its line, a
+  drag over the numbers the lines it passes, and `Shift`+click extends the
+  selection to the line clicked.
 - Sticky scroll (`stickyScroll`, `stickyScrollMaxLines`): the lines that open
   the blocks around the top line stay at the top while the text scrolls, in
   every language, and a click goes back to one.

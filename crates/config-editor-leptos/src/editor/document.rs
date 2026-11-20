@@ -151,12 +151,24 @@ impl EditorState {
     /// Focuses the editor with bytes `start..end` selected, its start
     /// scrolled into view, closing popups.
     pub(super) fn focus_range(&self, start: TextSize, end: TextSize) -> Option<()> {
+        self.focus_range_directed(start, end, false)
+    }
+
+    /// [`focus_range`](Self::focus_range), the caret at `start` when
+    /// `backward`.
+    pub(super) fn focus_range_directed(
+        &self,
+        start: TextSize,
+        end: TextSize,
+        backward: bool,
+    ) -> Option<()> {
         let element = self.textarea()?;
         // Focusing scrolls back to the old caret; keep the view where the
         // user clicked (a line number, an underline), then reveal if needed.
         let (top, left) = (element.scroll_top(), element.scroll_left());
         let _ = element.focus_in_place();
-        let _ = element.set_selection_range(start, end);
+        let direction = if backward { "backward" } else { "forward" };
+        let _ = element.set_selection_range_with_direction(start, end, direction);
         element.set_scroll_top(top);
         element.set_scroll_left(left);
         self.doc()

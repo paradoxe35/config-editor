@@ -63,6 +63,7 @@ mod languages;
 mod layout;
 mod line_breaks;
 mod line_endings;
+mod line_pick;
 mod line_rows;
 mod live_settings;
 mod metrics;
