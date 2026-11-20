@@ -307,12 +307,13 @@ fn kind(value: &Value) -> &'static str {
 }
 
 /// Whether `left` and `right` are scalars of two types XML writes as the
-/// same text (`"8"` and `8`, `"true"` and `true`).
+/// same text (`"8"` and `8`, `"true"` and `true`, `"null"` and `null`).
 fn same_text(left: &Value, right: &Value) -> bool {
     match (left, right) {
         (Value::String(text), other) | (other, Value::String(text)) => match other {
             Value::Number(_) => decimal(text.trim(), false).is_some_and(|read| same(&read, other)),
             Value::Bool(flag) => text.trim() == flag.to_string(),
+            Value::Null => text.trim() == "null",
             _ => false,
         },
         _ => false,
@@ -472,6 +473,35 @@ mod tests {
             renamed(&any, false, text, &[("", "a", "name")]),
             Some(KEPT_TEXT)
         );
+        // Each scalar XML reads from text, at its own key and renamed.
+        for (read, text) in [
+            (json!(8), "8"),
+            (json!(true), "true"),
+            (json!(null), "null"),
+        ] {
+            let moved = (
+                json!({"b": text}),
+                json!({"a": read.clone()}),
+                json!({"a": text}),
+            );
+            assert_eq!(
+                renamed(&any, false, moved, &[("", "a", "b")]),
+                Some(KEPT_TEXT),
+                "{read}"
+            );
+            let own = (
+                json!({"a": text}),
+                json!({"a": read.clone(), "c": 1}),
+                json!({"a": text, "c": 1}),
+            );
+            assert_eq!(class(&any, false, own), Some(KEPT_TEXT), "{read}");
+            let other = (
+                json!({"a": "nil"}),
+                json!({"a": read.clone()}),
+                json!({"a": "nil"}),
+            );
+            assert_eq!(class(&any, false, other), None, "{read}");
+        }
         let new_key = (json!({"name": 1}), json!({"a": true}), json!({"a": "true"}));
         assert_eq!(renamed(&any, false, new_key, &[("", "a", "name")]), None);
         assert_eq!(
