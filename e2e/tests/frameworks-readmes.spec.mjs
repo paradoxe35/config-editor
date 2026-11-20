@@ -81,3 +81,18 @@ test("each framework README's section on late parents tells of revisions", () =>
     for (const word of words) expect(section, `${name}: ${word}`).toContain(word);
   }
 });
+
+test('no prop of the framework packages has two doc comments', () => {
+  const twice = [];
+  for (const path of [
+    'config-editor-react/src/index.tsx',
+    'config-editor-vue/src/ConfigEditor.ts',
+    'config-editor-vue/src/ConfigDocuments.ts',
+    'config-editor-svelte/src/types.ts',
+    'config-editor/binding.d.ts',
+  ]) {
+    const source = readFileSync(join(js, path), 'utf8');
+    for (const match of source.matchAll(/\*\/\n\s*\/\*\*[^\n]*/g)) twice.push(`${path}: ${match[0].trim()}`);
+  }
+  expect(twice).toEqual([]);
+});
