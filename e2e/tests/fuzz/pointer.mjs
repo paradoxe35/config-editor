@@ -206,8 +206,25 @@ export async function suggestMouse(run, action) {
   await page.waitForTimeout(100);
   if (!(await suggestionsOpen(page))) return null;
   if (action.outside) {
-    // The page's corner, outside every editor.
-    await page.mouse.click(2, 2);
+    // A point of the page outside every editor: its corner, unless the
+    // page scrolled an editor over it (a small window), then another edge.
+    const outside = await page.evaluate(() => {
+      const [right, bottom] = [innerWidth - 3, innerHeight - 3];
+      const points = [
+        [2, 2],
+        [right, 2],
+        [2, bottom],
+        [right, bottom],
+        [innerWidth / 2, 2],
+        [innerWidth / 2, bottom],
+      ];
+      return points.find(([x, y]) => !document.elementFromPoint(x, y)?.closest('.config-editor')) ?? null;
+    });
+    if (!outside) {
+      run.reached('no page outside the editor to click');
+      return null;
+    }
+    await page.mouse.click(outside[0], outside[1]);
     await frames(page);
     if (await suggestionsOpen(page)) return { check: 'suggest-close', detail: 'a click outside the editor left the suggestions open' };
     run.reached('suggestions closed by a click outside');
