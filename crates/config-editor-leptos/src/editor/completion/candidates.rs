@@ -174,16 +174,20 @@ fn written_fills(
 /// object with the key (a dependent schema of the key, the `then` of an
 /// `if` the key decides, the option the key picks), and a value they took
 /// is refused. Keys the object then requires are not counted: the problem
-/// then names the key to write next. Where values are text
-/// (`text_values`, XML) a value is taken in any reading its text has
-/// (`-3`, `"-3"`).
+/// then names the key to write next. A language read as data (XML, HCL
+/// blocks) has the object read as the schemas read it, before and with the
+/// key ([`value_under`]): the reading the key makes the schemas take, if
+/// any (`<port>0</port>` the text a dependent schema asks, or the list
+/// `port` asks), is the one judged.
+///
+/// [`value_under`]: crate::editor::data_reading::value_under
 fn refused_beside(
     key: &str,
     property: &Value,
     here: &Here<'_>,
     written: Option<&Value>,
     root: &Value,
-    text_values: bool,
+    language: &dyn ConfigLanguage,
 ) -> bool {
     let Some(object) = written.and_then(Value::as_object) else {
         return false;
@@ -192,21 +196,24 @@ fn refused_beside(
     with_key.insert(key.to_string(), placeholder(property, root));
     let with_key = Value::Object(with_key);
     let after = here.rewalk(Seen::value(Some(&with_key)));
+    let read = |value: &Value, at: &Here<'_>| {
+        crate::editor::data_reading::value_under(language, value.clone(), at.entry(), root)
+    };
+    let (seen_before, seen_after) = (
+        read(&Value::Object(object.clone()), here),
+        read(&with_key, &after),
+    );
     object
-        .iter()
-        .filter(|(name, _)| *name != key)
+        .keys()
+        .filter(|name| *name != key)
         .take(MAX_READ_BESIDE)
-        .any(|(name, value)| {
+        .any(|name| {
             let segment = SchemaPathSegment::Key(name.clone());
             let (before, after) = (here.child(&segment), after.child(&segment));
-            let readings: Vec<Value> = std::iter::once(value.clone())
-                .chain(text_values.then(|| other_reading(value)).flatten())
-                .filter(|reading| before.accepts(reading, root) != Some(false))
-                .collect();
-            !readings.is_empty()
-                && readings
-                    .iter()
-                    .all(|reading| after.accepts(reading, root) == Some(false))
+            let (Some(was), Some(now)) = (seen_before.get(name), seen_after.get(name)) else {
+                return false;
+            };
+            before.accepts(was, root) != Some(false) && after.accepts(now, root) == Some(false)
         })
 }
 
@@ -346,15 +353,7 @@ pub(super) fn property_completions(
             // `path`): writing it would break the `not`. Nor a key that
             // makes the schemas refuse a value written beside it.
             if existing.is_some_and(|existing| excluded_by_not(key, branches, existing, root))
-                || (!present
-                    && refused_beside(
-                        key,
-                        property,
-                        here,
-                        written,
-                        root,
-                        repetition == Repetition::Elements,
-                    ))
+                || (!present && refused_beside(key, property, here, written, root, behavior))
             {
                 continue;
             }

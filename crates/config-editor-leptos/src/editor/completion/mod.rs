@@ -27,7 +27,6 @@ mod stops;
 mod typed_entry;
 mod window;
 
-use super::data_reading::other_reading;
 pub(crate) use accept::*;
 pub(crate) use around::document_around;
 pub(crate) use candidates::*;

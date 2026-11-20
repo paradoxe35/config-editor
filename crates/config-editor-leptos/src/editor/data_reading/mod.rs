@@ -31,7 +31,7 @@ use super::language::{ConfigLanguage, ParseError, Repetition};
 use conform::conform_at;
 #[cfg(feature = "xml")]
 pub(crate) use text::plain_scalar;
-pub(crate) use text::{other_reading, text_literal};
+pub(crate) use text::text_literal;
 pub(crate) use written::lone_spelling;
 
 /// A text read as data.
