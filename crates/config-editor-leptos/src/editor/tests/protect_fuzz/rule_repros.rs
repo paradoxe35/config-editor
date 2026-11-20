@@ -916,3 +916,41 @@ fn entries_added_above_a_broken_secret_line_never_glue_its_placeholder() {
         ],
     );
 }
+
+/// A Dot list written twice under one key, a copy of the placeholder in
+/// each: cutting another item of the first list is an ordinary edit,
+/// taken (no string holds the placeholder with text beside it).
+#[test]
+fn an_item_cut_from_a_list_written_twice_with_a_placeholder_is_taken() {
+    let setup = Setup {
+        case: 12,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Line {
+                line: 1664,
+                command: 2,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 7,
+                paste: true,
+            },
+            Act::PasteCopy { line: 53048 },
+            Act::Line {
+                line: 44350,
+                command: 3,
+            },
+            Act::Entry {
+                anchor: 2,
+                name: 8,
+                paste: false,
+            },
+            Act::Cut { line: 39383 },
+        ],
+    );
+}

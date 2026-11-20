@@ -198,12 +198,14 @@ impl<'d> Holders<'d> {
 /// there, the path cut back until one is (that path may name a field the
 /// parse does not have: a list's items where the parse makes them one
 /// scalar). The one at the path is looked up, never searched for among
-/// `strings` (thousands of copies of one mask cost no pass each). Inside,
-/// only a string no copy of the token is placed in by its span (`taken`:
-/// one placed is another's, as a field's when the token is written in a
-/// comment), one with text beside it first: a token some string holds
-/// always has a holder, so a reading that cannot place it never hides a
-/// glued one.
+/// `strings` (thousands of copies of one mask cost no pass each). Only a
+/// string no copy of the token is placed in by its span (`taken`) is
+/// taken, at the path or inside: one placed is another copy's (a field's,
+/// when the token is written in a comment; the last of a list written
+/// twice under one key, which the parse keeps, when the token is in the
+/// first). Inside, one with text beside it first: a token some free string
+/// holds always has a holder, so a reading that cannot place it never
+/// hides a glued one.
 fn along_path<'d>(
     behavior: &dyn ConfigLanguage,
     (text, document): (&str, &'d Value),
@@ -222,6 +224,7 @@ fn along_path<'d>(
         // The string at the path: a lookup, never a pass of the strings.
         if let Some(Value::String(value)) = field_value(document, &pointer)
             && value.contains(token)
+            && !taken.contains(&(token, pointer.as_str()))
         {
             return Some(Holder {
                 pointer,
