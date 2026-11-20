@@ -1231,7 +1231,8 @@ without the lines of closed folds, so read the document from `value` (or
 While the text scrolls, the lines that open the blocks around the top line
 (parent keys, tables, elements) stay at the top, outermost first, as in VS
 Code; the innermost is pushed up as its block ends, and a click on one
-scrolls back to it with the caret at its start. They come from the same
+scrolls back to it with the caret at its start. A root that only opens a
+bracket (JSON's `{`) does not stick. They come from the same
 blocks as folding (also with `folding: false`), in every language and in an
 Edit-as view, and show the text as the editor does (colors, locked values,
 secret placeholders). Screen readers skip them (they read the text itself),

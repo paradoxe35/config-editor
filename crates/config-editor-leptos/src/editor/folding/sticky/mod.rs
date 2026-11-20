@@ -32,7 +32,7 @@ use super::super::metrics::read_editor_metrics;
 use super::super::source_area::SourceArea;
 use super::super::state::EditorState;
 use crate::reactive::later;
-use scopes::{Layout, Scopes, View};
+use scopes::{Layout, Scopes, View, without_bare_roots};
 
 /// One editor's sticky lines: its blocks in rows, and their layout at the
 /// text's scroll.
@@ -49,11 +49,21 @@ impl Sticky {
         let settings = state.config().settings;
         let blocks = state.fold().blocks;
         let projection = state.view().projection;
+        let text = state.doc().text;
+        let language = state.sync().edit_language;
         let scopes = Memo::new(move |_| {
             if !settings.sticky_scroll.get() {
                 return Scopes::default();
             }
-            blocks.with(|blocks| projection.with(|projection| Scopes::new(blocks, projection)))
+            let brackets = language.get().behavior().config().brackets;
+            blocks.with(|blocks| {
+                let blocks = text.with(|text| {
+                    without_bare_roots(blocks, text, |character| {
+                        brackets.iter().any(|(open, _)| *open == character)
+                    })
+                });
+                projection.with(|projection| Scopes::new(&blocks, projection))
+            })
         });
         let layout = Memo::new(move |_| {
             let view = state.view();

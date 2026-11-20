@@ -33,7 +33,8 @@ const nested = {
 /** The sticky lines each language shows with `e5` at the top. */
 const headers = {
   yaml: ['a:', 'b:', 'c:'],
-  json: ['{', '"a": {', '"b": {', '"c": {'],
+  // The root `{` holds every line: like VS Code, it does not stick.
+  json: ['"a": {', '"b": {', '"c": {'],
   toml: ['[a.b.c]'],
   hcl: ['a {', 'b {', 'c {'],
   xml: ['<r>', '<a>', '<b>', '<c>'],
@@ -227,7 +228,7 @@ test.describe('sticky scroll', () => {
     const schema = { type: 'object', properties: { tls: { type: 'object', properties: { pin: { type: 'string', 'x-secret': true } } } } };
     await mount(page, { language: 'json', value, schema: JSON.stringify(schema) });
     await scrollToRow(page, await rowOf(page, '"e5"'));
-    await expect.poll(() => texts(page)).toEqual(['{', '"tls": { "pin": "«secret 0b1c»",']);
+    await expect.poll(() => texts(page)).toEqual(['"tls": { "pin": "«secret 0b1c»",']);
     const placeholder = page.locator('#sticky .config-editor__sticky-line .config-editor__secret');
     await expect(placeholder).toHaveText('«secret 0b1c»');
   });

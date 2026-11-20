@@ -8,7 +8,7 @@ use super::super::super::languages::Language;
 use super::super::super::projection::Projection;
 use super::super::super::test_state::TestEditor;
 use super::super::super::work_count::{Work, counted};
-use super::scopes::{Scopes, View};
+use super::scopes::{Scopes, View, without_bare_roots};
 use crate::EditorSettings;
 use crate::language::{ConfigLanguage, LanguageConfig, LanguageInfo, ParseError};
 use leptos::prelude::*;
@@ -40,7 +40,26 @@ impl ConfigLanguage for Parens {
 static PARENS: Parens = Parens;
 
 fn scopes_of(language: Language, text: &str, folds: &[FoldRange]) -> Scopes {
-    let ranges = language.behavior().fold_ranges(text);
+    sticky_scopes(
+        language,
+        text,
+        &language.behavior().fold_ranges(text),
+        folds,
+    )
+}
+
+/// The scopes sticky scroll reads from `ranges` of `text`: without a root
+/// that only opens a bracket.
+fn sticky_scopes(
+    language: Language,
+    text: &str,
+    ranges: &[FoldRange],
+    folds: &[FoldRange],
+) -> Scopes {
+    let brackets = language.behavior().config().brackets;
+    let ranges = without_bare_roots(ranges, text, |character| {
+        brackets.iter().any(|(open, _)| *open == character)
+    });
     Scopes::new(&ranges, &Projection::new(text, folds))
 }
 
@@ -79,7 +98,7 @@ fn nested_cases() -> Vec<(Language, &'static str, &'static str, Vec<&'static str
         Language::JSON,
         "{\n  \"a\": {\n    \"b\": {\n      \"c\": {\n        \"d\": 1,\n        \"e\": 2,\n        \"f\": 3,\n        \"g\": 4\n      },\n      \"h\": 5\n    },\n    \"i\": 6\n  },\n  \"j\": 7\n}",
         "\"d\"",
-        vec!["{", "\"a\": {", "\"b\": {", "\"c\": {"],
+        vec!["\"a\": {", "\"b\": {", "\"c\": {"],
     ));
     #[cfg(feature = "toml")]
     cases.push((
@@ -146,6 +165,48 @@ fn every_language_sticks_what_the_reference_finds_at_every_row() {
                     })
                 })
                 .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn a_root_that_only_opens_a_bracket_does_not_stick_in_any_language() {
+    // The root's own line names nothing; a block nested in it opening the
+    // same way still sticks.
+    let mut cases = vec![(
+        Language::new(&PARENS),
+        "(\n  a (\n    (\n      d 1\n      e 2\n      f 3)\n    g 4)\n  h 5)",
+        "d",
+        vec!["a (", "("],
+    )];
+    #[cfg(feature = "json")]
+    cases.push((
+        Language::JSON,
+        "[\n  {\n    \"d\": 1,\n    \"e\": 2,\n    \"f\": 3\n  },\n  {\n    \"g\": 4\n  }\n]",
+        "\"e\"",
+        vec!["{"],
+    ));
+    #[cfg(feature = "yaml")]
+    cases.push((
+        Language::YAML,
+        "{\n  a: {\n    d: 1,\n    e: 2,\n    f: 3\n  },\n  g: 4\n}",
+        "e:",
+        vec!["a: {"],
+    ));
+    // A root that names something on its line still sticks.
+    #[cfg(feature = "json")]
+    cases.push((
+        Language::JSON,
+        "{ \"a\": 1,\n  \"d\": 1,\n  \"e\": 2,\n  \"f\": 3\n}",
+        "\"e\"",
+        vec!["{ \"a\": 1,"],
+    ));
+    let failures: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(language, text, marker, wanted)| {
+            let got = headers_at(language, text, marker, 5);
+            (got != wanted).then(|| format!("{}: {got:?}, wanted {wanted:?}", language.label()))
         })
         .collect();
     assert!(failures.is_empty(), "{failures:#?}");
@@ -239,9 +300,11 @@ fn an_edit_as_view_sticks_its_own_languages_headers() {
     let (_owner, state) = editor.mount();
     state.settle_readings();
     let text = state.doc().text.get_untracked();
-    let scopes = Scopes::new(
+    let scopes = sticky_scopes(
+        Language::JSON,
+        &text,
         &state.fold().blocks.get_untracked(),
-        &state.view().projection.get_untracked(),
+        &[],
     );
     let lines: Vec<&str> = text.split('\n').collect();
     let row = lines
@@ -253,7 +316,7 @@ fn an_edit_as_view_sticks_its_own_languages_headers() {
         .into_iter()
         .map(|line| lines[line].trim())
         .collect();
-    assert_eq!(headers, ["{", "\"a\": {", "\"b\": {", "\"c\": {"], "{text}");
+    assert_eq!(headers, ["\"a\": {", "\"b\": {", "\"c\": {"], "{text}");
 }
 
 #[cfg(feature = "yaml")]

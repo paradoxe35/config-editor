@@ -8,6 +8,8 @@
 //! ranges or the folds; each scroll then asks [`Scopes::layout`], which costs
 //! a binary search and a walk up the tree per sticky line, never a scan.
 
+use std::borrow::Cow;
+
 use super::super::super::fold_ranges::FoldRange;
 use super::super::super::projection::Projection;
 use super::super::super::work_count::{Work, note};
@@ -65,6 +67,46 @@ pub(crate) struct Layout {
     pub(crate) lines: Vec<StickyLine>,
     /// How far down the view they cover, in pixels.
     pub(crate) height: f64,
+}
+
+/// `ranges` (sorted by start, as a language gives them) without an
+/// outermost one whose first line of `text` is only an opening bracket
+/// (`openers`, the language's): the root `{` of a JSON document holds every
+/// line and names none, so the sticky lines start at its first key, as in
+/// VS Code. A block nested in it stays, however it opens.
+pub(crate) fn without_bare_roots<'a>(
+    ranges: &'a [FoldRange],
+    text: &str,
+    openers: impl Fn(char) -> bool,
+) -> Cow<'a, [FoldRange]> {
+    let mut lines = text.split('\n').enumerate();
+    let mut outer_end = None;
+    let mut bare = Vec::new();
+    for (index, range) in ranges.iter().enumerate() {
+        if outer_end.is_some_and(|end| range.start <= end) {
+            continue;
+        }
+        outer_end = Some(range.end);
+        // The starts only grow, so one pass over the lines finds them all.
+        let header = lines
+            .find(|(line, _)| *line == range.start)
+            .map_or("", |(_, header)| header.trim());
+        let mut characters = header.chars();
+        if characters.next().is_some_and(&openers) && characters.next().is_none() {
+            bare.push(index);
+        }
+    }
+    if bare.is_empty() {
+        return Cow::Borrowed(ranges);
+    }
+    Cow::Owned(
+        ranges
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| bare.binary_search(index).is_err())
+            .map(|(_, range)| *range)
+            .collect(),
+    )
 }
 
 impl Scopes {

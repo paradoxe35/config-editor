@@ -1566,7 +1566,9 @@ While the text scrolls, the lines that open the blocks around the top line
 Code's sticky scroll does: the innermost is pushed up as its block ends,
 and a click on one scrolls back to it with the caret at its start. At most
 `sticky_scroll_max_lines` lines show (5 by default, 1 to 20), and never
-more than a quarter of the text area. They come from the same blocks as
+more than a quarter of the text area. A root that only opens a bracket
+(JSON's `{`) names nothing and does not stick: the lines start at its first
+key, as in VS Code. They come from the same blocks as
 folding ([`fold_ranges`](#custom-languages), also with the `folding`
 setting off), so they work in every language, a custom one too, in an
 Edit-as view and with folds closed, and they show each line as the text
