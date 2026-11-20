@@ -455,12 +455,26 @@ async function performProp(run, prop) {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
   } else if (prop === 'readOnly') {
-    await page.locator('#read-only').click();
+    await hostControl(page, '#read-only');
   } else if (prop === 'footer') {
     run.footer = !run.footer;
     await host(page, 'singleProps', { showFooter: run.footer });
   } else if (prop === 'rename') {
-    const rename = page.locator('#rename');
-    if (await rename.count()) await rename.click();
+    await hostControl(page, '#rename');
   }
+}
+
+// The host's own control (a page button or checkbox) changes a prop: the
+// focus moves to it, as a click's would, and it is clicked through the DOM.
+// Not with the pointer: a hover card opens above its line when it fits
+// there, over the page above the editor, and may cover the control (with
+// wider fonts, as on CI); Playwright's click then retries until the card
+// closes, and with the pointer resting on its key it stays open.
+async function hostControl(page, selector) {
+  await page.evaluate((selector) => {
+    const control = document.querySelector(selector);
+    if (!control) return;
+    control.focus();
+    control.click();
+  }, selector);
 }
