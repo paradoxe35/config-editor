@@ -23,7 +23,9 @@ use serde_json::Value;
 /// the schema types (the host's string `"true"` under a key whose schema
 /// is `boolean`), or the view's number typed in another spelling
 /// (`respelled`: `08` over the host's `"8"`, which the view showed as 8),
-/// is saved as the view means it.
+/// is saved as the view means it; so is a host scalar the view reads as a
+/// list's one item whose item the edit wrote (`8` typed over the host's
+/// `"08"` where the schema wants a list of numbers).
 pub(in crate::editor::bridge) fn in_host_types(
     old: &Value,
     (seen, edited): (&Value, &Value),
@@ -84,6 +86,17 @@ fn read_otherwise(
                 read_otherwise(child, other, written, at, out);
                 at.truncate(length);
             }
+        }
+        // A host scalar the view reads as a list's one item (a lone element
+        // where the schema wants a list), whose item the edit wrote: the
+        // view's list, which the host holds no other way.
+        (scalar, Value::Array(items))
+            if !scalar.is_object()
+                && !scalar.is_array()
+                && matches!(items.as_slice(), [item] if !item.is_object() && !item.is_array()
+                    && written.wrote(&format!("{at}/0"), item)) =>
+        {
+            out.push((at.clone(), edited.clone()));
         }
         (Value::Object(_) | Value::Array(_), _) | (_, Value::Object(_) | Value::Array(_)) => {}
         (value, other) if value != other && written.wrote(at, other) => {

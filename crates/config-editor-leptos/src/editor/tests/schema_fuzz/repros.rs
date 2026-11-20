@@ -908,3 +908,18 @@ fn a_lone_element_an_inner_option_refuses_is_the_item_of_the_list_the_other_take
         json!(null),
     );
 }
+
+/// A number respelled in an XML view (`08` made `8`) where the host holds
+/// the text `"08"` and the view reads it as a list's one item the schema
+/// takes (and not the host's text) saves as that list (P2): the edit is
+/// no spelling of the host's own value.
+#[test]
+fn a_number_respelled_where_the_view_reads_a_host_scalar_as_a_list_saves_the_list() {
+    holds_everywhere(
+        super::edit_as::check,
+        json!({"allOf": [{"properties": {"x_one": {"type": "array",
+            "prefixItems": [{"type": "number"}]}}}]}),
+        json!({"x_one": "08"}),
+        json!({"x_one": 8}),
+    );
+}
