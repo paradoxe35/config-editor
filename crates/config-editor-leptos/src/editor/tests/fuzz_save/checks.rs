@@ -903,7 +903,14 @@ fn check_forms(
             let Some(was) = before.get(&pointer) else {
                 continue;
             };
-            if was != form && !changed_anchor(was) && !retyped(form) && !users_own(&pointer) {
+            if was != form && changed_anchor(was) {
+                // An alias written out once its anchor moved stays written
+                // out: the save that did so held no anchor before it, and
+                // later saves keep the form it wrote.
+                start.changed.borrow_mut().insert(pointer.clone());
+                continue;
+            }
+            if was != form && !retyped(form) && !users_own(&pointer) {
                 return Err(Failure::new(
                     Broken::Form,
                     was.clone(),
