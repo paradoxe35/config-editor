@@ -939,3 +939,25 @@ fn a_required_child_list_with_an_item_of_no_value_is_the_documented_empty_list()
         json!(null),
     );
 }
+
+/// A key renamed in an XML view keeps what is under it as the host held
+/// it, each value told by its own documented XML spelling: the host's
+/// text `"0"` the view reads as `0`, and a list of one emptied text the
+/// view shows as an empty element.
+#[test]
+fn values_under_a_key_renamed_in_an_xml_view_keep_the_documented_host_forms() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({}),
+        json!({"a": {"port": "0"}}),
+        json!({"size": {"port": 0}}),
+    );
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({}),
+        json!({"a": [""]}),
+        json!({"port": ""}),
+    );
+}

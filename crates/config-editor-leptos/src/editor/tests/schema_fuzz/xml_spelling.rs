@@ -162,8 +162,18 @@ fn held<'a>(sides: &Sides<'a>, at: &str, saved: &Value) -> Option<&'a Value> {
     if let Some(before) = sides.before.pointer(at) {
         return Some(before);
     }
-    let (parent, _) = at.rsplit_once('/')?;
+    let (parent, key) = at.rsplit_once('/')?;
     let holder = held(sides, parent, sides.saved.pointer(parent)?)?;
+    // Under a renamed parent, a key or item the view holds as the host's
+    // parent did is that one (the child itself kept its name).
+    let same = match holder {
+        Value::Object(held) => held.get(&unescaped_key(key)),
+        Value::Array(items) => key.parse::<usize>().ok().and_then(|index| items.get(index)),
+        _ => None,
+    };
+    if same.is_some() {
+        return same;
+    }
     match (holder, sides.view.pointer(parent)) {
         (Value::Object(held), Some(Value::Object(shown))) => held
             .iter()
