@@ -61,6 +61,17 @@ mod shared;
 mod tags;
 mod written_anew;
 use changed_forms::{emptied_quotes, text_scalars, typed_spellings, whole_floats, wide_numbers};
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "protect",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+pub(super) use merge::paired;
 use merge::{View, merge_changes};
 
 /// A save's patch of the host's text: `previous` made to read as `new`.

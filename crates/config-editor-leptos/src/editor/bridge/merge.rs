@@ -30,7 +30,12 @@ pub(super) fn merge_changes(
     edited: &Value,
     view: &View<'_>,
 ) -> Result<Value, String> {
-    merge_at(host, seen, edited, "", view)
+    #[cfg(test)]
+    paired::RENAMES.with(|renames| renames.borrow_mut().clear());
+    let merged = merge_at(host, seen, edited, "", view);
+    #[cfg(test)]
+    paired::record(merged.as_ref().ok());
+    merged
 }
 
 /// What the edit language could show of the host value.
@@ -239,6 +244,8 @@ fn merge_at(
                     }
                     // Renamed by the user.
                     (Some(seen_value), None) if let Some(to) = renamed_to.get(key) => {
+                        #[cfg(test)]
+                        paired::renamed(at, to, key);
                         let value = &edited[*to];
                         let merged = if canonical(value) == canonical(seen_value) {
                             host_value.clone()
@@ -504,4 +511,76 @@ pub(super) fn longest_common<'a>(left: &[&'a String], right: &[&'a String]) -> V
         }
     }
     common
+}
+
+/// Which host value each value of the last merge was taken from, kept for
+/// the tests that judge a save (`tests/schema_fuzz/xml_spelling`): a key
+/// the merge took as a renamed host key is the one fact a save's value
+/// does not tell, as every other value stays at its host pointer.
+#[cfg(test)]
+#[cfg_attr(
+    not(all(
+        feature = "schema-validation",
+        feature = "protect",
+        feature = "yaml",
+        feature = "json",
+        feature = "toml",
+        feature = "hcl",
+        feature = "xml"
+    )),
+    expect(
+        dead_code,
+        reason = "read by the schema fuzz suite, built with every feature"
+    )
+)]
+pub(crate) mod paired {
+    use serde_json::Value;
+    use std::cell::RefCell;
+
+    /// A host key the merge took as renamed: under the map at `at` (a
+    /// pointer of the merged value), `key` holds the host's `from`.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub(crate) struct Renamed {
+        pub(crate) at: String,
+        pub(crate) key: String,
+        pub(crate) from: String,
+    }
+
+    /// The last merge on this thread: the value it made and the keys it
+    /// took as renamed.
+    #[derive(Clone, Debug)]
+    pub(crate) struct Paired {
+        pub(crate) merged: Value,
+        pub(crate) renames: Vec<Renamed>,
+    }
+
+    thread_local! {
+        pub(super) static RENAMES: RefCell<Vec<Renamed>> = const { RefCell::new(Vec::new()) };
+        static LAST: RefCell<Option<Paired>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn record(merged: Option<&Value>) {
+        let renames = RENAMES.with(|renames| std::mem::take(&mut *renames.borrow_mut()));
+        let paired = merged.map(|merged| Paired {
+            merged: merged.clone(),
+            renames,
+        });
+        LAST.with(|last| *last.borrow_mut() = paired);
+    }
+
+    /// The last merge's pairing, taken (`None` when no merge ran since the
+    /// last take, or it failed).
+    pub(crate) fn take() -> Option<Paired> {
+        LAST.with(|last| last.borrow_mut().take())
+    }
+
+    pub(super) fn renamed(at: &str, key: &str, from: &str) {
+        RENAMES.with(|renames| {
+            renames.borrow_mut().push(Renamed {
+                at: at.to_string(),
+                key: key.to_string(),
+                from: from.to_string(),
+            });
+        });
+    }
 }

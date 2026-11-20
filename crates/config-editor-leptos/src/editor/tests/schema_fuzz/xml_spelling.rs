@@ -9,6 +9,8 @@ use serde_json::Value;
 
 use super::reference::{Both, same};
 use crate::editor::Language;
+use crate::editor::bridge::links::HostPaths;
+use crate::editor::bridge::paired;
 use crate::editor::decimal_text::decimal;
 use crate::editor::language::{pointer_key, unescaped_key};
 
@@ -50,6 +52,9 @@ pub(super) struct Sides<'a> {
     pub(super) view: &'a Value,
     /// The host's document read back from the save.
     pub(super) saved: &'a Value,
+    /// Which host value the save took each value from (see [`held`]);
+    /// `None`: each at its own pointer.
+    pub(super) paired: Option<&'a paired::Paired>,
 }
 
 /// The class of the save when XML's spelling explains each value it reads
@@ -116,7 +121,7 @@ fn differing(saved: &Value, view: &Value, at: &mut String, out: &mut Vec<String>
 /// view holds as `view`, if one does.
 fn spelling(sides: &Sides<'_>, at: &str, view: &Value, listed: bool) -> Option<&'static str> {
     let saved = sides.saved.pointer(at)?;
-    let before = held(sides, at, saved);
+    let before = held(sides, at);
     let into_xml = sides.host == Language::XML;
     let from_xml = sides.edit == Language::XML;
     match (before, view, saved) {
@@ -154,57 +159,59 @@ fn spelling(sides: &Sides<'_>, at: &str, view: &Value, listed: bool) -> Option<&
     }
 }
 
-/// The host's value at `at` before the save, or, where the view renamed a
-/// key to it (or a key above it, each level followed the same way), the
-/// value of that key (one of the same object the view's object there no
-/// longer has) of the saved value's kind.
-fn held<'a>(sides: &Sides<'a>, at: &str, saved: &Value) -> Option<&'a Value> {
-    if let Some(before) = sides.before.pointer(at) {
-        return Some(before);
-    }
-    let (parent, key) = at.rsplit_once('/')?;
-    let holder = held(sides, parent, sides.saved.pointer(parent)?)?;
-    // Under a renamed parent, a key or item the view holds as the host's
-    // parent did is that one (the child itself kept its name).
-    let same = match holder {
-        Value::Object(held) => held.get(&unescaped_key(key)),
-        Value::Array(items) => key.parse::<usize>().ok().and_then(|index| items.get(index)),
-        _ => None,
+/// The host's value before the save that the saved value at `at` was
+/// taken from.
+///
+/// Which host value that is, is the save's own record (`paired`, the
+/// merge's pairing): a view typed whole carries no links, so only the
+/// merge knows which host key a key it renamed stands for, and every other
+/// value stays at its host pointer. The judge takes from the record only
+/// that identity, and only where the host agrees it can be one (a renamed
+/// key's host key is in the host's map there, its new name is not, and
+/// the merged map no longer holds the old one); what the save wrote for
+/// the value is still judged here, against the host's value and the
+/// view's, by the documented spellings. So a wrong pairing can at worst
+/// compare a value with another of the host's values the view renamed
+/// away, never excuse a value the host did not hold in that form.
+fn held<'a>(sides: &Sides<'a>, at: &str) -> Option<&'a Value> {
+    let Some(paired) = sides.paired else {
+        return sides.before.pointer(at);
     };
-    if same.is_some() {
-        return same;
+    // The saved value's place in the merged value: the host may read a
+    // list of one the merge wrote as its item (an XML host), the walk of
+    // the two pairs them (see `HostPaths`).
+    let (merged, _) = HostPaths::between(&paired.merged, sides.saved).item(at);
+    let (mut placed, mut host) = (String::new(), String::new());
+    for segment in merged.split('/').skip(1) {
+        let renamed = paired.renames.iter().find(|renamed| {
+            renamed.at == placed
+                && pointer_key(&renamed.key) == segment
+                && renames_one(sides.before.pointer(&host), &paired.merged, renamed)
+        });
+        host.push('/');
+        match renamed {
+            Some(renamed) => host.push_str(&pointer_key(&renamed.from)),
+            None => host.push_str(segment),
+        }
+        placed.push('/');
+        placed.push_str(segment);
     }
-    match (holder, shown_at(sides, parent)) {
-        (Value::Object(held), Some(Value::Object(shown))) => held
-            .iter()
-            .find(|(key, value)| kind(value) == kind(saved) && !shown.contains_key(*key))
-            .map(|(_, value)| value),
-        _ => None,
-    }
+    sides.before.pointer(&host)
 }
 
-/// The view's value at the saved value's `pointer`: a list the save kept
-/// where the view shows its one item has no index in the view, so a `/0`
-/// where the view holds no list is the item itself.
-fn shown_at<'v>(sides: &Sides<'v>, pointer: &str) -> Option<&'v Value> {
-    let mut at = sides.view;
-    let mut saved = String::new();
-    for segment in pointer.split('/').skip(1) {
-        let kept_list = sides
-            .saved
-            .pointer(&saved)
-            .and_then(Value::as_array)
-            .is_some_and(|items| items.len() == 1);
-        saved.push('/');
-        saved.push_str(segment);
-        at = match at {
-            Value::Array(items) => items.get(segment.parse::<usize>().ok()?)?,
-            _ if segment == "0" && kept_list => at,
-            Value::Object(map) => map.get(&unescaped_key(segment))?,
-            _ => return None,
-        };
-    }
-    Some(at)
+/// Whether the host's map `host` and the merged value agree that the
+/// merge's `renamed` can be a rename: the host held the old key and not
+/// the new one, and the merged map holds the new one in its place.
+fn renames_one(host: Option<&Value>, merged: &Value, renamed: &paired::Renamed) -> bool {
+    let (Some(Value::Object(host)), Some(Value::Object(merged))) =
+        (host, merged.pointer(&renamed.at))
+    else {
+        return false;
+    };
+    host.contains_key(&renamed.from)
+        && !host.contains_key(&renamed.key)
+        && merged.contains_key(&renamed.key)
+        && !merged.contains_key(&renamed.from)
 }
 
 /// The class of a value saved in the host's type, by what the schema
@@ -320,17 +327,35 @@ mod tests {
     use super::*;
 
     /// The class of a save from an XML view of a JSON host (`into_xml`: of
-    /// an XML host from a JSON view).
-    fn class(
+    /// an XML host from a JSON view), whose merge took no key as renamed.
+    fn class(schema: &Value, into_xml: bool, sides: (Value, Value, Value)) -> Option<&'static str> {
+        renamed(schema, into_xml, sides, &[])
+    }
+
+    /// [`class`] where the merge took each `(at, key, from)` as a rename:
+    /// `key` of the map at `at` holds the host's `from`.
+    fn renamed(
         schema: &Value,
         into_xml: bool,
         (before, view, saved): (Value, Value, Value),
+        renames: &[(&str, &str, &str)],
     ) -> Option<&'static str> {
         let both = compile(schema).unwrap();
         let (host, edit) = if into_xml {
             (Language::XML, Language::JSON)
         } else {
             (Language::JSON, Language::XML)
+        };
+        let paired = paired::Paired {
+            merged: saved.clone(),
+            renames: renames
+                .iter()
+                .map(|&(at, key, from)| paired::Renamed {
+                    at: at.to_string(),
+                    key: key.to_string(),
+                    from: from.to_string(),
+                })
+                .collect(),
         };
         explained(&Sides {
             both: &both,
@@ -339,6 +364,7 @@ mod tests {
             before: &before,
             view: &view,
             saved: &saved,
+            paired: Some(&paired),
         })
     }
 
@@ -359,15 +385,47 @@ mod tests {
             None
         );
         // A list renamed and cut to one item; a list typed over a string.
-        let renamed = (json!({"a": [0, 0]}), json!({"b": 0}), json!({"b": [0]}));
-        assert_eq!(class(&any, false, renamed), Some(KEPT_LIST));
+        let cut = (json!({"a": [0, 0]}), json!({"b": 0}), json!({"b": [0]}));
+        assert_eq!(
+            renamed(&any, false, cut.clone(), &[("", "b", "a")]),
+            Some(KEPT_LIST)
+        );
+        // Not where the merge took no rename, nor one the host refutes
+        // (a key the host does not hold, or one it already held).
+        assert_eq!(class(&any, false, cut.clone()), None);
+        assert_eq!(renamed(&any, false, cut.clone(), &[("", "b", "z")]), None);
+        let held_both = (
+            json!({"a": [0, 0], "b": 1}),
+            json!({"b": 0}),
+            json!({"b": [0]}),
+        );
+        assert_eq!(renamed(&any, false, held_both, &[("", "b", "a")]), None);
         // The same through two renames (a key and the one inside it).
         let twice = (
             json!({"name": {"b": [0]}}),
             json!({"x_one": {"port": 0}}),
             json!({"x_one": {"port": [0]}}),
         );
-        assert_eq!(class(&any, false, twice), Some(KEPT_LIST));
+        assert_eq!(
+            renamed(
+                &any,
+                false,
+                twice,
+                &[("", "x_one", "name"), ("/x_one", "port", "b")]
+            ),
+            Some(KEPT_LIST)
+        );
+        // The inner key under the renamed parent is the host's own when
+        // the merge kept its name.
+        let same_inner = (
+            json!({"name": {"port": [0]}}),
+            json!({"x_one": {"port": 0}}),
+            json!({"x_one": {"port": [0]}}),
+        );
+        assert_eq!(
+            renamed(&any, false, same_inner, &[("", "x_one", "name")]),
+            Some(KEPT_LIST)
+        );
         let over_text = (json!({"a": "x"}), json!({"a": "y"}), json!({"a": ["y"]}));
         assert_eq!(class(&any, false, over_text), None);
 
@@ -405,14 +463,17 @@ mod tests {
         );
         assert_eq!(typed(json!({"type": "integer"})), None);
         // The host's string under a key the view renamed.
-        let renamed = (
+        let text = (
             json!({"name": "true"}),
             json!({"a": true}),
             json!({"a": "true"}),
         );
-        assert_eq!(class(&any, false, renamed), Some(KEPT_TEXT));
+        assert_eq!(
+            renamed(&any, false, text, &[("", "a", "name")]),
+            Some(KEPT_TEXT)
+        );
         let new_key = (json!({"name": 1}), json!({"a": true}), json!({"a": "true"}));
-        assert_eq!(class(&any, false, new_key), None);
+        assert_eq!(renamed(&any, false, new_key, &[("", "a", "name")]), None);
         assert_eq!(
             typed(json!({"oneOf": [{"type": "integer"}, {"type": "boolean"}]})),
             None
@@ -435,6 +496,7 @@ mod tests {
                     before: &before,
                     view: &view,
                     saved: &saved,
+                    paired: None,
                 })
             };
         let hosts = Language::ALL
@@ -496,5 +558,92 @@ mod tests {
             );
             assert_eq!(xml(beside), None, "{host}");
         }
+    }
+
+    /// A real save from an XML view of a JSON host: the host's document
+    /// before, the view's, the save's, and the merge's pairing.
+    fn saved_from_xml(before: Value, view: Value) -> (Value, Value, Value, paired::Paired) {
+        let both = compile(&json!({})).unwrap();
+        let host_text = both.written(Language::JSON, &before).unwrap();
+        let typed = both.written(Language::XML, &view).unwrap();
+        let bridge = crate::editor::bridge::Bridge::new(
+            Language::JSON,
+            Language::XML,
+            Some(both.editor.bundle.clone()),
+        )
+        .unwrap();
+        paired::take();
+        let saved = bridge.to_host(&typed, &host_text).unwrap();
+        let paired = paired::take().expect("the save merged the view");
+        let saved = both.read(Language::JSON, &saved).unwrap();
+        let view = both.read(Language::XML, &typed).unwrap();
+        (before, view, saved, paired)
+    }
+
+    /// The class the judge gives `saved` as the save of `view` over
+    /// `before`, the merge having paired values as `paired` says.
+    fn judged(
+        before: &Value,
+        view: &Value,
+        saved: &Value,
+        paired: &paired::Paired,
+    ) -> Option<&'static str> {
+        let both = compile(&json!({})).unwrap();
+        explained(&Sides {
+            both: &both,
+            host: Language::JSON,
+            edit: Language::XML,
+            before,
+            view,
+            saved,
+            paired: Some(paired),
+        })
+    }
+
+    /// The judge takes from the save's record only which host value a
+    /// value came from: a save that writes anything but the documented
+    /// spelling of that value (another item, another host value's text,
+    /// the host's list twice), or a record the host refutes, is caught.
+    #[test]
+    fn a_save_wrong_beside_its_recorded_source_is_caught() {
+        // A list renamed and cut to one: the host's list kept.
+        let (before, view, saved, paired) = saved_from_xml(json!({"a": [0, 0]}), json!({"b": 0}));
+        assert_eq!(saved, json!({"b": [0]}));
+        assert_eq!(judged(&before, &view, &saved, &paired), Some(KEPT_LIST));
+        for wrong in [
+            json!({"b": [1]}),
+            json!({"b": [0, 0]}),
+            json!({"b": [0], "a": [0, 0]}),
+            json!({"b": [[0]]}),
+        ] {
+            assert_eq!(judged(&before, &view, &wrong, &paired), None, "{wrong}");
+        }
+        // A record naming a host key the save still holds, or none the
+        // host had, is no source.
+        for from in ["b", "z"] {
+            let mut told = paired.clone();
+            told.renames[0].from = from.to_string();
+            assert_eq!(judged(&before, &view, &saved, &told), None, "{from}");
+        }
+
+        // The host's text kept under a renamed key.
+        let (before, view, saved, paired) = saved_from_xml(
+            json!({"name": "true", "c": "false"}),
+            json!({"a": true, "c": "false"}),
+        );
+        assert_eq!(saved, json!({"a": "true", "c": "false"}));
+        assert_eq!(judged(&before, &view, &saved, &paired), Some(KEPT_TEXT));
+        // Another host value's text there is no spelling of the source.
+        let swapped = json!({"a": "false", "c": "false"});
+        assert_eq!(judged(&before, &view, &swapped, &paired), None);
+
+        // A number respelled, an element emptied: only the host's number
+        // and empty text are their spellings.
+        let (before, view, saved, paired) = saved_from_xml(json!({"n": 8}), json!({"n": "08"}));
+        assert_eq!(judged(&before, &view, &saved, &paired), Some(RESPELLED));
+        assert_eq!(judged(&before, &view, &json!({"n": 9}), &paired), None);
+        let (before, view, saved, paired) = saved_from_xml(json!({"m": "a"}), json!({"m": {}}));
+        assert_eq!(judged(&before, &view, &saved, &paired), Some(EMPTIED_TEXT));
+        assert_eq!(judged(&before, &view, &json!({"m": "a"}), &paired), None);
     }
 }
