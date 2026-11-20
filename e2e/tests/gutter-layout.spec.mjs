@@ -103,3 +103,132 @@ test.describe('the gutter markers at phone width', () => {
     await expectClear(page, '.config-editor__secret-marker');
   });
 });
+
+// The gutter is about as narrow as VS Code's: the marker column, the
+// digits, a small gap, the fold chevrons' column, then the text. The change
+// bars sit in the marker column before the number, so each bar and each
+// chevron keeps a 24px hit area that reaches neither the number, the
+// other's area, nor the text; and a marker appearing never moves the text.
+
+/** The widest line number in view (its digits' box), the text's left edge and the gutter's box. */
+const gutterGeometry = (page) =>
+  page.evaluate(() => {
+    const gutter = document.querySelector('.config-editor__gutter');
+    let widest = null;
+    for (const span of gutter.querySelectorAll('div[data-line] > span')) {
+      const range = document.createRange();
+      range.selectNodeContents(span);
+      const box = range.getBoundingClientRect();
+      if (box.width > 0 && (!widest || box.width > widest.width)) {
+        widest = { left: box.left, right: box.right, width: box.width, digits: span.textContent.length };
+      }
+    }
+    const input = document.querySelector('.config-editor__input');
+    const textLeft = input.getBoundingClientRect().left + parseFloat(getComputedStyle(input).paddingLeft);
+    const box = gutter.getBoundingClientRect();
+    return { widest, textLeft, gutterLeft: box.left, gutterWidth: box.width };
+  });
+
+/** A hit area: the element's box joined with its positioned pseudo-elements'. */
+const hitBox = (locator) =>
+  locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    let [left, top, right, bottom] = [box.left, box.top, box.right, box.bottom];
+    for (const pseudo of ['::before', '::after']) {
+      const style = getComputedStyle(element, pseudo);
+      if (style.content === 'none' || style.position !== 'absolute') continue;
+      const x = box.left + parseFloat(style.left);
+      const y = box.top + parseFloat(style.top);
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x + parseFloat(style.width));
+      bottom = Math.max(bottom, y + parseFloat(style.height));
+    }
+    return { left, top, right, bottom };
+  });
+
+for (const lines of [9, 99, 999, 9999]) {
+  test.describe(`the gutter's width with ${lines} lines`, () => {
+    test('the text starts close after the widest number, the number close to the edge', async ({ page, baseURL }) => {
+      const text = Array.from({ length: lines }, (_, i) => (i % 2 ? `  value: ${i}` : `block_${i}:`)).join('\n');
+      await page.addInitScript((sample) => {
+        window.configEditorSample = sample;
+      }, text);
+      await page.goto(`${baseURL}?sample=page`);
+      await page.locator('.config-editor__input').click();
+      await page.keyboard.press('Control+End');
+      // The last lines in view (the rows follow the scroll a frame later).
+      await expect.poll(async () => (await gutterGeometry(page)).widest.digits).toBe(String(lines).length);
+      const { widest, textLeft, gutterLeft } = await gutterGeometry(page);
+      // VS Code leaves about 26px (its decorations and folding) after the number.
+      const gap = textLeft - widest.right;
+      expect(gap, 'from the number to the text').toBeGreaterThanOrEqual(24);
+      expect(gap, 'from the number to the text').toBeLessThanOrEqual(28);
+      // Before the number: the marker column, and the room of the digits a
+      // short document lacks (at least three, so line 100 moves nothing).
+      const blank = Math.max(0, 3 - widest.digits) * (widest.width / widest.digits);
+      expect(widest.left - gutterLeft - blank, 'from the edge to the number').toBeLessThanOrEqual(29);
+    });
+  });
+}
+
+test.describe('the gutter without folding', () => {
+  setupEditor(test, '?sample=large&folding=0');
+
+  test('the text starts about a character after the number', async ({ page }) => {
+    const { widest, textLeft } = await gutterGeometry(page);
+    expect(textLeft - widest.right).toBeGreaterThanOrEqual(6);
+    expect(textLeft - widest.right).toBeLessThanOrEqual(12);
+  });
+});
+
+test.describe('the gutter markers stay clickable', () => {
+  setupEditor(test, '?sample=large');
+
+  test('a change bar and a chevron each own a 24px area clear of the number and the text, and open their control', async ({ page }) => {
+    const e = editor(page);
+    const before = await gutterGeometry(page);
+    // A change on the first line that starts a fold.
+    const line = await page.locator('.config-editor__fold-toggle').first().getAttribute('data-line');
+    await e.input.click();
+    await page.keyboard.press('Control+g');
+    await page.keyboard.type(`${line}\n`);
+    await page.keyboard.press('End');
+    await page.keyboard.type(' x');
+    const bar = page.locator(`.config-editor__gutter div[data-line="${line}"] .config-editor__diff-marker`);
+    await expect(bar).toBeVisible();
+    const toggle = page.locator(`.config-editor__fold-toggle[data-line="${line}"]`);
+    await page.locator('.config-editor__gutter').hover();
+    await expect(toggle).toBeVisible();
+    // No layout shift: the markers take no room of their own.
+    const after = await gutterGeometry(page);
+    expect(after.gutterWidth).toBe(before.gutterWidth);
+    expect(after.textLeft).toBe(before.textLeft);
+
+    const digits = await page.evaluate((line) => {
+      const range = document.createRange();
+      range.selectNodeContents(document.querySelector(`.config-editor__gutter div[data-line="${line}"] > span`));
+      const box = range.getBoundingClientRect();
+      return { left: box.left, right: box.right };
+    }, line);
+    const barArea = await hitBox(bar);
+    const toggleArea = await hitBox(toggle);
+    for (const [name, area] of [['bar', barArea], ['chevron', toggleArea]]) {
+      expect(area.right - area.left, `${name} wide`).toBeGreaterThanOrEqual(24);
+      expect(area.bottom - area.top, `${name} tall`).toBeGreaterThanOrEqual(24);
+    }
+    expect(barArea.right, 'the bar ends before the number').toBeLessThanOrEqual(digits.left + 0.5);
+    expect(toggleArea.left, 'the chevron starts after the number').toBeGreaterThanOrEqual(digits.right - 0.5);
+    expect(toggleArea.right, 'the chevron ends before the text').toBeLessThanOrEqual(after.textLeft + 0.5);
+
+    // Each area's far side still takes the click: the bar's at the gutter's
+    // edge, the chevron's beside the text.
+    await page.mouse.click(barArea.left + 2, (barArea.top + barArea.bottom) / 2);
+    await expect(page.locator('.config-editor__diff-peek')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.config-editor__diff-peek')).toHaveCount(0);
+    await page.locator('.config-editor__gutter').hover();
+    await page.mouse.click(toggleArea.right - 2, (toggleArea.top + toggleArea.bottom) / 2);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+});

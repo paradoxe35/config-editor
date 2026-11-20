@@ -462,14 +462,19 @@
   position: relative;
   z-index: 5;
   background: var(--config-editor-bg);
-  /* A column for the markers (a lock or key, then the problem dot), the
-     longest line number (`--config-editor-gutter-digits`, set from the line
-     count, at least 3), then the padding before the text. */
-  --config-editor-marker-column: 24px;
-  --config-editor-gutter-padding: 13px;
+  /* A column for the markers (a lock or key, the problem dot, then the
+     change bar), the longest line number (`--config-editor-gutter-digits`,
+     set from the line count, at least 3), the padding after it, then the
+     fold chevrons' column when folding is on. The change bars sit before
+     the number, not after it: each bar and each chevron takes a 24px hit
+     area, and side by side after the number they would need 48px of empty
+     space between the number and the text. */
+  --config-editor-marker-column: 28px;
+  --config-editor-gutter-padding: 10px;
+  --config-editor-fold-gutter: 0px;
   width: calc(
     var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-      var(--config-editor-gutter-padding)
+      var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter)
   );
   flex: 0 0 auto;
   /* Its rows never size it: it stretches to the textarea, so resizing the
@@ -481,7 +486,8 @@
   /* A finger dragging over the line numbers scrolls the text (the editor
      moves it), not the page; two fingers still zoom. */
   touch-action: pinch-zoom;
-  padding: var(--config-editor-padding-top) var(--config-editor-gutter-padding)
+  padding: var(--config-editor-padding-top)
+    calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter))
     var(--config-editor-padding-bottom) 0;
   color: var(--config-editor-line-number);
   text-align: right;
@@ -505,7 +511,7 @@
 :not(#\#):not(#\#) .config-editor__line-number-error::before {
   position: absolute;
   top: 8px;
-  left: calc(var(--config-editor-marker-column) - 9px);
+  left: calc(var(--config-editor-marker-column) - 13px);
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -517,7 +523,7 @@
 :not(#\#):not(#\#) .config-editor__lock-marker {
   position: absolute;
   top: calc(50% - 5px);
-  left: calc(var(--config-editor-marker-column) - 20px);
+  left: calc(var(--config-editor-marker-column) - 25px);
   width: 9px;
   height: 10px;
   color: var(--config-editor-locked);
@@ -537,7 +543,7 @@
 :not(#\#):not(#\#) .config-editor__secret-marker {
   position: absolute;
   top: calc(50% - 5px);
-  left: calc(var(--config-editor-marker-column) - 20px);
+  left: calc(var(--config-editor-marker-column) - 25px);
   width: 10px;
   height: 10px;
   color: var(--config-editor-secret-chip-border);
@@ -557,10 +563,13 @@
   color: var(--config-editor-locked);
 }
 
+/* A changed line's bar: last in the marker column, before the number.
+   Above the next row, which its hit area overlaps by a pixel. */
 :not(#\#):not(#\#) .config-editor__diff-marker {
   position: absolute;
+  z-index: 1;
   top: 0;
-  right: -9px;
+  left: calc(var(--config-editor-marker-column) - 6px);
   bottom: 0;
   width: 3px;
   padding: 0;
@@ -580,10 +589,6 @@
 :not(#\#):not(#\#) .config-editor__diff-marker-added::after,
 :not(#\#):not(#\#) .config-editor__diff-marker-modified::after {
   position: absolute;
-  top: 0;
-  right: -4px;
-  bottom: 0;
-  left: -4px;
   content: "";
 }
 
@@ -591,7 +596,7 @@
 :not(#\#):not(#\#) .config-editor__diff-marker-added:focus-visible,
 :not(#\#):not(#\#) .config-editor__diff-marker-modified:hover,
 :not(#\#):not(#\#) .config-editor__diff-marker-modified:focus-visible {
-  right: -10px;
+  left: calc(var(--config-editor-marker-column) - 7px);
   width: 5px;
 }
 
@@ -611,7 +616,7 @@
   position: absolute;
   z-index: 1;
   top: -3px;
-  right: -9px;
+  left: calc(var(--config-editor-marker-column) - 12px);
   width: 9px;
   height: 12px;
   padding: 0;
@@ -824,23 +829,21 @@
   position: relative;
 }
 
-/* Folding: chevrons right of the diff markers, shown while the gutter is
-   hovered (always on touch screens and on folded lines). */
+/* Folding: chevrons between the number and the text, shown while the
+   gutter is hovered (always on touch screens and on folded lines). Their
+   column is their 24px hit area; the number keeps a small gap from it. */
 :not(#\#):not(#\#) .config-editor__gutter.config-editor__gutter-folding {
-  --config-editor-fold-gutter: 14px;
-  width: calc(
-    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-      var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter)
-  );
-  padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter));
+  --config-editor-fold-gutter: 24px;
+  --config-editor-gutter-padding: 2px;
 }
 
 :not(#\#):not(#\#) .config-editor__fold-toggle {
   position: absolute;
   z-index: 1;
-  right: calc(-11px - var(--config-editor-fold-gutter));
+  right: calc(0px - var(--config-editor-gutter-padding) - var(--config-editor-fold-gutter));
+  top: calc((1lh - max(24px, 1lh)) / 2);
   width: var(--config-editor-fold-gutter);
-  height: 1lh;
+  height: max(24px, 1lh);
   line-height: var(--config-editor-line-height);
   padding: 0;
   border: 0;
@@ -854,7 +857,7 @@
 :not(#\#):not(#\#) .config-editor__fold-toggle::before {
   position: absolute;
   top: 50%;
-  left: 4px;
+  left: 9px;
   width: 5px;
   height: 5px;
   border-right: 1.5px solid currentColor;
@@ -881,10 +884,10 @@
   :not(#\#):not(#\#) .config-editor__fold-toggle { opacity: 1; }
 }
 
-/* A closed fold hiding changes: a dotted bar where the diff markers go. */
+/* A closed fold hiding changes: a dotted bar where the change bars go. */
 :not(#\#):not(#\#) .config-editor__fold-changes {
   position: absolute;
-  right: -9px;
+  left: calc(var(--config-editor-marker-column) - 6px);
   width: 3px;
   height: calc(1lh - 6px);
   margin-top: 3px;
@@ -2012,10 +2015,6 @@
 @media (max-width: 600px) {
   .config-editor__toolbar,
   :not(#\#):not(#\#) .config-editor__frame .config-editor__toolbar { padding: 0 10px; }
-  :not(#\#):not(#\#) .config-editor__gutter {
-    --config-editor-marker-column: 23px;
-    --config-editor-gutter-padding: 10px;
-  }
   /* The schema state as its check mark alone (its words still named). */
   .config-editor__schema-state,
   :not(#\#):not(#\#) .config-editor__frame .config-editor__schema-state { font-size: 0; }
@@ -2026,42 +2025,21 @@
 
 /* Every small control is at least 24×24px, by its own box or through a
    larger invisible hit area (WCAG 2.5.8, for a mouse as for a finger): the
-   change bars, the chevrons, the chip and the find buttons. The gutter is
-   wide enough for the bars' and the chevrons' areas to stay apart. */
-:not(#\#):not(#\#) .config-editor__gutter:not(.config-editor__gutter-folding) {
-  padding-right: calc(var(--config-editor-gutter-padding) + 11px);
-  width: calc(
-    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-      var(--config-editor-gutter-padding) + 11px
-  );
-}
-:not(#\#):not(#\#) .config-editor__gutter.config-editor__gutter-folding {
-  --config-editor-fold-gutter: 24px;
-  padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px);
-  width: calc(
-    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-      var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px
-  );
-}
-:not(#\#):not(#\#) .config-editor__fold-toggle {
-  right: calc(-24px - var(--config-editor-fold-gutter));
-  top: calc((1lh - max(24px, 1lh)) / 2);
-  height: max(24px, 1lh);
-}
-:not(#\#):not(#\#) .config-editor__fold-toggle::before { left: 9px; }
-/* The bar's area: from the number's edge to the chevrons, 24px tall. */
+   change bars, the chevrons, the chip and the find buttons. A bar's area
+   is the whole marker column (it ends 3px before the column's edge), so it
+   never reaches the number or the chevrons; the chevron's is its column. */
 :not(#\#):not(#\#) .config-editor__diff-marker-added::after,
 :not(#\#):not(#\#) .config-editor__diff-marker-modified::after {
   top: -1px;
-  right: -15px;
+  right: -3px;
   bottom: -1px;
-  left: -6px;
+  left: calc(6px - var(--config-editor-marker-column));
 }
 :not(#\#):not(#\#) .config-editor__diff-deleted::after {
   position: absolute;
   top: -6px;
-  right: -15px;
-  width: 24px;
+  left: calc(12px - var(--config-editor-marker-column));
+  width: var(--config-editor-marker-column);
   height: 24px;
   content: "";
 }
