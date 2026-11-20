@@ -2529,6 +2529,74 @@ fn a_toml_date_cut_with_the_next_line_and_pasted_keeps_its_host_form() {
     );
 }
 
+/// P2: a JSON map written over lines that a YAML view leaves alone keeps
+/// its lines when another line is moved past it after a switch.
+#[test]
+fn a_json_map_left_alone_keeps_its_lines_when_a_yaml_line_moves_past_it() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"name\": \"web-app\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"vite build\",\n    \"test\": \"vitest run\"\n  },\n  \"dependencies\": {\"react\": \"^18.3.1\", \"react-dom\": \"^18.3.1\"},\n  \"engines\": {\n    \"node\": \">=18\"\n  },\n  \"files\": [\"dist\", \"src\"],\n  \"ratio\": 1.50,\n  \"size\": 1e3\n}\n",
+        &[
+            Op::Enter {
+                line: 39,
+                column: 1001,
+            },
+            Op::MoveLine {
+                line: 62,
+                down: false,
+            },
+            Op::Switch { to: 0 },
+            Op::MoveLine {
+                line: 10,
+                down: true,
+            },
+        ],
+    );
+}
+
+/// P2: a YAML flow map left alone keeps its form when a TOML view's pastes
+/// and typing make a table beside it.
+#[test]
+fn a_yaml_flow_map_left_alone_keeps_its_form_beside_a_pasted_toml_table() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "alpha:\n  k1:\n    - name: one\n      port: 80\n    - name: two\n      port: 81\n  k2: {x: 1, y: two} # note 1\n  k3:\n    - 3\n  k4: !Ref Param # note 3\nbeta:\n  k5: 1.50\n  k6:\n    - 3\n",
+        &[
+            Op::Cut {
+                line: 31,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 54,
+                how: Put::Before,
+            },
+            Op::Backspace {
+                line: 46,
+                column: 1000,
+                count: 1,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 4,
+                how: Put::OverBlank,
+            },
+            Op::DeleteLine { line: 38 },
+            Op::Type {
+                line: 39,
+                column: 1001,
+                text: "x",
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 30,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
 /// P3: the same with a save between the join and the cut: the joined
 /// entries' links are kept across the save.
 #[test]

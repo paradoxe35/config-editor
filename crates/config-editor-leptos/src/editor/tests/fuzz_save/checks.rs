@@ -842,6 +842,11 @@ fn check_forms(
             let changed_now = now.pointer(&pointer) != Some(was);
             if !was.is_object() && !was.is_array() && (changed_now || users_own(&pointer)) {
                 changed.insert(pointer);
+            } else if reshaped(was, now.pointer(&pointer)) {
+                // A map or list an earlier save held with other keys or
+                // items, or not at all (its entries moved out, then back):
+                // the user rebuilt it, and its layout is the save's.
+                changed.insert(pointer);
             }
         }
     }
@@ -994,6 +999,37 @@ fn check_comments(
         }
     }
     Ok(())
+}
+
+/// Whether the map or list `was` (as the session started) is held as
+/// `now` with other keys or another length, as another kind, or not at
+/// all; `false` for a scalar, and for a container whose members only
+/// changed their values.
+fn reshaped(was: &Value, now: Option<&Value>) -> bool {
+    match (was, now) {
+        (Value::Object(was), Some(Value::Object(now))) => {
+            was.len() != now.len() || was.keys().any(|key| !now.contains_key(key))
+        }
+        (Value::Array(was), Some(Value::Array(now))) => was.len() != now.len(),
+        (Value::Object(_) | Value::Array(_), _) => true,
+        _ => false,
+    }
+}
+
+/// A container counts as rebuilt only when its keys, its length or its
+/// kind changed: a member's new value leaves its layout judged.
+#[test]
+fn only_a_container_held_with_other_entries_counts_as_rebuilt() {
+    use serde_json::json;
+    let map = json!({"node": ">=18"});
+    assert!(reshaped(&map, Some(&Value::Null)));
+    assert!(reshaped(&map, None));
+    assert!(reshaped(&map, Some(&json!({}))));
+    assert!(reshaped(&map, Some(&json!({"other": ">=18"}))));
+    assert!(!reshaped(&map, Some(&json!({"node": ">=20"}))));
+    assert!(!reshaped(&json!([1, 2]), Some(&json!([3, 4]))));
+    assert!(reshaped(&json!([1, 2]), Some(&json!([1]))));
+    assert!(!reshaped(&json!(1), Some(&json!(2))));
 }
 
 /// Whether `value` is a map or list holding nothing (which `forms` leaves
