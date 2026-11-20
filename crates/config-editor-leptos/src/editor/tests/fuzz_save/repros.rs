@@ -2,7 +2,7 @@
 //! tests (those of an open finding ignored, by its name).
 
 use super::ops::{Op, Put, Take};
-use super::replay;
+use super::{replay, saved_after};
 use crate::editor::languages::Language;
 
 /// P3: a TOML octal number copied in an XML view (a list of two, saved)
@@ -2817,5 +2817,27 @@ fn a_toml_date_joined_saved_cut_and_pasted_keeps_its_host_form() {
                 how: Put::OverBlank,
             },
         ],
+    );
+}
+
+/// P2 and P3: a block header deleted and another copied above a map's
+/// header in an HCL view nest the map in a copy of its key, and move the
+/// entries of the deleted block up beside it: each value keeps the form
+/// of the line it came from (its anchor or its alias), not the form of
+/// another value now at its old pointer.
+#[test]
+fn entries_moved_under_a_copied_block_header_keep_the_forms_of_their_lines() {
+    let host = "alpha:\n  k1:\n    base: &bk1 5\n    copy: *bk1\n  k2: 1.50 # note 2\n  k3:\n    base: &bk3 5\n    copy: *bk3\nbeta:\n  k4: 0x1F # note 5\n  k5: ~ # note 6\n  k6: {x: 1, y: two}\n";
+    let ops = [
+        Op::DeleteLine { line: 54 },
+        Op::CopyLine {
+            line: 1,
+            down: false,
+        },
+    ];
+    replay(Language::YAML, Language::HCL, host, &ops);
+    assert_eq!(
+        saved_after(Language::YAML, Language::HCL, host, &ops),
+        "alpha:\n  k1:\n    k1:\n      base: &bk1 5\n      copy: *bk1\n    k2: 1.50 # note 2\n    base: &bk3 5\n    copy: *bk3\nbeta:\n  k4: 0x1F # note 5\n  k5: ~ # note 6\n  k6: {x: 1, y: two}\n"
     );
 }

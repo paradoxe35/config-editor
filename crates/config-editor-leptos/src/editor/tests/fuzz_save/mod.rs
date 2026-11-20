@@ -154,6 +154,25 @@ fn run(case: &Case) -> Result<bool, Broke> {
     }
 }
 
+/// The host's text once `ops` are made in a `view` of `text` (in `host`)
+/// and a pause saves them.
+fn saved_after(host: Language, view: Language, text: &str, ops: &[Op]) -> String {
+    let held: checks::HostCopy = std::sync::Arc::new(std::sync::Mutex::new(text.to_string()));
+    let mut editor = TestEditor::new(host, text);
+    let told = held.clone();
+    editor.on_change = Some(Callback::new(move |text: String| {
+        *told.lock().unwrap() = text;
+    }));
+    editor.edit_as = Some(view);
+    let (_owner, state) = editor.mount();
+    let (mut clipboard, mut time) = (None, 0.0);
+    for op in ops {
+        ops::apply(state, host, op, &mut clipboard, &mut time);
+    }
+    ops::pause(state);
+    held.lock().unwrap().clone()
+}
+
 /// Runs a printed case (see [`shrink::repro`]) and fails on a broken save.
 #[allow(dead_code, reason = "called by the printed regression tests")]
 fn replay(host: Language, view: Language, text: &str, ops: &[Op]) {

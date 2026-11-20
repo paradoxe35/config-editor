@@ -1932,14 +1932,24 @@ pub trait Sharing {
         None
     }
 
-    /// `saved` (an Edit-as save's text) with each value the session's
-    /// first text `origin` wrote as a reference to a value written once
-    /// (a YAML alias `*p`), that `saved` writes out while it writes that
-    /// value again before it (an anchor cut, saved, and pasted back),
+    /// `saved` (an Edit-as save's text) with each value a host text of the
+    /// session `origin` (its first, or the host's last) wrote as a
+    /// reference to a value written once (a YAML alias `*p`), that `saved`
+    /// writes out while it writes that value again before it (an anchor
+    /// cut, saved, and pasted back; a reference moved with its anchor),
     /// written as that reference again; `None` (the default) when there
-    /// is none. The text must read as `saved` does.
-    fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
-        let _ = (saved, origin);
+    /// is none. The text must read as `saved` does. `placed`: the items of
+    /// `saved` the edit's links tell came from `origin`, each as its
+    /// pointer in `saved` and its pointer in `origin` (a value under one
+    /// of them comes from under its source); every other value stands for
+    /// the one at its own pointer.
+    fn references_back(
+        &self,
+        saved: &str,
+        origin: &str,
+        placed: &[(String, String)],
+    ) -> Option<String> {
+        let _ = (saved, origin, placed);
         None
     }
 
@@ -2475,9 +2485,14 @@ impl dyn ConfigLanguage {
     }
 
     /// See [`Sharing::references_back`].
-    pub fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
+    pub fn references_back(
+        &self,
+        saved: &str,
+        origin: &str,
+        placed: &[(String, String)],
+    ) -> Option<String> {
         self.sharing()
-            .and_then(|group| group.references_back(saved, origin))
+            .and_then(|group| group.references_back(saved, origin, placed))
     }
 
     /// See [`Sharing::reference_len`].
