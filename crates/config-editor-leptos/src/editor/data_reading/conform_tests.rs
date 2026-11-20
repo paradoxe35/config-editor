@@ -45,3 +45,61 @@ fn a_lone_element_is_a_list_where_all_schemas_want_one() {
         json!({"dns": "1.1.1.1"})
     );
 }
+
+/// A lone element a schema names a list for is the list's one item where
+/// the object takes it so, though an option silent on it leaves it to one
+/// typing it otherwise (so no kind is allowed there together).
+#[test]
+fn a_lone_element_is_a_list_where_an_option_typing_it_otherwise_cannot_be_taken() {
+    let typed = |options: Value| {
+        json!({"properties": {"mode": {"allOf": [options,
+            {"required": ["size"], "properties": {"size": {"type": "array", "minItems": 1}}}]}}})
+    };
+    let others = [
+        json!({"additionalProperties": {"type": "string"}}),
+        json!({"patternProperties": {"^s": {"type": "integer"}}}),
+        json!({"properties": {"size": {"type": "boolean"}}}),
+    ];
+    for other in others {
+        for options in [json!({"anyOf": [other, {}]}), json!({"oneOf": [{}, other]})] {
+            let schema = typed(options);
+            assert_eq!(
+                read(&schema, json!({"mode": {"size": 0}})),
+                json!({"mode": {"size": [0]}}),
+                "{schema}"
+            );
+        }
+    }
+}
+
+/// A lone element one option names a list for, where that list makes the
+/// object match more options than `oneOf` lets it (or one a `not`
+/// refuses), is the value written: the list's reading is kept only where
+/// the schemas above it take it, at any depth.
+#[test]
+fn a_lone_element_is_no_list_where_the_object_above_then_refuses_it() {
+    let list = json!({"properties": {"a": {"type": "array"}}});
+    let under = |depth: usize, schema: Value| {
+        (0..depth).fold(schema, |inner, _| json!({"properties": {"p": inner}}))
+    };
+    let doc = |depth: usize, inner: Value| {
+        (0..depth).fold(json!({"a": inner}), |inner, _| json!({"p": inner}))
+    };
+    let lone = |depth: usize| doc(depth, json!("x"));
+    let listed = |depth: usize| doc(depth, json!(["x"]));
+    for depth in 0..3 {
+        // Both options would match the list: the text alone.
+        let one_of = json!({"oneOf": [list, {}]});
+        assert_eq!(read(&under(depth, one_of), lone(depth)), lone(depth));
+        let above = json!({"oneOf": [under(depth, list.clone()), {}]});
+        assert_eq!(read(&above, lone(depth)), lone(depth));
+        let not = json!({"properties": {"a": {"type": ["array", "string"]}}, "not": list});
+        assert_eq!(read(&under(depth, not), lone(depth)), lone(depth));
+        // Only the list meets one option: the list.
+        let only = json!({"oneOf": [list, {"properties": {"a": {"type": "integer"}}}]});
+        assert_eq!(read(&under(depth, only), lone(depth)), listed(depth));
+        // Any option may match: the list an option names.
+        let any_of = json!({"anyOf": [list, {}]});
+        assert_eq!(read(&under(depth, any_of), lone(depth)), listed(depth));
+    }
+}

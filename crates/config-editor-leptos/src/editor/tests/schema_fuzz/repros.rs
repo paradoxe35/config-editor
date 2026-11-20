@@ -1123,3 +1123,45 @@ fn a_fill_reads_an_if_on_a_sibling_by_the_value_it_writes() {
         );
     }
 }
+
+/// A lone XML element an option names a list for, where the list would
+/// make its object match both options of a `oneOf`, reads as the value
+/// written: the document is valid as written.
+#[test]
+fn a_lone_element_a_one_of_option_names_a_list_for_reads_as_written_where_the_list_matches_both() {
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"x_two": {"oneOf": [{"properties": {"a": {"type": "array"}}}, {}]}}}),
+        json!({"x_two": {"a": "1"}}),
+        json!(null),
+    );
+}
+
+/// A required list a fill writes with its one item reads back as that
+/// list in XML, though an option silent on it leaves it to one typing it
+/// a string (which the list's own schema contradicts).
+#[test]
+fn a_filled_list_of_one_reads_as_the_list_beside_an_option_typing_it_otherwise() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"properties": {"b": {"required": ["mode"], "properties": {"mode": {"allOf": [
+            {"anyOf": [{"additionalProperties": {"type": "string"}}, {}]},
+            {"required": ["size"], "properties": {"size": {"type": "array", "minItems": 1}}}]}}}}}),
+        json!({"b": {"mode": {"size": [0]}}}),
+        json!(null),
+    );
+}
+
+/// The host's text `"null"` under a key an XML view renamed, where the
+/// view reads `null`, is kept as the host's string (the documented kept
+/// text, as for `"8"` and `"true"`).
+#[test]
+fn a_hosts_null_text_under_a_renamed_key_is_the_documented_kept_text() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({}),
+        json!({"a": "null"}),
+        json!({"d": "null"}),
+    );
+}

@@ -212,11 +212,25 @@ impl NodeAt<'_, '_> {
         if !(value.is_object() || value.is_array()) || at.accepts_near(value, root) != Some(false) {
             return;
         }
+        // A value under it read as a list's one item where its own schemas
+        // name a list, put back as the value written where this object's
+        // schemas then take it (`oneOf [{a: array}, {}]`, an option of the
+        // object or of one above the list: the list matches both).
+        let made = self.reading.lists_of_one_under(self.pointer, MAX_REREADS);
+        for slot in made {
+            if self.read_kept(value, &slot, at, Reading::Lone) {
+                return;
+            }
+        }
         // Each slot, and whether it may be a list's one item: a lone member
-        // its schemas name a list for.
+        // a schema at it names a list for. Not by the kinds its schemas
+        // allow together: they read an option silent on the member as
+        // leaving it to the one typing it, which another schema there may
+        // contradict (`anyOf [{additionalProperties: string}, {}]` beside
+        // `size: array` allows no kind), where the object takes the list.
         let listed = |child: &Entry<'_>| {
             let here = Here::walk(child.clone(), root, Seen::default());
-            here.types().allows_type("array") && here.branches().into_iter().any(describes_array)
+            here.branches().into_iter().any(describes_array)
         };
         let slots: Vec<(String, bool)> = match &*value {
             Value::Object(map) => map
@@ -303,9 +317,25 @@ impl NodeAt<'_, '_> {
         let Some(held) = value.pointer_mut(slot) else {
             return false;
         };
+        if matches!(other, Reading::Lone) {
+            let Some(lone) = held.as_array().and_then(|items| items.first()).cloned() else {
+                return false;
+            };
+            let list = std::mem::replace(held, lone);
+            if at.accepts_near(value, self.root) == Some(true) {
+                let pointer = format!("{}{slot}", self.pointer);
+                self.reading.lone_at(&pointer);
+                return true;
+            }
+            if let Some(held) = value.pointer_mut(slot) {
+                *held = list;
+            }
+            return false;
+        }
         let parsed = held.clone();
         let item = matches!(other, Reading::Item(_));
         let before = match other {
+            Reading::Lone => None,
             Reading::Other(other) => Some(std::mem::replace(held, other)),
             Reading::Item(Some(other)) => Some(std::mem::replace(held, Value::Array(vec![other]))),
             Reading::Item(None) => {
@@ -348,6 +378,8 @@ enum Reading {
     Other(Value),
     /// A list's one item: the value itself, or this other reading of it.
     Item(Option<Value>),
+    /// The value written once, where it was read as a list's one item.
+    Lone,
 }
 
 /// Whether `value` holds something (a map or list that is not empty): no
