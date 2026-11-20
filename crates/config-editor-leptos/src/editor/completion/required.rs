@@ -126,13 +126,17 @@ fn children<'a>(
         }
     };
     let caret_before = *caret;
-    let found = written(
+    let (found, caret_written) = deciding(
         language,
-        required_keys(language, object, at, root),
-        root,
-        caret,
-        depth,
+        (object, at, root),
+        |keys| {
+            let mut placed = caret_before;
+            let found = written(language, keys, root, &mut placed, depth);
+            (found, placed)
+        },
+        |(found, _)| readings(found, root),
     );
+    *caret = caret_written;
     let here = Here::of(object, root);
     let taken = |found: &[RequiredChild<'_>]| here.accepts(&preview(found, root));
     if found.is_empty() || taken(&found) != Some(false) {
@@ -156,7 +160,7 @@ fn children<'a>(
             *caret = caret_before;
             let other = written(
                 language,
-                required_keys(language, branch, None, root),
+                required_keys(language, branch, None, root, None),
                 root,
                 caret,
                 depth,
@@ -222,6 +226,95 @@ fn preview(children: &[RequiredChild<'_>], root: &Value) -> Value {
     )
 }
 
+/// One required key: its name, its schema and what applies to its value.
+pub(super) type RequiredKey<'a> = (&'a str, &'a Value, Entry<'a>);
+
+/// What `write` writes for the required keys of `object` (with `at` and
+/// `root`, see [`required_keys`]), what applies to each key decided by
+/// the object the siblings make (each of its `readings`, which must
+/// agree): an `if` on one sibling's value (`mode: {const: false}` where
+/// `mode` is written as text) picks the `then` or `else` the others are
+/// filled by. The keys are written once as the object's keys alone
+/// decide them; where the object written decides more, once again for
+/// that, and that is kept where the object it makes decides the same
+/// (else the first). So an object is written at most twice at each
+/// level, at most 2^8 times below the fill's depth bound
+/// ([`MAX_DEPTH`]), a fixed factor; where nothing is decided by values
+/// (most schemas), once.
+pub(super) fn deciding<'a, T>(
+    language: &dyn ConfigLanguage,
+    (object, at, root): (&'a Value, Option<&Entry<'a>>, &'a Value),
+    mut write: impl FnMut(Vec<RequiredKey<'a>>) -> T,
+    readings: impl Fn(&T) -> Vec<Value>,
+) -> T {
+    // The keys as every reading of the object written decides them, where
+    // they all agree.
+    let decide = |written: &T| {
+        let values = readings(written);
+        let mut decided = values
+            .iter()
+            .map(|value| required_keys(language, object, at, root, Some(value)));
+        let first = decided.next()?;
+        decided
+            .all(|other| same_keys(&first, &other))
+            .then_some(first)
+    };
+    let keys = required_keys(language, object, at, root, None);
+    let first = write(keys.clone());
+    let Some(decided) = decide(&first).filter(|decided| !same_keys(&keys, decided)) else {
+        return first;
+    };
+    let again = write(decided.clone());
+    if decide(&again).is_some_and(|check| same_keys(&decided, &check)) {
+        again
+    } else {
+        first
+    }
+}
+
+/// The readings of the object `children` write that decide what applies
+/// to them: a value left to type read as its schema's placeholder and as
+/// nothing (`null`, as a language with an empty value reads it), so only
+/// what both decide is taken.
+fn readings(children: &[RequiredChild<'_>], root: &Value) -> Vec<Value> {
+    vec![preview(children, root), written_only(children)]
+}
+
+/// The object `children` write, each value left to type `null`.
+fn written_only(children: &[RequiredChild<'_>]) -> Value {
+    Value::Object(
+        children
+            .iter()
+            .map(|child| {
+                let value = match &child.fill {
+                    Fill::Value(value) | Fill::CaretAt(value) => value.clone(),
+                    Fill::Children(nested) => written_only(nested),
+                    Fill::Caret { .. } | Fill::Empty(_) => Value::Null,
+                };
+                (child.key.to_string(), value)
+            })
+            .collect(),
+    )
+}
+
+/// Whether two readings of an object's required keys name the same keys
+/// with the same schemas applying to each.
+fn same_keys(left: &[RequiredKey<'_>], right: &[RequiredKey<'_>]) -> bool {
+    let schemas = |at: &Entry<'_>| {
+        at.schemas()
+            .into_iter()
+            .map(std::ptr::from_ref)
+            .collect::<Vec<_>>()
+    };
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|((left, _, at), (right, _, other))| {
+                left == right && schemas(at) == schemas(other)
+            })
+}
+
 /// The schema of a key no schema describes: any value.
 static ANY_VALUE: std::sync::LazyLock<Value> =
     std::sync::LazyLock::new(|| Value::Object(serde_json::Map::new()));
@@ -231,13 +324,16 @@ static ANY_VALUE: std::sync::LazyLock<Value> =
 /// schema describing it: the `required` of every schema certain to apply
 /// to the object and of its object branch (an option it may take), and a
 /// key's schema the one those give it (its property, a pattern matching
-/// it, `additionalProperties`), else one allowing any value.
+/// it, `additionalProperties`), else one allowing any value. `value`:
+/// the object as it is to be written, where known, which decides more of
+/// what applies than its keys alone (see [`deciding`]).
 pub(super) fn required_keys<'a>(
     language: &dyn ConfigLanguage,
     schema: &'a Value,
     at: Option<&Entry<'a>>,
     root: &'a Value,
-) -> Vec<(&'a str, &'a Value, Entry<'a>)> {
+    value: Option<&Value>,
+) -> Vec<RequiredKey<'a>> {
     let here = match at {
         Some(at) => Here::walk(at.clone(), root, Seen::default()),
         None => Here::of(schema, root),
@@ -267,11 +363,12 @@ pub(super) fn required_keys<'a>(
         at += 1;
     }
     // What applies once the object holds these keys: the `then` or
-    // `else` an `if` asking keys takes, the dependent schemas of the keys
-    // written; and the keys those require.
+    // `else` an `if` asking keys (or values, where the object is known)
+    // takes, the dependent schemas of the keys written; and the keys
+    // those require.
     let keys: HashSet<String> = names.iter().map(|name| (*name).to_string()).collect();
     let filled = here.rewalk(Seen {
-        value: None,
+        value,
         keys: Some(&keys),
     });
     for name in filled

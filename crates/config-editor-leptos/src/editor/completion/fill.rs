@@ -163,8 +163,19 @@ impl<'a> Filler<'a> {
             Value::Array(Vec::new()),
             Value::Object(serde_json::Map::new()),
         ];
-        if let Some(other) = others(schema, root, std::slice::from_ref(&value), OTHERS)
+        // Other values of every schema at the value: a bound the `else`
+        // taken gives (`maximum: -1`) beside a property's `type`.
+        let mut sources = vec![schema];
+        if let Some(at) = at {
+            sources.extend(
+                at.schemas()
+                    .into_iter()
+                    .filter(|other| !std::ptr::eq(*other, schema)),
+            );
+        }
+        if let Some(other) = sources
             .into_iter()
+            .flat_map(|source| others(source, root, std::slice::from_ref(&value), OTHERS))
             .chain(empty)
             .find(|other| take(self, other))
         {
@@ -199,14 +210,22 @@ impl<'a> Filler<'a> {
             return None;
         }
         object_branch(schema, self.root)?;
-        let mut members = serde_json::Map::new();
-        for (key, child, at) in
-            super::required::required_keys(self.language, schema, None, self.root)
-        {
-            if let Some(value) = self.filled(child, Some(&at), depth + 1) {
-                members.insert(key.to_string(), value);
-            }
-        }
+        let language = self.language;
+        let root = self.root;
+        let members = super::required::deciding(
+            language,
+            (schema, None, root),
+            |keys| {
+                let mut members = serde_json::Map::new();
+                for (key, child, at) in keys {
+                    if let Some(value) = self.filled(child, Some(&at), depth + 1) {
+                        members.insert(key.to_string(), value);
+                    }
+                }
+                members
+            },
+            |members| vec![Value::Object(members.clone())],
+        );
         (!members.is_empty()).then_some(Value::Object(members))
     }
 }

@@ -69,18 +69,6 @@ pub(super) const KNOWN: &[Known] = &[
         class: "a suggested key writes its own list empty, the caret inside",
         applies: |_| true,
     },
-    // Open: a fill writes the children of an object without reading the
-    // siblings it wrote, so an `if` they decide (`mode: ""` never meets
-    // `mode: {const: false}`) is read as undecided, and a value only the
-    // branch not taken allows may be written (`a: 0` where `else` asks
-    // `exclusiveMinimum: 0`). Found once the broad list allowance went;
-    // repro `a_fill_decides_an_if_by_the_siblings_it_writes` (ignored).
-    Known {
-        finding: "open: a fill does not decide an if by the siblings it writes",
-        property: "fill",
-        class: "a fill writes a value its schema refuses (",
-        applies: |case| if_with_both_branches(&case.schema),
-    },
     // The edit_as save classes below are told value by value
     // (`xml_spelling`): each names the one value a documented XML spelling
     // explains, and a save reading otherwise anywhere else stays "a save
@@ -541,25 +529,6 @@ fn says_list(schema: &Value) -> bool {
         ]
         .iter()
         .any(|keyword| schema.get(*keyword).is_some())
-}
-
-/// Whether `schema` has an `if` testing a property with both a `then`
-/// and an `else` saying something of properties.
-fn if_with_both_branches(schema: &Value) -> bool {
-    let mut found = false;
-    walk(schema, &mut |node| {
-        let branch = |keyword: &str| {
-            node.get(keyword)
-                .and_then(|branch| branch.get("properties"))
-        };
-        found |= node
-            .get("if")
-            .and_then(|test| test.get("properties"))
-            .is_some()
-            && branch("then").is_some()
-            && branch("else").is_some();
-    });
-    found
 }
 
 /// The finding allowing `class` of `property` for `case`, if one does.

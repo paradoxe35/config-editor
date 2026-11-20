@@ -1060,10 +1060,8 @@ fn a_key_whose_dependent_schema_refuses_a_lone_element_read_as_a_list_is_not_sug
 
 /// A fill decides an `if` by the siblings it writes: `mode` written as
 /// text never meets `mode: {const: false}`, so the `else` applies and
-/// `a` is written as it allows (open: the fill reads the `if` as
-/// undecided and writes `0`).
+/// `a` is written as it allows, not `0`.
 #[test]
-#[ignore = "open: a fill does not decide an if by the siblings it writes"]
 fn a_fill_decides_an_if_by_the_siblings_it_writes() {
     holds_everywhere(
         super::fill::check,
@@ -1075,4 +1073,53 @@ fn a_fill_decides_an_if_by_the_siblings_it_writes() {
         json!({"c": false}),
         json!(null),
     );
+}
+
+/// An `if` on a sibling's value (its `const`, `enum` or `type`) is
+/// decided by the value the fill writes for that sibling, met or missed,
+/// and the other sibling is filled by the branch taken, in every
+/// language: `then` and `else` ask values no one value meets both of.
+#[test]
+fn a_fill_reads_an_if_on_a_sibling_by_the_value_it_writes() {
+    let cases = [
+        // A value left to type, read empty or as its placeholder, misses
+        // the `if` either way: `else`.
+        (json!({"type": "string"}), json!({"const": false})),
+        (json!({"type": "string"}), json!({"const": "x"})),
+        (json!({"type": "string"}), json!({"enum": ["x", "y"]})),
+        (json!({"type": "string"}), json!({"type": "integer"})),
+        // Its default written meets the `if` (`then`), or misses it.
+        (
+            json!({"type": "string", "default": "on"}),
+            json!({"const": "on"}),
+        ),
+        (
+            json!({"type": "string", "default": "on"}),
+            json!({"enum": ["on", "x"]}),
+        ),
+        (
+            json!({"type": "integer", "default": 2}),
+            json!({"type": "integer"}),
+        ),
+        (
+            json!({"type": "string", "default": "off"}),
+            json!({"const": "on"}),
+        ),
+        (
+            json!({"type": "integer", "default": 2}),
+            json!({"enum": [1, 3]}),
+        ),
+    ];
+    for (mode, test) in cases {
+        holds_everywhere(
+            super::fill::check,
+            json!({"properties": {"c": {"required": ["mode", "a"],
+                "properties": {"mode": mode, "a": {"type": "integer"}},
+                "if": {"properties": {"mode": test}},
+                "then": {"properties": {"a": {"enum": [5]}}},
+                "else": {"properties": {"a": {"maximum": -1}}}}}}),
+            json!({"c": false}),
+            json!(null),
+        );
+    }
 }

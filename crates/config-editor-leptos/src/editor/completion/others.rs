@@ -7,7 +7,7 @@ use super::*;
 /// Other values `schema` may allow than those `filled`: its enum members
 /// and consts, its examples, up to `more` values after each filled one
 /// and after its lower bound (the next numbers, the other boolean, other
-/// text), the first `more` multiples its `multipleOf` allows past its
+/// text), its upper bound and up to `more` whole numbers below it, the first `more` multiples its `multipleOf` allows past its
 /// lower bound, and for text of a least length or a pattern, `more` texts
 /// of that length (and a little longer) in small letters, capitals and
 /// digits.
@@ -31,6 +31,14 @@ pub(super) fn others(schema: &Value, root: &Value, filled: &[Value], more: usize
         }
         if let Some(above) = branch.get("exclusiveMinimum").and_then(Value::as_i64) {
             found.extend(after(&Value::from(above), more + 1).into_iter().skip(1));
+        }
+        // Below an upper bound: it, and the whole numbers before it.
+        for (keyword, from) in [("maximum", 0), ("exclusiveMaximum", 1)] {
+            if let Some(most) = branch.get(keyword).and_then(Value::as_i64) {
+                found.extend(
+                    (from..=more as i64).map(|step| Value::from(most.saturating_sub(step))),
+                );
+            }
         }
         let least = branch.get("minLength").and_then(Value::as_u64);
         if least.is_some() || branch.get("pattern").is_some() {
