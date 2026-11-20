@@ -144,3 +144,22 @@ fn a_secret_after_a_broken_xml_name_is_not_quoted_in_the_syntax_message() {
         ],
     );
 }
+
+/// A YAML list edited as XML that XML would read otherwise: the save's
+/// reason hides the secret.
+#[test]
+fn a_secret_in_a_refused_xml_save_of_a_yaml_list_is_not_quoted() {
+    assert_ok(
+        &secret(1, Some(Language::XML), false),
+        &[
+            Act::NewValue,
+            Act::Entry {
+                anchor: 2,
+                name: 6,
+                paste: false,
+            },
+            Act::Type { at: 21490, text: 4 },
+            Act::Pause,
+        ],
+    );
+}

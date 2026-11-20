@@ -295,7 +295,7 @@ pub(super) fn found(
 /// field one option reads as a list (so the reading made it one) is a
 /// secret's under another option, and its text is hidden wherever a
 /// message quotes it.
-fn secrets<'s>(reading: Reading<'s>, schema: &'s SchemaBundle) -> Secrets<'s> {
+pub(super) fn secrets<'s>(reading: Reading<'s>, schema: &'s SchemaBundle) -> Secrets<'s> {
     if !schema.has_marks {
         return Secrets::none();
     }

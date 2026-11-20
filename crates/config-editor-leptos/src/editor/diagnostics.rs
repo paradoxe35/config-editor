@@ -529,6 +529,77 @@ pub(super) fn syntax_message(
     })
 }
 
+/// `message`, the reason a save of `source` (in `behavior`) waits, with
+/// each secret's text it quotes shown as `…`. A reason quotes values in
+/// many words, the languages' own among them (`XML reads the string …`,
+/// a writer's error), so no wording is read: every text of a value the
+/// schema marks secret, or of a string standing where it wants a holder
+/// of one (see [`secrets::Secrets`]), is hidden wherever the message holds
+/// it, as written and as JSON quotes it.
+pub(super) fn save_message(
+    message: &str,
+    source: &str,
+    schema: Option<&SchemaBundle>,
+    behavior: &dyn ConfigLanguage,
+) -> String {
+    #[cfg(feature = "schema-validation")]
+    if let Some(schema) = schema.filter(|schema| schema.has_marks)
+        && let Ok(data) = super::data_reading::read(behavior, source, Some(&schema.schema))
+    {
+        let secrets = schema_problems::secrets(
+            schema_problems::Reading {
+                data: &data,
+                behavior,
+            },
+            schema,
+        );
+        let mut texts: Vec<String> = secrets
+            .hidden_texts(data.value())
+            .into_iter()
+            .flat_map(|text| {
+                let quoted = Value::String(text.clone()).to_string();
+                let escaped = quoted
+                    .strip_prefix('"')
+                    .and_then(|inner| inner.strip_suffix('"'))
+                    .unwrap_or_default()
+                    .to_string();
+                [text, escaped]
+            })
+            .filter(|text| !text.is_empty())
+            .collect();
+        // The longest first: a secret holding another is hidden whole.
+        texts.sort_by_key(|text| std::cmp::Reverse(text.len()));
+        texts.dedup();
+        return texts.iter().fold(message.to_string(), |message, text| {
+            hide_quoted(&message, text)
+        });
+    }
+    #[cfg(not(feature = "schema-validation"))]
+    let _ = (source, schema, behavior);
+    message.to_string()
+}
+
+/// `message` with each place it quotes `text` shown as `…`: where `text`
+/// stands with no letter or digit glued to it on either side, so a short
+/// secret (`x`) hides itself, not the words holding its letters.
+#[cfg(feature = "schema-validation")]
+fn hide_quoted(message: &str, text: &str) -> String {
+    let word = |character: Option<char>| character.is_some_and(char::is_alphanumeric);
+    let mut shown = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some(at) = rest.find(text) {
+        let (before, from) = rest.split_at(at);
+        let after = from.strip_prefix(text).unwrap_or_default();
+        let glued = (word(text.chars().next()) && word(before.chars().next_back()))
+            || (word(text.chars().next_back()) && word(after.chars().next()));
+        shown.push_str(before);
+        shown.push_str(if glued { text } else { "…" });
+        rest = after;
+    }
+    shown.push_str(rest);
+    shown
+}
+
 /// Pointers of the values of `document` that are one of `accepted`: each
 /// string looked up among the tokens, then its field among the token's (a
 /// pass over them all for each string took seconds with thousands of

@@ -5,7 +5,7 @@
 //! language.
 
 use super::super::Language;
-use super::validate_with;
+use super::{save_message, validate_with};
 use crate::editor::schema::Schema;
 use crate::strings::default_strings;
 
@@ -86,4 +86,49 @@ fn a_problem_never_quotes_a_secret_read_in_another_shape() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A save's reason quoting a value hides a secret's text however the
+/// reason quotes it (as written, as a JSON string, inside a list), in
+/// every shape its field reads in, in every language; the words around
+/// it stay.
+#[test]
+fn a_save_reason_never_quotes_a_secret_read_in_any_shape() {
+    let schema = Schema::compile(SCHEMA).expect("compiles");
+    let mut failures = Vec::new();
+    let mut documents = documents();
+    for language in [
+        Language::YAML,
+        Language::JSON,
+        Language::TOML,
+        Language::HCL,
+    ] {
+        let value = serde_json::json!({"db": {"user": "app", "password": SECRET}});
+        documents.push((language, language.serialize(&value).expect("written")));
+    }
+    for (language, text) in documents {
+        let data = language.parse(&text).expect("parses");
+        let mut quoted = Vec::new();
+        quote_strings(&data, &mut quoted);
+        for value in quoted.iter().filter(|value| value.contains(SECRET)) {
+            let json = serde_json::Value::String(value.clone());
+            let message =
+                format!("the host reads the text {value} back as [{json}], not {json} (at /db)");
+            let shown = save_message(&message, &text, Some(&schema.bundle), language.behavior());
+            if shown.contains(SECRET) || !shown.ends_with("(at /db)") {
+                failures.push(format!("{language}: {text:?}: {shown}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// The strings of `value`.
+fn quote_strings(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(text) => out.push(text.clone()),
+        serde_json::Value::Array(items) => items.iter().for_each(|item| quote_strings(item, out)),
+        serde_json::Value::Object(map) => map.values().for_each(|child| quote_strings(child, out)),
+        _ => {}
+    }
 }
