@@ -613,7 +613,7 @@ they come.
 ### Changes against the baseline
 
 The gutter marks added lines (green bar), modified lines (blue bar) and
-removed lines (a red mark between the lines around them). Clicking a marker
+removed lines (a red triangle between the lines around them). Clicking a marker
 opens a preview of the lines before and now, with **Revert**: it restores
 the baseline lines of that whole change as one edit (one undo step, sent
 through `on_change`, converted back while editing as another language). The

@@ -327,4 +327,23 @@ test.describe('the gutter markers sharing a line', () => {
     expect(page.errors).toEqual([]);
   });
 
+  test("the removed lines' marker is a triangle as tall as VS Code's, and moves nothing", async ({ page, baseURL }) => {
+    const { removed, before } = await markedLines(page, baseURL);
+    const mark = await removed.evaluate((element) => {
+      const style = getComputedStyle(element, '::before');
+      return { width: parseFloat(style.width), height: parseFloat(style.height), clip: style.clipPath };
+    });
+    expect(mark.width, 'wide').toBeGreaterThanOrEqual(4);
+    expect(mark.height, 'tall').toBeGreaterThanOrEqual(8);
+    expect(mark.clip, 'a triangle').toContain('polygon');
+    const after = await gutterGeometry(page);
+    expect(after.gutterWidth).toBe(before.gutterWidth);
+    expect(after.textLeft).toBe(before.textLeft);
+    // Still its 24px area: the click beside it, at the gutter's edge, opens it.
+    const box = await removed.boundingBox();
+    const gutter = await page.locator('.config-editor__gutter').boundingBox();
+    await page.mouse.click(gutter.x + 1, box.y + 3);
+    await expect(page.locator('.config-editor__diff-peek')).toBeVisible();
+    expect(page.errors).toEqual([]);
+  });
 });

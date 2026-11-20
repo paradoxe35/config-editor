@@ -656,33 +656,35 @@
 :not(#\#):not(#\#) .config-editor__diff-deleted::before {
   position: absolute;
   z-index: 2;
-  top: 4px;
+  /* A triangle pointing at the text, centred on the edge between the
+     lines where lines were removed (the button's 3px below its top), in
+     the change bars' column, as VS Code draws it. */
+  top: -1px;
   right: 0;
-  width: 3px;
-  height: 3px;
-  border-radius: 1px;
+  width: 5px;
+  height: 8px;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
   background: var(--config-editor-removed);
   content: "";
-  transition: height 100ms ease, top 100ms ease, box-shadow 100ms ease;
+  transition: width 100ms ease, height 100ms ease, top 100ms ease, bottom 100ms ease;
 }
 
 :not(#\#):not(#\#) .config-editor__diff-deleted-after::before {
   top: auto;
-  bottom: 4px;
+  bottom: -1px;
 }
 
 :not(#\#):not(#\#) .config-editor__diff-deleted:hover::before,
 :not(#\#):not(#\#) .config-editor__diff-deleted:focus-visible::before {
-  top: 3px;
-  height: 5px;
-  background: var(--config-editor-removed);
-  box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-removed) 65%, transparent);
+  top: -2px;
+  width: 6px;
+  height: 10px;
 }
 
 :not(#\#):not(#\#) .config-editor__diff-deleted-after:hover::before,
 :not(#\#):not(#\#) .config-editor__diff-deleted-after:focus-visible::before {
   top: auto;
-  bottom: 3px;
+  bottom: -2px;
 }
 
 :not(#\#):not(#\#) .config-editor__diff-change-trigger:focus-visible,
