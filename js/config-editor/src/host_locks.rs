@@ -22,7 +22,9 @@
 //! - ranges that name places the text they come with lacks, but fit the
 //!   text the last ones came with, were worked out on that one (a render
 //!   listing a newer text with ranges from the one it rendered before)
-//!   and are read there (`protect::ranges_in`);
+//!   and are read there (`protect::ranges_in`); after a text of the
+//!   host's own, the text they came with before it is such a text too (a
+//!   host that resets and renders the ranges it had);
 //! - ranges given with a text from before a reset the host has not given
 //!   back yet (`Echoes::before_reset`) are for a text it replaced: they are
 //!   not taken, and the carried ones stay.
@@ -55,6 +57,10 @@ pub(crate) struct HostLocks {
     /// The text they came with (where a host worked out the next ones,
     /// when those do not fit theirs).
     came_with: Rc<str>,
+    /// The text they came with before a text of the host's own replaced
+    /// the document: a host that resets and then renders the ranges it
+    /// had may have worked them out on that one.
+    before_reset: Option<Rc<str>>,
     /// The text their positions are in, and the positions: what the
     /// editor was handed from them.
     text: Rc<str>,
@@ -103,6 +109,7 @@ impl HostLocks {
         Self {
             print,
             came_with,
+            before_reset: None,
             text,
             ranges,
             version: next_version(),
@@ -121,9 +128,12 @@ impl HostLocks {
         self.print.is_some() && self.print.as_deref() == print
     }
 
-    /// The text they came with.
-    pub(crate) fn came_with(&self) -> &str {
-        &self.came_with
+    /// The texts the next ones may have been worked out on, when they do
+    /// not fit theirs: the one they came with, then the one they came with
+    /// before a text of the host's own replaced the document.
+    pub(crate) fn came_with(&self) -> [&str; 2] {
+        let came_with = &*self.came_with;
+        [came_with, self.before_reset.as_deref().unwrap_or(came_with)]
     }
 
     /// A text of the host's own replaces the document: the ranges to hand
@@ -134,6 +144,9 @@ impl HostLocks {
     pub(crate) fn replaced(&mut self, text: &str) -> Vec<TextRange> {
         self.print = None;
         self.version = next_version();
+        if self.before_reset.is_none() && !self.ranges.is_empty() {
+            self.before_reset = Some(self.came_with.clone());
+        }
         self.came(text);
         carried(&self.text, text, &self.ranges)
     }

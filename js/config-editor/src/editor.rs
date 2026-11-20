@@ -476,7 +476,7 @@ impl ConfigEditor {
                         ranges_for.as_deref(),
                         &latest,
                         told,
-                        |text, came_with| ranges_in(&list, text, Some(came_with), "readOnlyRanges"),
+                        |text, came_with| ranges_in(&list, text, came_with, "readOnlyRanges"),
                     )
                 })
                 .transpose()?;

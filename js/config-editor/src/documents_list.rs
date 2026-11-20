@@ -3,7 +3,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use config_editor_leptos::{Document, EditorSettings, Language, Schema, SecretOptions};
+use config_editor_leptos::{
+    Document, EditorSettings, Language, Schema, SecretOptions, TextPosition, TextRange,
+};
 use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
@@ -15,6 +17,7 @@ use crate::languages::{language_for_path, language_named, writable_edit_as};
 use crate::options::{bool_option, warn_unknown_keys};
 use crate::protect::{paths_from, ranges_in, secrets_from};
 use crate::settings::{setting_keys, settings_over};
+use crate::text_lines::TextLines;
 use crate::values::{field, optional_text, text_arg};
 
 /// The keys of one document.
@@ -45,9 +48,14 @@ pub(crate) struct Listed {
     pub(crate) overrides: Vec<(String, JsValue)>,
     /// The ranges listed for each document listed before, read (or not)
     /// as its channel's first step (see `HostChannel::ranges`): the view
-    /// takes the list with the second. A document listed for the first
+    /// takes the list with the second; `None` when they could not be read
+    /// (taken as a list without ranges). A document listed for the first
     /// time has none here: it is taken as listed.
-    pub(crate) ranges: HashMap<String, Ranges>,
+    pub(crate) ranges: HashMap<String, Option<Ranges>>,
+    /// The documents whose `readOnlyRanges` could not be read in their
+    /// text: one document's bad ranges hold no other document back (see
+    /// `with_protection`), so they are reported once the list is taken.
+    pub(crate) refused: Vec<JsError>,
 }
 
 /// What reading the list keeps from one reading to the next: each
@@ -126,6 +134,7 @@ pub(crate) fn documents_from<'a>(
     let mut documents = Vec::with_capacity(list.length() as usize);
     let mut overrides = Vec::new();
     let mut ranges = HashMap::new();
+    let mut refused = Vec::new();
     for (index, item) in list.iter().enumerate() {
         let name = |key: &str| format!("documents[{index}].{key}");
         if !item.is_object() || Array::is_array(&item) {
@@ -183,11 +192,12 @@ pub(crate) fn documents_from<'a>(
             ));
             document.edit_as_text = None;
         }
-        let listed;
-        (document, listed) = with_protection(document, &item, index, kept, current)?;
-        if let Some(listed) = listed {
+        let protected = with_protection(document, &item, index, kept, current)?;
+        document = protected.document;
+        if let Some(listed) = protected.ranges {
             ranges.insert(document.id.clone(), listed);
         }
+        refused.extend(protected.refused);
         let own = field(&item, "settings");
         if !own.is_undefined() && !own.is_null() {
             if !own.is_object() || Array::is_array(&own) {
@@ -218,20 +228,37 @@ pub(crate) fn documents_from<'a>(
         documents,
         overrides,
         ranges,
+        refused,
     })
+}
+
+/// A document with its host problems, read-only fields and secrets.
+struct Protected {
+    document: Document,
+    /// Its ranges for the channel's second step, when it was listed before
+    /// (`None` inside when they could not be read).
+    ranges: Option<Option<Ranges>>,
+    /// Why its ranges could not be read.
+    refused: Option<JsError>,
 }
 
 /// A document's host problems, read-only fields and secrets. Its ranges
 /// are read by its channel's first step when it was listed before (see
 /// `HostChannel::ranges`), and returned for the second; listed for the
 /// first time, they are read in its text and it gets its channel.
+///
+/// Ranges that cannot be read in its text (nor in the one the last ones
+/// came with) are returned as the error, and hold back no other document:
+/// one listed before is taken as listed without ranges (its locks carried
+/// into its new text); one listed for the first time is locked whole, as
+/// nothing tells which of it the host meant to lock.
 fn with_protection<'a>(
     mut document: Document,
     item: &JsValue,
     index: usize,
     kept: &mut Kept,
     current: &dyn Fn(&str) -> Option<&'a str>,
-) -> Result<(Document, Option<Ranges>), JsError> {
+) -> Result<Protected, JsError> {
     let name = |key: &str| format!("documents[{index}].{key}");
     let diagnostics = field(item, "hostDiagnostics");
     if !diagnostics.is_undefined() && !diagnostics.is_null() {
@@ -243,18 +270,27 @@ fn with_protection<'a>(
     document = document.read_only_paths(paths);
     let given = field(item, "readOnlyRanges");
     let read =
-        |text: &str, before: Option<&str>| ranges_in(&given, text, before, &name("readOnlyRanges"));
+        |text: &str, before: &[&str]| ranges_in(&given, text, before, &name("readOnlyRanges"));
+    let mut refused = None;
     let listed = match (current(&document.id), kept.channels.get_mut(&document.id)) {
-        (Some(current), Some(channel)) => Some(channel.ranges(
-            print(&given),
-            Some(&document.value),
-            None,
-            current,
-            false,
-            |text, came_with| read(text, Some(came_with)),
-        )?),
+        (Some(current), Some(channel)) => Some(
+            channel
+                .ranges(
+                    print(&given),
+                    Some(&document.value),
+                    None,
+                    current,
+                    false,
+                    |text, came_with| read(text, came_with),
+                )
+                .map_err(|error| refused = Some(error))
+                .ok(),
+        ),
         _ => {
-            let ranges = read(&document.value, None)?;
+            let ranges = read(&document.value, &[]).unwrap_or_else(|error| {
+                refused = Some(error);
+                vec![whole(&document.value)]
+            });
             let channel = HostChannel::new(
                 kept.echoing,
                 &document.value,
@@ -280,7 +316,21 @@ fn with_protection<'a>(
         };
         document = document.secrets(options);
     }
-    Ok((document, listed))
+    Ok(Protected {
+        document,
+        ranges: listed,
+        refused,
+    })
+}
+
+/// A range over all of `text`.
+fn whole(text: &str) -> TextRange {
+    let lines = TextLines::new(text);
+    let last = lines.count();
+    TextRange::new(
+        TextPosition::new(1, 1),
+        TextPosition::new(last, lines.width(last) + 1),
+    )
 }
 
 /// Document `id`'s `value` (`name` in errors): a string, as a

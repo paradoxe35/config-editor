@@ -167,6 +167,22 @@ export function frameworkCases(name) {
       });
     }
 
+    test("setValue to a text the parent's locks name places past: read in the text they came with, no error", async ({ page: browserPage }) => {
+      const errors = await open(browserPage, name);
+      // `public_address` locked by lines; the reset text has two lines.
+      await browserPage.evaluate(() =>
+        window.setExtraProps({ readOnlyRanges: [{ startLine: 3, startColumn: 1, endLine: 3, endColumn: 15 }] }),
+      );
+      await browserPage.waitForTimeout(200);
+      await browserPage.evaluate(() => window.editorHandle.current.setValue('listen: 1\n'));
+      await expect(saved(browserPage)).toHaveText('listen: 1\n');
+      await input(browserPage).click();
+      await browserPage.keyboard.press('Control+End');
+      await browserPage.keyboard.type('x: 2');
+      await expect(saved(browserPage)).toHaveText('listen: 1\nx: 2');
+      expect(errors).toEqual([]);
+    });
+
     for (const mode of ['', '?uncontrolled']) {
       test(`a re-mount keeps the edited document ${mode || '(controlled)'}`, async ({ page: browserPage }) => {
         await browserPage.goto(page(name) + mode);

@@ -641,7 +641,10 @@ it. Where the diff cannot tell where a lock went (its lines rewritten, a
 text with nothing of it left), the whole changed lines around it are
 locked: never a guess, and no lock is dropped. They stay locked until you
 give ranges again: the ranges you give next, the same ones too, are read in
-the text they come with, and lock exactly what they name there. The promise is
+the text they come with, and lock exactly what they name there. Ranges that
+name places past that text's end but fit the text the last ones came with
+before the reset (a host rendering the ranges it had) are read in that one
+and moved to the document. The promise is
 yours to keep: a host that hands back only some texts (the latest of
 several) leaves the others counted as echoes (every text sent is
 remembered until its echo comes or a text of your own replaces the
@@ -1391,6 +1394,14 @@ view.isDirty("main");
   an unchanged prop); `view.replaceValue(id, text)` goes back to such a
   text (list the document with it from then on; `false` for an id not
   listed or a text it holds already); it changes only that document, the others keep their edits.
+  A document's `readOnlyRanges` are read in the `value` listed with it, as
+  `ConfigEditor`'s `update({ value, readOnlyRanges })` reads them: ranges
+  past that text's end that fit the text the last ones came with (the
+  ranges you kept listing after a `replaceValue`) are read there and moved.
+  Ranges that fit neither hold no other document back: the rest of the
+  list applies, that document keeps the locks it had (carried into its new
+  text; a document listed for the first time is locked whole), and
+  `update` then throws naming it (`documents[0].readOnlyRanges[0]: …`).
 - `update` and `replaceValue` (on both classes) first apply input the
   browser sent in this task, which calls `onChange`: what you set from
   there (a list, a value, locks, callbacks) is newer than the call that

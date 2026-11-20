@@ -446,10 +446,15 @@ impl ConfigDocuments {
         let echoing = bool_option(&options, "echoes")?.unwrap_or(false);
         let mut kept = Kept::default();
         kept.echoing = echoing;
-        let listed = match field(&options, "documents") {
+        let mut listed = match field(&options, "documents") {
             list if list.is_undefined() || list.is_null() => Listed::default(),
             list => owner.with(|| documents_from(&list, &settings, &mut kept, &|_| None))?,
         };
+        // A view is not built with ranges it cannot read (an update takes
+        // the other documents and reports them, see `update`).
+        if !listed.refused.is_empty() {
+            return Err(listed.refused.swap_remove(0));
+        }
         let on_select = function_option(&options, "onSelect")?;
         let on_close = function_option(&options, "onClose")?;
         let on_add = function_option(&options, "onAdd")?;
@@ -731,7 +736,9 @@ impl ConfigDocuments {
     /// `onAdd` for a view mounted without one (its tabs have no close
     /// buttons, its strip no "+"), throw: create a new view instead (the value the
     /// view was built with, given again, changes nothing; one left out was built with its default:
-    /// `null`, `echoes: false`, `className: ""`). Every key is checked before any applies.
+    /// `null`, `echoes: false`, `className: ""`). Every key is checked before any applies,
+    /// but for a document's `readOnlyRanges` that cannot be read in its text: they hold no
+    /// other document back, the list applies, and this throws naming them after.
     pub fn update(&self, options: DocumentsUpdate) -> Result<(), JsError> {
         let options: JsValue = options.into();
         plain_object(
@@ -847,7 +854,9 @@ impl ConfigDocuments {
             let _ = self.state.settings.try_set(settings);
         }
         let mut resend = (Vec::new(), false);
+        let mut refused = Vec::new();
         if let Some(mut listed) = listed {
+            refused = std::mem::take(&mut listed.refused);
             resend = self.state.take_listed(&mut listed, flushed);
             self.state.show(listed);
             // Taken now: `activeId` and every query answer for the new list
@@ -897,7 +906,12 @@ impl ConfigDocuments {
         // host's that took a later text too).
         let (resend, settles) = resend;
         self.state.tell_again(resend, settles);
-        Ok(())
+        // A document whose ranges could not be read held no other back: the
+        // list is taken, and the first such document is reported.
+        match refused.into_iter().next() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     /// What each open document holds that its list may not say, for

@@ -64,7 +64,7 @@ impl State {
                             value: Some(&document.value),
                             revision: None,
                             ranges_for: None,
-                            ranges: Some(listed),
+                            ranges: listed,
                             diagnostics: Some(diagnostics),
                             flushed,
                             stale: false,

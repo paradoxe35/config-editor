@@ -445,7 +445,7 @@ always applies (also before the editor has mounted) and is reported through
 <ConfigEditor value={$config} onChange={(next) => config.saveDebounced(next)} />
 ```
 
-`readOnlyRanges` go to the editor with each new `value`, changed or not, and are read in that text: a parent that renders the same ranges with a text of its own (a file loaded, a reset in its state) locks exactly what they name there. Until the ranges come with a value again (between `setValue` and the next render), the locks are carried into the new text by a diff: where it cannot tell where a lock went, the whole changed lines stay locked.
+`readOnlyRanges` go to the editor with each new `value`, changed or not, and are read in that text: a parent that renders the same ranges with a text of its own (a file loaded, a reset in its state) locks exactly what they name there. Ranges past that text's end that fit the text the last ones came with (the ranges a parent keeps rendering after `setValue`) are read in that one and moved. Until the ranges come with a value again (between `setValue` and the next render), the locks are carried into the new text by a diff: where it cannot tell where a lock went, the whole changed lines stay locked.
 
 </details>
 

@@ -135,7 +135,7 @@ impl HostChannel {
         ranges_for: Option<&str>,
         current: &str,
         stale: bool,
-        read: impl FnOnce(&str, &str) -> Result<Vec<TextRange>, E>,
+        read: impl FnOnce(&str, &[&str]) -> Result<Vec<TextRange>, E>,
     ) -> Result<Ranges, E> {
         let again = ranges_for.is_none() && self.locks.again(print.as_deref());
         let replaces = value.is_some_and(|value| {
@@ -145,7 +145,7 @@ impl HostChannel {
             None
         } else {
             let host_text = ranges_for.or(value).unwrap_or(current);
-            Some(read(host_text, self.locks.came_with())?)
+            Some(read(host_text, &self.locks.came_with())?)
         };
         Ok(Ranges { print, again, read })
     }

@@ -205,7 +205,7 @@ fn a_list_records_what_its_editor_took() {
     let taken = list(&mut channel, ABOVE, "[2]", &[line(9)], T);
     assert!(!taken.shows() && taken.ranges.is_none());
     // They came with the echo: the next ones may be worked out on it.
-    assert_eq!(channel.locks.came_with(), ABOVE);
+    assert_eq!(channel.locks.came_with(), [ABOVE, ABOVE]);
     // A reset to `ABOVE`: the lock carried into it; then a late `T` from
     // before it, with other ranges, is not taken.
     assert_eq!(channel.replaced(ABOVE, T), Some(vec![line(3)]));
