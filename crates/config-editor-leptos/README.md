@@ -1158,7 +1158,7 @@ view! {
   and the save waits with a message naming it (the `save_held` text);
   undoing the change, or deleting the copy, lets it through again.
 - Formatting around and inside a locked field stays free: blank lines,
-  trailing spaces, a comment after the value, punctuation next to it (`,`
+  trailing spaces, a comment after the value or after a locked block's header, punctuation next to it (`,`
   in JSON), a space after `:` or `=`, and re-indenting where indentation is
   not structure (JSON, TOML, HCL, XML). In YAML, where the indent says
   which block a key belongs to, the lines inside a locked block keep their

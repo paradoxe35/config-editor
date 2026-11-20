@@ -329,6 +329,15 @@ mod guarantee_tests;
     feature = "xml"
 ))]
 mod guard_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod header_comment_tests;
 #[cfg(all(test, feature = "yaml"))]
 mod held_place_tests;
 #[cfg(all(test, feature = "yaml"))]
