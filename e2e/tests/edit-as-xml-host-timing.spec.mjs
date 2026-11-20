@@ -49,16 +49,17 @@ async function typed(page, baseURL, copies) {
   });
   await page.evaluate(() => {
     window.savedAt = 0;
+    const output = document.querySelector('.demo__output-text');
     new MutationObserver(() => {
-      window.savedAt ||= performance.now();
-    }).observe(document.querySelector('.demo__output-text'), { childList: true, characterData: true, subtree: true });
+      if (output.textContent.includes('tunnela.example.com')) window.savedAt ||= performance.now();
+    }).observe(output, { childList: true, characterData: true, subtree: true });
   });
   const start = await page.evaluate(() => performance.now());
   await page.keyboard.type('a');
   await page.waitForFunction(() => window.savedAt > 0, null, { timeout: 90000 });
   const took = await page.evaluate((from) => window.savedAt - from, start);
   const saved = await page.locator('.demo__output-text').textContent();
-  expect(saved).toContain('<public_address>tunnea.example.com</public_address>');
+  expect(saved).toContain('<public_address>tunnela.example.com</public_address>');
   return took;
 }
 
