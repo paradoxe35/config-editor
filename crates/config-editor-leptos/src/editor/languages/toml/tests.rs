@@ -640,7 +640,7 @@ fn a_dotted_keys_span_is_its_last_segment() {
 fn an_integer_past_the_signed_64_bit_range_is_named_in_the_error() {
     let value = serde_json::json!({"big": 9_223_372_036_854_775_808_u64});
     let error = LANGUAGE.serialize(&value, None).unwrap_err();
-    assert_eq!(error, "TOML integers end at 9223372036854775807 (at /big)");
+    assert_eq!(error, "TOML integers end at 9223372036854775807: write a smaller one, or a string (at /big)");
 }
 
 #[test]

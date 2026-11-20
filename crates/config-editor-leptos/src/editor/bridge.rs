@@ -1317,7 +1317,7 @@ mod tests {
         assert_eq!(problems[0].line, Some(1));
         assert_eq!(
             problems[0].message,
-            "Not saved as XML: /hosts: XML cannot keep this value exactly; it reads back differently"
+            "Not saved as XML: /hosts: XML cannot keep this value exactly, as it reads back differently: change it, or edit it as XML, to save"
         );
     }
 

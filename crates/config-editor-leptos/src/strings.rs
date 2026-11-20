@@ -910,14 +910,18 @@ impl Default for EditorStrings {
             invalid_placeholder: text("secrets.placeholder: {error}"),
             problem_at_path: text("{path}: {message}"),
             host_cannot_keep: text(
-                "{pointer}: {host} cannot keep this value exactly; it reads back differently",
+                "{pointer}: {host} cannot keep this value exactly, as it reads back differently: change it, or edit it as {host}, to save",
             ),
             edit_cannot_show: text(
                 "{pointer}: {edit} cannot show this value exactly; editing it here may change it",
             ),
             not_saved: text("Not saved as {host}: {error}"),
-            no_null: text("{host} has no null value (at {pointer})"),
-            no_non_finite: text("{host} has no infinity or NaN (at {pointer})"),
+            no_null: text(
+                "{host} has no null value: give it a value or remove it to save (at {pointer})",
+            ),
+            no_non_finite: text(
+                "{host} has no infinity or NaN: write a finite number or remove it to save (at {pointer})",
+            ),
             cannot_switch: text("Cannot switch to {edit} yet: {error}"),
             switch_refused: text("Cannot edit as {edit}: {error}"),
             mixed_content: text(

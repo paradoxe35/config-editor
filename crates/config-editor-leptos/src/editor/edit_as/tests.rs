@@ -280,7 +280,7 @@ fn edit_as_problems_follow_the_strings_setting() {
     let english = problem.worded(&EditorStrings::default());
     assert_eq!(
         english.message,
-        "Not saved as XML: XML has no null value (at /a)"
+        "Not saved as XML: XML has no null value: give it a value or remove it to save (at /a)"
     );
     let custom = EditorStrings {
         not_saved: "Nicht als {host} gespeichert: {error}".into(),
@@ -390,4 +390,71 @@ fn a_wait_on_a_list_item_is_marked_on_the_item() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A save that waits because the host's language has no form for a value
+/// (no null, no infinity, no empty list, no such integer or name) says what
+/// to do, like every other waiting reason, not only what is missing.
+#[test]
+fn a_reason_a_value_cannot_be_written_says_what_to_do() {
+    use serde_json::json;
+    let strings = EditorStrings::default();
+    let worded = |host: Language, error: SaveError| {
+        EditAsProblem {
+            at: Default::default(),
+            text: EditAsText::NotSaved { host, error },
+        }
+        .worded(&strings)
+        .message
+    };
+    let mut reasons = vec![
+        worded(
+            Language::XML,
+            SaveError::NoNull {
+                pointer: "/a".into(),
+            },
+        ),
+        worded(
+            Language::JSON,
+            SaveError::NoNonFinite {
+                pointer: "/a".into(),
+            },
+        ),
+        worded(
+            Language::XML,
+            SaveError::CannotKeep {
+                pointer: "/a".into(),
+            },
+        ),
+    ];
+    for (language, value) in [
+        (Language::TOML, json!({"a": null})),
+        (Language::TOML, json!({"a": 9_223_372_036_854_775_808_u64})),
+        (Language::XML, json!({"r": {"": 1}})),
+        (Language::XML, json!({"r": {"a b": 1}})),
+        (Language::XML, json!({"r": {"a": "\u{1}"}})),
+    ] {
+        match language.serialize(&value) {
+            Ok(text) => reasons.push(format!("{language} writes {value}: {text}")),
+            Err(error) => reasons.push(error.to_string()),
+        }
+    }
+    let actions = [
+        "give it",
+        "remove it",
+        "write ",
+        "change it",
+        "rename it",
+        "edit it as",
+    ];
+    let silent: Vec<&String> = reasons
+        .iter()
+        .filter(|reason| {
+            let words = reason
+                .rsplit_once(" (at ")
+                .map_or(reason.as_str(), |(words, _)| words);
+            !actions.iter().any(|action| words.contains(action))
+        })
+        .collect();
+    assert!(silent.is_empty(), "reasons without what to do: {silent:#?}");
 }

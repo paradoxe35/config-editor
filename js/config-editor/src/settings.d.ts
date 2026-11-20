@@ -1392,7 +1392,7 @@ export interface EditorStrings {
   /**
    * A value the host's language reads back differently (Edit-as).
    *
-   * @default "{pointer}: {host} cannot keep this value exactly; it reads back differently"
+   * @default "{pointer}: {host} cannot keep this value exactly, as it reads back differently: change it, or edit it as {host}, to save"
    */
   hostCannotKeep?: string;
   /**
@@ -1410,13 +1410,13 @@ export interface EditorStrings {
   /**
    * A null the host's language cannot write (Edit-as).
    *
-   * @default "{host} has no null value (at {pointer})"
+   * @default "{host} has no null value: give it a value or remove it to save (at {pointer})"
    */
   noNull?: string;
   /**
    * An infinity or NaN the host's language has no number for (Edit-as).
    *
-   * @default "{host} has no infinity or NaN (at {pointer})"
+   * @default "{host} has no infinity or NaN: write a finite number or remove it to save (at {pointer})"
    */
   noNonFinite?: string;
   /**
