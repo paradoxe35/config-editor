@@ -232,6 +232,21 @@ test.describe('sticky scroll', () => {
     await expect(placeholder).toHaveText('«secret 0b1c»');
   });
 
+  test('in forced colors a line in the system text color divides the sticky lines from the text', async ({ browser }) => {
+    const context = await browser.newContext({ forcedColors: 'active', viewport: { width: 1100, height: 620 } });
+    const page = await context.newPage();
+    await mount(page, { language: 'yaml', value: nested.yaml() });
+    await scrollToRow(page, await rowOf(page, 'e5:'));
+    await expect.poll(() => texts(page)).toEqual(['a:', 'b:', 'c:']);
+    // Pixel rows across the right of the text, where no header reaches:
+    // the last one of the sticky lines, and one a few pixels above it.
+    const area = await input(page).boundingBox();
+    const bottom = area.y + (await stickyBottom(page));
+    const strip = (y) => page.screenshot({ clip: { x: area.x + area.width - 160, y, width: 120, height: 1 }, animations: 'disabled' });
+    expect((await strip(bottom - 1)).equals(await strip(bottom - 4)), 'the dividing line shows').toBe(false);
+    await context.close();
+  });
+
   test('a documents view sticks the headers of the document shown', async ({ page }) => {
     await mount(page, { documents: [{ id: 'main', fileName: 'main.yaml', value: nested.yaml() }], stickyScrollMaxLines: 2 }, true);
     await scrollToRow(page, await rowOf(page, 'e5:'));

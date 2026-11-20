@@ -2253,6 +2253,20 @@
     outline: 2px solid Highlight;
     outline-offset: 1px;
   }
+  /* The line under the sticky lines (a shadow, which forced colors drop),
+     drawn in the text's system color, as VS Code's high contrast themes
+     draw it. */
+  :not(#\#):not(#\#) .config-editor__sticky-line:last-child::after,
+  :not(#\#):not(#\#) .config-editor__sticky-number:last-child::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 1px;
+    background: CanvasText;
+    forced-color-adjust: none;
+    content: "";
+  }
   /* The caret's line, outlined. */
   :not(#\#):not(#\#) .config-editor__code-line-active { outline: 1px solid GrayText; outline-offset: -1px; }
   /* One color for every severity: each keeps its own line style (an
