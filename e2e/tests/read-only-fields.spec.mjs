@@ -118,7 +118,7 @@ test.describe('read-only fields', () => {
     // Taken and held: the locked line commented out reads no `id`, so the
     // save waits with the reason, and the host never gets the text.
     await expect.poll(ed.value).toContain('# id: srv-42');
-    await expect(page.locator('.config-editor__diagnostic-marker[data-message^="Not saved: /id is commented out"]')).not.toHaveCount(0);
+    await expect(page.locator('.config-editor__diagnostic-marker[data-message^="Not saved: the read-only field /id is commented out"]')).not.toHaveCount(0);
     await expect(saved(page)).toHaveText(before);
     await clickInto(page, 'listen', 1);
     await page.keyboard.press('Control+/');

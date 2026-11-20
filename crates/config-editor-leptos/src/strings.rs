@@ -414,9 +414,10 @@ pub struct EditorStrings {
     /// checked only in a text that parses.
     pub save_waits: String,
     /// A save waiting because the read-only field at `{pointer}` no longer
-    /// reads as the host gave it, held where the editor cannot tell why, and
-    /// why the field is read-only (`{reason}`). The texts after it name
-    /// each cause a hold records.
+    /// reads as the host gave it, held where the editor cannot tell why;
+    /// `{reason}` is the `save_held_reason` text when the schema says why
+    /// the field is read-only (`x-readonly-reason`), else empty. The texts
+    /// after it name each cause a hold records, with the same placeholders.
     pub save_held: String,
     /// The same, because its key or a block holding it is written twice,
     /// and the other copy is read in its place.
@@ -445,6 +446,9 @@ pub struct EditorStrings {
     /// The same, for a field the host made read-only after it was
     /// changed: the text reads it otherwise than the host's text does.
     pub save_held_before_lock: String,
+    /// What a `save_held…` text says of why the field is read-only, when
+    /// the schema says (`x-readonly-reason`): its `{reason}`.
+    pub save_held_reason: String,
     /// A save waiting because the secret field at `{pointer}` now reads
     /// text beside a placeholder the host gave as its whole value (an edit
     /// beside it, or an undo, made the parse read them together).
@@ -804,38 +808,39 @@ impl Default for EditorStrings {
                 "Not saved: {pointer} is read-only, and it can be checked only once the text is valid",
             ),
             save_held: text(
-                "Not saved: {pointer} no longer reads as the host gave it ({reason}); put it back as it was to save",
+                "Not saved: the read-only field {pointer} no longer reads as the host gave it{reason}; put it back as it was to save",
             ),
             save_held_duplicate: text(
-                "Not saved: {pointer} is written twice, and the other copy is read in its place ({reason}); remove the copy to save",
+                "Not saved: the read-only field {pointer} is written twice, and the other copy is read in its place{reason}; remove the copy to save",
             ),
             save_held_renamed: text(
-                "Not saved: a key of {pointer} was renamed ({reason}); give the key its old name back to save",
+                "Not saved: a key holding the read-only field {pointer} was renamed{reason}; give the key its old name back to save",
             ),
             save_held_moved: text(
-                "Not saved: {pointer} moved under another parent ({reason}); move it back to save",
+                "Not saved: the read-only field {pointer} moved under another parent{reason}; move it back to save",
             ),
             save_held_list_item: text(
-                "Not saved: {pointer} is now another item of its list, because items were added, removed or moved before it ({reason}); put the items back in order to save",
+                "Not saved: the read-only field {pointer} is now another item of its list, because items were added, removed or moved before it{reason}; put the items back in order to save",
             ),
             save_held_commented: text(
-                "Not saved: {pointer} is commented out ({reason}); remove the comment mark to save",
+                "Not saved: the read-only field {pointer} is commented out{reason}; remove the comment mark to save",
             ),
             save_held_removed: text(
-                "Not saved: {pointer} is no longer in the text ({reason}); write it back as the host gave it to save",
+                "Not saved: the read-only field {pointer} is no longer in the text{reason}; write it back as the host gave it to save",
             ),
             save_held_added: text(
-                "Not saved: {pointer} now reads text that was added into it or beside it ({reason}); remove that text to save",
+                "Not saved: the read-only field {pointer} now reads text that was added into it or beside it{reason}; remove that text to save",
             ),
             save_held_spanless: text(
-                "Not saved: {pointer} now reads another value than the host gave ({reason}); put its value back as it was to save",
+                "Not saved: the read-only field {pointer} now reads another value than the host gave{reason}; put its value back as it was to save",
             ),
             save_held_range: text(
-                "Not saved: the read-only text the host gave no longer reads as {pointer} ({reason}); put that text back where it was to save",
+                "Not saved: the read-only text the host gave no longer reads as {pointer}{reason}; put that text back where it was to save",
             ),
             save_held_before_lock: text(
-                "Not saved: {pointer} was changed before the host made it read-only ({reason}); put it back as the host gave it to save",
+                "Not saved: {pointer} was changed before the host made it read-only{reason}; put it back as the host gave it to save",
             ),
+            save_held_reason: text(" ({reason})"),
             save_held_placeholder: text(
                 "Not saved: {pointer} now reads other text beside its secret placeholder; remove that text so the placeholder stands alone to save",
             ),

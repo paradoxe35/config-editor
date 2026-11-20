@@ -569,6 +569,14 @@ mod range_items_tests;
     feature = "yaml",
     feature = "json",
     feature = "toml",
+    feature = "hcl"
+))]
+mod range_rename_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
     feature = "hcl",
     feature = "xml"
 ))]

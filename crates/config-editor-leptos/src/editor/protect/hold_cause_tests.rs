@@ -85,9 +85,6 @@ fn mount(language: Language, text: &str, paths: &[&str]) -> (Owner, EditorState)
     editor.mount()
 }
 
-const FIELD: &str = "This field is read-only";
-const RANGE: &str = "This text is read-only";
-
 /// HCL repeats a block for a list of them; YAML, JSON and TOML refuse a
 /// key written twice (the text does not parse, so nothing is held).
 #[test]
@@ -98,9 +95,7 @@ fn a_block_written_twice_in_hcl_is_named_a_duplicate() {
     replace(state, at..at, "  svc {\n    port = 9\n  }\n");
     assert_held(
         state,
-        &format!(
-            "Not saved: /services/svc/port is written twice, and the other copy is read in its place ({FIELD}); remove the copy to save"
-        ),
+        "Not saved: the read-only field /services/svc/port is written twice, and the other copy is read in its place; remove the copy to save",
     );
 }
 
@@ -112,9 +107,7 @@ fn a_block_written_twice_in_xml_is_named_a_duplicate() {
     replace(state, at..at, "  <svc>\n    <port>9</port>\n  </svc>\n");
     assert_held(
         state,
-        &format!(
-            "Not saved: /root/svc/port is written twice, and the other copy is read in its place ({FIELD}); remove the copy to save"
-        ),
+        "Not saved: the read-only field /root/svc/port is written twice, and the other copy is read in its place; remove the copy to save",
     );
 }
 
@@ -131,9 +124,7 @@ fn a_key_renamed_by_typing_is_named() {
     change(state, "public_address", "tpublic_address");
     assert_held(
         state,
-        &format!(
-            "Not saved: a key of /public_address was renamed ({RANGE}); give the key its old name back to save"
-        ),
+        "Not saved: a key holding the read-only field /public_address was renamed; give the key its old name back to save",
     );
 }
 
@@ -157,9 +148,7 @@ fn a_key_renamed_by_a_replace_all_among_other_matches_is_named() {
     );
     assert_held(
         state,
-        &format!(
-            "Not saved: a key of /public_address was renamed ({RANGE}); give the key its old name back to save"
-        ),
+        "Not saved: a key holding the read-only field /public_address was renamed; give the key its old name back to save",
     );
 }
 
@@ -173,9 +162,7 @@ fn an_element_renamed_by_a_replace_all_to_a_locked_ones_name_is_named_a_duplicat
     replace_every(state, "tmp", "svc");
     assert_held(
         state,
-        &format!(
-            "Not saved: /root/svc/port is written twice, and the other copy is read in its place ({FIELD}); remove the copy to save"
-        ),
+        "Not saved: the read-only field /root/svc/port is written twice, and the other copy is read in its place; remove the copy to save",
     );
 }
 
@@ -227,9 +214,7 @@ fn a_key_renamed_by_an_undo_is_named() {
     );
     assert_held(
         state,
-        &format!(
-            "Not saved: a key of /tpublic_address was renamed ({RANGE}); give the key its old name back to save"
-        ),
+        "Not saved: a key holding the read-only field /tpublic_address was renamed; give the key its old name back to save",
     );
 }
 
@@ -239,7 +224,7 @@ fn a_field_moved_under_another_parent_is_named() {
     change(state, "  x: 1", "c:\n  x: 1");
     assert_held(
         state,
-        &format!("Not saved: /a/x moved under another parent ({FIELD}); move it back to save"),
+        "Not saved: the read-only field /a/x moved under another parent; move it back to save",
     );
 }
 
@@ -249,9 +234,7 @@ fn another_list_item_in_its_place_is_named() {
     change(state, "  - a", "  - z\n  - a");
     assert_held(
         state,
-        &format!(
-            "Not saved: /hosts/1 is now another item of its list, because items were added, removed or moved before it ({FIELD}); put the items back in order to save"
-        ),
+        "Not saved: the read-only field /hosts/1 is now another item of its list, because items were added, removed or moved before it; put the items back in order to save",
     );
 }
 
@@ -261,7 +244,7 @@ fn a_commented_out_field_is_named() {
     change(state, "id: srv-42", "# id: srv-42");
     assert_held(
         state,
-        &format!("Not saved: /id is commented out ({FIELD}); remove the comment mark to save"),
+        "Not saved: the read-only field /id is commented out; remove the comment mark to save",
     );
 }
 
@@ -299,9 +282,7 @@ fn a_field_the_text_no_longer_has_is_named_removed() {
     paths.set(vec![FieldPath::from("/port")]);
     assert_held(
         state,
-        &format!(
-            "Not saved: /port is no longer in the text ({FIELD}); write it back as the host gave it to save"
-        ),
+        "Not saved: the read-only field /port is no longer in the text; write it back as the host gave it to save",
     );
 }
 
@@ -315,9 +296,7 @@ fn text_added_into_a_locked_block_is_named() {
     change(state, "name: x", "  extra: 1\nname: x");
     assert_held(
         state,
-        &format!(
-            "Not saved: /limits now reads text that was added into it or beside it ({FIELD}); remove that text to save"
-        ),
+        "Not saved: the read-only field /limits now reads text that was added into it or beside it; remove that text to save",
     );
 }
 
@@ -339,9 +318,7 @@ fn a_key_typed_into_a_locked_block_one_character_at_a_time_is_named() {
     );
     assert_held(
         state,
-        &format!(
-            "Not saved: /limits now reads text that was added into it or beside it ({FIELD}); remove that text to save"
-        ),
+        "Not saved: the read-only field /limits now reads text that was added into it or beside it; remove that text to save",
     );
 }
 
@@ -355,9 +332,7 @@ fn a_value_reading_otherwise_without_spans_is_named() {
     change(state, "NAMEa", "NAME=b");
     assert_held(
         state,
-        &format!(
-            "Not saved: /ID now reads another value than the host gave ({FIELD}); put its value back as it was to save"
-        ),
+        "Not saved: the read-only field /ID now reads another value than the host gave; put its value back as it was to save",
     );
 }
 
@@ -412,9 +387,7 @@ fn a_field_changed_before_the_host_locked_it_is_named() {
     paths.set(vec![FieldPath::from("/port")]);
     assert_held(
         state,
-        &format!(
-            "Not saved: /port was changed before the host made it read-only ({FIELD}); put it back as the host gave it to save"
-        ),
+        "Not saved: /port was changed before the host made it read-only; put it back as the host gave it to save",
     );
 }
 
@@ -449,10 +422,11 @@ fn a_hold_keeps_its_recorded_cause_through_the_edits_after() {
     // The range's own field there (`/tpublic_address`) is held too, for
     // the edit that commented it out.
     let (problems, _) = held(state);
-    let renamed = format!(
-        "Not saved: a key of /public_address was renamed ({RANGE}); give the key its old name back to save"
+    let renamed = "Not saved: a key holding the read-only field /public_address was renamed; give the key its old name back to save";
+    assert!(
+        problems.iter().any(|problem| problem == renamed),
+        "{problems:#?}"
     );
-    assert!(problems.contains(&renamed), "{problems:#?}");
 }
 
 /// Each cause has its own text; one a hold cannot tell guesses none.
@@ -462,16 +436,14 @@ fn every_cause_has_its_own_wording() {
     let message = |cause: HoldCause, reason: Reason| save_held(strings, "/a", &reason, cause);
     assert_eq!(
         message(HoldCause::RangeMoved, Reason::Range),
-        format!(
-            "Not saved: the read-only text the host gave no longer reads as /a ({RANGE}); put that text back where it was to save"
-        )
+        "Not saved: the read-only text the host gave no longer reads as /a; put that text back where it was to save"
     );
     assert_eq!(
         message(
             HoldCause::Unclear,
             Reason::Given("Set by the server".into())
         ),
-        "Not saved: /a no longer reads as the host gave it (Set by the server); put it back as it was to save"
+        "Not saved: the read-only field /a no longer reads as the host gave it (Set by the server); put it back as it was to save"
     );
     let all = [
         HoldCause::Duplicate,

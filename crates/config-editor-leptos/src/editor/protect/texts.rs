@@ -86,10 +86,13 @@ pub(crate) fn save_held(
         HoldCause::ChangedBeforeLock => &strings.save_held_before_lock,
         HoldCause::Unclear => &strings.save_held,
     };
-    fill(
-        template,
-        &[("pointer", &place), ("reason", &reason.text(strings))],
-    )
+    // Each text says the field is read-only: only a reason the schema
+    // gives says more.
+    let why = match reason {
+        Reason::Given(given) => fill(&strings.save_held_reason, &[("reason", given)]),
+        Reason::Field | Reason::Range => String::new(),
+    };
+    fill(template, &[("pointer", &place), ("reason", &why)])
 }
 
 /// A save waiting while the secret field at `pointer` reads text beside a

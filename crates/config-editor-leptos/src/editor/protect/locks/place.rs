@@ -101,6 +101,7 @@ impl<'r, 'a> Placer<'r, 'a> {
                             held.push((pointer, value, Some(cause)));
                         }
                     }
+                    one_hold_per_range_field(before, document, &mut held);
                     // A field named by its path reading as in the host's text
                     // (both without it included) reaches the host unchanged: a
                     // value pinned in a text the user made (a cut put a block's
@@ -891,6 +892,40 @@ fn origin_document(reading: &Reading<'_>, before: &Protected) -> Option<Value> {
         return None;
     }
     codec::read(reading.behavior, origin, reading.sources.reading_schema).ok()
+}
+
+/// Keeps one hold per field a host range covers. A key holding it renamed
+/// a keystroke at a time (`web`, `weba`, `webap`) has the range's text read
+/// under each name in between, pinned there: those names are the same
+/// locked field, held already under the name it was first held under (the
+/// host's). A field held by this edit (`None` cause) that `document` no
+/// longer has, whose lock in `before` stands on the same text as the lock
+/// of a field held before, is not held again.
+fn one_hold_per_range_field(
+    before: &Protected,
+    document: &Value,
+    held: &mut Vec<(String, Value, Option<HoldCause>)>,
+) {
+    let range_lock = |pointer: &str| {
+        before
+            .locks
+            .iter()
+            .find(|lock| lock.pointer.as_deref() == Some(pointer) && lock.reason == Reason::Range)
+    };
+    let held_on: Vec<&[TextRange]> = held
+        .iter()
+        .filter(|(_, _, cause)| cause.is_some())
+        .filter_map(|(pointer, ..)| range_lock(pointer))
+        .map(|lock| lock.ranges.as_slice())
+        .collect();
+    if held_on.is_empty() {
+        return;
+    }
+    held.retain(|(pointer, _, cause)| {
+        cause.is_some()
+            || lookup(document, pointer).is_some()
+            || !range_lock(pointer).is_some_and(|lock| held_on.contains(&lock.ranges.as_slice()))
+    });
 }
 
 /// The pinned values of the text before (`before`, whose locks are its

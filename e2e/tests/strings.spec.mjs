@@ -91,6 +91,8 @@ const ELSEWHERE = {
   saveHeldRange: "a host range's field reading otherwise: hold_cause_tests",
   saveHeldBeforeLock:
     "a path the host named after its value changed: hold_cause_tests",
+  saveHeldReason:
+    "a hold of a field the schema says why is read-only: hold_cause_tests",
   saveHeldPlaceholder:
     "text beside a whole placeholder, held: hold_cause_tests, held_placeholder_tests",
   editAsTypedCommentsNone: "a JSON host: edit_as tests",
