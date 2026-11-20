@@ -179,6 +179,83 @@ fn hcl_expressions_moved_through_a_multi_line_string_keep_their_form() {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
+/// The line of `sub` joined onto the line of `mid` after it (a JSON
+/// `"sub": …, "mid": 1`, XML's two elements on one line), cut or copied,
+/// and pasted before `other`, at once or after a save (`saved`): each
+/// entry is still its host item, told apart by where its text starts, and
+/// keeps its form.
+fn joined_session(host: &Host, view: Language, how: Take, saved: bool) -> Result<(), String> {
+    let mut editor = TestEditor::new(host.language, &host.text);
+    editor.edit_as = Some(view);
+    let (_owner, state) = editor.mount();
+    let text = state.doc().text.get_untracked();
+    let line = key_line(&text, "sub");
+    // The line break alone, as a backspace removes it.
+    let end = line_offset(&text, line + 1) - 1;
+    replace(state, (end, end + 1), "");
+    if saved {
+        pause(state);
+    }
+    let lines = take(state, line, how);
+    pause(state);
+    let text = state.doc().text.get_untracked();
+    let line = key_line(&text, "other");
+    paste_at(state, (line, line), &lines);
+    pause(state);
+    let saved = state.sync().host_text.get_value();
+    let copied = how == Take::Cut || saved.starts_with(&host.in_a);
+    if !state.sync().in_sync.get_untracked() || !saved.contains(&host.in_b) || !copied {
+        return Err(format!(
+            "saved:\n{saved}\nview:\n{}\nproblems: {:?}",
+            state.doc().text.get_untracked(),
+            state.sync().conversion_problems.get_untracked()
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn entries_joined_on_one_line_cut_or_copied_keep_their_forms() {
+    let toml = Host {
+        language: Language::TOML,
+        text: "[a]\nsub = 1979-05-27\nmid = 1\nend = 3\n\n[b]\nother = 2\n".to_string(),
+        in_b: "[b]\nsub = 1979-05-27\nmid = 1\nother = 2\n".to_string(),
+        in_a: "[a]\nsub = 1979-05-27\n".to_string(),
+    };
+    let yaml = Host {
+        language: Language::YAML,
+        text: "a:\n  sub: !Ref Param\n  mid: 1\n  end: 3\nb:\n  other: 2\n".to_string(),
+        in_b: "b:\n  sub: !Ref Param\n  mid: 1\n  other: 2\n".to_string(),
+        in_a: "a:\n  sub: !Ref Param\n".to_string(),
+    };
+    let hcl = |value: &str| Host {
+        language: Language::HCL,
+        text: format!("a {{\n  sub = {value}\n  mid = 1\n  end = 3\n}}\nb {{\n  other = 2\n}}\n"),
+        in_b: format!("b {{\n  sub = {value}\n  mid = 1\n  other = 2\n"),
+        in_a: format!("a {{\n  sub = {value}\n"),
+    };
+    let mut hosts = vec![toml, yaml];
+    hosts.extend(VALUES.iter().map(|value| hcl(value)));
+    let mut failures = Vec::new();
+    for host in &hosts {
+        for view in [Language::JSON, Language::XML] {
+            for (how, saved) in [Take::Cut, Take::Copy]
+                .into_iter()
+                .flat_map(|how| [(how, false), (how, true)])
+            {
+                if let Err(error) = joined_session(host, view, how, saved) {
+                    failures.push(format!(
+                        "{} in {} {how:?} (saved between: {saved}): {error}",
+                        host.language.label(),
+                        view.label()
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
 /// The same path keeps the forms of other hosts: a TOML date through a
 /// YAML block scalar, a YAML tag through a TOML multi-line string.
 #[test]

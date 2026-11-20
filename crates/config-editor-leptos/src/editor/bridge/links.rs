@@ -211,12 +211,16 @@ impl Links {
             *self = Links::default();
         }
         // Typing changes no item's link: kept until the links are read.
+        // A line break removed is not kept so: it can join an item onto
+        // another's line, where the items of the text no longer tell it
+        // apart and only its link does.
         let typed = pieces.iter().all(|piece| {
             piece.range.len() < TextSize::from(2)
                 && matches!(
                     piece.source,
                     Inserted::Typed | Inserted::Generated | Inserted::External
                 )
+                && slice::slice(before, piece.range).is_none_or(|removed| !removed.contains('\n'))
         });
         if let Links::Fresh { pending, .. } = self
             && typed

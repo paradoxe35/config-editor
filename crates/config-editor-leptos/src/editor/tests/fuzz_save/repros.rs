@@ -2495,3 +2495,69 @@ fn an_hcl_template_cut_and_pasted_in_yaml_stays_a_template() {
         ],
     );
 }
+
+/// P3: a TOML date cut with the line of the value after it in a JSON view
+/// and pasted over a blank line of another table keeps its host form
+/// (a date, not the text of one).
+#[test]
+fn a_toml_date_cut_with_the_next_line_and_pasted_keeps_its_host_form() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "[alpha]\nk1 = 1979-05-27\nk2 = 3.5e2\nk3 = 0o17 # note 1\nk4 = \"\"\"\nline\"\"\"\n[beta]\nk5 = '''\n'''\nk6 = true # note 5\nk7 = true # note 7\nk8 = 'C:\\dir'\n",
+        &[
+            Op::Backspace {
+                line: 15,
+                column: 0,
+                count: 2,
+            },
+            Op::Type {
+                line: 20,
+                column: 4,
+                text: "x",
+            },
+            Op::Undo,
+            Op::Cut {
+                line: 61,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 29,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P3: the same with a save between the join and the cut: the joined
+/// entries' links are kept across the save.
+#[test]
+fn a_toml_date_joined_saved_cut_and_pasted_keeps_its_host_form() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "[alpha]\nk1 = 1979-05-27\nk2 = 3.5e2\nk3 = 0o17 # note 1\nk4 = \"\"\"\nline\"\"\"\n[beta]\nk5 = '''\n'''\nk6 = true # note 5\nk7 = true # note 7\nk8 = 'C:\\dir'\n",
+        &[
+            Op::Backspace {
+                line: 15,
+                column: 0,
+                count: 2,
+            },
+            Op::Pause,
+            Op::Type {
+                line: 20,
+                column: 4,
+                text: "x",
+            },
+            Op::Undo,
+            Op::Cut {
+                line: 61,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 29,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}

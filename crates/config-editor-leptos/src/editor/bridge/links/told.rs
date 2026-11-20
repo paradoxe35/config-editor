@@ -8,7 +8,7 @@ use super::super::super::language::ConfigLanguage;
 use super::super::super::parse_cache;
 use super::super::super::text::TextSize;
 use super::super::super::work_count::{Work, note, note_many};
-use super::items::{items, line_starts};
+use super::items::{Shared, items, items_and_shared, line_starts, shared_starts};
 use super::{Holding, HostPaths, HostReading, Link, Links, Shown, Source, content, outer_first};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -243,7 +243,8 @@ impl Links {
         }
         // Each item's end, by the line it starts on.
         let mut items_on_line: BTreeMap<usize, Vec<(TextSize, String)>> = BTreeMap::new();
-        for item in items(language, text, value) {
+        let (found, shared) = items_and_shared(language, text, value);
+        for item in found {
             note(Work::LinkStep);
             if let Some(range) = content(text, item.lines) {
                 items_on_line
@@ -252,13 +253,36 @@ impl Links {
                     .push((range.end(), item.pointer));
             }
         }
-        let loose: Vec<Link> = on_line
-            .iter()
-            .filter(|(line, _)| !items_on_line.contains_key(line))
-            .flat_map(|(_, links)| links.iter().map(|link| (*link).clone()))
-            .collect();
-        let depth = |pointer: &str| pointer.matches('/').count();
+        // The items lines do not tell apart, by the line they start on,
+        // and where each starts (read only on a line holding links).
+        let mut shared_on_line: BTreeMap<usize, Vec<Shared>> = BTreeMap::new();
+        for item in shared {
+            shared_on_line.entry(item.line).or_default().push(item);
+        }
+        let shared_at = |line: usize| {
+            let shared = shared_on_line.get(&line)?;
+            let line_start = *starts.get(line)?;
+            let at = shared_starts(text, line_start, shared);
+            Some(
+                shared
+                    .iter()
+                    .map(|item| &item.pointer)
+                    .zip(at)
+                    .collect::<Vec<_>>(),
+            )
+        };
         let mut paired = Vec::new();
+        let mut loose: Vec<Link> = Vec::new();
+        for (line, links) in &on_line {
+            if items_on_line.contains_key(line) {
+                continue;
+            }
+            if let Some(shared) = shared_at(*line) {
+                paired.extend(pair_shared(links, &mut vec![false; links.len()], &shared));
+            }
+            loose.extend(links.iter().map(|link| (*link).clone()));
+        }
+        let depth = |pointer: &str| pointer.matches('/').count();
         for (line, mut items) in items_on_line {
             let Some(links) = on_line.get_mut(&line) else {
                 continue;
@@ -316,6 +340,21 @@ impl Links {
                     item_used[at] = true;
                     link_used[index] = true;
                 }
+            }
+            // A link holding where an item sharing the line starts is that
+            // item's (an entry joined onto its map's line), and is kept
+            // across a save as a loose one is: the save's own links are
+            // only of items with lines of their own.
+            if let Some(shared) = shared_at(line) {
+                let before = link_used.clone();
+                paired.extend(pair_shared(links, &mut link_used, &shared));
+                loose.extend(
+                    links
+                        .iter()
+                        .zip(link_used.iter().zip(&before))
+                        .filter(|(_, (now, was))| **now && !**was)
+                        .map(|(link, _)| (*link).clone()),
+                );
             }
             let left: Vec<&String> = items
                 .iter()
@@ -404,6 +443,28 @@ impl Links {
         links.sort_by(outer_first);
         Links::Kept(Arc::new(links))
     }
+}
+
+/// Each of `links` not `used` paired with the first of `shared` (items
+/// sharing the line, in document order, and where each starts) whose own
+/// text starts inside it: the link of an item whose line was joined onto
+/// another's still starts where that item's text does, and an outer item
+/// comes before the ones inside it. Marks the links paired as used.
+fn pair_shared(links: &[&Link], used: &mut [bool], shared: &[(&String, TextSize)]) -> Paired {
+    let mut taken = vec![false; shared.len()];
+    let mut paired = Vec::new();
+    for (link, used) in links.iter().zip(used.iter_mut()) {
+        if *used {
+            continue;
+        }
+        let inside = (0..shared.len()).find(|at| !taken[*at] && link.range.contains(shared[*at].1));
+        if let Some(at) = inside {
+            paired.push((shared[at].0.clone(), link.source.clone()));
+            taken[at] = true;
+            *used = true;
+        }
+    }
+    paired
 }
 
 /// Of `loose` links, those of the host text most of them name: a save
