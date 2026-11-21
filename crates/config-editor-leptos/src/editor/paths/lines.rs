@@ -90,7 +90,7 @@ impl Lines {
     }
 
     /// The (one-based) line and column of `byte`.
-    fn line_column(&self, source: &str, byte: TextSize) -> (usize, usize) {
+    pub(crate) fn line_column(&self, source: &str, byte: TextSize) -> (usize, usize) {
         let byte = byte.min(TextSize::of(source));
         let index = self.starts.partition_point(|start| *start <= byte) - 1;
         let start = self.starts[index];

@@ -8,6 +8,8 @@ use quick_xml::name::ResolveResult;
 use quick_xml::reader::NsReader;
 
 use super::super::super::CheckedDocument;
+use crate::editor::languages::XML_TEXT_KEY;
+use crate::editor::work_count::{Work, note_many};
 
 /// The namespace of `xsi:type` and the like (markup, not data).
 const SCHEMA_INSTANCE: &str = "http://www.w3.org/2001/XMLSchema-instance";
@@ -22,13 +24,18 @@ pub(super) struct Element {
     pub(super) children: Vec<Element>,
 }
 
-/// The top-level elements of `document` when it is XML (a top element
-/// marked `config-root="true"` stands for its children, as the reader
-/// makes it); `None` in another language, or when the text does not read.
+/// The top-level elements of `document` when it is XML, a markup language
+/// writing an element's text under XML's key (a top element marked
+/// `config-root="true"` stands for its children, as the reader makes it);
+/// `None` in another language, or when the text does not read.
 pub(super) fn read(document: &CheckedDocument<'_>) -> Option<Vec<Element>> {
-    if document.language.info().label != "XML" {
+    let language = document.language;
+    if language.markup_delimiters() != Some(('<', '>')) || language.text_key() != Some(XML_TEXT_KEY)
+    {
         return None;
     }
+    // A read of the text beside the language's own parse.
+    note_many(Work::ParsedBytes, document.text.len());
     let mut reader = NsReader::from_str(document.text);
     let mut stack: Vec<Element> = vec![Element::default()];
     let mut config_root = false;

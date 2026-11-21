@@ -11,11 +11,9 @@ use std::collections::HashSet;
 
 use serde_json::{Map, Value};
 
-use super::super::schema::SchemaError;
+use super::super::language::pointer_key;
+use super::super::schema::{SchemaError, each_schema, each_schema_mut};
 use super::{SchemaInput, SchemaResources};
-
-/// Keywords whose value is data, not schemas.
-const DATA: [&str; 5] = ["const", "enum", "default", "examples", "example"];
 
 /// Where `reference` (a `$ref` written in the file at `base`) points: the
 /// file's location and the fragment (`""` for the whole file); `None` for
@@ -37,15 +35,15 @@ pub(super) fn join(base: Option<&str>, location: &str) -> String {
     let Some(base) = base else {
         return location.to_string();
     };
-    let directory = base.rfind('/').map_or("", |at| &base[..=at]);
-    let (prefix, path) = match directory.find("://") {
-        Some(at) => {
-            let host_end = directory[at + 3..]
-                .find('/')
-                .map_or(directory.len(), |end| at + 3 + end);
-            (&directory[..host_end], &directory[host_end..])
+    let directory = base.rsplit_once('/').map_or("", |(directory, _)| directory);
+    // A URL's scheme and host stay; its path joins as a path does.
+    let (prefix, path) = match directory.split_once("://") {
+        Some((scheme, rest)) => {
+            let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+            (format!("{scheme}://{host}"), format!("/{path}"))
         }
-        None => ("", directory),
+        None if base.contains('/') => (String::new(), format!("{directory}/")),
+        None => (String::new(), String::new()),
     };
     let mut segments: Vec<&str> = Vec::new();
     for segment in path.split('/').chain(location.split('/')) {
@@ -95,22 +93,15 @@ pub(super) fn external_references(schema: &Value) -> Vec<String> {
     found
 }
 
+/// Calls `found` with each `$ref` of a schema in `value` (the one walk
+/// over a schema's schemas: data is never read as one).
 fn walk_refs(value: &Value, found: &mut impl FnMut(&str)) {
-    match value {
-        Value::Object(map) => {
-            for (key, member) in map {
-                if key == "$ref" {
-                    if let Some(reference) = member.as_str() {
-                        found(reference);
-                    }
-                } else if !DATA.contains(&key.as_str()) {
-                    walk_refs(member, found);
-                }
-            }
+    each_schema(value, &(), &mut |_, members, ()| {
+        if let Some(reference) = members.get("$ref").and_then(Value::as_str) {
+            found(reference);
         }
-        Value::Array(items) => items.iter().for_each(|item| walk_refs(item, found)),
-        _ => {}
-    }
+        Some(())
+    });
 }
 
 /// `schema` (the text of `input`, read) with the external references the
@@ -178,7 +169,7 @@ pub(super) fn bundle(
 
 /// The `$defs` key a bundled file is kept under, escaped for a pointer.
 fn key(location: &str) -> String {
-    location.replace('~', "~0").replace('/', "~1")
+    pointer_key(location)
 }
 
 /// Rewrites the references of `value` (the file at `base`; `inside`: the
@@ -191,51 +182,34 @@ fn rewrite(
     resources: &SchemaResources,
     pending: &mut Vec<(String, String)>,
 ) {
-    match value {
-        Value::Object(map) => {
-            for (name, member) in map.iter_mut() {
-                if name == "$ref" {
-                    let Some(reference) = member.as_str() else {
-                        continue;
-                    };
-                    let fragment = reference
-                        .split_once('#')
-                        .map_or("", |(_, fragment)| fragment);
-                    if !fragment.is_empty() && !fragment.starts_with('/') {
-                        // An anchor: the validator finds `$anchor`s
-                        // wherever they are.
-                        continue;
-                    }
-                    let rewritten = match target(base, reference) {
-                        Some((location, fragment)) => {
-                            let written = reference.split('#').next().unwrap_or_default();
-                            if resource(resources, &location, written).is_err() {
-                                continue;
-                            }
-                            pending.push((location.clone(), written.to_string()));
-                            format!("#/$defs/{}{}", key(&location), fragment)
-                        }
-                        // A file's own pointer, into its copy.
-                        None => match inside {
-                            Some(location) => {
-                                format!("#/$defs/{}{}", key(location), fragment)
-                            }
-                            None => continue,
-                        },
-                    };
-                    *member = Value::String(rewritten);
-                } else if !DATA.contains(&name.as_str()) {
-                    rewrite(member, base, inside, resources, pending);
+    each_schema_mut(value, &mut |members| {
+        let Some(Value::String(reference)) = members.get_mut("$ref") else {
+            return;
+        };
+        let fragment = reference
+            .split_once('#')
+            .map_or("", |(_, fragment)| fragment);
+        if !fragment.is_empty() && !fragment.starts_with('/') {
+            // An anchor: the validator finds `$anchor`s wherever they are.
+            return;
+        }
+        let rewritten = match target(base, reference) {
+            Some((location, fragment)) => {
+                let written = reference.split('#').next().unwrap_or_default();
+                if resource(resources, &location, written).is_err() {
+                    return;
                 }
+                pending.push((location.clone(), written.to_string()));
+                format!("#/$defs/{}{}", key(&location), fragment)
             }
-        }
-        Value::Array(items) => {
-            for item in items {
-                rewrite(item, base, inside, resources, pending);
-            }
-        }
-        _ => {}
-    }
+            // A file's own pointer, into its copy.
+            None => match inside {
+                Some(location) => format!("#/$defs/{}{}", key(location), fragment),
+                None => return,
+            },
+        };
+        *reference = rewritten;
+    });
 }
 
 #[cfg(test)]

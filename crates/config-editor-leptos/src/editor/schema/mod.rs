@@ -12,9 +12,9 @@ use compile::build_formatted;
 pub(crate) use compile::{SchemaBundle, build_schema};
 #[cfg(feature = "schema-validation")]
 pub(crate) use false_schema::{for_validation, message as false_schema_message};
-pub(crate) use subschemas::each_schema;
 #[cfg(any(feature = "schema-validation", feature = "yaml"))]
 pub(crate) use subschemas::{Holds, holds};
+pub(crate) use subschemas::{each_schema, each_schema_mut};
 
 use super::diagnostics::Diagnostic;
 use super::schema_formats::{SchemaFormat, SchemaInput, SchemaLoss, SchemaResources};

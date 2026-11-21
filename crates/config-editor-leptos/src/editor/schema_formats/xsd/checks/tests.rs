@@ -218,6 +218,61 @@ fn a_problem_names_what_is_expected_on_the_element_it_is_about() {
     assert_eq!(problems.len(), 1, "{problems:?}");
 }
 
+/// The checks word their problems with the editor's texts (the `strings`
+/// setting), as every problem the editor words.
+#[test]
+fn the_checks_word_their_problems_with_the_editors_texts() {
+    use super::super::super::CheckedDocument;
+    use crate::EditorStrings;
+    let strings = EditorStrings {
+        xsd_element_not_expected: "«{name}» statt {expected}".into(),
+        xsd_one_of: "{names} oder {last}".into(),
+        xsd_value_repeated: "«{value}» doppelt ({kind} {name}, {first})".into(),
+        ..EditorStrings::default()
+    };
+    let words = |schema: &Schema, text: &str| -> Vec<String> {
+        let language = Language::XML.behavior();
+        let value = language.parse(text).expect("it reads");
+        let document = CheckedDocument {
+            text,
+            language,
+            value: &value,
+            schema: &schema.bundle.schema,
+            strings: &strings,
+        };
+        schema
+            .bundle
+            .checks
+            .iter()
+            .flat_map(|check| check.check(&document))
+            .map(|problem| problem.message)
+            .collect()
+    };
+    use super::automaton::Expected;
+    let expected = [
+        Expected::Element("b".into()),
+        Expected::Element("c".into()),
+        Expected::Any,
+    ];
+    assert_eq!(
+        super::unexpected("a", &expected, &strings),
+        "«a» statt <b>, <c> oder another element"
+    );
+    assert_eq!(
+        super::missing(&expected[..1], &strings),
+        "an element is missing at the end: expected <b>"
+    );
+    let unique = compile(
+        r#"<xs:element name="r"><xs:complexType><xs:sequence>
+<xs:element name="i" maxOccurs="unbounded"><xs:complexType><xs:attribute name="id" type="xs:string"/></xs:complexType></xs:element>
+</xs:sequence></xs:complexType><xs:unique name="ids"><xs:selector xpath="i"/><xs:field xpath="@id"/></xs:unique></xs:element>"#,
+    );
+    assert_eq!(
+        words(&unique, r#"<r><i id="x"/><i id="x"/></r>"#),
+        ["«x» doppelt (unique ids, /r/i/0)"]
+    );
+}
+
 #[cfg(feature = "yaml")]
 #[test]
 fn another_languages_value_is_checked_but_for_the_order() {

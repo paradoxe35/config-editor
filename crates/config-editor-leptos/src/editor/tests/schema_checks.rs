@@ -135,3 +135,72 @@ fn a_check_runs_once_per_validation_and_its_problems_are_capped_with_the_rest() 
     let (_, checks) = counted(Work::SchemaCheck, || plain.validate(Language::YAML, &text));
     assert_eq!(checks, 0);
 }
+
+/// Secrets in a check's messages (a schema marks them only with protection
+/// and validation).
+#[cfg(all(feature = "protect", feature = "schema-validation"))]
+mod secrets {
+    use super::*;
+
+    /// Each string value, quoted: a check's message may quote the document.
+    struct Quoting;
+
+    impl SchemaCheck for Quoting {
+        fn name(&self) -> Cow<'static, str> {
+            Cow::Borrowed("quotes every string")
+        }
+
+        fn check(&self, document: &CheckedDocument<'_>) -> Vec<CheckProblem> {
+            let Some(map) = document.value.as_object() else {
+                return Vec::new();
+            };
+            map.iter()
+                .filter_map(|(key, value)| Some((key, value.as_str()?)))
+                .map(|(key, text)| {
+                    CheckProblem::new(format!("/{key}"), format!("\"{text}\" is quoted"))
+                })
+                .collect()
+        }
+    }
+
+    /// A schema marking `password` secret, with the quoting check.
+    struct QuotingFormat;
+
+    impl SchemaCompiler for QuotingFormat {
+        fn info(&self) -> SchemaFormatInfo {
+            SchemaFormatInfo {
+                name: "quoting",
+                label: "Quoting",
+                extensions: &[],
+            }
+        }
+
+        fn compile(&self, _input: &SchemaInput<'_>) -> Result<CompiledSchema, SchemaError> {
+            let schema = json!({"properties": {
+                "password": {"type": "string", "x-secret": true},
+                "name": {"type": "string"}
+            }});
+            Ok(CompiledSchema::new(schema).with_checks(vec![Arc::new(Quoting)]))
+        }
+    }
+
+    static QUOTING: QuotingFormat = QuotingFormat;
+
+    /// A check's message passes the door every problem message does: the
+    /// secret it quotes is hidden (P1), the rest of it shown.
+    #[test]
+    fn a_check_message_never_shows_a_secret_it_quotes() {
+        let schema =
+            Schema::compile_as(SchemaFormat::new(&QUOTING), &SchemaInput::new("")).unwrap();
+        let mut messages: Vec<String> = schema
+            .validate(Language::YAML, "password: hunter22-x\nname: bob\n")
+            .into_iter()
+            .map(|problem| problem.message)
+            .collect();
+        messages.sort();
+        assert_eq!(
+            messages,
+            ["/name: \"bob\" is quoted", "/password: \"…\" is quoted"]
+        );
+    }
+}

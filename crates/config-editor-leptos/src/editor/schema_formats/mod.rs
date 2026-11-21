@@ -8,6 +8,11 @@
 //! it could not express ([`SchemaLoss`]). The rest of the editor sees only
 //! JSON Schema; this module and the format modules are the only places
 //! that know a format.
+//!
+//! Text is cut only through `text::slice` (as in the other modules reading
+//! user text): a schema's text is the host's.
+
+#![deny(clippy::string_slice)]
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -18,6 +23,7 @@ use serde_json::{Map, Value};
 use super::diagnostics::Severity;
 use super::language::ConfigLanguage;
 use super::schema::SchemaError;
+use crate::EditorStrings;
 
 mod bundle;
 pub(super) mod json;
@@ -311,6 +317,9 @@ pub struct CheckedDocument<'a> {
     /// The compiled JSON Schema (what the format wrote, `$ref`s as
     /// pointers), with any annotations the format added for its checks.
     pub schema: &'a Value,
+    /// The editor's texts (the `strings` setting), which the built-in
+    /// formats word their problems with.
+    pub strings: &'a EditorStrings,
 }
 
 /// A problem a [`SchemaCheck`] found.

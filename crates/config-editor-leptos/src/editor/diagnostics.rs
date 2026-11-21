@@ -456,6 +456,13 @@ pub(super) fn validate_keyed(
     let deprecated = schema
         .map(|schema| deprecation_warnings(&reading, schema, source, behavior, strings))
         .unwrap_or_default();
+    // What a format's check message may not quote, found once and only when
+    // a check finds a problem.
+    let secrets = std::cell::OnceCell::new();
+    let hidden = || {
+        secrets
+            .get_or_init(|| secret_texts(source, Some(&*reading), schema, behavior, placeholders))
+    };
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
         let read = schema_problems::Reading {
@@ -487,9 +494,9 @@ pub(super) fn validate_keyed(
         });
         diagnostics.extend(super::schema_checks::problems(
             schema,
-            behavior,
-            source,
-            reading.value(),
+            (behavior, source, &reading),
+            strings,
+            &|message| hide_secret_texts(message, hidden()),
         ));
         diagnostics.extend(deprecated);
         // In the order they are written (the validator finds them in the
@@ -507,9 +514,9 @@ pub(super) fn validate_keyed(
     if let Some(schema) = schema {
         found.extend(super::schema_checks::problems(
             schema,
-            behavior,
-            source,
-            reading.value(),
+            (behavior, source, &reading),
+            strings,
+            &|message| hide_secret_texts(message, hidden()),
         ));
     }
     (capped(found, strings), Vec::new())
@@ -613,24 +620,43 @@ pub(super) fn save_message(
     behavior: &dyn ConfigLanguage,
     placeholders: Placeholders<'_>,
 ) -> String {
+    hide_secret_texts(
+        message,
+        &secret_texts(source, None, schema, behavior, placeholders),
+    )
+}
+
+/// The texts of `source` (in `behavior`; `reading`: its reading by the
+/// schema, when there is one) no message may quote, as [`save_message`]
+/// hides them: as written and as JSON quotes them, the longest first.
+fn secret_texts(
+    source: &str,
+    reading: Option<&super::data_reading::DataReading>,
+    schema: Option<&SchemaBundle>,
+    behavior: &dyn ConfigLanguage,
+    placeholders: Placeholders<'_>,
+) -> Vec<String> {
     #[cfg(feature = "schema-validation")]
     let marked = schema
         .filter(|schema| schema.has_marks)
         .and_then(|schema| {
-            let data = super::data_reading::read(behavior, source, Some(&schema.schema)).ok()?;
-            let secrets = schema_problems::secrets(
-                schema_problems::Reading {
-                    data: &data,
-                    behavior,
-                },
-                schema,
-            );
+            let read;
+            let data = match reading {
+                Some(data) => data,
+                None => {
+                    read =
+                        super::data_reading::read(behavior, source, Some(&schema.schema)).ok()?;
+                    &read
+                }
+            };
+            let secrets =
+                schema_problems::secrets(schema_problems::Reading { data, behavior }, schema);
             Some(secrets.hidden_texts(data.value()))
         })
         .unwrap_or_default();
     #[cfg(not(feature = "schema-validation"))]
     let marked: Vec<String> = {
-        let _ = schema;
+        let _ = (schema, reading);
         Vec::new()
     };
     let mut texts: Vec<String> = held_texts(source, behavior, placeholders)
@@ -650,6 +676,12 @@ pub(super) fn save_message(
     // The longest first: a secret holding another is hidden whole.
     texts.sort_by_key(|text| std::cmp::Reverse(text.len()));
     texts.dedup();
+    texts
+}
+
+/// `message` with each of `texts` (see [`secret_texts`]) it quotes shown as
+/// `…`.
+fn hide_secret_texts(message: &str, texts: &[String]) -> String {
     texts.iter().fold(message.to_string(), |message, text| {
         hide_quoted(&message, text)
     })

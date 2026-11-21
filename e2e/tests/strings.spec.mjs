@@ -74,6 +74,16 @@ const ELSEWHERE = {
     "an unusable secrets pattern: protect pattern_tests (JS throws before mounting)",
   invalidSchemaSource:
     "a schema its format refuses: JS throws before mounting (schema-formats.spec checks the message); shown inline in schema_formats tests (a_formatted_source_resolves_and_its_error_names_the_format)",
+  xsdNotDeclared:
+    "an XSD check (the opt-in xsd feature, not in this page's build): xsd checks tests (the_checks_word_their_problems_with_the_editors_texts)",
+  xsdNoMoreElements: "as xsdNotDeclared",
+  xsdElementNotExpected: "as xsdNotDeclared",
+  xsdElementMissing: "as xsdNotDeclared",
+  xsdOneOf: "as xsdNotDeclared",
+  xsdAnotherElement: "as xsdNotDeclared",
+  xsdKeyNeedsValue: "as xsdNotDeclared",
+  xsdValueRepeated: "as xsdNotDeclared",
+  xsdKeyrefUnknown: "as xsdNotDeclared",
   oneOf:
     "needs an object oneOf before any option matches (a schema problem, whose hover takes its place): choices_matrix",
   saveHeld: "a hold that cannot tell its cause: protect hold_cause_tests",

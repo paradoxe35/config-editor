@@ -66,6 +66,53 @@ fn a_named_schema_of_an_openapi_3_0_document_is_the_schema() {
     assert_eq!(loss.effect, LossEffect::Approximated);
 }
 
+/// The rewrite reads a schema's schemas as every walk does: a property
+/// named `xml` or `discriminator` is a schema, OpenAPI's `xml`, `example`
+/// and `discriminator` notes are data, and a discriminator's loss names
+/// its place.
+#[test]
+fn openapi_notes_are_data_and_properties_named_like_them_are_schemas() {
+    let api = r##"{"openapi": "3.0.3", "components": {"schemas": {
+      "A": {"type": "object", "properties": {
+        "xml": {"$ref": "#/components/schemas/B"},
+        "discriminator": {"$ref": "#/components/schemas/B", "nullable": true},
+        "c": {"type": "string", "xml": {"name": "c", "$ref": "#/components/schemas/B"}, "example": {"$ref": "#/components/schemas/B"}}
+      }, "oneOf": [{"$ref": "#/components/schemas/B"}], "discriminator": {"propertyName": "kind", "mapping": {"b": "#/components/schemas/B"}}},
+      "B": {"type": "integer"}
+    }}}"##;
+    let schema = compile(api, Some("A")).unwrap();
+    let a = &schema.json()["$defs"]["A"];
+    assert_eq!(a["properties"]["xml"]["$ref"], json!("#/$defs/B"));
+    assert_eq!(
+        a["properties"]["discriminator"]["anyOf"][0]["$ref"],
+        json!("#/$defs/B")
+    );
+    assert_eq!(
+        a["properties"]["c"]["xml"]["$ref"],
+        json!("#/components/schemas/B"),
+        "the XML object is data"
+    );
+    assert_eq!(
+        a["properties"]["c"]["examples"],
+        json!([{"$ref": "#/components/schemas/B"}])
+    );
+    assert_eq!(
+        a["discriminator"]["mapping"]["b"],
+        json!("#/components/schemas/B")
+    );
+    let places: Vec<&str> = schema
+        .losses()
+        .iter()
+        .filter(|loss| loss.construct == "discriminator")
+        .map(|loss| loss.message.as_str())
+        .collect();
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(
+        places[0].starts_with("#/components/schemas/A: "),
+        "{places:?}"
+    );
+}
+
 #[cfg(all(feature = "schema-validation", feature = "yaml"))]
 #[test]
 fn an_openapi_schema_validates_documents() {

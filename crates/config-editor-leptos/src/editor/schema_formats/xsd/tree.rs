@@ -8,8 +8,9 @@ use std::rc::Rc;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
+use super::super::super::paths::{Lines, lines};
 use super::super::super::schema::SchemaError;
-use super::super::super::text::{TextSize, text_size};
+use super::super::super::text::{TextSize, slice, text_size};
 
 /// The XML Schema namespace.
 pub(super) const XSD_NS: &str = "http://www.w3.org/2001/XMLSchema";
@@ -100,28 +101,6 @@ impl Node {
     }
 }
 
-/// Byte offsets of each line's start, to place an element.
-struct Lines(Vec<usize>);
-
-impl Lines {
-    fn of(text: &str) -> Self {
-        let mut starts = vec![0];
-        starts.extend(text.match_indices('\n').map(|(at, _)| at + 1));
-        Lines(starts)
-    }
-
-    /// One-based line and character column of byte `at` in `text`.
-    fn place(&self, text: &str, at: TextSize) -> (usize, usize) {
-        let at = usize::from(at);
-        let line = self.0.partition_point(|start| *start <= at);
-        let start = self.0[line - 1];
-        let column = text
-            .get(start..at)
-            .map_or(1, |before| before.chars().count() + 1);
-        (line, column)
-    }
-}
-
 /// The root element of the file at `location` (a resource), its errors
 /// and its elements naming the file.
 pub(super) fn read_at(text: &str, location: &str) -> Result<Node, SchemaError> {
@@ -138,9 +117,10 @@ pub(super) fn read_at(text: &str, location: &str) -> Result<Node, SchemaError> {
 
 /// The document's root element, or why `text` is no XML.
 pub(super) fn read(text: &str) -> Result<Node, SchemaError> {
-    let lines = Lines::of(text);
+    // Split once: every element is placed by a lookup.
+    let lines = lines(text);
     let error = |at: TextSize, message: String| {
-        let (line, column) = lines.place(text, at.min(text_size(text.len())));
+        let (line, column) = lines.line_column(text, at);
         SchemaError(format!("{message} (line {line}, column {column})"))
     };
     let mut reader = Reader::from_str(text);
@@ -289,9 +269,12 @@ fn open(
         .find(|(known, _)| *known == prefix)
         .map(|(_, uri)| uri.clone())
         .filter(|uri| !uri.is_empty());
-    let start = usize::from(start);
-    let at = text_size(start + text[start..].find('<').unwrap_or(0));
-    let (line, column) = lines.place(text, at);
+    // The element starts at its `<`, after any text read with it.
+    let at = start
+        + slice::after(text, start)
+            .and_then(|rest| rest.find('<'))
+            .map_or(TextSize::default(), text_size);
+    let (line, column) = lines.line_column(text, at);
     Ok(Node {
         namespace,
         name,

@@ -24,7 +24,10 @@ use std::collections::{BTreeSet, HashMap};
 use serde_json::{Map, Value};
 
 use super::super::{CheckProblem, CheckedDocument, SchemaCheck};
-use automaton::{Automaton, Child, Mismatch, Namespace, Namespaces, Occurs};
+use crate::EditorStrings;
+use crate::editor::language::pointer_segments;
+use crate::strings::fill;
+use automaton::{Automaton, Child, Expected, Mismatch, Namespace, Namespaces, Occurs};
 use text_order::Element;
 
 /// The keyword holding an element's content model.
@@ -99,6 +102,7 @@ impl SchemaCheck for ContentCheck {
 
     fn check(&self, document: &CheckedDocument<'_>) -> Vec<CheckProblem> {
         let text = text_order::read(document);
+        let strings = document.strings;
         let mut problems = Vec::new();
         let root = document.schema;
         // Each model's automaton, built once per check.
@@ -136,7 +140,10 @@ impl SchemaCheck for ContentCheck {
                 let mut refused = Vec::new();
                 match (element, &content.attributes) {
                     (Some(element), Some(declared)) => {
-                        attribute_problems(element, map, declared, content, pointer, &mut problems);
+                        let found = attribute_problems(element, map, declared, content, pointer);
+                        problems.extend(found.into_iter().map(|(at, name)| {
+                            CheckProblem::new(at, not_allowed(&name, strings)).at_key()
+                        }));
                     }
                     (None, Some(declared)) if !content.lax => {
                         refused = unknown_keys(map, declared, content);
@@ -145,7 +152,8 @@ impl SchemaCheck for ContentCheck {
                                 "{pointer}/{}",
                                 super::super::super::language::pointer_key(key)
                             );
-                            problems.push(CheckProblem::new(at, not_allowed(key)).at_key());
+                            problems
+                                .push(CheckProblem::new(at, not_allowed(key, strings)).at_key());
                         }
                     }
                     _ => {}
@@ -164,7 +172,7 @@ impl SchemaCheck for ContentCheck {
                     // Another language's keys: in the model's order (the
                     // order is XML's; TOML and HCL write tables last).
                     None => {
-                        let mut names: Vec<String> = children_of(map, branches)
+                        let mut names: Vec<String> = child_element_names(map, branches)
                             .into_iter()
                             .filter(|name| !refused.contains(name))
                             .collect();
@@ -248,12 +256,14 @@ impl SchemaCheck for ContentCheck {
                             ),
                             None => pointer.to_string(),
                         };
-                        problems
-                            .push(CheckProblem::new(child, unexpected(name, &expected)).at_key());
+                        problems.push(
+                            CheckProblem::new(child, unexpected(name, &expected, strings)).at_key(),
+                        );
                     }
                     Err(Mismatch::Missing { expected }) => {
                         problems.push(
-                            CheckProblem::new(pointer.to_string(), missing(&expected)).at_key(),
+                            CheckProblem::new(pointer.to_string(), missing(&expected, strings))
+                                .at_key(),
                         );
                     }
                 }
@@ -283,7 +293,7 @@ impl SchemaCheck for IdentityCheck {
                 }
             },
         );
-        identity::check(&scopes)
+        identity::check(&scopes, document.strings)
     }
 }
 
@@ -317,20 +327,21 @@ fn unknown_keys(map: &Map<String, Value>, declared: &[&str], content: &Content<'
 
 /// A key (an attribute in XML) neither declared nor allowed by a wildcard:
 /// the same words in every language.
-fn not_allowed(name: &str) -> String {
-    format!("\"{name}\" is neither declared here nor allowed by a wildcard")
+fn not_allowed(name: &str, strings: &EditorStrings) -> String {
+    fill(&strings.xsd_not_declared, &[("name", &name)])
 }
 
 /// The attributes of `element` neither declared nor allowed by the
-/// attribute wildcard's namespaces.
+/// attribute wildcard's namespaces: where each is (its key's pointer, or
+/// the element's) and its name.
 fn attribute_problems(
     element: &Element,
     map: &Map<String, Value>,
     declared: &[&str],
     content: &Content<'_>,
     pointer: &str,
-    problems: &mut Vec<CheckProblem>,
-) {
+) -> Vec<(String, String)> {
+    let mut problems = Vec::new();
     for (name, namespace) in &element.attributes {
         let known = match namespace.as_deref() {
             None => declared.contains(&name.as_str()),
@@ -363,9 +374,9 @@ fn attribute_problems(
                 )
             },
         );
-        let message = not_allowed(name);
-        problems.push(CheckProblem::new(at, message).at_key());
+        problems.push((at, name.clone()));
     }
+    problems
 }
 
 /// Whether the JSON Schema already finds a problem with the children of
@@ -410,7 +421,7 @@ fn json_schema_reports(
     }
     !content.wildcard
         && !content.lax
-        && children_of(map, branches)
+        && child_element_names(map, branches)
             .iter()
             .any(|name| !content.names.contains(name))
 }
@@ -425,7 +436,7 @@ enum Node<'a> {
 /// The element children of `map` (an element's value) in the order of its
 /// keys, each as often as written (a list: once per item); attributes
 /// (`xml.attribute`, `@name`, prefixed names) and text are no children.
-fn children_of(map: &Map<String, Value>, branches: &[&Value]) -> Vec<String> {
+fn child_element_names(map: &Map<String, Value>, branches: &[&Value]) -> Vec<String> {
     let property = |key: &str| {
         branches.iter().find_map(|branch| {
             branch
@@ -512,8 +523,7 @@ fn node_at<'n>(top: Option<Node<'n>>, document: &Value, pointer: &str) -> Option
     let mut value = document;
     let mut node = top;
     let mut listed: Option<Vec<&'n Element>> = None;
-    for token in pointer.split('/').skip(1) {
-        let key = token.replace("~1", "/").replace("~0", "~");
+    for key in pointer_segments(pointer) {
         match value {
             Value::Object(map) => {
                 value = map.get(&key)?;
@@ -552,28 +562,39 @@ fn node_at<'n>(top: Option<Node<'n>>, document: &Value, pointer: &str) -> Option
     node
 }
 
-fn unexpected(name: &str, expected: &[String]) -> String {
+fn unexpected(name: &str, expected: &[Expected], strings: &EditorStrings) -> String {
     if expected.is_empty() {
-        format!("<{name}> is not expected here: no more elements are allowed")
+        fill(&strings.xsd_no_more_elements, &[("name", &name)])
     } else {
-        format!(
-            "<{name}> is not expected here; expected {}",
-            listed(expected)
+        fill(
+            &strings.xsd_element_not_expected,
+            &[("name", &name), ("expected", &listed(expected, strings))],
         )
     }
 }
 
-fn missing(expected: &[String]) -> String {
-    format!(
-        "an element is missing at the end: expected {}",
-        listed(expected)
+fn missing(expected: &[Expected], strings: &EditorStrings) -> String {
+    fill(
+        &strings.xsd_element_missing,
+        &[("expected", &listed(expected, strings))],
     )
 }
 
-fn listed(names: &[String]) -> String {
-    match names {
+/// What may come, worded: `<name>` for an element.
+fn listed(expected: &[Expected], strings: &EditorStrings) -> String {
+    let worded: Vec<String> = expected
+        .iter()
+        .map(|expected| match expected {
+            Expected::Element(name) => format!("<{name}>"),
+            Expected::Any => strings.xsd_another_element.clone(),
+        })
+        .collect();
+    match worded.as_slice() {
         [one] => one.clone(),
-        [rest @ .., last] => format!("one of {} or {last}", rest.join(", ")),
+        [rest @ .., last] => fill(
+            &strings.xsd_one_of,
+            &[("names", &rest.join(", ")), ("last", last)],
+        ),
         [] => String::new(),
     }
 }

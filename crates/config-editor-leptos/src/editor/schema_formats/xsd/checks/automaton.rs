@@ -232,14 +232,25 @@ impl Occurs {
     }
 }
 
+/// What may come where a run of children went wrong: an element by name,
+/// or one a wildcard allows (named ones first).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(in super::super) enum Expected {
+    Element(String),
+    Any,
+}
+
 /// What a run of children found wrong.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in super::super) enum Mismatch {
     /// Child `index` is not allowed where it is; `expected` what would be
     /// (empty: nothing more is allowed).
-    Unexpected { index: usize, expected: Vec<String> },
+    Unexpected {
+        index: usize,
+        expected: Vec<Expected>,
+    },
     /// The children end before the model does; `expected` what must come.
-    Missing { expected: Vec<String> },
+    Missing { expected: Vec<Expected> },
 }
 
 /// A Thompson automaton: each state either matches one child and moves
@@ -387,15 +398,15 @@ fn run_states(states: &[State], first: usize, children: &[Child<'_>]) -> Result<
         }
         out
     };
-    let expected = |current: &[usize]| -> Vec<String> {
-        let mut found: BTreeSet<String> = BTreeSet::new();
+    let expected = |current: &[usize]| -> Vec<Expected> {
+        let mut found: BTreeSet<Expected> = BTreeSet::new();
         for at in current {
             match &states[*at] {
                 State::Symbol(Symbol::Name(name), _) => {
-                    found.insert(format!("<{name}>"));
+                    found.insert(Expected::Element(name.clone()));
                 }
                 State::Symbol(Symbol::Any(_), _) => {
-                    found.insert("another element".to_string());
+                    found.insert(Expected::Any);
                 }
                 _ => {}
             }
@@ -442,7 +453,7 @@ fn run_states(states: &[State], first: usize, children: &[Child<'_>]) -> Result<
 fn run_all(items: &[Occurs], min: u64, children: &[Child<'_>]) -> Result<(), Mismatch> {
     let mut counts = vec![0_u64; items.len()];
     let named = |item: &Occurs| match &item.particle {
-        Particle::Element(name) => Some(format!("<{name}>")),
+        Particle::Element(name) => Some(Expected::Element(name.clone())),
         _ => None,
     };
     for (index, child) in children.iter().enumerate() {
@@ -465,7 +476,7 @@ fn run_all(items: &[Occurs], min: u64, children: &[Child<'_>]) -> Result<(), Mis
     if children.is_empty() && min == 0 {
         return Ok(());
     }
-    let missing: Vec<String> = items
+    let missing: Vec<Expected> = items
         .iter()
         .zip(&counts)
         .filter(|(item, count)| **count < item.min)
@@ -480,7 +491,14 @@ fn run_all(items: &[Occurs], min: u64, children: &[Child<'_>]) -> Result<(), Mis
 
 #[cfg(test)]
 mod tests {
-    use super::{Automaton, Child, Mismatch, Namespace, Namespaces, Occurs, Particle};
+    use super::{Automaton, Child, Expected, Mismatch, Namespace, Namespaces, Occurs, Particle};
+
+    fn elements(names: &[&str]) -> Vec<Expected> {
+        names
+            .iter()
+            .map(|name| Expected::Element((*name).to_string()))
+            .collect()
+    }
 
     fn element(name: &str, min: u64, max: Option<u64>) -> Occurs {
         Occurs {
@@ -537,13 +555,13 @@ mod tests {
             run(&model, &["a", "b", "a"]),
             Err(Mismatch::Unexpected {
                 index: 2,
-                expected: vec!["<b>".into(), "<c>".into(), "<d>".into()]
+                expected: elements(&["b", "c", "d"])
             })
         );
         assert_eq!(
             run(&model, &["a"]),
             Err(Mismatch::Missing {
-                expected: vec!["<a>".into(), "<b>".into(), "<c>".into()]
+                expected: elements(&["a", "b", "c"])
             })
         );
         // Bounded counts.

@@ -594,12 +594,16 @@ impl XmlBehavior {
             .map(|previous| pasted_attributes::with_pasted_back(attribute_paths(previous), previous, told.sources()))
             .unwrap_or_default();
         // A schema marking a new value an attribute (`xml.attribute`); what
-        // the text already writes keeps its form.
+        // the text already writes keeps its form. The text before is read
+        // once for both.
+        let mut before = None;
         if let Some(schema) = told.schema() {
-            let before = previous.and_then(|previous| xml_parse(previous).ok());
+            before = previous.and_then(|previous| xml_parse(previous).ok());
             attributes.extend(hints::schema_attribute_paths(value, schema, before.as_ref()));
         }
-        let old = previous.filter(|_| !attributes.is_empty()).and_then(|previous| xml_parse(previous).ok());
+        let old = previous
+            .filter(|_| !attributes.is_empty())
+            .and_then(|previous| before.or_else(|| xml_parse(previous).ok()));
         if let Some(reason) = attribute_values::first_container_attribute(value, old.as_ref(), &attributes) {
             return Err(reason);
         }

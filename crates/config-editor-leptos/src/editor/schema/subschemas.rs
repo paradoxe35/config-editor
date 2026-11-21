@@ -25,8 +25,11 @@ pub(crate) enum Holds {
 /// What the value of `keyword`, in a schema object, holds.
 pub(crate) fn holds(keyword: &str) -> Holds {
     match keyword {
-        // `example` is OpenAPI's single example.
-        "const" | "enum" | "default" | "examples" | "example" => Holds::Data,
+        // `example` is OpenAPI's single example; `xml`, `discriminator` and
+        // `externalDocs` are OpenAPI's notes on a schema (how XML writes it,
+        // which property names its option, where it is documented).
+        "const" | "enum" | "default" | "examples" | "example" | "xml" | "discriminator"
+        | "externalDocs" => Holds::Data,
         "properties" | "patternProperties" | "$defs" | "definitions" | "dependentSchemas"
         | "dependencies" => Holds::Named,
         _ => Holds::Schemas,
@@ -185,7 +188,16 @@ mod tests {
                 );
             }
         }
-        for data in ["const", "enum", "default", "examples", "example"] {
+        for data in [
+            "const",
+            "enum",
+            "default",
+            "examples",
+            "example",
+            "xml",
+            "discriminator",
+            "externalDocs",
+        ] {
             let schema = json!({ data: {"title": "data", "properties": {"a": {}}} });
             let mut visited = 0;
             each_schema(&schema, &(), &mut |_, _, ()| {

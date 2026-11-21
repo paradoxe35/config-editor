@@ -8,7 +8,10 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{Value, json};
 
 use super::super::super::CheckProblem;
+use crate::EditorStrings;
+use crate::editor::language::pointer_key;
 use crate::editor::languages::XML_TEXT_KEY;
+use crate::strings::fill;
 
 /// One constraint as the compiler writes it (`x-xsd-identity`).
 #[derive(Clone, Debug, PartialEq)]
@@ -80,7 +83,7 @@ fn parse(text: &str, field: bool) -> Option<Vec<Path>> {
                     "*" => steps.push(Step::AnyChild),
                     "" => return None,
                     _ if step.starts_with('@') && field && last => {
-                        let name = step[1..].rsplit(':').next()?.to_string();
+                        let name = step.strip_prefix('@')?.rsplit(':').next()?.to_string();
                         steps.push(Step::Attribute(name));
                     }
                     _ if step.chars().all(|character| {
@@ -121,8 +124,7 @@ fn select<'v>(value: &'v Value, pointer: &str, path: &Path) -> Vec<(&'v Value, S
                 continue;
             };
             let mut take = |key: &str, child: &'v Value| {
-                let child_pointer =
-                    format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1"));
+                let child_pointer = format!("{pointer}/{}", pointer_key(key));
                 match child {
                     Value::Array(items) => {
                         for (index, item) in items.iter().enumerate() {
@@ -145,7 +147,7 @@ fn select<'v>(value: &'v Value, pointer: &str, path: &Path) -> Vec<(&'v Value, S
                         name.clone()
                     };
                     if let Some(child) = map.get(&key) {
-                        next.push((child, format!("{pointer}/{key}")));
+                        next.push((child, format!("{pointer}/{}", pointer_key(&key))));
                     }
                 }
                 Step::AnyChild => {
@@ -167,11 +169,7 @@ fn descendants<'v>(value: &'v Value, pointer: String, into: &mut Vec<(&'v Value,
     match value {
         Value::Object(map) => {
             for (key, child) in map {
-                descendants(
-                    child,
-                    format!("{pointer}/{}", key.replace('~', "~0").replace('/', "~1")),
-                    into,
-                );
+                descendants(child, format!("{pointer}/{}", pointer_key(key)), into);
             }
         }
         Value::Array(items) => {
@@ -198,8 +196,12 @@ fn text(value: &Value) -> Option<String> {
 }
 
 /// The problems of every constraint of `scopes`: each element instance
-/// (its pointer and value) with the constraints declared on it.
-pub(super) fn check(scopes: &[(String, &Value, &Vec<Value>)]) -> Vec<CheckProblem> {
+/// (its pointer and value) with the constraints declared on it, worded by
+/// `strings`.
+pub(super) fn check(
+    scopes: &[(String, &Value, &Vec<Value>)],
+    strings: &EditorStrings,
+) -> Vec<CheckProblem> {
     let mut problems = Vec::new();
     // The values of each key and unique, by name, for keyrefs.
     let mut keys: HashMap<String, HashSet<Vec<String>>> = HashMap::new();
@@ -234,10 +236,12 @@ pub(super) fn check(scopes: &[(String, &Value, &Vec<Value>)]) -> Vec<CheckProble
                         if constraint.kind == "key" {
                             problems.push(CheckProblem::new(
                                 node_pointer.clone(),
-                                format!(
-                                    "the xs:key \"{}\" needs a value for {}",
-                                    constraint.name,
-                                    constraint.fields.join(", ")
+                                fill(
+                                    &strings.xsd_key_needs_value,
+                                    &[
+                                        ("name", &constraint.name),
+                                        ("fields", &constraint.fields.join(", ")),
+                                    ],
                                 ),
                             ));
                         }
@@ -251,11 +255,14 @@ pub(super) fn check(scopes: &[(String, &Value, &Vec<Value>)]) -> Vec<CheckProble
                     if let Some(first) = seen.get(&tuple) {
                         problems.push(CheckProblem::new(
                             node_pointer.clone(),
-                            format!(
-                                "\"{}\" is already the value of the xs:{} \"{}\" at {first}",
-                                tuple.join(", "),
-                                constraint.kind,
-                                constraint.name
+                            fill(
+                                &strings.xsd_value_repeated,
+                                &[
+                                    ("value", &tuple.join(", ")),
+                                    ("kind", &constraint.kind),
+                                    ("name", &constraint.name),
+                                    ("first", first),
+                                ],
                             ),
                         ));
                     } else {
@@ -273,10 +280,13 @@ pub(super) fn check(scopes: &[(String, &Value, &Vec<Value>)]) -> Vec<CheckProble
         if !keys.get(&refer).is_some_and(|known| known.contains(&tuple)) {
             problems.push(CheckProblem::new(
                 pointer,
-                format!(
-                    "\"{}\" is no value of the xs:key \"{refer}\" (xs:keyref \"{}\")",
-                    tuple.join(", "),
-                    constraint.name
+                fill(
+                    &strings.xsd_keyref_unknown,
+                    &[
+                        ("value", &tuple.join(", ")),
+                        ("key", &refer),
+                        ("name", &constraint.name),
+                    ],
                 ),
             ));
         }

@@ -45,8 +45,7 @@ pub(super) fn schema_attribute_paths(value: &Value, schema: &Value, old: Option<
 fn follow<'o>(value: &Value, old: Option<&'o Value>, pointer: &str) -> Option<(Vec<String>, Option<&'o Value>)> {
     let mut keys = Vec::new();
     let (mut here, mut before) = (value, old);
-    for token in pointer.split('/').skip(1) {
-        let token = token.replace("~1", "/").replace("~0", "~");
+    for token in pointer_segments(pointer) {
         match here {
             Value::Object(map) => {
                 here = map.get(&token)?;

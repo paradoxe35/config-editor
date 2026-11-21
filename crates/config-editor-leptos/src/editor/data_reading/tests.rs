@@ -92,7 +92,12 @@ fn a_lone_object_is_a_list_item_once_its_text_is_read_as_the_item_wants() {
     let schema = json!({"properties": {"x_one": {"oneOf": [
         {"type": "object", "additionalProperties": false},
         {"type": "array", "items": {"properties": {"c": {"type": "string"}}}}]}}});
-    let reading = conform(json!({"x_one": {"c": true}}), &schema, Repetition::Elements, true);
+    let reading = conform(
+        json!({"x_one": {"c": true}}),
+        &schema,
+        Repetition::Elements,
+        true,
+    );
     assert_eq!(reading.value(), &json!({"x_one": [{"c": "true"}]}));
     assert_eq!(reading.node("/x_one").occurs, Occurs::ListOfOne);
     assert_eq!(
@@ -104,7 +109,12 @@ fn a_lone_object_is_a_list_item_once_its_text_is_read_as_the_item_wants() {
     let taken = json!({"properties": {"x_one": {"oneOf": [
         {"type": "object"},
         {"type": "array", "items": {"properties": {"c": {"type": "string"}}}}]}}});
-    let reading = conform(json!({"x_one": {"c": true}}), &taken, Repetition::Elements, true);
+    let reading = conform(
+        json!({"x_one": {"c": true}}),
+        &taken,
+        Repetition::Elements,
+        true,
+    );
     assert_eq!(reading.value(), &json!({"x_one": {"c": true}}));
 }
 

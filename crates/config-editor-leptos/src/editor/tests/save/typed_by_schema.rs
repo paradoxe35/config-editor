@@ -68,7 +68,7 @@ fn typed_over(language: Language, text: &str, pointer: &str, typed: &str) -> Opt
 }
 
 /// XML read by a schema reads every decimal form as the number (an XML
-/// host's `1.50` is the number 1.5, E21-3); every view's spelling of a
+/// host's `1.50` is the number 1.5); every view's spelling of a
 /// number or boolean it reads as one saves as the schema's type, and the
 /// host keeps the spelling where it reads it the same.
 #[test]

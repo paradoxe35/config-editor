@@ -8,6 +8,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use serde_json::{Map, Value, json};
 
+use super::super::super::language::pointer_key;
 use super::super::super::schema::SchemaError;
 use super::super::{LossEffect, SchemaLoss};
 use super::checks::IDENTITY;
@@ -162,7 +163,7 @@ fn occurs(node: &Node) -> Result<(u64, Option<u64>), String> {
 
 /// The pointer of `$defs` entry `name`.
 fn reference(name: &str) -> Value {
-    json!({ "$ref": format!("#/$defs/{}", name.replace('~', "~0").replace('/', "~1")) })
+    json!({ "$ref": format!("#/$defs/{}", pointer_key(name)) })
 }
 
 impl<'a> Compiler<'a> {

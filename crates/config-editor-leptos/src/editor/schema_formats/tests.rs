@@ -361,7 +361,7 @@ fn sources_share_a_key_only_when_everything_they_compile_from_is_the_same() {
     assert_eq!(SchemaSource::Compiled(compiled).key(), None);
 }
 
-/// Phase 5: a JSON Schema's `$ref`s to other files are bundled from the
+/// A JSON Schema's `$ref`s to other files are bundled from the
 /// resources (resolved against the schema's location, then as written),
 /// files they refer to come along, each file's own pointers point into its
 /// copy, and completion and validation both follow them.

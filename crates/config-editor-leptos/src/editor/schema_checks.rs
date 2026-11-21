@@ -1,32 +1,41 @@
 //! Running a schema's extra checks (`SchemaCheck`, from its format) where
 //! the editor validates: on the same text and value, their problems placed
 //! by pointer as the schema's own are, under the same cap. The core knows
-//! nothing of what a check checks.
+//! nothing of what a check checks; a check's message may quote the
+//! document's values, so what it quotes of a secret is hidden as in every
+//! message the editor shows.
+
+#![deny(clippy::string_slice)]
 
 use serde_json::Value;
 
+use super::data_reading::DataReading;
 use super::diagnostics::Diagnostic;
 use super::language::ConfigLanguage;
 use super::schema::SchemaBundle;
 use super::schema_formats::CheckedDocument;
 use super::work_count::{Work, note};
+use crate::EditorStrings;
 
-/// The problems `schema`'s checks find in `document` (`source` read in
-/// `behavior`), placed in `source`.
+/// The problems `schema`'s checks find in a document (`source` read in
+/// `behavior` as `reading`), worded by `strings` and placed in `source`,
+/// each message passed through `hide` (which hides the secrets it quotes).
 pub(super) fn problems(
     schema: &SchemaBundle,
-    behavior: &dyn ConfigLanguage,
-    source: &str,
-    document: &Value,
+    (behavior, source, reading): (&dyn ConfigLanguage, &str, &DataReading),
+    strings: &EditorStrings,
+    hide: &dyn Fn(&str) -> String,
 ) -> Vec<Diagnostic> {
     if schema.checks.is_empty() {
         return Vec::new();
     }
+    let document = reading.value();
     let checked = CheckedDocument {
         text: source,
         language: behavior,
         value: document,
         schema: &schema.schema,
+        strings,
     };
     let found: Vec<_> = schema
         .checks
@@ -63,10 +72,11 @@ pub(super) fn problems(
                 .or_else(|| behavior.first_span(source));
                 // As the schema's problems: the pointer first, but at the
                 // root.
+                let shown = hide(&problem.message);
                 let message = if problem.pointer.is_empty() {
-                    problem.message
+                    shown
                 } else {
-                    format!("{}: {}", problem.pointer, problem.message)
+                    format!("{}: {shown}", problem.pointer)
                 };
                 Diagnostic {
                     line: location.map(|location| location.line),

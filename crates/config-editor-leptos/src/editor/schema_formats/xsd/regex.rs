@@ -45,17 +45,18 @@ pub(super) fn translate(pattern: &str) -> Result<String, String> {
                         }
                     }
                     'p' | 'P' => {
-                        let rest: String = characters[index..].iter().collect();
-                        let Some(end) = rest.find('}') else {
+                        // In characters from the `{`.
+                        let rest = characters.get(index..).unwrap_or_default();
+                        let Some(end) = rest.iter().position(|character| *character == '}') else {
                             return Err("an unclosed \\p{…}".to_string());
                         };
-                        let name = &rest[1..end];
+                        let name: String = rest.get(1..end).unwrap_or_default().iter().collect();
                         if name.starts_with("Is") {
                             return Err(format!("the Unicode block \\{next}{{{name}}}"));
                         }
                         out.push('\\');
                         out.push(next);
-                        out.push_str(&rest[..=end]);
+                        out.extend(rest.get(..=end).unwrap_or_default());
                         index += end + 1;
                     }
                     // Escapes both read alike.

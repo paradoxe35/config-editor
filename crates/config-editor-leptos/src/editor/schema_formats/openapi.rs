@@ -8,7 +8,8 @@
 
 use serde_json::{Map, Value, json};
 
-use super::super::schema::SchemaError;
+use super::super::language::pointer_key;
+use super::super::schema::{SchemaError, each_schema, each_schema_mut};
 use super::{
     CompiledSchema, LossEffect, SchemaCompiler, SchemaFormatInfo, SchemaInput, SchemaLoss,
 };
@@ -110,18 +111,16 @@ impl SchemaCompiler for OpenApi {
         let mut defs = Map::new();
         for (key, schema) in schemas {
             let mut schema = schema.clone();
-            rewrite(
-                &mut schema,
-                prefix,
-                legacy,
-                &format!("{prefix}{key}"),
-                &mut losses,
-            );
+            losses.extend(discriminator_losses(
+                &schema,
+                &format!("{prefix}{}", pointer_key(key)),
+            ));
+            rewrite(&mut schema, prefix, legacy);
             defs.insert(key.clone(), schema);
         }
         let schema = json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "$ref": format!("#/$defs/{}", name.replace('~', "~0").replace('/', "~1")),
+            "$ref": format!("#/$defs/{}", pointer_key(&name)),
             "$defs": defs,
         });
         Ok(CompiledSchema::new(schema).with_losses(losses))
@@ -141,59 +140,40 @@ impl OpenApi {
     }
 }
 
-/// `schema` (at `pointer` in the document) as JSON Schema 2020-12: refs to
-/// named schemas point into `$defs`; with `legacy` (3.0, Swagger) the
-/// keywords that differ are rewritten.
-fn rewrite(
-    schema: &mut Value,
-    prefix: &str,
-    legacy: bool,
-    pointer: &str,
-    losses: &mut Vec<SchemaLoss>,
-) {
-    match schema {
-        Value::Object(map) => {
-            if let Some(Value::String(reference)) = map.get_mut("$ref")
-                && let Some(name) = reference.strip_prefix(prefix)
-            {
-                *reference = format!("#/$defs/{name}");
-            }
-            if legacy {
-                legacy_keywords(map);
-            }
-            if map.contains_key("discriminator") {
-                losses.push(SchemaLoss::new(
-                    "discriminator",
-                    LossEffect::Approximated,
-                    format!("{pointer}: the discriminator is not checked; the options are matched by their schemas"),
-                ));
-            }
-            for (key, member) in map.iter_mut() {
-                let at = format!("{pointer}/{key}");
-                match key.as_str() {
-                    // Data, not schemas.
-                    "enum" | "const" | "default" | "example" | "examples" | "xml"
-                    | "discriminator" | "externalDocs" | "required" => {}
-                    // Schemas by name.
-                    "properties" | "patternProperties" | "$defs" | "definitions"
-                    | "dependentSchemas" => {
-                        if let Value::Object(named) = member {
-                            for (name, schema) in named.iter_mut() {
-                                rewrite(schema, prefix, legacy, &format!("{at}/{name}"), losses);
-                            }
-                        }
-                    }
-                    _ => rewrite(member, prefix, legacy, &at, losses),
-                }
-            }
+/// `schema` as JSON Schema 2020-12: refs to named schemas point into
+/// `$defs`; with `legacy` (3.0, Swagger) the keywords that differ are
+/// rewritten. Each schema inside it is reached by the one walk over a
+/// schema's schemas, so a property named like a keyword is no keyword.
+fn rewrite(schema: &mut Value, prefix: &str, legacy: bool) {
+    each_schema_mut(schema, &mut |map| {
+        if let Some(Value::String(reference)) = map.get_mut("$ref")
+            && let Some(name) = reference.strip_prefix(prefix)
+        {
+            *reference = format!("#/$defs/{name}");
         }
-        Value::Array(items) => {
-            for (index, item) in items.iter_mut().enumerate() {
-                rewrite(item, prefix, legacy, &format!("{pointer}/{index}"), losses);
-            }
+        if legacy {
+            legacy_keywords(map);
         }
-        _ => {}
-    }
+    });
+}
+
+/// The losses of `schema` (at `pointer` in the document): each
+/// discriminator, which is not checked.
+fn discriminator_losses(schema: &Value, pointer: &str) -> Vec<SchemaLoss> {
+    let mut losses = Vec::new();
+    each_schema(schema, &(), &mut |at, members, ()| {
+        if members.contains_key("discriminator") {
+            losses.push(SchemaLoss::new(
+                "discriminator",
+                LossEffect::Approximated,
+                format!(
+                    "{pointer}{at}: the discriminator is not checked; the options are matched by their schemas"
+                ),
+            ));
+        }
+        Some(())
+    });
+    losses
 }
 
 /// OpenAPI 3.0 / Swagger keywords as 2020-12 says them.
