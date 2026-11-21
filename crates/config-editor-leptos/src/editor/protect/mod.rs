@@ -708,6 +708,15 @@ mod swallow_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod swallowed_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod taken_tests;
 #[cfg(all(
     test,

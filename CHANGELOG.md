@@ -178,6 +178,11 @@ versions move together.
   item's start tag (it was written as a child element). A custom
   language's `write_insert` gets such a list as `Fill::List`, its value
   `Fill::value`.
+- An edit lines away from a secret's placeholder that makes the list or
+  map holding it one string (`=` typed into a YAML item's `- `, or ` |`
+  typed after the parent's key) is refused, or held with the save
+  waiting, in every view; the host heard the placeholder glued to the
+  other items' text before.
 
 ## 0.1.1 — 2026-11-21
 

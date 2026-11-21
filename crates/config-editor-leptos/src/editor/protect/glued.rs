@@ -77,7 +77,8 @@ pub(super) enum Holding<'a> {
     Not,
     /// The token alone: as the host wrote it, or bare.
     Alone(&'a str),
-    /// A string holding the token with other text beside it.
+    /// A string holding the token with other text beside it: the field's,
+    /// or the one a parent became with the field gone (see `swallowed`).
     Beside(&'a str),
     /// A list or map holding the token in one of its strings (an XML
     /// element given a child or an attribute, a value put in brackets).
@@ -109,7 +110,10 @@ pub(super) fn holding<'a>(
         return match field_value(behavior, document, field) {
             Some(Value::String(text)) if known.alone_in(text) => Holding::Alone(text),
             Some(Value::String(text)) if text.contains(&known.token) => Holding::Beside(text),
-            _ => Holding::Not,
+            Some(_) => Holding::Not,
+            None => {
+                swallowed(behavior, document, field, known).map_or(Holding::Not, Holding::Beside)
+            }
         };
     }
     // The strings holding it as the field's value or a copy of it (with
@@ -175,8 +179,38 @@ pub(super) fn holding<'a>(
     match own.first() {
         Some((text, _)) if known.alone_in(text) => Holding::Alone(text),
         Some((text, _)) => Holding::Beside(text),
-        None => Holding::Not,
+        None => swallowed(behavior, document, field, known).map_or(Holding::Not, Holding::Beside),
     }
+}
+
+/// The string a parent of `field` (gone from `document`) became, when it
+/// holds `known`'s token with other text: an edit lines away from the token
+/// that made the field's list or map one scalar running over its lines (a
+/// YAML item's `- ` typed into `-=`, a `|` typed after the parent's key).
+/// No reading relates that string to the field, yet the host would hear
+/// the token glued in its parent's value.
+fn swallowed<'a>(
+    behavior: &dyn ConfigLanguage,
+    document: &'a Value,
+    field: &str,
+    known: &Known,
+) -> Option<&'a str> {
+    if field_value(behavior, document, field).is_some() {
+        return None;
+    }
+    let mut parent = field;
+    while let Some(cut) = parent.rfind('/') {
+        parent = parent.get(..cut).unwrap_or_default();
+        match field_value(behavior, document, parent) {
+            Some(Value::String(text)) => {
+                return (text.contains(&known.token) && !known.alone_in(text))
+                    .then_some(text.as_str());
+            }
+            Some(_) => return None,
+            None => {}
+        }
+    }
+    None
 }
 
 /// How a string at `holder` stands to the field at `field`.

@@ -339,6 +339,52 @@ fn a_list_made_one_scalar_by_a_cut_never_glues_a_placeholder() {
     );
 }
 
+/// Seed 424242 (sub-seed 431050), P1: in a YAML view of a TOML host,
+/// entries typed above a placeholder's item and `=` typed into the first
+/// item's `- ` make the list one plain scalar running over the lines, the
+/// placeholder inside it with other text, lines from the edit while the
+/// text before did not parse (an item `- {other`): refused.
+#[test]
+fn a_list_made_one_scalar_far_from_its_placeholder_never_glues_it() {
+    let setup = Setup {
+        case: 1,
+        lock: cases::Lock::Secret,
+        host: Some(Language::TOML),
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Type {
+                at: 29525,
+                text: 11,
+            },
+            Act::Type { at: 17375, text: 8 },
+            Act::Entry {
+                anchor: 3,
+                name: 7,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 10,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 3,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 8,
+                paste: false,
+            },
+            Act::Type { at: 45901, text: 7 },
+        ],
+    );
+}
+
 /// Seed 7633: a placeholder's list item moved down twice (Alt+Down), under
 /// `port: 1`, would read `1 - «…»`: refused (while a Replace All's
 /// rewritten lines cost no path lookup each, see `link_costs`).
