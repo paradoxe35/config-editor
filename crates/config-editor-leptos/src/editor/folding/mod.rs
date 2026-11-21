@@ -11,6 +11,7 @@
 //! - `follow`: folds move with edits; an edit touching one opens it.
 //! - `actions`: folding commands, and the folds through edits.
 //! - `keys`: the shortcuts; `components`: the chevrons and `…` chips.
+//! - `sticky`: sticky scroll, the header lines of the blocks scrolled past.
 //!
 //! How edits meet folds, as in VS Code: typing at the end of a folded line,
 //! Backspace at the start of the line after a fold, Delete at the end of a
@@ -24,6 +25,7 @@ mod components;
 mod follow;
 mod handle;
 mod keys;
+mod sticky;
 mod switch;
 pub(crate) mod texts;
 
@@ -65,6 +67,9 @@ pub(crate) struct FoldState {
     pub(crate) folded: RwSignal<Vec<FoldRange>>,
     /// What can fold in the document. Lazy: only read with folding on.
     pub(crate) fold_ranges: Memo<Vec<FoldRange>>,
+    /// The document's blocks, as fold ranges, while folding or sticky
+    /// scroll reads them: read once per edit for both.
+    pub(crate) blocks: Memo<Vec<FoldRange>>,
     /// The closed folds before an editing key opened some for its edit:
     /// put back if the edit is then refused (a read-only value).
     pub(crate) before_edit: StoredValue<Option<Vec<FoldRange>>>,
@@ -72,23 +77,33 @@ pub(crate) struct FoldState {
 
 impl FoldState {
     /// Folding for `text` (in `edit_language`), nothing folded. With
-    /// `enabled` off (the `folding` setting) nothing can fold.
+    /// `enabled` off (the `folding` setting) nothing can fold; the blocks
+    /// are read while it or `sticky` (the `sticky_scroll` setting) is on.
     pub(crate) fn new(
         text: RwSignal<String>,
         edit_language: RwSignal<super::languages::Language>,
         enabled: Memo<bool>,
+        sticky: Memo<bool>,
         readings: super::readings::Readings,
     ) -> Self {
-        let fold_ranges = readings.memo(text, move || {
-            if !enabled.get() {
+        let blocks = readings.memo(text, move || {
+            if !enabled.get() && !sticky.get() {
                 return Vec::new();
             }
             super::work_count::note(super::work_count::Work::FoldRanges);
             text.with(|text| edit_language.get().behavior().fold_ranges(text))
         });
+        let fold_ranges = Memo::new(move |_| {
+            if enabled.get() {
+                blocks.get()
+            } else {
+                Vec::new()
+            }
+        });
         Self {
             folded: RwSignal::new(Vec::new()),
             fold_ranges,
+            blocks,
             before_edit: StoredValue::new(None),
         }
     }

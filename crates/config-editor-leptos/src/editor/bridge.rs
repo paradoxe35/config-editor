@@ -61,6 +61,17 @@ mod shared;
 mod tags;
 mod written_anew;
 use changed_forms::{emptied_quotes, text_scalars, typed_spellings, whole_floats, wide_numbers};
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "protect",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+pub(super) use merge::paired;
 use merge::{View, merge_changes};
 
 /// A save's patch of the host's text: `previous` made to read as `new`.
@@ -549,7 +560,7 @@ impl Bridge {
                 codec::unmoved_comments(host, previous, old, target)
             }) {
                 return Err(ConvertError::Unsupported(format!(
-                    "these items cannot be moved with their comments: move them editing as {} (at {pointer})",
+                    "these items cannot be moved with their comments: move them while editing as {} (at {pointer})",
                     self.host.label()
                 ))
                 .into());
@@ -710,9 +721,25 @@ impl Bridge {
                     earlier,
                     over,
                 )?;
-                // Values the cut of what they referred to wrote out
-                // (YAML aliases), referring to it again where it is back.
-                let text = host.references_back(&text, origin).unwrap_or(text);
+                // Values the cut or move of what they referred to wrote out
+                // (YAML aliases), referring to it again where it is back:
+                // each where its links put it, not a value now at its old
+                // pointer. First as the host's last text wrote them, then
+                // as the session's first did.
+                let from_previous =
+                    placed_from(&items, |source| matches!(source, ItemSource::Previous(_)));
+                let text = host
+                    .references_back(&text, host_previous, &from_previous)
+                    .unwrap_or(text);
+                let text = if origin == host_previous {
+                    text
+                } else {
+                    let from_origin = placed_from(&items, |source| {
+                        matches!(source, ItemSource::Origin(_)) && earlier == origin
+                    });
+                    host.references_back(&text, origin, &from_origin)
+                        .unwrap_or(text)
+                };
                 Conversion { text, ..conversion }
             }
             None => conversion,
@@ -737,7 +764,7 @@ impl Bridge {
             &deleted,
         ) {
             return Err(ConvertError::Unsupported(format!(
-                "this edit would drop the comment `{words}` of a line it leaves as it was: make it editing as {} (at {pointer})",
+                "this edit would drop the comment `{words}` of a line it leaves as it was: make this edit while editing as {} (at {pointer})",
                 self.host.label()
             ))
             .into());
@@ -752,7 +779,7 @@ impl Bridge {
             edit_text,
         ) {
             return Err(ConvertError::Unsupported(format!(
-                "this edit would drop the comment `{words}`, which the view still shows: delete it in the view too, or make the edit editing as {}",
+                "this edit would drop the comment `{words}`, which the view still shows: delete it in the view too, or make the edit while editing as {}",
                 self.host.label()
             ))
             .into());
@@ -1029,6 +1056,16 @@ fn host_scalars(
     })
 }
 
+/// The items of a save whose source `items` (their links) tell is `from`
+/// (in one host text), as (pointer in the save, pointer in that text).
+fn placed_from(items: &ItemMap, from: impl Fn(&ItemSource) -> bool) -> Vec<(String, String)> {
+    items
+        .iter()
+        .filter(|(_, source)| from(source))
+        .map(|(to, source)| (to.clone(), source.pointer().to_string()))
+        .collect()
+}
+
 /// `target` (what the host reads back from writing `value`) with the host's
 /// own `old` value wherever `value` keeps it but the host would write it
 /// otherwise, and those pointers.
@@ -1125,7 +1162,10 @@ fn located(
     severity: Severity,
 ) -> Diagnostic {
     // A value missing from the text (the view dropped it) is placed on its
-    // nearest ancestor that is there.
+    // nearest ancestor that is there; a value inside an ancestor written
+    // between brackets (an item of a TOML or HCL `[…]`), which the
+    // language's own lookup does not reach, on itself.
+    let wanted = FieldPath::from(pointer).texts();
     let mut at = pointer;
     let span = loop {
         let path = FieldPath::from(at);
@@ -1133,7 +1173,11 @@ fn located(
             .value_span(source, &path)
             .or_else(|| behavior.key_span(source, &path))
         {
-            break Some(span);
+            let rest = wanted.get(path.segments().len()..).unwrap_or_default();
+            let inside = (!rest.is_empty())
+                .then(|| codec::in_flow_container(behavior, source, span, rest, false))
+                .flatten();
+            break Some(inside.unwrap_or(span));
         }
         match at.rsplit_once('/') {
             Some((parent, _)) if !parent.is_empty() => at = parent,
@@ -1273,7 +1317,7 @@ mod tests {
         assert_eq!(problems[0].line, Some(1));
         assert_eq!(
             problems[0].message,
-            "Not saved as XML: /hosts: XML cannot keep this value exactly; it reads back differently"
+            "Not saved as XML: /hosts: XML cannot keep this value exactly, as it reads back differently: change it, or edit it as XML, to save"
         );
     }
 

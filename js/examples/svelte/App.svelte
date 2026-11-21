@@ -118,9 +118,11 @@
     lateTimer = setTimeout(() => apply(next), 400);
   }
   // A discard that also drops an edit the late parent has not applied yet.
+  // One way only: setValue reports the text, and the state follows from
+  // that report (setting the state too would list it twice, and its late
+  // echo could undo the next typing).
   function discard(text: string) {
     clearTimeout(lateTimer);
-    value = text;
     editor?.setValue(text);
   }
   function toggleHostProblems() {

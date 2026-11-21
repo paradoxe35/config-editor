@@ -18,12 +18,30 @@ const shownText = (page) =>
     language: window.__fz.root()?.querySelector('.config-editor__frame')?.getAttribute('aria-label') ?? null,
   }));
 
+// Notes the text on screen and its language when the next drag begins
+// (its `dragstart`), as `window.__fzDragBegan`; `null` while none has.
+const watchDragStart = (page) =>
+  page.evaluate(() => {
+    window.__fzDragBegan = null;
+    if (window.__fzDragWatch) document.removeEventListener('dragstart', window.__fzDragWatch, true);
+    window.__fzDragWatch = () => {
+      document.removeEventListener('dragstart', window.__fzDragWatch, true);
+      window.__fzDragBegan = {
+        text: window.__fz.editor()?.text,
+        language: window.__fz.root()?.querySelector('.config-editor__frame')?.getAttribute('aria-label') ?? null,
+      };
+    };
+    document.addEventListener('dragstart', window.__fzDragWatch, true);
+  });
+
 // Selects `length` characters at `fraction` of the text, grabs the
 // selection and drops it at a point of the text: the text after is the
 // text the drag began in (the move refused, or dropped on itself) or the
-// same characters moved, none lost or doubled. The text is read once the
-// drag has begun: a switch waiting for the document may land before (on
-// the typing pause), never while it goes on.
+// same characters moved, none lost or doubled. The text is read when the
+// drag begins (its `dragstart`): a switch waiting for the document may land
+// before (on the typing pause), also while the button is down before the
+// pointer moved far enough to begin a drag, never while one goes on. A
+// press that began no drag selected text and moved none.
 export async function dragMove(run, action) {
   const { page } = run;
   const picked = await page.evaluate(({ at: fraction, length }) => {
@@ -43,14 +61,19 @@ export async function dragMove(run, action) {
   const box = await textBox(page);
   if (!from || !box) return null;
   const to = at(box, action.x, action.y);
+  await watchDragStart(page);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
   await page.mouse.move(from.x + 4, from.y, { steps: 3 });
-  const began = await shownText(page);
-  if (typeof began.text !== 'string') return null;
-  if (began.text !== picked.text) run.reached('the text rewritten before a drag began');
   await page.mouse.move(to.x, to.y, { steps: 8 });
   await page.mouse.up();
+  const began = await page.evaluate(() => window.__fzDragBegan);
+  if (!began) {
+    run.reached('a press that began no drag');
+    return null;
+  }
+  if (typeof began.text !== 'string') return null;
+  if (began.text !== picked.text) run.reached('the text rewritten before a drag began');
   const dropped = await shownText(page);
   if (dropped.language !== began.language)
     return { check: 'drag-move', detail: `the view switched from ${began.language} to ${dropped.language} during a drag` };
@@ -119,14 +142,24 @@ function cardMismatch(seen) {
 // stays; with `escape`, Escape closes it.
 export async function hover(run, action) {
   const { page } = run;
+  // Where the first row is: a notice that shows late (a typing pause after
+  // a comment typed in XML) pushes the rows down under a pointer that rests.
+  const rowsTop = () => page.evaluate(() => window.__fz.root()?.querySelector('.config-editor__code-line')?.getBoundingClientRect().top ?? null);
   const point = await page.evaluate(({ at, column }) => window.__fz.pointInView(at, column), action);
   if (!point) return null;
+  const top = await rowsTop();
   await page.mouse.move(point.x, point.y, { steps: 2 });
   // The card waits out a pause (350 ms); one for another key may take a
   // moment to go.
   await page.waitForTimeout(450);
   let seen = await page.evaluate(({ x, y }) => window.__fz.hoverCard(x, y), point);
   if (cardMismatch(seen)) {
+    // A browser sends a mouse move to a pointer that rests when the layout
+    // moves under it (the headless one does not): the card follows it.
+    if ((await rowsTop()) !== top) {
+      await page.mouse.move(point.x, point.y);
+      await page.waitForTimeout(450);
+    }
     await page.waitForTimeout(500);
     seen = await page.evaluate(({ x, y }) => window.__fz.hoverCard(x, y), point);
     const wrong = cardMismatch(seen);
@@ -173,8 +206,25 @@ export async function suggestMouse(run, action) {
   await page.waitForTimeout(100);
   if (!(await suggestionsOpen(page))) return null;
   if (action.outside) {
-    // The page's corner, outside every editor.
-    await page.mouse.click(2, 2);
+    // A point of the page outside every editor: its corner, unless the
+    // page scrolled an editor over it (a small window), then another edge.
+    const outside = await page.evaluate(() => {
+      const [right, bottom] = [innerWidth - 3, innerHeight - 3];
+      const points = [
+        [2, 2],
+        [right, 2],
+        [2, bottom],
+        [right, bottom],
+        [innerWidth / 2, 2],
+        [innerWidth / 2, bottom],
+      ];
+      return points.find(([x, y]) => !document.elementFromPoint(x, y)?.closest('.config-editor')) ?? null;
+    });
+    if (!outside) {
+      run.reached('no page outside the editor to click');
+      return null;
+    }
+    await page.mouse.click(outside[0], outside[1]);
     await frames(page);
     if (await suggestionsOpen(page)) return { check: 'suggest-close', detail: 'a click outside the editor left the suggestions open' };
     run.reached('suggestions closed by a click outside');

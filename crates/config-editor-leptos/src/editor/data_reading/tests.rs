@@ -84,6 +84,30 @@ fn a_list_made_while_rereading_an_object_moves_what_is_noted_under_it() {
     assert_eq!(reading.as_parsed(), Some(json!({"o": {"s": "a"}})));
 }
 
+/// A lone object the schemas refuse, and refuse as a list's item as
+/// parsed, is that item where its text read as the item's schema wants
+/// it is taken: `<c>true</c>` is the text an item's `c` asks.
+#[test]
+fn a_lone_object_is_a_list_item_once_its_text_is_read_as_the_item_wants() {
+    let schema = json!({"properties": {"x_one": {"oneOf": [
+        {"type": "object", "additionalProperties": false},
+        {"type": "array", "items": {"properties": {"c": {"type": "string"}}}}]}}});
+    let reading = conform(json!({"x_one": {"c": true}}), &schema, Repetition::Elements, true);
+    assert_eq!(reading.value(), &json!({"x_one": [{"c": "true"}]}));
+    assert_eq!(reading.node("/x_one").occurs, Occurs::ListOfOne);
+    assert_eq!(
+        reading.node("/x_one/0/c").scalar,
+        Scalar::Retyped(&json!(true))
+    );
+    assert_eq!(reading.as_parsed(), Some(json!({"x_one": {"c": true}})));
+    // An object an option takes stays itself.
+    let taken = json!({"properties": {"x_one": {"oneOf": [
+        {"type": "object"},
+        {"type": "array", "items": {"properties": {"c": {"type": "string"}}}}]}}});
+    let reading = conform(json!({"x_one": {"c": true}}), &taken, Repetition::Elements, true);
+    assert_eq!(reading.value(), &json!({"x_one": {"c": true}}));
+}
+
 #[test]
 fn text_kept_as_parsed_is_not_noted() {
     let schema = json!({"properties": {"v": {"type": "string"}}});

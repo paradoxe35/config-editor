@@ -57,8 +57,18 @@ function hostModel(page, cdp, kind, name, strict) {
     page,
     cdp,
     kind,
+    // The page's own host (no framework component): its resets report nothing.
+    vanilla: !!PAGES[name].vanilla,
     secrets: new Set(TOKENS),
     hostReplaced: false,
+    // The text the host last gave the single editor (its mount text, a
+    // value it set): a path it names later locks the field only while the
+    // field reads as there; `undefined` when the run cannot tell (a
+    // re-mount, an Edit-as switch, a value equal to the editor's).
+    hostText: undefined,
+    // A path named after the user changed its field (see `lockPath`):
+    // held with a reason, or locked once the field reads as the host's.
+    pendingPath: null,
     footer: true,
     setLock(id, slot, lock) {
       const mine = locks.get(key(id)) ?? {};
@@ -70,6 +80,7 @@ function hostModel(page, cdp, kind, name, strict) {
     keepLocks(id, text) {
       const mine = locks.get(key(id)) ?? {};
       for (const slot of Object.keys(mine)) if (mine[slot] && !text.includes(mine[slot].text)) mine[slot] = null;
+      if (id === null) this.pendingPath = null;
       if (!mine.range) return [];
       const start = text.indexOf(mine.range.text);
       mine.range = { ...mine.range, range: { start, end: start + mine.range.text.length } };
@@ -77,6 +88,7 @@ function hostModel(page, cdp, kind, name, strict) {
     },
     forgetLocks(id) {
       locks.delete(key(id));
+      if (id === null) this.pendingPath = null;
     },
     // The host sets `text` on the document `id`: its placeholders are the
     // ones the document was given.
@@ -212,6 +224,7 @@ async function runSteps(run, context, page, errors, kind, actions) {
       if (!opening.has(state.id ?? '')) opening.set(state.id ?? '', state.value);
     };
     await remember();
+    if (kind === 'single') run.hostText = opening.get('');
     // An action that edits another document than the one it starts on
     // notes that one's opening text before it edits.
     run.remember = remember;
@@ -237,7 +250,10 @@ async function runSteps(run, context, page, errors, kind, actions) {
         }
         const wrong = await withLimit(perform(run, action), `step ${step} (${action.k})`);
         if (wrong && pickFailure(run, [wrong])) return { failure: wrong, step };
-        if (action.k === 'prop' && ['rename', 'readOnly'].includes(action.prop)) run.hostReplaced = true;
+        if (action.k === 'prop' && ['rename', 'readOnly'].includes(action.prop)) {
+          run.hostReplaced = true;
+          run.hostText = undefined;
+        }
         await remember();
         const failure = await withLimit(checkStable(page, run), `checking step ${step}`);
         if (process.env.FUZZ_BROWSER_TRACE) {

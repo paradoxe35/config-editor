@@ -31,6 +31,32 @@ pub(crate) fn replace(text: &mut String, range: TextRange, with: &str) -> Option
     Some(())
 }
 
+/// Byte `at` of `text` on a character boundary: the start of the character
+/// it lies inside, the text's end past it.
+pub(crate) fn char_start(text: &str, at: TextSize) -> TextSize {
+    let mut at = usize::from(at.min(TextSize::of(text)));
+    // A character is at most four bytes: three steps back at most.
+    while !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    super::offset::text_size(at)
+}
+
+/// `text` up to byte `at`, or up to the start of the character `at` lies
+/// inside; the whole text past its end. For counting what lies before a
+/// position (its line, its column, its UTF-16 offset).
+pub(crate) fn up_to(text: &str, at: TextSize) -> &str {
+    before(text, char_start(text, at)).unwrap_or(text)
+}
+
+/// `range` of `text`, each end moved back to a character boundary (see
+/// [`char_start`]); empty when the end comes before the start.
+pub(crate) fn within(text: &str, range: TextRange) -> &str {
+    let end = char_start(text, range.end());
+    let start = char_start(text, range.start()).min(end);
+    slice(text, TextRange::new(start, end)).unwrap_or_default()
+}
+
 /// The start of the character before byte `at` of `text`; `at` at the
 /// text's start (or off a boundary).
 pub(crate) fn step_back(text: &str, at: TextSize) -> TextSize {
@@ -81,6 +107,19 @@ mod tests {
         assert_eq!(before(text, 3.into()), Some("aé"));
         assert_eq!(after(text, 1.into()), Some("é"));
         assert_eq!(after(text, 4.into()), None);
+    }
+
+    #[test]
+    fn a_position_inside_a_character_counts_from_its_start() {
+        let text = "aé😀";
+        assert_eq!(char_start(text, 2.into()), TextSize::from(1));
+        assert_eq!(char_start(text, 6.into()), TextSize::from(3));
+        assert_eq!(char_start(text, 99.into()), TextSize::of(text));
+        assert_eq!(up_to(text, 2.into()), "a");
+        assert_eq!(up_to(text, 3.into()), "aé");
+        assert_eq!(up_to(text, 99.into()), text);
+        assert_eq!(within(text, TextRange::new(2.into(), 5.into())), "é");
+        assert_eq!(within(text, TextRange::new(1.into(), 99.into())), "é😀");
     }
 
     #[test]

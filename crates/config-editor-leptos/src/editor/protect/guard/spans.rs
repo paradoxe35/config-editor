@@ -14,6 +14,7 @@
 //! value as it was.
 
 use std::cell::OnceCell;
+use std::ops::Range;
 
 use super::super::super::language::ConfigLanguage;
 use super::super::super::paths::FieldPath;
@@ -70,6 +71,7 @@ pub(super) fn kept(
         strict,
         lines: OnceCell::new(),
         content: OnceCell::new(),
+        comments: OnceCell::new(),
     };
     let moves = Moves::at(before, after, carets.written, carets.change);
     for lock in protected.locks.iter().filter(|lock| lock.pointer.is_some()) {
@@ -114,6 +116,9 @@ pub(super) fn kept(
     Ok(())
 }
 
+/// The comments of a text, as byte ranges in order.
+type Comments = Vec<Range<usize>>;
+
 /// The two texts and the locks after, as the checks of one lock read them.
 struct Spans<'a> {
     closing: Closing<'a>,
@@ -129,6 +134,9 @@ struct Spans<'a> {
     /// Where the text before is content (see `content`), read when
     /// whitespace changed at or inside a span.
     content: OnceCell<Vec<TextRange>>,
+    /// The comments of both texts (byte ranges), read when a span's
+    /// spacing changed.
+    comments: OnceCell<(Comments, Comments)>,
 }
 
 impl Spans<'_> {
@@ -275,22 +283,33 @@ impl Spans<'_> {
     }
 
     /// Whether `now` holds `was`'s text but for whitespace between its
-    /// tokens (see `spacing`): an indent where indentation carries no
-    /// structure, a space after `:`, a line broken between two items;
-    /// never in content (a string, a block scalar, an XML text).
+    /// tokens (see `spacing`) and comments: an indent where indentation
+    /// carries no structure, a space after `:`, a line broken between two
+    /// items, a comment after a block's header; never in content (a
+    /// string, a block scalar, an XML text). A comment starting inside a
+    /// span is read as blank there, so one that takes a value's text in
+    /// (a line commented out) still changes it.
     fn respaced(&self, was: &Lock, now: &Lock) -> bool {
-        let solid = |text: &str, lock: &Lock| -> String {
-            Self::texts(text, &Self::own_spans(lock))
-                .concat()
-                .chars()
-                .filter(|character| !is_blank(*character))
-                .collect()
-        };
         let (Some(old), Some(new)) = (hull(&Self::own_spans(was)), hull(&Self::own_spans(now)))
         else {
             return false;
         };
-        if solid(self.before, was) != solid(self.after, now) {
+        let (old_comments, new_comments) = self.comments.get_or_init(|| {
+            (
+                self.behavior.comments(self.before),
+                self.behavior.comments(self.after),
+            )
+        });
+        let solid = |text: &str, lock: &Lock, comments: &[Range<usize>], hull: TextRange| {
+            Self::own_spans(lock)
+                .iter()
+                .filter_map(|span| uncommented(text, *span, comments, hull))
+                .collect::<String>()
+                .chars()
+                .filter(|character| !is_blank(*character))
+                .collect::<String>()
+        };
+        if solid(self.before, was, old_comments, old) != solid(self.after, now, new_comments, new) {
             return false;
         }
         let (old_lines, new_lines) = self
@@ -308,12 +327,15 @@ impl Spans<'_> {
             )
         };
         let old_whole = whole(old_lines, &old);
+        // The comments blanked byte for byte: each character still at its
+        // byte of the text before.
         let (Some(old_text), Some(new_text)) = (
-            slice::slice(self.before, old_whole),
-            slice::slice(self.after, whole(new_lines, &new)),
+            uncommented(self.before, old_whole, old_comments, old),
+            uncommented(self.after, whole(new_lines, &new), new_comments, new),
         ) else {
             return false;
         };
+        let (old_text, new_text) = (old_text.as_str(), new_text.as_str());
         // Each character's byte in the text before.
         let offsets: Vec<TextSize> = old_text
             .char_indices()
@@ -405,6 +427,33 @@ pub(in crate::editor::protect) fn named(
     known == pointer
         || (known.strip_suffix("/0") == Some(pointer) && lone(before, pointer))
         || (pointer.strip_suffix("/0") == Some(known) && lone(after, known))
+}
+
+/// `text`'s bytes `range` with each of `comments` (byte ranges of `text`,
+/// in order) that starts inside `inside` written as spaces, one per byte.
+fn uncommented(
+    text: &str,
+    range: TextRange,
+    comments: &[Range<usize>],
+    inside: TextRange,
+) -> Option<String> {
+    let (start, end) = (usize::from(range.start()), usize::from(range.end()));
+    let mut out = String::with_capacity(end.saturating_sub(start));
+    let mut at = start;
+    for comment in comments
+        .iter()
+        .filter(|comment| inside.contains(text_size(comment.start)))
+    {
+        let (from, to) = (comment.start.max(at), comment.end.min(end));
+        if from >= to {
+            continue;
+        }
+        out.push_str(text.get(at..from)?);
+        out.extend(std::iter::repeat_n(' ', to - from));
+        at = to;
+    }
+    out.push_str(text.get(at..end)?);
+    Some(out)
 }
 
 /// From the first span's start to the last one's end.

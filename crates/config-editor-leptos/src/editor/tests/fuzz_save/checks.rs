@@ -610,13 +610,16 @@ fn anchors(form: &str) -> Vec<&str> {
 pub(super) static WRITTEN: AtomicUsize = AtomicUsize::new(0);
 pub(super) static WAITING: AtomicUsize = AtomicUsize::new(0);
 
-/// The save promise after a save, or what it broke.
+/// The save promise after a save, or what it broke. `switched_from`: on a
+/// switch, the view the save was written in (its language and text), not
+/// the one the switch built from the host.
 pub(super) fn check(
     state: EditorState,
     start: &Start,
     held: &HostCopy,
+    switched_from: Option<(Language, &str)>,
 ) -> Result<(), Box<Failure>> {
-    check_save(state, start, held).map_err(|mut failure| {
+    check_save(state, start, held, switched_from).map_err(|mut failure| {
         failure.view = Some(state.sync().edit_language.get_untracked());
         failure.view_text = state.doc().text.get_untracked();
         failure.saved = held.lock().unwrap().clone();
@@ -624,7 +627,12 @@ pub(super) fn check(
     })
 }
 
-fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), Box<Failure>> {
+fn check_save(
+    state: EditorState,
+    start: &Start,
+    held: &HostCopy,
+    switched_from: Option<(Language, &str)>,
+) -> Result<(), Box<Failure>> {
     start
         .written
         .borrow_mut()
@@ -651,14 +659,19 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
     }
     let saved = held.lock().unwrap().clone();
     // GetPut: a view back to a text it showed or saved (an undo) saves
-    // the host text that text stood for, exactly.
-    if view != host {
+    // the host text that text stood for, exactly. On a switch, that is the
+    // view the user wrote in before it: the one the switch builds is the
+    // host's text shown, which saves nothing, and may read as an earlier
+    // text of its language that stood for another host (an XML element
+    // left of a list of two, a blank line typed in the host's language).
+    let (written_in, written) = switched_from.unwrap_or((view, view_text.as_str()));
+    if written_in != host {
         let stood_for = start
             .synced
             .borrow()
             .iter()
             .rev()
-            .find(|(language, text, _)| *language == view && *text == view_text)
+            .find(|(language, text, _)| *language == written_in && *text == written)
             .map(|(_, _, host_text)| host_text.clone());
         if let Some(stood_for) = stood_for
             && stood_for != saved
@@ -674,7 +687,7 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
         start
             .synced
             .borrow_mut()
-            .push((view, view_text.clone(), saved.clone()));
+            .push((written_in, written.to_string(), saved.clone()));
     }
     let Ok(now) = host.parse(&saved) else {
         // Typed in the host's language: the user's own text; or the empty
@@ -842,6 +855,11 @@ fn check_forms(
             let changed_now = now.pointer(&pointer) != Some(was);
             if !was.is_object() && !was.is_array() && (changed_now || users_own(&pointer)) {
                 changed.insert(pointer);
+            } else if reshaped(was, now.pointer(&pointer)) {
+                // A map or list an earlier save held with other keys or
+                // items, or not at all (its entries moved out, then back):
+                // the user rebuilt it, and its layout is the save's.
+                changed.insert(pointer);
             }
         }
     }
@@ -865,17 +883,25 @@ fn check_forms(
             }
         }
     }
+    let moved_away = moved_away(&start.value, now);
     for (pointer, value) in pointers(now) {
         let Some(form) = after.get(&pointer) else {
             continue;
         };
+        // Under a map or list whose entries moved elsewhere, a value at a
+        // pointer the start held is no value left alone there: it came
+        // from somewhere, and is judged as moved from where its name held it.
+        let left_in_place = !moved_away
+            .iter()
+            .any(|from| pointer.starts_with(&format!("{from}/")));
         let parent = &pointer[..pointer.rfind('/').unwrap_or(0)];
         let new_parent = !parent.is_empty() && start.value.pointer(parent).is_none();
         // A scalar left alone across views that read it otherwise (an XML
         // view reads every scalar as text, a switch writes the next view
         // from that reading) keeps the host's value and text: `'8080'`
         // stays a string, not the number with the same text.
-        if let Some(held) = start.value.pointer(&pointer)
+        if left_in_place
+            && let Some(held) = start.value.pointer(&pointer)
             && held != value
             && scalar_text(held).is_some()
             && scalar_text(held) == scalar_text(value)
@@ -891,14 +917,31 @@ fn check_forms(
             )
             .written(form, &pointer, false, new_parent));
         }
-        if start.value.pointer(&pointer) == Some(value) {
-            if changed_before.contains(&pointer) {
+        if left_in_place && start.value.pointer(&pointer) == Some(value) {
+            // A map or list's form is its first line, which holds the
+            // values written inline on it: one the user changed in an
+            // earlier save and typed back is theirs there too (judged on
+            // its own), so the line is no form the session left alone.
+            let holds_changed = || {
+                (value.is_object() || value.is_array())
+                    && changed_before
+                        .iter()
+                        .any(|changed| changed.starts_with(&format!("{pointer}/")))
+            };
+            if changed_before.contains(&pointer) || holds_changed() {
                 continue;
             }
             let Some(was) = before.get(&pointer) else {
                 continue;
             };
-            if was != form && !changed_anchor(was) && !retyped(form) && !users_own(&pointer) {
+            if was != form && changed_anchor(was) {
+                // An alias written out once its anchor moved stays written
+                // out: the save that did so held no anchor before it, and
+                // later saves keep the form it wrote.
+                start.changed.borrow_mut().insert(pointer.clone());
+                continue;
+            }
+            if was != form && !retyped(form) && !users_own(&pointer) {
                 return Err(Failure::new(
                     Broken::Form,
                     was.clone(),
@@ -994,6 +1037,78 @@ fn check_comments(
         }
     }
     Ok(())
+}
+
+/// Whether the map or list `was` (as the session started) is held as
+/// `now` with other keys or another length, as another kind, or not at
+/// all; `false` for a scalar, and for a container whose members only
+/// changed their values.
+fn reshaped(was: &Value, now: Option<&Value>) -> bool {
+    match (was, now) {
+        (Value::Object(was), Some(Value::Object(now))) => {
+            was.len() != now.len() || was.keys().any(|key| !now.contains_key(key))
+        }
+        (Value::Array(was), Some(Value::Array(now))) => was.len() != now.len(),
+        (Value::Object(_) | Value::Array(_), _) => true,
+        _ => false,
+    }
+}
+
+/// The maps and lists (not empty, not the root) of `start` whose place in
+/// `now` holds other entries while a new place (one the start held
+/// otherwise) holds all of them as they were: their entries moved there
+/// (a block header deleted and another copied above them in an HCL view
+/// nests a map in a copy of its key), so what their place holds now came
+/// from elsewhere.
+fn moved_away(start: &Value, now: &Value) -> Vec<String> {
+    let held: Vec<(String, &Value)> = pointers(now);
+    pointers(start)
+        .into_iter()
+        .filter(|(pointer, was)| {
+            !pointer.is_empty()
+                && !is_empty_container(was)
+                && (was.is_object() || was.is_array())
+                && reshaped(was, now.pointer(pointer))
+                && held.iter().any(|(other, value)| {
+                    other != pointer && value == was && start.pointer(other) != Some(*was)
+                })
+        })
+        .map(|(pointer, _)| pointer)
+        .collect()
+}
+
+#[test]
+fn a_map_held_whole_elsewhere_while_its_place_holds_others_moved_away() {
+    use serde_json::json;
+    let start = json!({"a": {"k1": {"b": 5}, "k3": {"b": 6}}});
+    let nested = json!({"a": {"k1": {"k1": {"b": 5}, "b": 6}}});
+    assert_eq!(moved_away(&start, &nested), vec!["/a/k1".to_string()]);
+    // Copied, its place still holding it: nothing moved away.
+    let copied = json!({"a": {"k1": {"b": 5}, "k3": {"b": 6}, "k4": {"b": 5}}});
+    assert!(moved_away(&start, &copied).is_empty());
+    // Its entries cut, a map alike that the start held too is no place
+    // they moved to.
+    let twins = json!({"a": {"k1": {"b": 5}, "k2": {"b": 5}}});
+    assert!(moved_away(&twins, &json!({"a": {"k1": {}, "k2": {"b": 5}}})).is_empty());
+    // Its place holding other entries, held nowhere whole: rebuilt.
+    let rebuilt = json!({"a": {"k1": {"b": 5, "c": 1}, "k3": {"c": 1}}});
+    assert!(moved_away(&start, &rebuilt).is_empty());
+}
+
+/// A container counts as rebuilt only when its keys, its length or its
+/// kind changed: a member's new value leaves its layout judged.
+#[test]
+fn only_a_container_held_with_other_entries_counts_as_rebuilt() {
+    use serde_json::json;
+    let map = json!({"node": ">=18"});
+    assert!(reshaped(&map, Some(&Value::Null)));
+    assert!(reshaped(&map, None));
+    assert!(reshaped(&map, Some(&json!({}))));
+    assert!(reshaped(&map, Some(&json!({"other": ">=18"}))));
+    assert!(!reshaped(&map, Some(&json!({"node": ">=20"}))));
+    assert!(!reshaped(&json!([1, 2]), Some(&json!([3, 4]))));
+    assert!(reshaped(&json!([1, 2]), Some(&json!([1]))));
+    assert!(!reshaped(&json!(1), Some(&json!(2))));
 }
 
 /// Whether `value` is a map or list holding nothing (which `forms` leaves

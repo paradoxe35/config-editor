@@ -884,3 +884,342 @@ fn a_fill_nested_under_a_one_of_option_is_met_or_has_a_field_no_value_meets() {
         json!(null),
     );
 }
+
+/// A lone XML element an inner `oneOf` refuses as an object (no keys
+/// allowed) is the one item of the list the other option takes: the valid
+/// reading, with no problem.
+#[test]
+fn a_lone_element_an_inner_option_refuses_is_the_item_of_the_list_the_other_takes() {
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"x_one": {"oneOf": [
+            {"oneOf": [{"type": "object", "additionalProperties": false}]},
+            {"type": "array", "items": {"x_one": {}}}]}}}),
+        json!({"x_one": [{"c": "t"}]}),
+        json!(null),
+    );
+    // The same, its item's text read as the item's schema wants it.
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"x_one": {"oneOf": [
+            {"oneOf": [{"type": "object", "additionalProperties": false}]},
+            {"type": "array", "items": {"properties": {"c": {"type": "string"}}}}]}}}),
+        json!({"x_one": [{"c": "true"}]}),
+        json!(null),
+    );
+}
+
+/// A number respelled in an XML view (`08` made `8`) where the host holds
+/// the text `"08"` and the view reads it as a list's one item the schema
+/// takes (and not the host's text) saves as that list (P2): the edit is
+/// no spelling of the host's own value.
+#[test]
+fn a_number_respelled_where_the_view_reads_a_host_scalar_as_a_list_saves_the_list() {
+    holds_everywhere(
+        super::edit_as::check,
+        json!({"allOf": [{"properties": {"x_one": {"type": "array",
+            "prefixItems": [{"type": "number"}]}}}]}),
+        json!({"x_one": "08"}),
+        json!({"x_one": 8}),
+    );
+}
+
+/// A required child list asking more items (`minItems: 2`) than its item
+/// schemas say anything of (one `prefixItems` entry, no `items`) is
+/// written with all of them, the free one any value the language writes.
+#[test]
+fn a_required_child_list_with_an_item_no_schema_types_is_written_with_it() {
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"properties": {"x_two": {"required": ["c"], "properties": {"c": {
+            "minItems": 2, "prefixItems": [{"minimum": 0}]}}}}}),
+        json!({"x_two": {"c": 0}}),
+        json!(null),
+    );
+}
+
+/// A key renamed in an XML view keeps what is under it as the host held
+/// it, each value told by its own documented XML spelling: the host's
+/// text `"0"` the view reads as `0`, and a list of one emptied text the
+/// view shows as an empty element.
+#[test]
+fn values_under_a_key_renamed_in_an_xml_view_keep_the_documented_host_forms() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({}),
+        json!({"a": {"port": "0"}}),
+        json!({"size": {"port": 0}}),
+    );
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({}),
+        json!({"a": [""]}),
+        json!({"port": ""}),
+    );
+    // A key renamed inside a list of one the view shows as its item.
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({}),
+        json!({"port": [{"c": ["t"]}]}),
+        json!({"port": {"size": 1}}),
+    );
+}
+
+/// A required child list asking an item no schema lets be (`items:
+/// false`) is written empty: the documented least list.
+#[test]
+fn a_required_child_list_whose_items_are_refused_is_the_documented_empty_list() {
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1, "items": false}}}],
+            "properties": {"name": {"type": "array"}}, "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+    // Its `contains` asks an item `items: false` refuses.
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1,
+            "contains": {"type": "integer"}, "items": false}}}],
+            "properties": {"name": {"type": "array"}}, "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+    // Its `contains` no value meets (`enum: []`), in an `allOf` member.
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"properties": {"name": {"allOf": [{"properties": {"b": {
+            "contains": {"enum": []}, "items": {}}}}], "required": ["b"]}}}),
+        json!({"name": "t"}),
+        json!(null),
+    );
+}
+
+/// A required child list whose `minItems` and `contains` an `allOf`
+/// member gives beside the property's `type: array` is written with the
+/// items they ask, in every language.
+#[test]
+fn a_required_child_list_asked_items_by_an_all_of_member_is_written_with_them() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1,
+            "contains": {"type": "integer"}}}}],
+            "properties": {"name": {"type": "array"}}, "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+    // A first item only `null` meets (`[null, 0]`, which TOML cannot
+    // write: a documented limit).
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1,
+            "prefixItems": [{"type": "null"}], "contains": {"type": "integer"}}}}],
+            "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+    // Its `contains` item after the `prefixItems` item that refuses it
+    // (`[[], 0]`, which XML cannot write: a documented limit).
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"properties": {"name": {"minItems": 1,
+            "prefixItems": [{"type": "array"}], "contains": {"type": "integer"}}}}],
+            "properties": {"name": {"type": "array"}}, "required": ["name"]}},
+            "properties": {"x_two": {"$ref": "#/$defs/d0"}}}),
+        json!({"x_two": 0}),
+        json!(null),
+    );
+}
+
+/// A key whose dependent schema refuses a lone XML element read as the
+/// list's one item beside it (`port` a list, then also a string) is not
+/// suggested.
+#[test]
+fn a_key_whose_dependent_schema_refuses_a_lone_element_read_as_a_list_is_not_suggested() {
+    holds_everywhere(
+        super::suggestions::check,
+        json!({"dependentSchemas": {"size": {"properties": {"port": {"type": "string"}}}},
+            "properties": {"size": {}, "port": {"type": "array"}}}),
+        json!({"port": 0}),
+        json!({"size": ""}),
+    );
+}
+
+/// A fill decides an `if` by the siblings it writes: `mode` written as
+/// text never meets `mode: {const: false}`, so the `else` applies and
+/// `a` is written as it allows, not `0`.
+#[test]
+fn a_fill_decides_an_if_by_the_siblings_it_writes() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"$defs": {"d0": {"allOf": [{"else": {"properties": {"a": {"exclusiveMinimum": 0}}},
+            "properties": {"mode": {"type": "string"}}, "required": ["mode", "a"],
+            "then": {"properties": {"a": {"enum": [0]}}},
+            "if": {"properties": {"mode": {"const": false}}}}]}},
+            "properties": {"c": {"$ref": "#/$defs/d0"}}}),
+        json!({"c": false}),
+        json!(null),
+    );
+}
+
+/// An `if` on a sibling's value (its `const`, `enum` or `type`) is
+/// decided by the value the fill writes for that sibling, met or missed,
+/// and the other sibling is filled by the branch taken, in every
+/// language: `then` and `else` ask values no one value meets both of.
+#[test]
+fn a_fill_reads_an_if_on_a_sibling_by_the_value_it_writes() {
+    let cases = [
+        // A value left to type, read empty or as its placeholder, misses
+        // the `if` either way: `else`.
+        (json!({"type": "string"}), json!({"const": false})),
+        (json!({"type": "string"}), json!({"const": "x"})),
+        (json!({"type": "string"}), json!({"enum": ["x", "y"]})),
+        (json!({"type": "string"}), json!({"type": "integer"})),
+        // Its default written meets the `if` (`then`), or misses it.
+        (
+            json!({"type": "string", "default": "on"}),
+            json!({"const": "on"}),
+        ),
+        (
+            json!({"type": "string", "default": "on"}),
+            json!({"enum": ["on", "x"]}),
+        ),
+        (
+            json!({"type": "integer", "default": 2}),
+            json!({"type": "integer"}),
+        ),
+        (
+            json!({"type": "string", "default": "off"}),
+            json!({"const": "on"}),
+        ),
+        (
+            json!({"type": "integer", "default": 2}),
+            json!({"enum": [1, 3]}),
+        ),
+    ];
+    for (mode, test) in cases {
+        holds_everywhere(
+            super::fill::check,
+            json!({"properties": {"c": {"required": ["mode", "a"],
+                "properties": {"mode": mode, "a": {"type": "integer"}},
+                "if": {"properties": {"mode": test}},
+                "then": {"properties": {"a": {"enum": [5]}}},
+                "else": {"properties": {"a": {"maximum": -1}}}}}}),
+            json!({"c": false}),
+            json!(null),
+        );
+    }
+}
+
+/// A lone XML element an option names a list for, where the list would
+/// make its object match both options of a `oneOf`, reads as the value
+/// written: the document is valid as written.
+#[test]
+fn a_lone_element_a_one_of_option_names_a_list_for_reads_as_written_where_the_list_matches_both() {
+    holds_everywhere(
+        super::validation::check,
+        json!({"properties": {"x_two": {"oneOf": [{"properties": {"a": {"type": "array"}}}, {}]}}}),
+        json!({"x_two": {"a": "1"}}),
+        json!(null),
+    );
+}
+
+/// A required list a fill writes with its one item reads back as that
+/// list in XML, though an option silent on it leaves it to one typing it
+/// a string (which the list's own schema contradicts).
+#[test]
+fn a_filled_list_of_one_reads_as_the_list_beside_an_option_typing_it_otherwise() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"properties": {"b": {"required": ["mode"], "properties": {"mode": {"allOf": [
+            {"anyOf": [{"additionalProperties": {"type": "string"}}, {}]},
+            {"required": ["size"], "properties": {"size": {"type": "array", "minItems": 1}}}]}}}}}),
+        json!({"b": {"mode": {"size": [0]}}}),
+        json!(null),
+    );
+}
+
+/// The host's text `"null"` under a key an XML view renamed, where the
+/// view reads `null`, is kept as the host's string (the documented kept
+/// text, as for `"8"` and `"true"`).
+#[test]
+fn a_hosts_null_text_under_a_renamed_key_is_the_documented_kept_text() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({}),
+        json!({"a": "null"}),
+        json!({"d": "null"}),
+    );
+}
+
+/// A save whose only difference from the view is a documented XML
+/// spelling (a list cut to one element) is that class, though the view
+/// also holds a value XML writes only by its schema (`null` under
+/// `type: null`), which reads back as the view holds it.
+#[test]
+fn a_documented_spelling_names_the_save_beside_a_null_the_schema_reads_back() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"properties": {"name": {"anyOf": [{"type": "object"}, {"type": "array"}]},
+            "mode": {"type": "null"}}}),
+        json!({"name": "f"}),
+        json!({"name": [{"size": false}], "mode": null}),
+    );
+}
+
+/// A key a dependent schema requires is written only beside the key it
+/// depends on: `size` (which the `else` the object then takes types
+/// otherwise) is not filled where `x_two` is not written.
+#[test]
+fn a_key_a_dependent_schema_requires_is_filled_only_beside_its_key() {
+    let schema = json!({"properties": {"mode": {"required": ["b"],
+        "properties": {"b": {"type": "string"},
+            "size": {"anyOf": [{"required": ["a"], "properties": {"a": {"type": "number"}}}]}},
+        "dependentSchemas": {"x_two": {"required": ["size"]}},
+        "if": {"required": ["x"]}, "else": {"properties": {"size": {"type": "integer"}}}}}});
+    holds_everywhere(
+        super::suggestions::check,
+        schema.clone(),
+        json!({}),
+        json!({"mode": {"b": "a"}}),
+    );
+    holds_everywhere(
+        super::fill::check,
+        schema,
+        json!({"mode": {"b": "a"}}),
+        Value::Null,
+    );
+}
+
+/// A required child is filled as an object only where every schema at it
+/// takes one: not where the `else` its object takes (its sibling `a` left
+/// to type misses the `if`) types it a boolean, beside an option
+/// describing an object.
+#[test]
+fn a_required_child_is_filled_as_an_object_only_where_every_schema_at_it_takes_one() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"properties": {"a": {"required": ["a", "c"],
+            "properties": {"c": {"oneOf": [{"required": ["name"],
+                "properties": {"name": {"type": "number"}}}]}},
+            "if": {"properties": {"a": {"const": false}}},
+            "else": {"properties": {"c": {"type": "boolean"}}}}}}),
+        json!({"a": "t"}),
+        Value::Null,
+    );
+}

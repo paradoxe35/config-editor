@@ -126,6 +126,25 @@ pub(crate) fn known_to_parse(language: &dyn ConfigLanguage, text: &str) -> Optio
     })
 }
 
+/// The parse of `text` as `language`, when one of the last parses was of
+/// it: read without parsing.
+#[cfg_attr(
+    not(feature = "protect"),
+    allow(dead_code, reason = "only the placeholders' check asks")
+)]
+pub(crate) fn kept(
+    language: &dyn ConfigLanguage,
+    text: &str,
+) -> Option<Rc<Result<Value, ParseError>>> {
+    let label = language.info().label;
+    LAST.with(|last| {
+        last.borrow()
+            .iter()
+            .find(|(known, written, _)| *known == label && written == text)
+            .map(|(_, _, result)| Rc::clone(result))
+    })
+}
+
 /// The lines of `text`'s multi-line string bodies in `language` (see
 /// [`Text::string_body_lines`]), from the last reading when it was
 /// of the same text in the same language.

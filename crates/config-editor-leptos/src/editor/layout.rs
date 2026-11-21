@@ -9,7 +9,7 @@ use leptos::prelude::*;
 use super::highlight::spanning::Spanning;
 use super::languages::Language;
 use super::line_rows::RenderedLine;
-use super::metrics::read_editor_metrics;
+use super::metrics::{TextWidths, read_editor_metrics};
 use super::projection::Projection;
 use super::readings::Readings;
 use crate::reactive::row_window;
@@ -33,6 +33,11 @@ pub(super) struct ViewState {
     pub(super) scroll_y: RwSignal<f64>,
     /// Bumped on window resize and scroll so popups re-measure.
     pub(super) layout_revision: RwSignal<usize>,
+    /// How the text area draws text, for the overlays placed over it:
+    /// counted until it is on the page to measure, then measured, and
+    /// measured again when its font may have changed (see
+    /// `EditorState::follow_text_widths`).
+    pub(super) widths: RwSignal<TextWidths>,
     /// Rows must not subscribe to this memo or the diff; the row sync effect
     /// fans them out to per-row signals (see `line_rows`).
     pub(super) lines: Memo<Vec<RenderedLine>>,
@@ -105,6 +110,7 @@ impl ViewState {
             scroll_x: RwSignal::new(0.0),
             scroll_y,
             layout_revision,
+            widths: RwSignal::new(TextWidths::COUNTED),
             lines,
             visible_rows,
             string_bodies,

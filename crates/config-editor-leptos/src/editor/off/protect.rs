@@ -249,6 +249,7 @@ impl EditorState {
         _before: &str,
         _after: &str,
         _caret: TextSize,
+        _recorded: Option<crate::editor::text::TextRange>,
         _stepped: bool,
     ) {
     }
@@ -293,6 +294,15 @@ pub(super) fn mentions_marks(_schema: &Value) -> bool {
 /// No schema marks are read.
 pub(super) fn mentions_secrets(_schema: &Value) -> bool {
     false
+}
+
+pub(super) fn placeholder_holders(
+    _behavior: &dyn ConfigLanguage,
+    _text: &str,
+    _document: &Value,
+    _find: &dyn Fn(&str) -> Vec<std::ops::Range<usize>>,
+) -> Vec<String> {
+    Vec::new()
 }
 
 #[cfg(feature = "schema-validation")]

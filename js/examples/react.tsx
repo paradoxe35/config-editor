@@ -87,9 +87,11 @@ function App({ schema }: { schema: string }) {
     if (resetEarly) handle.current?.setValue("from-effect: 1\n");
   }, []);
   // A discard that also drops an edit the late parent has not applied yet.
+  // One way only: setValue reports the text, and the state follows from
+  // that report (setting the state too would list it twice, and its late
+  // echo could undo the next typing).
   const discard = (text: string) => {
     clearTimeout(lateTimer.current);
-    setValue(text);
     handle.current?.setValue(text);
   };
 

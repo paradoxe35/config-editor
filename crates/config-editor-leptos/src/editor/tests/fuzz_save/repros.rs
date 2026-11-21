@@ -2,8 +2,245 @@
 //! tests (those of an open finding ignored, by its name).
 
 use super::ops::{Op, Put, Take};
-use super::replay;
+use super::{replay, saved_after};
 use crate::editor::languages::Language;
+
+/// P2: an HCL conditional's line cut in an XML view, the view coming back
+/// to a text it had, saves the host's text back, not a list.
+#[test]
+fn an_hcl_conditional_back_to_its_text_in_an_xml_view_saves_the_host_text() {
+    replay(
+        Language::HCL,
+        Language::XML,
+        "alpha {\n  k1 {\n  }\n  k2 = var.on ? 1 : 2\n}\n",
+        &[
+            Op::CopyLine {
+                line: 2,
+                down: false,
+            },
+            Op::Switch { to: 1 },
+            Op::Cut {
+                line: 4,
+                how: Take::Text,
+            },
+            Op::Switch { to: 4 },
+        ],
+    );
+}
+
+/// P2: an empty TOML multi-line string cut, the view switched and typed
+/// into, saves the host's text back when the view comes back to it.
+#[test]
+fn an_empty_toml_host_back_to_its_text_in_a_json_view_saves_the_host_text() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "k9 = '''\n'''\n",
+        &[
+            Op::Cut {
+                line: 54,
+                how: Take::Entry,
+            },
+            Op::Pause,
+            Op::Switch { to: 2 },
+            Op::Enter {
+                line: 16,
+                column: 11,
+            },
+            Op::Switch { to: 1 },
+        ],
+    );
+}
+
+/// P3: a TOML octal number copied in an XML view (a list of two, saved)
+/// and one copy cut and pasted into another table keeps its host form.
+#[test]
+fn a_toml_octal_number_copied_then_moved_in_an_xml_view_keeps_its_form() {
+    replay(
+        Language::TOML,
+        Language::XML,
+        "[alpha]\nk1 = '''\nraw text\n'''\nk2 = \"\"\"\nmulti\nline\"\"\"\nk3 = 07:32:00\n[beta]\nk4 = \"\"\"\nmulti\nline\"\"\"\nk5 = 1_000 # note 4\nk6 = 07:32:00\nk7 = 3.5e2 # note 6\n[gamma]\nk8 = 0o17 # note 7\nk9 = 1_000\n",
+        &[
+            Op::CopyLine {
+                line: 51,
+                down: false,
+            },
+            Op::Pause,
+            Op::Cut {
+                line: 15,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 24,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P3: a YAML number in a host spelling (hex, octal, a tag) cut with a
+/// TOML array-of-tables header, saved, and the header pasted again keeps
+/// its host form: the links of the tables the header line opens pair by
+/// their names, not by an end two tables share by chance.
+#[test]
+fn a_yaml_number_kept_in_a_list_item_when_its_header_is_pasted_again_keeps_its_form() {
+    for replicas in ["0x3", "0o3", "!!int 3", "3 # three"] {
+        let host = format!(
+            "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {{app: web, tier: \"front\"}}\nspec:\n  replicas: {replicas}\n  selector:\n      app: web\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                hello\n                world\n            - name: LEVEL\n              value: !!str 3\n          resources:\n            limits: {{cpu: 500m, memory: 128Mi}}\n"
+        );
+        replay_hex(&host);
+    }
+}
+
+fn replay_hex(host: &str) {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        host,
+        &[
+            Op::Cut {
+                line: 16,
+                how: Take::Line,
+            },
+            Op::Paste {
+                line: 45,
+                how: Put::Before,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 19,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P2: a TOML comment above a table header keeps its place when an HCL
+/// edit is switched to YAML and the table's line is joined there.
+#[test]
+fn a_toml_comment_above_a_table_survives_a_switch_and_a_joined_line() {
+    replay(
+        Language::TOML,
+        Language::HCL,
+        "[alpha]\nk1 = 07:32:00\nk2 = \"\"\"\nmulti\nline\"\"\"\n# note 7\n[beta]\nk3 = { x = 1, y = \"two\" } # note 2\n",
+        &[
+            Op::Type {
+                line: 5,
+                column: 1001,
+                text: "x",
+            },
+            Op::Switch { to: 0 },
+            Op::Backspace {
+                line: 6,
+                column: 1000,
+                count: 3,
+            },
+        ],
+    );
+}
+
+/// P3: a YAML flow list moved in a TOML view to the first key of a list
+/// item keeps its flow form.
+#[test]
+fn a_yaml_flow_list_moved_to_a_list_items_first_key_keeps_its_form() {
+    replay(
+        Language::YAML,
+        Language::JSON,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n      app: web\n  template:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                hello\n                world\n            - name: LEVEL\n              value: !!str 3\n          resources:\n            limits: {cpu: 500m, memory: 128Mi}\n",
+        &[
+            Op::Switch { to: 2 },
+            Op::MoveLine {
+                line: 53,
+                down: true,
+            },
+            Op::Cut {
+                line: 18,
+                how: Take::Text,
+            },
+            Op::PasteWhole { line: 16 },
+            Op::Paste {
+                line: 62,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P3: a TOML time moved past a line in a YAML view after a save keeps its
+/// host form (a time, not the text of one).
+#[test]
+fn a_toml_time_moved_by_a_line_command_after_a_save_keeps_its_form() {
+    replay(
+        Language::TOML,
+        Language::YAML,
+        "[alpha]\nk1 = 1979-05-27\nk2 = 07:32:00\n[beta]\nk3 = 07:32:00\nk4 = \"plain\" # note 1\n",
+        &[
+            Op::Type {
+                line: 51,
+                column: 2,
+                text: "\"",
+            },
+            Op::Pause,
+            Op::MoveLine {
+                line: 57,
+                down: true,
+            },
+        ],
+    );
+}
+
+/// P2: a YAML alias left alone stays an alias when a TOML view's cuts and
+/// pastes move the lines around it.
+#[test]
+fn a_yaml_alias_left_alone_stays_an_alias_across_toml_pastes() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "alpha:\n  k1:\n    - 3\n  k2: 0x1F # note 1\n  k3:\n    base: &bk3 5\n    copy: *bk3\n  k4: 'single'\nbeta:\n  k5: 'single'\n  k6: !!str 5\n  k7:\n    base: &bk7 5\n    copy: *bk7\ngamma:\n  k8:\n    base: &bk8 5\n    copy: *bk8\n  k9: !Ref Param # note 4\ndelta:\n  k10: \"double\"\n  k11: >-\n  k12: 1.50\n  k13: [a, 'b', 3] # note 5\n",
+        &[
+            Op::Cut {
+                line: 35,
+                how: Take::Entry,
+            },
+            Op::DeleteLine { line: 55 },
+            Op::Paste {
+                line: 46,
+                how: Put::Before,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 63,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P2: a list item copied in a YAML view and the key renamed by a replace
+/// in a TOML view saves the list as the view shows it.
+#[test]
+fn a_list_item_copied_then_a_key_replaced_saves_the_list_as_shown() {
+    replay(
+        Language::HCL,
+        Language::YAML,
+        "alpha {\n  k1 = var.on ? 1 : 2 # note 2\n  k2 = var.name\n  k3 = [1, 2] # note 5\n  k4 { one = true } # note 6\n}\nbeta {\n  k5 = [1, 2]\n  k6 { one = true } # note 9\n}\n",
+        &[
+            Op::CopyLine {
+                line: 32,
+                down: true,
+            },
+            Op::Enter {
+                line: 31,
+                column: 1001,
+            },
+            Op::Switch { to: 2 },
+            Op::ReplaceAll {
+                pick: 28,
+                suffix: "Y",
+            },
+        ],
+    );
+}
 
 /// P2: an edit made in the host's own language stays in the host text when a
 /// view of another language saves after it.
@@ -2491,6 +2728,188 @@ fn an_hcl_template_cut_and_pasted_in_yaml_stays_a_template() {
             Op::Paste {
                 line: 57,
                 how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P3: a TOML date cut with the line of the value after it in a JSON view
+/// and pasted over a blank line of another table keeps its host form
+/// (a date, not the text of one).
+#[test]
+fn a_toml_date_cut_with_the_next_line_and_pasted_keeps_its_host_form() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "[alpha]\nk1 = 1979-05-27\nk2 = 3.5e2\nk3 = 0o17 # note 1\nk4 = \"\"\"\nline\"\"\"\n[beta]\nk5 = '''\n'''\nk6 = true # note 5\nk7 = true # note 7\nk8 = 'C:\\dir'\n",
+        &[
+            Op::Backspace {
+                line: 15,
+                column: 0,
+                count: 2,
+            },
+            Op::Type {
+                line: 20,
+                column: 4,
+                text: "x",
+            },
+            Op::Undo,
+            Op::Cut {
+                line: 61,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 29,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P2: a JSON map written over lines that a YAML view leaves alone keeps
+/// its lines when another line is moved past it after a switch.
+#[test]
+fn a_json_map_left_alone_keeps_its_lines_when_a_yaml_line_moves_past_it() {
+    replay(
+        Language::JSON,
+        Language::YAML,
+        "{\n  \"name\": \"web-app\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"vite build\",\n    \"test\": \"vitest run\"\n  },\n  \"dependencies\": {\"react\": \"^18.3.1\", \"react-dom\": \"^18.3.1\"},\n  \"engines\": {\n    \"node\": \">=18\"\n  },\n  \"files\": [\"dist\", \"src\"],\n  \"ratio\": 1.50,\n  \"size\": 1e3\n}\n",
+        &[
+            Op::Enter {
+                line: 39,
+                column: 1001,
+            },
+            Op::MoveLine {
+                line: 62,
+                down: false,
+            },
+            Op::Switch { to: 0 },
+            Op::MoveLine {
+                line: 10,
+                down: true,
+            },
+        ],
+    );
+}
+
+/// P2: a YAML flow map left alone keeps its form when a TOML view's pastes
+/// and typing make a table beside it.
+#[test]
+fn a_yaml_flow_map_left_alone_keeps_its_form_beside_a_pasted_toml_table() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "alpha:\n  k1:\n    - name: one\n      port: 80\n    - name: two\n      port: 81\n  k2: {x: 1, y: two} # note 1\n  k3:\n    - 3\n  k4: !Ref Param # note 3\nbeta:\n  k5: 1.50\n  k6:\n    - 3\n",
+        &[
+            Op::Cut {
+                line: 31,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 54,
+                how: Put::Before,
+            },
+            Op::Backspace {
+                line: 46,
+                column: 1000,
+                count: 1,
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 4,
+                how: Put::OverBlank,
+            },
+            Op::DeleteLine { line: 38 },
+            Op::Type {
+                line: 39,
+                column: 1001,
+                text: "x",
+            },
+            Op::Pause,
+            Op::Paste {
+                line: 30,
+                how: Put::Before,
+            },
+        ],
+    );
+}
+
+/// P3: the same with a save between the join and the cut: the joined
+/// entries' links are kept across the save.
+#[test]
+fn a_toml_date_joined_saved_cut_and_pasted_keeps_its_host_form() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "[alpha]\nk1 = 1979-05-27\nk2 = 3.5e2\nk3 = 0o17 # note 1\nk4 = \"\"\"\nline\"\"\"\n[beta]\nk5 = '''\n'''\nk6 = true # note 5\nk7 = true # note 7\nk8 = 'C:\\dir'\n",
+        &[
+            Op::Backspace {
+                line: 15,
+                column: 0,
+                count: 2,
+            },
+            Op::Pause,
+            Op::Type {
+                line: 20,
+                column: 4,
+                text: "x",
+            },
+            Op::Undo,
+            Op::Cut {
+                line: 61,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 29,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
+/// P2 and P3: a block header deleted and another copied above a map's
+/// header in an HCL view nest the map in a copy of its key, and move the
+/// entries of the deleted block up beside it: each value keeps the form
+/// of the line it came from (its anchor or its alias), not the form of
+/// another value now at its old pointer.
+#[test]
+fn entries_moved_under_a_copied_block_header_keep_the_forms_of_their_lines() {
+    let host = "alpha:\n  k1:\n    base: &bk1 5\n    copy: *bk1\n  k2: 1.50 # note 2\n  k3:\n    base: &bk3 5\n    copy: *bk3\nbeta:\n  k4: 0x1F # note 5\n  k5: ~ # note 6\n  k6: {x: 1, y: two}\n";
+    let ops = [
+        Op::DeleteLine { line: 54 },
+        Op::CopyLine {
+            line: 1,
+            down: false,
+        },
+    ];
+    replay(Language::YAML, Language::HCL, host, &ops);
+    assert_eq!(
+        saved_after(Language::YAML, Language::HCL, host, &ops),
+        "alpha:\n  k1:\n    k1:\n      base: &bk1 5\n      copy: *bk1\n    k2: 1.50 # note 2\n    base: &bk3 5\n    copy: *bk3\nbeta:\n  k4: 0x1F # note 5\n  k5: ~ # note 6\n  k6: {x: 1, y: two}\n"
+    );
+}
+
+/// P2: a TOML inline list whose hex item the user typed over (saved as
+/// `"2x"`) and typed back (`2`) is the user's on its line: the save writes
+/// `2` there, as they typed it, and keeps every value it left alone.
+#[test]
+fn an_inline_list_holding_an_item_typed_over_and_back_is_the_users_line() {
+    replay(
+        Language::TOML,
+        Language::YAML,
+        "[alpha]\nk1 = 1979-05-27T07:32:00 # note 1\nk2 = 1979-05-27T07:32:00Z # note 2\nk3 = \"\"\"\nmulti\nline\"\"\"\nk4 = [1, 0x2, 3]\n[beta]\nk5 = 1_000 # note 3\nk6 = 'C:\\dir' # note 4\n",
+        &[
+            Op::Type {
+                line: 21,
+                column: 1000,
+                text: "x",
+            },
+            Op::Pause,
+            Op::DeleteLine { line: 12 },
+            Op::Backspace {
+                line: 56,
+                column: 11,
+                count: 1,
             },
         ],
     );

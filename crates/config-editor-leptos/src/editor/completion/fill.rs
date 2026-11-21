@@ -3,7 +3,8 @@
 //! required children and a list's least items (see [`least`]), only what
 //! the language reads back as written.
 
-use super::least::{least_items, others};
+use super::least::{MAX_RETRIES, least_items};
+use super::others::others;
 use super::*;
 
 /// What an inserted block writes for a required child the caret does not
@@ -26,9 +27,16 @@ pub(super) fn fill_value_at(
     Filler::new(language, root).filled(schema, Some(at), 0)
 }
 
-/// The list a list `schema` describes is written as (see [`least_items`]).
-pub(super) fn least_list(language: &dyn ConfigLanguage, schema: &Value, root: &Value) -> Value {
-    least_items(&mut Filler::new(language, root), schema, 0)
+/// The least list every schema at a list (`at`: its property, an `allOf`
+/// member, a reference, …) takes, as `language` writes it (see
+/// [`least_items`]); `None` when no list meets them all that the
+/// language writes.
+pub(crate) fn least_list(
+    language: &dyn ConfigLanguage,
+    at: &Entry<'_>,
+    root: &Value,
+) -> Option<Value> {
+    least_items(&mut Filler::new(language, root), at, 0).map(Value::Array)
 }
 
 /// Values past each bound [`Filler::filled`] tries when its own are refused.
@@ -55,6 +63,11 @@ pub(super) struct Filler<'a> {
     /// List items still to be written at most ([`MAX_FILLED_ITEMS`] and
     /// [`RESERVED_ITEMS`]).
     pub(super) items_left: usize,
+    /// Item fills still to be tried again ([`MAX_RETRIES`]).
+    pub(super) retries_left: usize,
+    /// Whether a list was cut at the bound on items: past it, items are
+    /// written as filled, the lists in them short of what they ask.
+    pub(super) cut: bool,
 }
 
 impl<'a> Filler<'a> {
@@ -63,6 +76,8 @@ impl<'a> Filler<'a> {
             language,
             root,
             items_left: MAX_FILLED_ITEMS + RESERVED_ITEMS,
+            retries_left: MAX_RETRIES,
+            cut: false,
         }
     }
 
@@ -130,7 +145,11 @@ impl<'a> Filler<'a> {
             Value::Object(members) if members.is_empty() => self
                 .required_filled(schema, depth)
                 .unwrap_or(Value::Object(members)),
-            Value::Array(items) if items.is_empty() => least_items(self, schema, depth),
+            Value::Array(items) if items.is_empty() => {
+                let own = Entry::schema(schema);
+                least_items(self, at.unwrap_or(&own), depth)
+                    .map_or(Value::Array(items), Value::Array)
+            }
             other => other,
         };
         if take(self, &value) {
@@ -144,8 +163,19 @@ impl<'a> Filler<'a> {
             Value::Array(Vec::new()),
             Value::Object(serde_json::Map::new()),
         ];
-        if let Some(other) = others(schema, root, std::slice::from_ref(&value), OTHERS)
+        // Other values of every schema at the value: a bound the `else`
+        // taken gives (`maximum: -1`) beside a property's `type`.
+        let mut sources = vec![schema];
+        if let Some(at) = at {
+            sources.extend(
+                at.schemas()
+                    .into_iter()
+                    .filter(|other| !std::ptr::eq(*other, schema)),
+            );
+        }
+        if let Some(other) = sources
             .into_iter()
+            .flat_map(|source| others(source, root, std::slice::from_ref(&value), OTHERS))
             .chain(empty)
             .find(|other| take(self, other))
         {
@@ -180,14 +210,22 @@ impl<'a> Filler<'a> {
             return None;
         }
         object_branch(schema, self.root)?;
-        let mut members = serde_json::Map::new();
-        for (key, child, at) in
-            super::required::required_keys(self.language, schema, None, self.root)
-        {
-            if let Some(value) = self.filled(child, Some(&at), depth + 1) {
-                members.insert(key.to_string(), value);
-            }
-        }
+        let language = self.language;
+        let root = self.root;
+        let members = super::required::deciding(
+            language,
+            (schema, None, root),
+            |keys| {
+                let mut members = serde_json::Map::new();
+                for (key, child, at) in keys {
+                    if let Some(value) = self.filled(child, Some(&at), depth + 1) {
+                        members.insert(key.to_string(), value);
+                    }
+                }
+                members
+            },
+            |members| vec![Value::Object(members.clone())],
+        );
         (!members.is_empty()).then_some(Value::Object(members))
     }
 }

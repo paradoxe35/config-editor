@@ -17,6 +17,8 @@ export const SETTING_TYPES = Object.freeze({
   search: "boolean",
   goToLine: "boolean",
   folding: "boolean",
+  stickyScroll: "boolean",
+  stickyScrollMaxLines: "number",
   saveShortcut: "boolean",
   strings: "object",
 });

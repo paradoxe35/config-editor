@@ -67,6 +67,15 @@ function pathLock(state) {
   return text ? { range: state.range, text, path: '/public_address' } : null;
 }
 
+// The value text of `public_address` in the host's `text` (the corpus
+// writes it on one line): null when it has none, undefined when the text
+// is not known.
+function fieldText(text) {
+  if (typeof text !== 'string') return undefined;
+  const found = /^public_address:[ \t]*([^\n]*)$/m.exec(text);
+  return found ? found[1].trim() : null;
+}
+
 // The lock a path names in a text that does not parse: `rangeOf` reads the
 // field off its lines through the character breaking it, while the editor
 // locks the field as the text reads with that character blanked, leaving
@@ -106,10 +115,17 @@ async function markedLock(page, state, lock) {
   return { ...lock, text: lock.text.slice(start, end) };
 }
 
-export async function host(page, call, arg) {
+// What `host` returns when the text it was to give ranges with moved.
+export const MOVED = 'moved';
+
+// Calls the page's host. With `onText`, only while the text ranges given
+// alone name places in is still `onText` (see `fz.rangesText`): else
+// gives nothing and returns `MOVED`.
+export async function host(page, call, arg, onText) {
   return page.evaluate(
-    ([call, arg]) => {
+    ([call, arg, onText, moved]) => {
       const fz = window.__fz;
+      if (onText !== undefined && fz.rangesText() !== onText) return moved;
       const id = fz.activeId();
       const vanilla = !!window.documentsView || !!window.editor;
       const calls = {
@@ -127,10 +143,16 @@ export async function host(page, call, arg) {
             // what `onChange` reports.
             saved.textContent = text;
             window.editor.update({ value: text, readOnlyRanges: ranges });
+          } else if (how === 'setValue') {
+            // One way per reset: the handle's `setValue` reports the text,
+            // and the parent's state follows from that report (its ranges
+            // come once it holds the text, see `resetThenRanges`).
+            window.editorHandle.current?.setValue(text);
           } else {
+            // The parent lists the text it set with the ranges it worked
+            // out on it.
             fz.extra = { ...fz.extra, readOnlyRanges: ranges };
-            if (how === 'setValue') window.editorHandle.current?.setValue(text);
-            else window.setParentValue(text);
+            window.setParentValue(text);
             window.setExtraProps({ ...fz.extra });
           }
         },
@@ -147,13 +169,19 @@ export async function host(page, call, arg) {
           }
         },
         docValue: ({ text, how, ranges }) => {
-          if (how === 'setValue') {
-            // The host lists the text it replaced the document with.
-            if (vanilla) window.documentsView.replaceValue(id, text);
-            else window.documentsHandle.current?.setValue(id, text);
-            if (vanilla) window.updateFile(id, { value: text, readOnlyRanges: ranges });
-            else window.updateFile(id, { readOnlyRanges: ranges });
-          } else window.updateFile(id, { value: text, readOnlyRanges: ranges });
+          // The host lists the text it replaced the document with, with the
+          // ranges it worked out on it.
+          if (how === 'setValue' && !vanilla) {
+            // One way per reset: the handle's `setValue` reports the text,
+            // and the parent's list follows from that report (the ranges
+            // come once it lists the text, see `resetThenRanges`).
+            window.documentsHandle.current?.setValue(id, text);
+            return;
+          }
+          // The vanilla view's `replaceValue` reports nothing: the host
+          // lists the text itself.
+          if (how === 'setValue') window.documentsView.replaceValue(id, text);
+          window.updateFile(id, { value: text, readOnlyRanges: ranges });
         },
         docEcho: () => typeof fz.host() === 'string' && window.updateFile(id, { value: fz.host() }),
         docProps: (props) => window.updateFile(id, props),
@@ -176,7 +204,7 @@ export async function host(page, call, arg) {
       };
       calls[call](arg);
     },
-    [call, arg],
+    [call, arg, onText, MOVED],
   );
 }
 
@@ -197,16 +225,54 @@ export function lockIndices(value, { at: fraction, length, line }) {
   return end > start ? { start, end } : null;
 }
 
+// After a framework page's `setValue` reset: once the parent's state
+// holds `text` (the reset's report applied, maybe late), the parent gives
+// the read-only ranges it worked out on it, with `call`.
+async function resetThenRanges(run, text, call, ranges) {
+  const { page } = run;
+  for (let tries = 0; tries < 50; tries += 1) {
+    if ((await page.evaluate(() => window.__fz.host())) === text) break;
+    await page.waitForTimeout(60);
+  }
+  await host(page, call, { readOnlyRanges: ranges }, text);
+}
+
+// Gives the page a lock from `spec` (see `lockIndices`) and notes it in
+// the run's model. The host works the range out on the text it gives it
+// with, which a late echo may leave older than the editor's even after a
+// settle: given only while that text holds (a few tries).
+export async function giveLock(run, spec) {
+  const { page } = run;
+  for (let tries = 0; tries < 5; tries += 1) {
+    const state = await page.evaluate(() => ({ text: window.__fz.rangesText(), id: window.__fz.activeId() }));
+    if (typeof state.text !== 'string') return;
+    const range = lockIndices(state.text, spec);
+    if (!range) return;
+    const call = run.kind === 'single' ? 'singleProps' : 'docProps';
+    if ((await host(page, call, { readOnlyRanges: [range] }, state.text)) === MOVED) continue;
+    run.locked = true;
+    run.setLock(state.id, 'range', { range, text: state.text.slice(range.start, range.end) });
+    return;
+  }
+}
+
+// Whether `got` is what a copy of `want` (an `fz.selected()`) puts on the
+// clipboard.
+function copied(got, want) {
+  if (want.rest) return got.startsWith(want.text) && (want.rest.startsWith(got) || `${want.rest}\n`.startsWith(got));
+  return want.line ? got === want.text || got === `${want.text}\n` : got === want.text;
+}
+
 // Null when the clipboard holds what a copy of `want` (`fz.selected()`
-// before it) puts there, else the `copy` failure.
+// before it) puts there, else the `copy` failure. The editor may rewrite
+// its text between that reading and the key (an Edit-as switch waiting
+// for the text to parse goes through after the typing pause): the copy
+// then took the selection as the text after it left it, read again now.
 export async function copyFits(page, want) {
   const got = await page.evaluate(() => navigator.clipboard.readText());
-  const fits = want.rest
-    ? got.startsWith(want.text) && (want.rest.startsWith(got) || `${want.rest}\n`.startsWith(got))
-    : want.line
-      ? got === want.text || got === `${want.text}\n`
-      : got === want.text;
-  if (fits) return null;
+  if (copied(got, want)) return null;
+  const now = await page.evaluate(() => window.__fz.selected());
+  if (now && now.doc !== want.doc && copied(got, now)) return null;
   return {
     check: 'copy',
     detail: `copied ${JSON.stringify(got).slice(0, 120)}, selection ${JSON.stringify(want.text).slice(0, 120)}`,
@@ -346,14 +412,20 @@ export async function perform(run, action) {
     case 'editAs':
       await host(page, 'editAs', action.language);
       run.editedAs = true;
+      run.hostText = undefined;
       return;
     case 'hostValue': {
       run.hostReplaced = true;
       await settle(page);
       if (run.kind === 'single') {
+        // A value equal to the editor's may give it nothing new.
+        const before = await page.evaluate(() => window.__fz.editor()?.value);
+        run.hostText = before === action.text ? undefined : action.text;
         const ranges = run.keepLocks(null, action.text);
         run.give(null, action.text);
-        return host(page, 'singleValue', { ...action, ranges });
+        await host(page, 'singleValue', { ...action, ranges });
+        if (action.how === 'setValue' && !run.vanilla) await resetThenRanges(run, action.text, 'singleProps', ranges);
+        return;
       }
       const id = await page.evaluate(() => window.__fz.activeId());
       const { docsFor } = await import('./corpus.mjs');
@@ -361,21 +433,16 @@ export async function perform(run, action) {
       const text = docs[action.pick % docs.length];
       const ranges = run.keepLocks(id, text);
       run.give(id, text);
-      return host(page, 'docValue', { text, how: action.how, ranges });
+      await host(page, 'docValue', { text, how: action.how, ranges });
+      if (action.how === 'setValue' && !run.vanilla) await resetThenRanges(run, text, 'docProps', ranges);
+      return;
     }
     case 'echo':
       await settle(page, 600);
       return host(page, run.kind === 'single' ? 'singleEcho' : 'docEcho');
-    case 'lock': {
+    case 'lock':
       if (!(await settle(page))) return;
-      const state = await page.evaluate(() => ({ value: window.__fz.editor()?.value, id: window.__fz.activeId() }));
-      if (typeof state.value !== 'string') return;
-      const range = lockIndices(state.value, action.range);
-      if (!range) return;
-      run.locked = true;
-      run.setLock(state.id, 'range', { range, text: state.value.slice(range.start, range.end) });
-      return host(page, run.kind === 'single' ? 'singleProps' : 'docProps', { readOnlyRanges: [range] });
-    }
+      return giveLock(run, action.range);
     case 'lockPath': {
       // A locked path may hold undo back (it would write the path again).
       run.locked = true;
@@ -393,6 +460,17 @@ export async function perform(run, action) {
       });
       const lock = action.on && state.range && state.value === state.text ? pathLock(state) : null;
       const given = await host(page, 'singleProps', { readOnlyPaths: action.on ? ['/public_address'] : [] });
+      run.pendingPath = null;
+      // A field the user changed since the host's text locks nothing: the
+      // save waits, saying why, until it reads as the host's text again
+      // (then it locks). Judged on the field's text, so a field the run
+      // cannot read in the host's text may go either way.
+      const hostField = fieldText(run.hostText);
+      if (lock && hostField !== lock.text) {
+        run.setLock(null, 'path', null);
+        run.pendingPath = { text: lock.text, host: hostField ?? null };
+        return given;
+      }
       run.setLock(null, 'path', lock && state.errored ? await markedLock(page, state, lock) : lock);
       return given;
     }
@@ -448,12 +526,26 @@ async function performProp(run, prop) {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
   } else if (prop === 'readOnly') {
-    await page.locator('#read-only').click();
+    await hostControl(page, '#read-only');
   } else if (prop === 'footer') {
     run.footer = !run.footer;
     await host(page, 'singleProps', { showFooter: run.footer });
   } else if (prop === 'rename') {
-    const rename = page.locator('#rename');
-    if (await rename.count()) await rename.click();
+    await hostControl(page, '#rename');
   }
+}
+
+// The host's own control (a page button or checkbox) changes a prop: the
+// focus moves to it, as a click's would, and it is clicked through the DOM.
+// Not with the pointer: a hover card opens above its line when it fits
+// there, over the page above the editor, and may cover the control (with
+// wider fonts, as on CI); Playwright's click then retries until the card
+// closes, and with the pointer resting on its key it stays open.
+async function hostControl(page, selector) {
+  await page.evaluate((selector) => {
+    const control = document.querySelector(selector);
+    if (!control) return;
+    control.focus();
+    control.click();
+  }, selector);
 }

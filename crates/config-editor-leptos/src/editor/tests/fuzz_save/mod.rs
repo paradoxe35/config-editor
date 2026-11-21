@@ -105,8 +105,9 @@ fn run(case: &Case) -> Result<bool, Broke> {
         let mut time = 0.0;
         for (step, op) in case.ops.iter().enumerate() {
             let before = state.doc().text.get_untracked();
+            let language_before = state.sync().edit_language.get_untracked();
             if op.saves() {
-                start.note(state.sync().edit_language.get_untracked(), &before);
+                start.note(language_before, &before);
             }
             ops::apply(state, case.host, op, &mut clipboard, &mut time);
             if trace {
@@ -120,7 +121,10 @@ fn run(case: &Case) -> Result<bool, Broke> {
                 );
             }
             if op.saves() {
-                checks::check(state, &start, &held).map_err(|failure| Broke { step, failure })?;
+                let switched_from =
+                    matches!(op, Op::Switch { .. }).then_some((language_before, before.as_str()));
+                checks::check(state, &start, &held, switched_from)
+                    .map_err(|failure| Broke { step, failure })?;
             }
             let language = state.sync().edit_language.get_untracked();
             let text = state.doc().text.get_untracked();
@@ -133,7 +137,7 @@ fn run(case: &Case) -> Result<bool, Broke> {
             }
         }
         ops::pause(state);
-        checks::check(state, &start, &held).map_err(|failure| Broke {
+        checks::check(state, &start, &held, None).map_err(|failure| Broke {
             step: case.ops.len(),
             failure,
         })
@@ -152,6 +156,25 @@ fn run(case: &Case) -> Result<bool, Broke> {
             })
         }
     }
+}
+
+/// The host's text once `ops` are made in a `view` of `text` (in `host`)
+/// and a pause saves them.
+fn saved_after(host: Language, view: Language, text: &str, ops: &[Op]) -> String {
+    let held: checks::HostCopy = std::sync::Arc::new(std::sync::Mutex::new(text.to_string()));
+    let mut editor = TestEditor::new(host, text);
+    let told = held.clone();
+    editor.on_change = Some(Callback::new(move |text: String| {
+        *told.lock().unwrap() = text;
+    }));
+    editor.edit_as = Some(view);
+    let (_owner, state) = editor.mount();
+    let (mut clipboard, mut time) = (None, 0.0);
+    for op in ops {
+        ops::apply(state, host, op, &mut clipboard, &mut time);
+    }
+    ops::pause(state);
+    held.lock().unwrap().clone()
 }
 
 /// Runs a printed case (see [`shrink::repro`]) and fails on a broken save.

@@ -144,3 +144,46 @@ fn a_secret_after_a_broken_xml_name_is_not_quoted_in_the_syntax_message() {
         ],
     );
 }
+
+/// An attribute holder copied from the secret's entry, its key typed into
+/// another name, reads as a list where one map is wanted: the copy's
+/// secret value is hidden in the type message.
+#[test]
+fn a_secret_in_a_copied_xml_attribute_holder_with_a_renamed_key_is_not_quoted() {
+    assert_ok(
+        &secret(8, None, true),
+        &[
+            Act::Entry {
+                anchor: 0,
+                name: 8,
+                paste: false,
+            },
+            Act::Type { at: 44912, text: 9 },
+            Act::Type { at: 42022, text: 1 },
+            Act::Line {
+                line: 6601,
+                command: 2,
+            },
+            Act::NewValue,
+        ],
+    );
+}
+
+/// A YAML list edited as XML that XML would read otherwise: the save's
+/// reason hides the secret.
+#[test]
+fn a_secret_in_a_refused_xml_save_of_a_yaml_list_is_not_quoted() {
+    assert_ok(
+        &secret(1, Some(Language::XML), false),
+        &[
+            Act::NewValue,
+            Act::Entry {
+                anchor: 2,
+                name: 6,
+                paste: false,
+            },
+            Act::Type { at: 21490, text: 4 },
+            Act::Pause,
+        ],
+    );
+}

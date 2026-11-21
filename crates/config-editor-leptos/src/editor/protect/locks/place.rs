@@ -101,6 +101,7 @@ impl<'r, 'a> Placer<'r, 'a> {
                             held.push((pointer, value, Some(cause)));
                         }
                     }
+                    one_hold_per_range_field(before, document, &mut held);
                     // A field named by its path reading as in the host's text
                     // (both without it included) reaches the host unchanged: a
                     // value pinned in a text the user made (a cut put a block's
@@ -469,6 +470,18 @@ impl<'r, 'a> Placer<'r, 'a> {
     /// The field at `pointer`, locked for `reason`, placed by the first
     /// step that finds it.
     pub(super) fn place(&mut self, pointer: String, reason: Reason) -> Placed {
+        // Changed before the host named it, its text on screen is the
+        // user's, not the host's: like a host range whose text was changed
+        // before it was given, it locks no span (every way back is taken)
+        // and is held at the host's value, placed by its path once it
+        // reads so again.
+        if self
+            .held
+            .iter()
+            .any(|pin| pin.pointer == pointer && pin.cause == HoldCause::ChangedBeforeLock)
+        {
+            return Placed::Unplaced(pointer, reason);
+        }
         // Followed from the text before by position while the text does
         // not parse, or the field reads otherwise than pinned (held):
         // nothing else says where its pinned text is.
@@ -698,7 +711,12 @@ impl<'r, 'a> Placer<'r, 'a> {
                     .ranges
                     .first()
                     .is_some_and(|first| first.start() <= start)
-                    && field.ranges.last().is_some_and(|last| end <= last.end())
+                    && field.ranges.last().is_some_and(|last| {
+                        // A language whose spans find no value under the
+                        // key (only the key itself) says nothing of where
+                        // its value ends: the range after the key is held.
+                        end <= last.end() || last.end() <= key.end()
+                    })
             });
             if !holds || slice::slice(before, *lost) != slice::slice(text, key) {
                 return moved;
@@ -874,6 +892,40 @@ fn origin_document(reading: &Reading<'_>, before: &Protected) -> Option<Value> {
         return None;
     }
     codec::read(reading.behavior, origin, reading.sources.reading_schema).ok()
+}
+
+/// Keeps one hold per field a host range covers. A key holding it renamed
+/// a keystroke at a time (`web`, `weba`, `webap`) has the range's text read
+/// under each name in between, pinned there: those names are the same
+/// locked field, held already under the name it was first held under (the
+/// host's). A field held by this edit (`None` cause) that `document` no
+/// longer has, whose lock in `before` stands on the same text as the lock
+/// of a field held before, is not held again.
+fn one_hold_per_range_field(
+    before: &Protected,
+    document: &Value,
+    held: &mut Vec<(String, Value, Option<HoldCause>)>,
+) {
+    let range_lock = |pointer: &str| {
+        before
+            .locks
+            .iter()
+            .find(|lock| lock.pointer.as_deref() == Some(pointer) && lock.reason == Reason::Range)
+    };
+    let held_on: Vec<&[TextRange]> = held
+        .iter()
+        .filter(|(_, _, cause)| cause.is_some())
+        .filter_map(|(pointer, ..)| range_lock(pointer))
+        .map(|lock| lock.ranges.as_slice())
+        .collect();
+    if held_on.is_empty() {
+        return;
+    }
+    held.retain(|(pointer, _, cause)| {
+        cause.is_some()
+            || lookup(document, pointer).is_some()
+            || !range_lock(pointer).is_some_and(|lock| held_on.contains(&lock.ranges.as_slice()))
+    });
 }
 
 /// The pinned values of the text before (`before`, whose locks are its

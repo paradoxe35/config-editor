@@ -11,7 +11,7 @@ type SettingProp<K extends keyof EditorSettings> = {
 /** One prop per setting, from the list generated from the Rust struct (`SETTING_TYPES`), so they never drift. */
 export type SettingProps = { [K in keyof EditorSettings]-?: SettingProp<K> };
 
-const CONSTRUCTORS = { boolean: Boolean, string: String, object: Object } as const;
+const CONSTRUCTORS = { boolean: Boolean, number: Number, string: String, object: Object } as const;
 
 /**
  * The runtime props of every setting. `default: undefined` keeps an absent

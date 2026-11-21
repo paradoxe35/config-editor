@@ -374,6 +374,7 @@ fn a_secret_field_offers_reference_forms_in_every_language() {
                 protected: &protected,
                 prefixes: &prefixes,
                 strings: &crate::EditorStrings::default(),
+                tokens: &[],
             },
         );
         let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
@@ -391,6 +392,68 @@ fn a_secret_field_offers_reference_forms_in_every_language() {
         }
         if language == Language::HCL && !variable.insert.contains("$${") {
             failures.push(format!("HCL: `${{` not escaped: {:?}", variable.insert));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// `Ctrl+Space` with the caret at a placeholder (it snaps to its edges)
+/// offers what an empty secret value offers, each form replacing the
+/// placeholder whole.
+#[test]
+fn a_placeholder_offers_the_reference_forms_that_replace_it() {
+    let schema = schema();
+    let cases = [
+        (Language::YAML, "name: a\nsecret: ", SECRET, "\n"),
+        (Language::JSON, "{\n  \"secret\": \"", SECRET, "\"\n}\n"),
+        (Language::TOML, "secret = \"", SECRET, "\"\n"),
+        (Language::HCL, "secret = \"", SECRET, "\"\n"),
+        (Language::XML, "<secret>", SECRET, "</secret>\n"),
+    ];
+    let prefixes = vec!["${".to_string(), "file:".to_string()];
+    let mut failures = Vec::new();
+    for (language, before, token, after) in cases {
+        let text = format!("{before}{token}{after}");
+        let token_range = TextRange::new(
+            text_size(before.len()),
+            text_size(before.len() + token.len()),
+        );
+        for caret in [before.len(), before.len() + token.len()] {
+            let cursor = text[..caret].encode_utf16().count();
+            let protected = protect(language.behavior(), &text, Sources::default());
+            let options = adjust(
+                Vec::new(),
+                &Around {
+                    behavior: language.behavior(),
+                    source: &text,
+                    cursor,
+                    explicit: true,
+                    schema: Some(&schema),
+                    host_paths: &[],
+                    protected: &protected,
+                    prefixes: &prefixes,
+                    strings: &crate::EditorStrings::default(),
+                    tokens: &[token_range],
+                },
+            );
+            let labels: Vec<&str> = options.iter().map(|option| option.label.as_str()).collect();
+            if labels != ["${VAR}", "file:path"] {
+                failures.push(format!("{language} at {caret}: {labels:?}"));
+                continue;
+            }
+            // Accepted, the value is the reference form alone.
+            let variable = &options[0];
+            let (start, end) = (usize::from(variable.start), usize::from(variable.end));
+            let accepted = format!("{}{}{}", &text[..start], variable.insert, &text[end..]);
+            let value = language
+                .parse(&accepted)
+                .ok()
+                .and_then(|value| value.pointer("/secret").cloned());
+            if value != Some(Value::String("${}".into())) {
+                failures.push(format!(
+                    "{language} at {caret}: accepting gives {accepted:?} ({value:?})"
+                ));
+            }
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

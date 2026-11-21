@@ -93,6 +93,15 @@ pub struct EditorSettings {
     /// Switching it off opens every fold. In Rust, needs the `folding` Cargo
     /// feature.
     pub folding: bool,
+    /// Sticky scroll, as in VS Code: the lines opening the blocks around the
+    /// top line stay at the top while the text scrolls; a click goes back to
+    /// one. Works with `folding` off too. In Rust, needs the `folding` Cargo
+    /// feature.
+    pub sticky_scroll: bool,
+    /// The most lines sticky scroll shows, 1 to 20 (others are taken as the
+    /// nearest), and never more than fit in a quarter of the text area (at
+    /// least one).
+    pub sticky_scroll_max_lines: StickyScrollLines,
     /// Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off,
     /// the key is left to the browser and only the handle's `save` saves.
     pub save_shortcut: bool,
@@ -120,9 +129,55 @@ impl Default for EditorSettings {
             search: true,
             go_to_line: true,
             folding: true,
+            sticky_scroll: true,
+            sticky_scroll_max_lines: StickyScrollLines::default(),
             save_shortcut: true,
             strings: EditorStrings::default(),
         }
+    }
+}
+
+/// How many lines sticky scroll keeps at the top
+/// ([`EditorSettings::sticky_scroll_max_lines`]): always from
+/// [`StickyScrollLines::MIN`] to [`StickyScrollLines::MAX`], 5 by default.
+/// It reads from any whole number, taking one outside as the nearest end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(from = "u64", into = "u64")]
+pub struct StickyScrollLines(u8);
+
+impl StickyScrollLines {
+    /// The fewest lines: one.
+    pub const MIN: u8 = 1;
+    /// The most lines, as in VS Code.
+    pub const MAX: u8 = 20;
+
+    /// `lines`, taken into the range.
+    pub fn new(lines: u64) -> Self {
+        let lines = lines.clamp(u64::from(Self::MIN), u64::from(Self::MAX));
+        Self(u8::try_from(lines).unwrap_or(Self::MAX))
+    }
+
+    /// The number of lines.
+    pub fn get(self) -> usize {
+        usize::from(self.0)
+    }
+}
+
+impl Default for StickyScrollLines {
+    fn default() -> Self {
+        Self(5)
+    }
+}
+
+impl From<u64> for StickyScrollLines {
+    fn from(lines: u64) -> Self {
+        Self::new(lines)
+    }
+}
+
+impl From<StickyScrollLines> for u64 {
+    fn from(lines: StickyScrollLines) -> Self {
+        u64::from(lines.0)
     }
 }
 
@@ -150,9 +205,11 @@ mod tests {
             settings.search,
             settings.go_to_line,
             settings.folding,
+            settings.sticky_scroll,
             settings.save_shortcut,
         ];
         assert!(on.iter().all(|on| *on), "{on:?}");
+        assert_eq!(settings.sticky_scroll_max_lines.get(), 5);
     }
 
     #[test]
@@ -187,6 +244,7 @@ mod tests {
                         serde_json::json!({"noProblems": "Keine Fehler"})
                     }
                     serde_json::Value::Object(_) => serde_json::json!({"key": "#ffcc66"}),
+                    serde_json::Value::Number(_) => 12.into(),
                     other => return Some(format!("{key}: unexpected default {other}")),
                 };
                 let read: EditorSettings =
@@ -209,6 +267,23 @@ mod tests {
         assert!(
             keys.contains(&"autoTriggerCompletions".to_string()),
             "{keys:?}"
+        );
+    }
+
+    #[test]
+    fn sticky_scroll_lines_are_taken_into_their_range() {
+        let read = |json: &str| {
+            serde_json::from_str::<EditorSettings>(json)
+                .unwrap()
+                .sticky_scroll_max_lines
+                .get()
+        };
+        assert_eq!(read(r#"{"stickyScrollMaxLines": 0}"#), 1);
+        assert_eq!(read(r#"{"stickyScrollMaxLines": 7}"#), 7);
+        assert_eq!(read(r#"{"stickyScrollMaxLines": 99999999999}"#), 20);
+        assert_eq!(
+            serde_json::to_value(EditorSettings::default()).unwrap()["stickyScrollMaxLines"],
+            5
         );
     }
 
@@ -243,6 +318,7 @@ mod tests {
             (r#"{"colors": {"key": 7}}"#, "a CSS color string"),
             (r#"{"folding": "yes"}"#, "expected a boolean"),
             (r#"{"colors": []}"#, "an object of token: CSS color"),
+            (r#"{"stickyScrollMaxLines": "3"}"#, "expected u64"),
         ];
         let failures: Vec<String> = cases
             .iter()

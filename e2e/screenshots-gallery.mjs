@@ -49,6 +49,7 @@ export const GALLERY = [
       { title: 'Find and replace', caption: '`Ctrl+F` / `Ctrl+H`, with match case, whole word and regex.', images: [['find-replace.png', 'Find and replace']] },
       { title: 'Go to line', caption: '`Ctrl+G`, with `line` or `line:column`.', images: [['go-to-line.png', 'Go to line']] },
       { title: 'Folding', caption: 'Gutter chevrons and `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J`; a folded block shows `…` and keeps the markers of what it hides.', images: [['folding.png', 'Every top-level block folded']] },
+      { title: 'Sticky scroll', caption: 'The lines a scrolled-away block starts with stay pinned above the text, with their line numbers and colors.', images: [['sticky-scroll.png', 'Header lines pinned above scrolled text']] },
     ],
   },
   {

@@ -78,7 +78,7 @@ for (const language of ['yaml', 'json', 'toml', 'hcl', 'xml']) {
       // the focus on Revert, and Enter reverts.
       await page.keyboard.press('Control+Home');
       await page.keyboard.press('Alt+F3');
-      await expect(preview(page)).toContainText('Removed lines');
+      await expect(preview(page)).toContainText('Removed line ·');
       await expect(preview(page).getByRole('button', { name: /Revert this change/ })).toBeFocused();
       await page.keyboard.press('Enter');
       await expect(removed(page)).toHaveCount(0);

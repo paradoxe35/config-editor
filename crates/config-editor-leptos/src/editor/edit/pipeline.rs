@@ -140,7 +140,16 @@ impl EditorState {
         let after = self.place_selection(&edit, rewritten, kept);
         #[cfg(test)]
         if let Some((spans, stepped)) = spans {
-            self.assert_spans_kept(&spans, &edit.before, &edit.text, edit.caret(), stepped);
+            let recorded = edit.told().then(|| edit.made().hull()).flatten();
+            let recorded = recorded.map(|(replaced, _)| replaced);
+            self.assert_spans_kept(
+                &spans,
+                &edit.before,
+                &edit.text,
+                edit.caret(),
+                recorded,
+                stepped,
+            );
         }
 
         trace(Stage::Record);
@@ -271,8 +280,15 @@ impl EditorState {
             }
             After::Kept => {
                 // The text changed under the caret: its line and path too.
-                if let Some(area) = area {
-                    area.follow_caret();
+                // Without a textarea nothing else moves the caret, and a
+                // byte of the text before may lie inside a character of
+                // the text after: it follows the change.
+                match area {
+                    Some(area) => area.follow_caret(),
+                    None => {
+                        let caret = edit.map(self.doc().caret.get_untracked(), Assoc::Before);
+                        self.note_caret(caret);
+                    }
                 }
                 (TextSize::default(), TextSize::default())
             }

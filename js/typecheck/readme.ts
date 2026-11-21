@@ -148,7 +148,7 @@ binding.update({ value: "a: 1\n", onChange: (text) => emit(text), language: "yam
 const found: boolean = binding.handle.reveal("/web/listen"); const foundRange: boolean = binding.handle.revealRange({ start: 0, end: 4 }); void foundRange; const bound: string = binding.handle.value;
 binding.detach();
 new DocumentsBinding("tabs", { documents: [] }).handle.saveAll();
-const kind: "boolean" | "string" | "object" = SETTING_TYPES.showFooter;
+const kind: "boolean" | "number" | "string" | "object" = SETTING_TYPES.showFooter;
 void [found, bound, kind, noChanges, review, sent, unsaved, folded, savedIds, shown, active, dirtyMain];
 // Schema formats: JSON Schema in YAML, a registered format, compiling at build time.
 {
@@ -183,3 +183,10 @@ void [found, bound, kind, noChanges, review, sent, unsaved, folded, savedIds, sh
   editor.update({ schemaFormat: "fields" });
   void effect; void json; void fetchFirst; void warnings; void format; void labels;
 }
+
+// The built-in theme and language names are literals of `ThemeName` and `LanguageName` (editors complete them); any other string still type-checks.
+import type { LanguageName, ThemeName } from "@pngwasi/config-editor";
+const builtInThemes: Extract<ThemeName, "vscode-dark" | "nord" | "github-light">[] = ["vscode-dark", "nord", "github-light"];
+const builtInLanguages: Extract<LanguageName, "yaml" | "json" | "toml" | "hcl" | "xml">[] = ["yaml", "json", "toml", "hcl", "xml"];
+const registered: LanguageName = "dockerfile"; const picked: ThemeName = String(Date.now());
+void [builtInThemes, builtInLanguages, registered, picked];

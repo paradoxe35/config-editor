@@ -43,7 +43,7 @@ pub(super) fn refused(
         .unwrap_or_else(|| "/".to_string());
     Some(
         ConvertError::Unsupported(format!(
-            "this edit can only be saved by writing the whole document anew, which would drop the comments of the {} file: make it editing as {} (at {pointer})",
+            "this edit can only be saved by writing the whole document anew, which would drop the comments of the {} file: make this edit while editing as {} (at {pointer})",
             host.label(),
             host.label()
         ))
@@ -51,9 +51,12 @@ pub(super) fn refused(
     )
 }
 
-/// The first scalar `old` and `target` hold alike at its pointer that
-/// `previous` and `rendered` write in other text (with its tag, quotes or
-/// markup), where both write it.
+/// The scalar `old` and `target` hold alike at its pointer that `previous`
+/// and `rendered` write in other text (with its tag, quotes or markup),
+/// where both write it: of several, the one `rendered` writes nearest to
+/// the first value the edit changed, which kept the save from patching
+/// the host in place (a `3.10` beside a key added after it), not one
+/// elsewhere that a patch would have left alone.
 fn changed_form(
     host: &dyn ConfigLanguage,
     (previous, rendered): (&str, &str),
@@ -61,25 +64,49 @@ fn changed_form(
 ) -> Option<String> {
     let mut kept = Vec::new();
     unchanged_scalars(old, target, &mut String::new(), &mut kept);
-    let paths: Vec<FieldPath> = kept.iter().map(FieldPath::from).collect();
+    let mut paths: Vec<FieldPath> = kept.iter().map(FieldPath::from).collect();
+    let mut changed = Vec::new();
+    codec::differences(old, target, String::new(), &mut changed);
+    let edited = changed
+        .into_iter()
+        .find(|pointer| target.pointer(pointer).is_some());
+    paths.extend(edited.as_deref().map(FieldPath::from));
     // Each text's spans placed from its lines split once (see `with_lines`).
-    let written = |text: &str| -> Vec<Option<TextRange>> {
+    let written = |text: &str, paths: &[FieldPath]| -> Vec<Option<TextRange>> {
         super::with_lines(host, text, || {
-            host.value_spans(text, &paths)
+            host.value_spans(text, paths)
                 .into_iter()
                 .map(|span| written_text_range(host, text, span?))
                 .collect()
         })
     };
-    let (before, after) = (written(previous), written(rendered));
-    kept.iter()
-        .zip(before.into_iter().zip(after))
-        .find_map(|(pointer, ranges)| match ranges {
+    let before = written(previous, &paths[..kept.len()]);
+    let mut after = written(rendered, &paths);
+    let edit_at = if edited.is_some() {
+        after.pop().flatten()
+    } else {
+        None
+    };
+    let mismatches = kept.iter().zip(before.into_iter().zip(after)).filter_map(
+        |(pointer, ranges)| match ranges {
             (Some(was), Some(is)) => {
-                (slice::slice(previous, was) != slice::slice(rendered, is)).then(|| pointer.clone())
+                (slice::slice(previous, was) != slice::slice(rendered, is)).then_some((pointer, is))
             }
             _ => None,
+        },
+    );
+    let distance = |range: TextRange| {
+        edit_at.map_or(0, |edit: TextRange| {
+            if range.end() <= edit.start() {
+                u32::from(edit.start() - range.end())
+            } else {
+                u32::from(range.start().max(edit.start()) - edit.start())
+            }
         })
+    };
+    mismatches
+        .min_by_key(|(_, range)| distance(*range))
+        .map(|(pointer, _)| pointer.clone())
 }
 
 /// The pointers of the scalars of `old` that `target` holds alike there.
@@ -209,6 +236,21 @@ mod tests {
                 "{host} {text:?} → {rendered:?}: {error:?}"
             );
         }
+        // Of several values written in another form, the one beside the
+        // edit is named, not the first in the document.
+        let text = "a:\n  ref: !Ref X\n  big: 0x1F\nb:\n  items:\n    - 3.9\n    - 0o17\n";
+        let old = Language::YAML.parse(text).expect("parses");
+        let mut target = old.clone();
+        target["b"]["lint"] = json!(1);
+        let rendered = serialize(Language::YAML.behavior(), &target, None).expect("writes");
+        let error = refused(Language::YAML, (text, &rendered), (&old, &target))
+            .map(|error| format!("{error:?}"));
+        assert!(
+            error
+                .as_deref()
+                .is_some_and(|error| error.contains("(at /b/items/1)")),
+            "{rendered:?}: {error:?}"
+        );
         let (old, target) = (json!({"a": {"k": 1, "gone": 1}}), json!({"a": {"k": 1}}));
         assert_eq!(
             refused(

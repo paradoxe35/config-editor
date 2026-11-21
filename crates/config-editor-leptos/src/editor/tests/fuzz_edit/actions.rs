@@ -458,12 +458,6 @@ pub(super) fn apply(state: EditorState, action: &Action, context: &mut Context) 
             let next = LANGUAGES[to as usize % LANGUAGES.len()];
             if next != state.sync().edit_language.get_untracked() {
                 switch_to(state, next);
-                // The browser keeps the textarea's caret inside its new
-                // text (natively nothing does).
-                let end = units(&shown(state));
-                if state.caret_units() > end {
-                    state.set_caret_units(end);
-                }
             }
         }
         Action::Pause => pause(state),

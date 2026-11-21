@@ -164,6 +164,23 @@ test.describe('host API details', () => {
     await page.selectOption('#edit-as', 'json');
     await expect(page.locator('#edit-as')).toHaveValue('json');
   });
+
+  test('vanilla example: the Edit-as select offers every other language and shows the host as Same', async ({ page }) => {
+    const options = JSON.stringify({ language: 'json', value: '{"a": 1}\n', schema: null });
+    await page.goto(`${example('vanilla.html')}?options=${encodeURIComponent(options)}`);
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    const select = page.locator('#edit-as');
+    const offered = await select.locator('option').evaluateAll((all) => all.map((option) => option.value));
+    expect(offered).toEqual(['', 'yaml', 'toml', 'hcl', 'xml', 'env']);
+    await expect(select).toHaveValue('');
+    // Switches made through the API show too, the host's own as "Same".
+    await page.evaluate(() => window.editor.update({ editAs: 'yaml' }));
+    await expect(page.locator('body')).toHaveAttribute('data-editing', 'yaml');
+    await expect(select).toHaveValue('yaml');
+    await page.evaluate(() => window.editor.update({ editAs: 'json' }));
+    await expect(page.locator('body')).toHaveAttribute('data-editing', 'json');
+    await expect(select).toHaveValue('');
+  });
 });
 
 // A group of its own (needs the built npm packages).

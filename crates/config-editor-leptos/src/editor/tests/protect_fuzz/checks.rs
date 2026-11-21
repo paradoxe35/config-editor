@@ -205,6 +205,39 @@ pub(super) fn original(
         .unwrap_or_default()
 }
 
+/// Whether `text` (in `language`) may hold the secret's new value as a
+/// secret's: a secret is a value at a field the schema marks, so it is one
+/// while the text does not parse (a syntax message may quote any of it),
+/// while a value holding it stands at the field's path or at a field
+/// holding it (a broken holder read as one string), or while a key holds
+/// it. A value whose key was renamed to one no schema marks
+/// (`passwo1rd`) is no secret's, as the schema fuzz's secrets judge it.
+pub(super) fn holds_new_secret(setup: &Setup, language: Language, text: &str) -> bool {
+    if !text.contains(NEW_SECRET) {
+        return false;
+    }
+    let Ok(parsed) = language.parse(text) else {
+        return true;
+    };
+    let field = unindexed(setup.case().pointer);
+    let holds = |path: &str| field == path || field.starts_with(&format!("{path}/"));
+    in_a_key(&parsed)
+        || flatten(&parsed)
+            .iter()
+            .any(|(path, leaf)| leaf.contains(NEW_SECRET) && holds(path))
+}
+
+/// Whether a key of `value` holds the secret's new value.
+fn in_a_key(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map
+            .iter()
+            .any(|(key, child)| key.contains(NEW_SECRET) || in_a_key(child)),
+        Value::Array(items) => items.iter().any(in_a_key),
+        _ => false,
+    }
+}
+
 /// Whether a problem message quotes the secret's new value.
 pub(super) fn leaks(messages: &[String]) -> Option<String> {
     messages

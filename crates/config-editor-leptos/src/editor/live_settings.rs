@@ -29,6 +29,17 @@ pub(super) struct LiveSettings {
     pub(super) search: Memo<bool>,
     pub(super) go_to_line: Memo<bool>,
     pub(super) folding: Memo<bool>,
+    #[cfg_attr(
+        not(feature = "folding"),
+        allow(dead_code, reason = "only sticky scroll, a part of folding, reads it")
+    )]
+    pub(super) sticky_scroll: Memo<bool>,
+    /// The most sticky lines the setting allows.
+    #[cfg_attr(
+        not(feature = "folding"),
+        allow(dead_code, reason = "only sticky scroll, a part of folding, reads it")
+    )]
+    pub(super) sticky_scroll_max_lines: Memo<usize>,
     pub(super) save_shortcut: Memo<bool>,
     /// Every built-in text, for the editor's long-lived parts (memos,
     /// views mounted once).
@@ -60,6 +71,10 @@ impl LiveSettings {
             search: flag(|settings| settings.search),
             go_to_line: flag(|settings| settings.go_to_line),
             folding: flag(|settings| settings.folding),
+            sticky_scroll: flag(|settings| settings.sticky_scroll),
+            sticky_scroll_max_lines: Memo::new(move |_| {
+                settings.with(|settings| settings.sticky_scroll_max_lines.get())
+            }),
             save_shortcut: flag(|settings| settings.save_shortcut),
             strings,
             strings_relay: Relay::new(move || Arc::new(strings.get())),

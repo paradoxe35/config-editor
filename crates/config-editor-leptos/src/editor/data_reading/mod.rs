@@ -31,7 +31,7 @@ use super::language::{ConfigLanguage, ParseError, Repetition};
 use conform::conform_at;
 #[cfg(feature = "xml")]
 pub(crate) use text::plain_scalar;
-pub(crate) use text::{other_reading, text_literal};
+pub(crate) use text::text_literal;
 pub(crate) use written::lone_spelling;
 
 /// A text read as data.
@@ -148,6 +148,54 @@ impl DataReading {
             self.lists_of_one.insert(format!("{pointer}/0"));
         }
         self.lists_of_one.insert(pointer.to_string());
+    }
+
+    /// The lists of one under `pointer` (not at it), at most `most`, each
+    /// as its pointer from there (`/a/0/b`).
+    fn lists_of_one_under(&self, pointer: &str, most: usize) -> Vec<String> {
+        let under = format!("{pointer}/");
+        let end = format!("{pointer}0");
+        self.lists_of_one
+            .range(under..end)
+            .take(most)
+            .map(|list| list[pointer.len()..].to_string())
+            .collect()
+    }
+
+    /// Notes the list of one at `pointer` read back as its item, the value
+    /// written once: what is noted under its `/0` moves back under it
+    /// (the inverse of [`Self::list_of_one_at`]).
+    fn lone_at(&mut self, pointer: &str) {
+        self.lists_of_one.remove(pointer);
+        let item = format!("{pointer}/0");
+        let under = format!("{item}/");
+        let end = format!("{item}0");
+        let moved = |old: &str| format!("{pointer}{}", &old[item.len()..]);
+        let lists: Vec<String> = self
+            .lists_of_one
+            .range(under.clone()..end.clone())
+            .cloned()
+            .collect();
+        for old in lists {
+            self.lists_of_one.remove(&old);
+            self.lists_of_one.insert(moved(&old));
+        }
+        let scalars: Vec<String> = self
+            .retyped
+            .range(under..end)
+            .map(|(old, _)| old.clone())
+            .collect();
+        for old in scalars {
+            if let Some(parsed) = self.retyped.remove(&old) {
+                self.retyped.insert(moved(&old), parsed);
+            }
+        }
+        if let Some(parsed) = self.retyped.remove(&item) {
+            self.retyped.insert(pointer.to_string(), parsed);
+        }
+        if self.lists_of_one.remove(&item) {
+            self.lists_of_one.insert(pointer.to_string());
+        }
     }
 
     /// Whether a value written once reads as a list of one anywhere.

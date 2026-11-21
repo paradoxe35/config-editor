@@ -82,6 +82,14 @@ impl<'s> Entry<'s> {
             .collect()))
     }
 
+    /// Each of `schemas` applying.
+    pub(crate) fn all_of(schemas: &[&'s Value]) -> Self {
+        Self(all(schemas
+            .iter()
+            .map(|schema| Rc::new(Node::Leaf(schema)))
+            .collect()))
+    }
+
     /// Whether nothing applies (a key no schema names).
     pub(crate) fn is_empty(&self) -> bool {
         is_empty(&self.0)
@@ -90,6 +98,12 @@ impl<'s> Entry<'s> {
     /// Every schema named, once, in order.
     pub(crate) fn schemas(&self) -> Vec<&'s Value> {
         super::query::leaves(&self.0, Walked::Any)
+    }
+
+    /// The schemas named that are certain to apply: none of a branch of
+    /// an `if` the value does not decide.
+    pub(crate) fn certain(&self) -> Vec<&'s Value> {
+        super::query::leaves(&self.0, Walked::Certain)
     }
 }
 

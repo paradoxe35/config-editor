@@ -249,9 +249,13 @@ pub struct EditorStrings {
     pub added_line: String,
     /// For a modified line.
     pub modified_line: String,
-    /// For removed lines.
+    /// For one removed line.
+    pub removed_line: String,
+    /// For several removed lines.
     pub removed_lines: String,
-    /// For lines removed after the last one.
+    /// For one line removed after the last one.
+    pub removed_line_at_end: String,
+    /// For several lines removed after the last one.
     pub removed_lines_at_end: String,
     /// The gutter marker of an added line.
     pub show_added: String,
@@ -401,8 +405,12 @@ pub struct EditorStrings {
     pub read_only_field: String,
     /// Why text in a read-only range the host gave cannot change.
     pub read_only_text: String,
-    /// Why renaming or moving the key above a read-only field is refused.
+    /// Why renaming or moving the key above a read-only field is refused,
+    /// when nothing says why the field is read-only.
     pub holds_read_only: String,
+    /// The same, for a field the schema says why is read-only
+    /// (`x-readonly-reason`): `{reason}`.
+    pub holds_read_only_reason: String,
     /// A save refused because it would change a read-only value.
     pub save_refused: String,
     /// A save waiting for the text to be valid: the language cannot say
@@ -410,9 +418,10 @@ pub struct EditorStrings {
     /// checked only in a text that parses.
     pub save_waits: String,
     /// A save waiting because the read-only field at `{pointer}` no longer
-    /// reads as the host gave it, held where the editor cannot tell why, and
-    /// why the field is read-only (`{reason}`). The texts after it name
-    /// each cause a hold records.
+    /// reads as the host gave it, held where the editor cannot tell why;
+    /// `{reason}` is the `save_held_reason` text when the schema says why
+    /// the field is read-only (`x-readonly-reason`), else empty. The texts
+    /// after it name each cause a hold records, with the same placeholders.
     pub save_held: String,
     /// The same, because its key or a block holding it is written twice,
     /// and the other copy is read in its place.
@@ -441,6 +450,9 @@ pub struct EditorStrings {
     /// The same, for a field the host made read-only after it was
     /// changed: the text reads it otherwise than the host's text does.
     pub save_held_before_lock: String,
+    /// What a `save_held…` text says of why the field is read-only, when
+    /// the schema says (`x-readonly-reason`): its `{reason}`.
+    pub save_held_reason: String,
     /// A save waiting because the secret field at `{pointer}` now reads
     /// text beside a placeholder the host gave as its whole value (an edit
     /// beside it, or an undo, made the parse read them together).
@@ -453,6 +465,9 @@ pub struct EditorStrings {
     pub secret_hint: String,
     /// What a schema problem says instead of a secret field's value.
     pub secret_value: String,
+    /// What a schema problem writes in place of each secret inside a value
+    /// it quotes (a list or map holding one).
+    pub secret_inside: String,
     /// A placeholder the host did not give, in a secret field.
     pub unknown_placeholder: String,
     /// One of the host's placeholders outside the field it stands in.
@@ -727,7 +742,9 @@ impl Default for EditorStrings {
             go_to_line_invalid: text("Type a line number between 1 and {lines}"),
             added_line: text("Added line"),
             modified_line: text("Modified line"),
+            removed_line: text("Removed line"),
             removed_lines: text("Removed lines"),
+            removed_line_at_end: text("Removed line at end of document"),
             removed_lines_at_end: text("Removed lines at end of document"),
             show_added: text("Show added line {line}"),
             show_added_title: text("Show added line"),
@@ -795,44 +812,46 @@ impl Default for EditorStrings {
             read_only_editor_reason: text("Cannot edit in a read-only editor: {reason}"),
             read_only_field: text("This field is read-only"),
             read_only_text: text("This text is read-only"),
-            holds_read_only: text("Holds a read-only field: {reason}"),
+            holds_read_only: text("Holds a read-only field"),
+            holds_read_only_reason: text("Holds a read-only field: {reason}"),
             save_refused: text("{pointer} is read-only and this change would alter it"),
             save_waits: text(
                 "Not saved: {pointer} is read-only, and it can be checked only once the text is valid",
             ),
             save_held: text(
-                "Not saved: {pointer} no longer reads as the host gave it ({reason}); put it back as it was to save",
+                "Not saved: the read-only field {pointer} no longer reads as the host gave it{reason}; put it back as it was to save",
             ),
             save_held_duplicate: text(
-                "Not saved: {pointer} is written twice, and the other copy is read in its place ({reason}); remove the copy to save",
+                "Not saved: the read-only field {pointer} is written twice, and the other copy is read in its place{reason}; remove the copy to save",
             ),
             save_held_renamed: text(
-                "Not saved: a key of {pointer} was renamed ({reason}); give the key its old name back to save",
+                "Not saved: a key holding the read-only field {pointer} was renamed{reason}; give the key its old name back to save",
             ),
             save_held_moved: text(
-                "Not saved: {pointer} moved under another parent ({reason}); move it back to save",
+                "Not saved: the read-only field {pointer} moved under another parent{reason}; move it back to save",
             ),
             save_held_list_item: text(
-                "Not saved: {pointer} is now another item of its list, because items were added, removed or moved before it ({reason}); put the items back in order to save",
+                "Not saved: the read-only field {pointer} is now another item of its list, because items were added, removed or moved before it{reason}; put the items back in order to save",
             ),
             save_held_commented: text(
-                "Not saved: {pointer} is commented out ({reason}); remove the comment mark to save",
+                "Not saved: the read-only field {pointer} is commented out{reason}; remove the comment mark to save",
             ),
             save_held_removed: text(
-                "Not saved: {pointer} is no longer in the text ({reason}); write it back as the host gave it to save",
+                "Not saved: the read-only field {pointer} is no longer in the text{reason}; write it back as the host gave it to save",
             ),
             save_held_added: text(
-                "Not saved: {pointer} now reads text that was added into it or beside it ({reason}); remove that text to save",
+                "Not saved: the read-only field {pointer} now reads text that was added into it or beside it{reason}; remove that text to save",
             ),
             save_held_spanless: text(
-                "Not saved: {pointer} now reads another value than the host gave ({reason}); put its value back as it was to save",
+                "Not saved: the read-only field {pointer} now reads another value than the host gave{reason}; put its value back as it was to save",
             ),
             save_held_range: text(
-                "Not saved: the read-only text the host gave no longer reads as {pointer} ({reason}); put that text back where it was to save",
+                "Not saved: the read-only text the host gave no longer reads as {pointer}{reason}; put that text back where it was to save",
             ),
             save_held_before_lock: text(
-                "Not saved: {pointer} was changed before the host made it read-only ({reason}); put it back as the host gave it to save",
+                "Not saved: {pointer} was changed before the host made it read-only{reason}; put it back as the host gave it to save",
             ),
+            save_held_reason: text(" ({reason})"),
             save_held_placeholder: text(
                 "Not saved: {pointer} now reads other text beside its secret placeholder; remove that text so the placeholder stands alone to save",
             ),
@@ -840,6 +859,7 @@ impl Default for EditorStrings {
             secret_label: text("Secret placeholder"),
             secret_hint: text("Keeps the current secret unless you replace it"),
             secret_value: text("the secret value"),
+            secret_inside: text("…"),
             unknown_placeholder: text(
                 "{pointer}: unknown secret placeholder; it stands for no current secret, so write the new value instead",
             ),
@@ -908,14 +928,18 @@ impl Default for EditorStrings {
             invalid_placeholder: text("secrets.placeholder: {error}"),
             problem_at_path: text("{path}: {message}"),
             host_cannot_keep: text(
-                "{pointer}: {host} cannot keep this value exactly; it reads back differently",
+                "{pointer}: {host} cannot keep this value exactly, as it reads back differently: change it, or edit it as {host}, to save",
             ),
             edit_cannot_show: text(
                 "{pointer}: {edit} cannot show this value exactly; editing it here may change it",
             ),
             not_saved: text("Not saved as {host}: {error}"),
-            no_null: text("{host} has no null value (at {pointer})"),
-            no_non_finite: text("{host} has no infinity or NaN (at {pointer})"),
+            no_null: text(
+                "{host} has no null value: give it a value or remove it to save (at {pointer})",
+            ),
+            no_non_finite: text(
+                "{host} has no infinity or NaN: write a finite number or remove it to save (at {pointer})",
+            ),
             cannot_switch: text("Cannot switch to {edit} yet: {error}"),
             switch_refused: text("Cannot edit as {edit}: {error}"),
             mixed_content: text(

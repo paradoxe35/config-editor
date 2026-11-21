@@ -16,6 +16,7 @@ mod accepts;
 mod choices;
 mod document;
 mod expand;
+mod list_rules;
 mod narrow;
 mod node;
 mod query;
@@ -25,6 +26,7 @@ mod types;
 pub(crate) use accepts::decides;
 pub(crate) use choices::{ChoiceHover, Choices};
 pub(crate) use document::{Next, Walking, each_value};
+pub(crate) use list_rules::{Contains, ListRules};
 pub(crate) use narrow::{listed, scalar_text};
 pub(crate) use node::{Entry, Walked};
 pub(crate) use types::Types;
@@ -150,9 +152,10 @@ impl<'s> Here<'s> {
     /// Whether some value of the kind `name` (`object` or `array`) may be
     /// taken here: the kinds allow it, and its empty value is not refused,
     /// or is refused only as too few entries (a `required` key, a
-    /// `minProperties`; a `minItems`, a `contains`) where items may be
-    /// written. A list two `oneOf` options both take, or one asked items
-    /// its `items: false` refuses, meets nothing.
+    /// `minProperties`; a `minItems`, a `contains`) where entries may be
+    /// written: for a list, where the counts its rules ask fit together
+    /// and an item at least is allowed ([`Self::list_rules`]). A list two
+    /// `oneOf` options both take meets nothing.
     pub(crate) fn may_hold(&self, name: &str) -> bool {
         if !self.types().allows_type(name) {
             return false;
@@ -177,15 +180,25 @@ impl<'s> Here<'s> {
                     || leaf.get("contains").is_some()
             }
         };
-        let no_items = |leaf: &&Value| {
-            name == "array"
-                && leaf.get("items") == Some(&Value::Bool(false))
-                && leaf
-                    .get("prefixItems")
-                    .and_then(Value::as_array)
-                    .is_none_or(Vec::is_empty)
-        };
-        self.branches().iter().any(asked) && !self.certain().iter().any(no_items)
+        if !self.branches().iter().any(asked) {
+            return false;
+        }
+        name == "object" || {
+            let rules = self.list_rules();
+            rules.counts_fit() && rules.most() != Some(0)
+        }
+    }
+
+    /// The list rules of every schema certain to apply here, merged
+    /// ([`ListRules`]); where none of them says anything of a list, those
+    /// of the first schema that does (the option a list is written for).
+    pub(crate) fn list_rules(&self) -> ListRules<'s> {
+        let mut schemas = self.certain();
+        let lists = |schema: &&'s Value| !ListRules::of(&[*schema]).is_empty();
+        if !schemas.iter().any(lists) {
+            schemas.extend(self.branches().into_iter().find(lists));
+        }
+        ListRules::of(&schemas)
     }
 
     /// Whether the schemas here judge a child together with the value

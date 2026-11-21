@@ -11,7 +11,6 @@ use super::edit::{Assoc, Change, Edit};
 use super::history::{EditHistory, Selection};
 use super::keyboard::utf16_to_byte_index;
 use super::positioning::pointer_text_position;
-use super::problem_hit::column_at_cell;
 use super::source_area::SourceArea;
 use super::state::{EditorState, directed_selection, normalize_newlines, textarea_selection};
 use crate::editor::text::{TextRange, TextSize, Utf16, byte_of, slice, utf16_of};
@@ -64,10 +63,21 @@ pub(super) fn before_input(state: EditorState, event: &web_sys::InputEvent) {
                 event.prevent_default();
                 return;
             }
-        } else if kind == "insertFromDrop" && state.drop_refused_early() {
-            event.prevent_default();
-            state.drop_done();
-            return;
+        } else if kind == "insertFromDrop" {
+            if state.drop_refused_early() {
+                event.prevent_default();
+                state.drop_done();
+                return;
+            }
+            // A drop inside a placeholder would take it whole, as any edit
+            // cutting one does: refused, its drag's delete undone. Read
+            // again: the delete before it is applied by now.
+            let (start, end) = textarea_selection(&element);
+            if state.cuts_a_token(start, end) {
+                event.prevent_default();
+                state.drop_refused();
+                return;
+            }
         }
         // A deletion with nothing selected reaches over the character
         // beside the caret.
@@ -388,11 +398,15 @@ pub(super) fn gutter_move(state: EditorState, event: &web_sys::MouseEvent) {
 /// elsewhere. The press is the start of a click on a line number or a marker
 /// or of a drag from one: a drag ends over the text, and the keys typed after
 /// it belong to the editor, not to the page the press would blur it to.
+/// As a click in the text does (and as in VS Code), it closes the
+/// suggestion list; what the press is on still does its own (selects the
+/// line, folds, opens the change).
 pub(super) fn gutter_press(state: EditorState, event: &web_sys::MouseEvent) {
     if event.button() != 0 {
         return;
     }
     event.prevent_default();
+    state.close_suggestions();
     if let Some(element) = state.textarea() {
         let _ = element.focus_in_place();
     }
@@ -434,12 +448,12 @@ pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
             super::a11y::show_at_caret(state);
         } else {
             // The pointer is still over the problems it clicked.
-            let (line, cell) = pointer_text_position(
+            let (line, column) = pointer_text_position(
                 &element,
                 f64::from(event.client_x()),
                 f64::from(event.client_y()),
             );
-            state.point_at_problems(line, cell);
+            state.point_at_problems(line, column);
         }
     }
 }
@@ -456,7 +470,7 @@ fn mouse_down(state: EditorState, event: &web_sys::MouseEvent) {
     let Some(element) = target_textarea(state, event) else {
         return;
     };
-    let (line, cell) = pointer_text_position(
+    let (line, column) = pointer_text_position(
         &element,
         f64::from(event.client_x()),
         f64::from(event.client_y()),
@@ -464,16 +478,14 @@ fn mouse_down(state: EditorState, event: &web_sys::MouseEvent) {
     let offset = state
         .doc()
         .text
-        .with_untracked(|text| press_offset(text, line, cell));
+        .with_untracked(|text| press_offset(text, line, column));
     state.press_at(offset);
 }
 
-/// The byte a press on rendered cell `cell` of zero-based `line` lands
-/// on: the character drawn there (a tab is wider than a cell, a joined
-/// accent takes none).
-fn press_offset(text: &str, line: usize, cell: usize) -> TextSize {
-    let column = column_at_cell(super::paths::split_line(text, line).unwrap_or(""), cell);
-    let units = super::paths::TextPosition::new(line + 1, column).to_offset(text);
+/// The byte a press on character `column` (zero-based, the one drawn
+/// under the pointer) of zero-based `line` lands on.
+fn press_offset(text: &str, line: usize, column: usize) -> TextSize {
+    let units = super::paths::TextPosition::new(line + 1, column + 1).to_offset(text);
     byte_of(text, units)
 }
 
@@ -796,9 +808,12 @@ fn paste_line(state: EditorState, event: &web_sys::ClipboardEvent) {
 mod tests {
     use crate::editor::text::Utf16;
 
-    /// Where a press lands, as a UTF-16 offset of `text`.
-    fn press_units(text: &str, line: usize, cell: usize) -> usize {
-        crate::editor::text::utf16_of(text, press_offset(text, line, cell))
+    /// Where a press `x` columns into zero-based `line` lands, as a UTF-16
+    /// offset of `text` (widths counted).
+    fn press_units(text: &str, line: usize, x: f64) -> usize {
+        let line_text = crate::editor::paths::split_line(text, line).unwrap_or("");
+        let column = crate::editor::metrics::TextWidths::COUNTED.column_at(line_text, x);
+        crate::editor::text::utf16_of(text, press_offset(text, line, column))
     }
 
     /// A selection written as UTF-16 offsets.
@@ -888,14 +903,14 @@ mod tests {
         let text = "x: 1\na:\t\u{ab}secret\u{bb}\n";
         let line_start = 5;
         assert_eq!(
-            press_units(text, 1, 4),
+            press_units(text, 1, 4.0),
             line_start + 3,
             "on its opening mark"
         );
-        assert_eq!(press_units(text, 1, 5), line_start + 4, "inside it");
+        assert_eq!(press_units(text, 1, 5.0), line_start + 4, "inside it");
         // `e` and its accent are one cell.
         let text = "e\u{301}=\u{ab}s\u{bb}";
-        assert_eq!(press_units(text, 0, 2), 3, "on its opening mark");
+        assert_eq!(press_units(text, 0, 2.0), 3, "on its opening mark");
     }
 
     /// Input made before a host value was applied is made on that value

@@ -171,6 +171,11 @@ fn write(
         // its key to its value's end, a value on one line only.
         (Place::Inline(now), Place::Lines(_)) => {
             let was = inline(host, source, &item.from)?;
+            // Its value the save wrote on the lines below (a list after
+            // `- args:`): replaced to its last scalar's end.
+            let now = item.source.value.pointer(&item.from).map_or(now, |value| {
+                through_value(host, text.text, &item.to, now, value)
+            });
             let written = renamed(was, now)?;
             if written.contains('\n') {
                 return None;
@@ -188,6 +193,57 @@ fn write(
         }
     };
     (slice::slice(text.text, now)? != written).then_some((now, written))
+}
+
+/// `range` (the item at `pointer` of `text`, from its key) through the end
+/// of every scalar its value `value` holds as `text` writes them: a value
+/// written on the lines below the key it shares a line with. A value
+/// whose last line closes a bracket after its last scalar is not reached:
+/// the write then reads back otherwise, and is not kept.
+fn through_value(
+    host: &dyn ConfigLanguage,
+    text: &str,
+    pointer: &str,
+    range: TextRange,
+    value: &Value,
+) -> TextRange {
+    fn leaves(value: &Value, pointer: &mut String, out: &mut Vec<String>) {
+        let length = pointer.len();
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    pointer.push('/');
+                    pointer.push_str(&pointer_key(key));
+                    leaves(child, pointer, out);
+                    pointer.truncate(length);
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    pointer.push('/');
+                    pointer.push_str(&index.to_string());
+                    leaves(child, pointer, out);
+                    pointer.truncate(length);
+                }
+            }
+            _ => out.push(pointer.clone()),
+        }
+    }
+    if !(value.is_object() || value.is_array()) {
+        return range;
+    }
+    let mut inner = Vec::new();
+    leaves(value, &mut pointer.to_string(), &mut inner);
+    let end = inner
+        .iter()
+        .filter_map(|inner| {
+            let span = paths::memo_value_span(host, text, inner)
+                .or_else(|| codec::inline_location(host, text, inner, false))?;
+            written_text_range(host, text, span)
+        })
+        .map(TextRange::end)
+        .fold(range.end(), TextSize::max);
+    TextRange::new(range.start(), end)
 }
 
 /// The line (from 0) the item at `pointer` of `text` starts on: its key's,

@@ -13,7 +13,7 @@ use super::locks::Protected;
 use super::marks::marks_at;
 use super::texts;
 use crate::EditorStrings;
-use crate::editor::text::{TextRange, TextSize, byte_of, text_size};
+use crate::editor::text::{TextRange, TextSize, byte_of, text_size, utf16_of};
 
 /// What the suggestions are adjusted for.
 pub(crate) struct Around<'a> {
@@ -26,6 +26,9 @@ pub(crate) struct Around<'a> {
     pub(crate) protected: &'a Protected,
     pub(crate) prefixes: &'a [String],
     pub(crate) strings: &'a EditorStrings,
+    /// The real placeholders of `source` (bytes): a value that is one
+    /// is replaced whole by a reference form, as an empty one is filled.
+    pub(crate) tokens: &'a [TextRange],
 }
 
 /// `options` without what a protected field rules out, or the reference
@@ -40,8 +43,16 @@ pub(crate) fn adjust(options: Vec<Completion>, around: &Around<'_>) -> Vec<Compl
     if super::super::parse_cache::lexical_state(behavior, around.source, around.cursor).in_comment {
         return options;
     }
+    // At a placeholder's start, the field is read where the placeholder
+    // ends: before it, a language may read no value yet (`<k>|«…»`).
+    let caret = byte_of(around.source, around.cursor);
+    let context_at = around
+        .tokens
+        .iter()
+        .find(|token| token.start() == caret)
+        .map_or(around.cursor, |token| utf16_of(around.source, token.end()));
     let context =
-        super::super::parse_cache::completion_context(behavior, around.source, around.cursor);
+        super::super::parse_cache::completion_context(behavior, around.source, context_at);
     let repeats = behavior.repetition() != Repetition::None;
     if let Some(key) = context.value_key.as_deref() {
         let path = path_with_key(&context.path, key);
@@ -49,15 +60,29 @@ pub(crate) fn adjust(options: Vec<Completion>, around: &Around<'_>) -> Vec<Compl
             .schema
             .is_some_and(|schema| marks_at(schema, &path, repeats).1);
         if secret && lock_reason(around, &path).is_none() {
-            let typed = unquoted(behavior, &context.typed);
-            if !around.explicit && !typed.is_empty() && !options.is_empty() {
-                return options;
-            }
             let leading = if context.value_needs_space { " " } else { "" };
             // The language API places the range in UTF-16 units.
             let start = byte_of(around.source, context.replace_start);
             let end = byte_of(around.source, context.replace_end).max(start);
-            return references(around, leading, typed, TextRange::new(start, end));
+            // A placeholder at the caret (which snaps to its edges) is the
+            // secret kept, not text typed: the forms are offered as for an
+            // empty value, each replacing it whole.
+            let token = around.tokens.iter().find(|token| {
+                token.contains_inclusive(caret)
+                    || TextRange::new(start, end).contains_range(**token)
+            });
+            let replaced = token.map_or(TextRange::new(start, end), |token| {
+                TextRange::new(start, end).cover(*token)
+            });
+            let typed = if token.is_some() {
+                ""
+            } else {
+                unquoted(behavior, &context.typed)
+            };
+            if !around.explicit && !typed.is_empty() && !options.is_empty() {
+                return options;
+            }
+            return references(around, leading, typed, replaced);
         }
     }
     // Browsing a read-only region: on its text, or on a new line inside a

@@ -3,6 +3,8 @@
 //! that range (and in the value) gives the path back. Each test lists every
 //! failing case at once.
 
+#![allow(clippy::string_slice, reason = "the tests cut their own texts")]
+
 use super::super::Language;
 use super::{FieldPath, TextPosition};
 

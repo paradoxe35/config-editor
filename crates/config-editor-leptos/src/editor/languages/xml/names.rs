@@ -42,7 +42,7 @@ fn find(value: &Value, pointer: &mut String) -> Option<String> {
             pointer.push_str(&crate::editor::language::pointer_key(key));
             let name = key.strip_prefix('@').unwrap_or(key);
             let found = if !key.is_empty() && key != "#text" && !is_name(name) {
-                Some(format!("`{key}` is not an XML name, so it cannot name an element or an attribute (at {pointer})"))
+                Some(format!("`{key}` is not an XML name, so it cannot name an element or an attribute: rename it (at {pointer})"))
             } else {
                 find(child, pointer)
             };

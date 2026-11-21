@@ -66,6 +66,15 @@ impl<'s> Secrets<'s> {
         }
     }
 
+    /// These secrets, and `texts` hidden as a secret's text is.
+    pub(in crate::editor::diagnostics) fn hiding(
+        mut self,
+        texts: impl IntoIterator<Item = String>,
+    ) -> Self {
+        self.texts.extend(texts);
+        self
+    }
+
     /// Whether `value` (at `pointer`) is a secret field's or inside one.
     pub(in crate::editor::diagnostics) fn holds(&self, pointer: &str, value: &Value) -> bool {
         self.is_secret_text(value)
@@ -100,6 +109,17 @@ impl<'s> Secrets<'s> {
             self.hide_texts(&mut hidden, mark);
         }
         hidden
+    }
+
+    /// The texts of the strings and numbers of `document` (the one the
+    /// problems are found in) that [`Self::hidden`] hides, each held
+    /// container's whole.
+    pub(in crate::editor::diagnostics) fn hidden_texts(&self, document: &Value) -> HashSet<String> {
+        let mut texts = HashSet::new();
+        // `null` holds no text: a value hidden to it had one.
+        let hidden = self.hidden("", document, &Value::Null);
+        collect_hidden(document, &hidden, &mut texts);
+        texts
     }
 
     /// Whether `value` is a scalar whose text is a secret's.
@@ -272,6 +292,27 @@ fn scalar_text(value: &Value) -> Option<Cow<'_, str>> {
         Value::String(text) => Some(Cow::Borrowed(text)),
         Value::Number(number) => Some(Cow::Owned(number.to_string())),
         _ => None,
+    }
+}
+
+/// The texts of `value`'s strings and numbers its `hidden` copy holds as
+/// `null`, all of each container hidden whole.
+fn collect_hidden(value: &Value, hidden: &Value, out: &mut HashSet<String>) {
+    match (value, hidden) {
+        (Value::Null, _) => {}
+        (_, Value::Null) => scalar_texts(value, out),
+        (Value::Array(items), Value::Array(hidden)) => items
+            .iter()
+            .zip(hidden)
+            .for_each(|(item, hidden)| collect_hidden(item, hidden, out)),
+        (Value::Object(map), Value::Object(hidden)) => {
+            for (key, child) in map {
+                if let Some(hidden) = hidden.get(key) {
+                    collect_hidden(child, hidden, out);
+                }
+            }
+        }
+        _ => {}
     }
 }
 

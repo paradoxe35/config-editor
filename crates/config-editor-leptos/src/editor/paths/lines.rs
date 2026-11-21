@@ -8,7 +8,7 @@
 
 use std::rc::Rc;
 
-use super::super::text::{TextRange, TextSize, Utf16, text_size};
+use super::super::text::{TextRange, TextSize, Utf16, slice, text_size};
 use super::super::work_count::{Work, note};
 use super::TextPosition;
 use super::span_memo::{batch_cached_as, in_batch};
@@ -56,8 +56,7 @@ impl Lines {
             .map_or(TextSize::of(source), |next| *next - TextSize::from(1))
     }
 
-    /// The UTF-16 offset of `byte` (a character boundary), as
-    /// `source[..byte].encode_utf16().count()` gives it.
+    /// The UTF-16 offset of `byte`, as [`units_at`] reads it from the top.
     fn units_at(&self, source: &str, byte: TextSize) -> Utf16 {
         let byte = byte.min(TextSize::of(source));
         let index = self.starts.partition_point(|start| *start <= byte) - 1;
@@ -65,7 +64,7 @@ impl Lines {
         let within = if self.ascii[index] {
             Utf16::new(u32::from(byte - start))
         } else {
-            Utf16::of(&source[TextRange::new(start, byte)])
+            Utf16::of(slice::within(source, TextRange::new(start, byte)))
         };
         self.units[index] + within
     }
@@ -80,7 +79,8 @@ impl Lines {
                 return start + TextSize::from(within);
             }
         }
-        for (at, character) in source[usize::from(start)..].char_indices() {
+        let rest = slice::after(source, start).unwrap_or_default();
+        for (at, character) in rest.char_indices() {
             if unit >= offset {
                 return start + text_size(at);
             }
@@ -97,7 +97,9 @@ impl Lines {
         let column = if self.ascii[index] {
             usize::from(byte - start)
         } else {
-            source[TextRange::new(start, byte)].chars().count()
+            slice::within(source, TextRange::new(start, byte))
+                .chars()
+                .count()
         };
         (index + 1, column + 1)
     }
@@ -110,7 +112,7 @@ impl Lines {
     /// Line `index` (from 0) of `source` (the text split) without its `\n`.
     pub(crate) fn line<'a>(&self, source: &'a str, index: usize) -> Option<&'a str> {
         let start = *self.starts.get(index)?;
-        Some(&source[TextRange::new(start, self.end(source, index))])
+        slice::slice(source, TextRange::new(start, self.end(source, index)))
     }
 }
 
@@ -125,10 +127,10 @@ pub(crate) fn line_column(source: &str, byte: TextSize) -> (usize, usize) {
         return lines(source).line_column(source, byte);
     }
     note(Work::LineSeek);
-    let before = &source[..usize::from(byte.min(TextSize::of(source)))];
+    let before = slice::up_to(source, byte);
     let line = before.matches('\n').count() + 1;
-    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
-    (line, before[line_start..].chars().count() + 1)
+    let on_line = before.rsplit('\n').next().unwrap_or_default();
+    (line, on_line.chars().count() + 1)
 }
 
 /// The line (from 0, split on `\n`) holding byte `byte` of `source`: a
@@ -140,18 +142,18 @@ pub(crate) fn line_of_byte(source: &str, byte: TextSize) -> usize {
         return lines.starts.partition_point(|start| *start <= byte) - 1;
     }
     note(Work::LineSeek);
-    source[..usize::from(byte)].matches('\n').count()
+    slice::up_to(source, byte).matches('\n').count()
 }
 
-/// The UTF-16 offset of byte `byte` of `source` (a character boundary):
-/// `source[..byte].encode_utf16().count()`, a lookup while a batch runs
-/// for the text.
+/// The UTF-16 offset of byte `byte` of `source`: the units before it, a
+/// lookup while a batch runs for the text. A byte inside a character
+/// counts from the character's start, one past the end from the end.
 pub(crate) fn units_at(source: &str, byte: TextSize) -> Utf16 {
     if in_batch(source) {
         return lines(source).units_at(source, byte);
     }
     note(Work::LineSeek);
-    Utf16::of(&source[..usize::from(byte.min(TextSize::of(source)))])
+    Utf16::of(slice::up_to(source, byte))
 }
 
 /// [`units_at`] where two outside edges meet: `byte` from a `str` method
@@ -178,9 +180,12 @@ pub(crate) fn span_between(source: &str, range: TextRange) -> (usize, usize, usi
         line,
         column,
         column
-            + source[TextRange::new(range.start(), end.max(range.start()))]
-                .chars()
-                .count(),
+            + slice::within(
+                source,
+                TextRange::new(range.start(), end.max(range.start())),
+            )
+            .chars()
+            .count(),
     )
 }
 
@@ -189,12 +194,13 @@ pub(crate) fn span_between(source: &str, range: TextRange) -> (usize, usize, usi
 #[cfg(any(feature = "json", feature = "toml", feature = "hcl"))]
 pub(crate) fn first_line_span(source: &str) -> Option<(usize, usize, usize)> {
     source.lines().enumerate().find_map(|(index, line)| {
-        let start = line.find(|character: char| !character.is_whitespace())?;
-        Some((
-            index + 1,
-            line[..start].chars().count() + 1,
-            line.chars().count() + 1,
-        ))
+        let indent = line
+            .chars()
+            .take_while(|character| character.is_whitespace())
+            .count();
+        // A line of spaces alone has no text.
+        line.chars().nth(indent)?;
+        Some((index + 1, indent + 1, line.chars().count() + 1))
     })
 }
 

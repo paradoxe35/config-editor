@@ -8,7 +8,7 @@ use super::super::completion::{ChoiceHover, HoverValue, KeyHover, ValueDoc};
 use super::super::popups::{
     back_on_text, card_keys, enter_popup, opens_docs_from, popup_wheel, selects_all_in,
 };
-use super::super::positioning::{CardAnchor, hover_card_geometry};
+use super::super::positioning::{CardAnchor, hover_card_above, hover_card_on_side};
 use super::super::state::EditorState;
 use super::diagnostics::{Entry, entries_view, problems_at};
 use crate::cssom::cssom;
@@ -65,9 +65,26 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
             }
         });
     });
+    // The side the card showed on once measured, kept while it stays at
+    // its anchor: content that arrives late (its problems, checked after
+    // it opened) grows it in place, scrolling in its room, never moving it
+    // to the other side of its line from under a pointer on its way to it.
+    let side: StoredValue<Option<(CardAnchor, bool)>> = StoredValue::new(None);
     let style = Relay::new(move || {
-        card.with(|card| card.as_ref().map(|card| card.anchor))
-            .map(|anchor| hover_card_geometry(anchor, natural.get()))
+        let anchor = card.with(|card| card.as_ref().map(|card| card.anchor));
+        if anchor.is_none() {
+            side.set_value(None);
+        }
+        anchor.map(|anchor| {
+            let natural = natural.get();
+            let kept = side
+                .with_value(|side| side.filter(|(at, _)| *at == anchor).map(|(_, above)| above));
+            let above = kept.unwrap_or_else(|| hover_card_above(anchor, natural));
+            if kept.is_none() && natural > 0.0 {
+                side.set_value(Some((anchor, above)));
+            }
+            hover_card_on_side(anchor, above)
+        })
     });
     let measured = Relay::new(move || natural.get() > 0.0);
     let scrolling = Relay::new(move || scrolls.get());

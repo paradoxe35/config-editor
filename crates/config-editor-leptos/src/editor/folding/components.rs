@@ -7,10 +7,11 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use super::super::changes::hides_change;
-use super::super::completion::visual_column;
 use super::super::diagnostics::Severity;
+use super::super::line_rows::LineRows;
 use super::super::positioning::row_box;
 use super::super::state::EditorState;
+use super::sticky::{Sticky, StickyNumbers, StickyText};
 use super::texts::{self, chip_label, fold_label};
 use crate::cssom::{Declarations, cssom};
 use crate::reactive::{KeyedList, MANY_ROWS};
@@ -80,10 +81,11 @@ fn fold_items(state: EditorState) -> FoldItems {
 /// width.
 fn closed_details(state: EditorState, line: usize, last: usize) -> (bool, usize) {
     let changed = hides_change(state, line + 1..=last);
+    let widths = state.text_widths();
     let width = state.view().lines.with(|lines| {
         lines
             .get(line)
-            .map_or(0.0, |rendered| visual_column(&rendered.text))
+            .map_or(0.0, |rendered| widths.columns(&rendered.text))
     });
     (changed, (width * 100.0).round() as usize)
 }
@@ -120,12 +122,14 @@ fn FoldGutter(state: EditorState, folds: FoldItems) -> impl IntoView {
     }
 }
 
-/// Mounts the chevron and chip layers into the editor once it is on the
-/// page, each as a view of its own: built from an effect, they add nothing
-/// to the depth of the editor's own build, which a host's debug build
-/// already runs close to the stack's limit.
-pub(in crate::editor) fn mount_fold_layers(state: EditorState) {
+/// Mounts the chevron and chip layers, and the sticky lines' (see
+/// `sticky`), into the editor once it is on the page, each as a view of its
+/// own: built from an effect, they add nothing to the depth of the
+/// editor's own build, which a host's debug build already runs close to
+/// the stack's limit.
+pub(in crate::editor) fn mount_fold_layers(state: EditorState, rows: LineRows) {
     let folds = fold_items(state);
+    let sticky = Sticky::new(state, rows);
     let layers: StoredValue<Vec<Box<dyn std::any::Any>>, LocalStorage> =
         StoredValue::new_local(Vec::new());
     Effect::new(move |_| {
@@ -138,19 +142,31 @@ pub(in crate::editor) fn mount_fold_layers(state: EditorState) {
                 .flatten()
                 .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
         };
-        let (Some(gutter), Some(text)) = (
+        let (Some(gutter), Some(text), Some(gutter_box)) = (
             find(".config-editor__gutter-content"),
             find(".config-editor__input-wrap"),
+            find(".config-editor__gutter"),
         ) else {
             return;
         };
         let gutter = leptos::mount::mount_to(gutter, move || {
             view! { <FoldGutter state=state folds=folds /> }
         });
-        let chips = leptos::mount::mount_to(text, move || {
+        let chips = leptos::mount::mount_to(text.clone(), move || {
             view! { <FoldChips state=state folds=folds /> }
         });
-        layers.set_value(vec![Box::new(gutter), Box::new(chips)]);
+        let numbers = leptos::mount::mount_to(gutter_box, move || {
+            view! { <StickyNumbers state=state sticky=sticky /> }
+        });
+        let lines = leptos::mount::mount_to(text, move || {
+            view! { <StickyText state=state sticky=sticky rows=rows /> }
+        });
+        layers.set_value(vec![
+            Box::new(gutter),
+            Box::new(chips),
+            Box::new(numbers),
+            Box::new(lines),
+        ]);
     });
     on_cleanup(move || {
         let _ = layers.try_update_value(Vec::clear);

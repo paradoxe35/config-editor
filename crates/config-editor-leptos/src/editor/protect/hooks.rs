@@ -11,6 +11,7 @@ use super::super::completion::{Completion, SuggestionPlace};
 use super::super::diagnostics::{Diagnostic, PlaceholderPattern, Severity};
 use super::super::language::ConfigLanguage;
 use super::super::line_rows::MarkedLines;
+use super::super::paths::key_range;
 use super::foreign::{DocumentPlaceholders, foreign_placeholders};
 use super::glued::glued_placeholders;
 use super::live::{ProtectState, range_changed_message};
@@ -52,6 +53,7 @@ impl ProtectState {
             .secrets
             .options
             .with_value(|options| options.reference_prefixes.clone());
+        let tokens = self.secrets.tokens.get();
         self.host_paths.with(|host_paths| {
             self.protected.with(|protected| {
                 adjust(
@@ -66,6 +68,7 @@ impl ProtectState {
                         host_paths,
                         protected,
                         strings,
+                        tokens: &tokens,
                     },
                 )
             })
@@ -182,7 +185,12 @@ impl ProtectState {
                     .collect();
                 problems.retain(|problem| !flagged.contains(&(problem.line, problem.column)));
                 problems.extend(foreign);
-                problems.extend(glued_placeholders(behavior, text, known, strings));
+                problems.extend(glued_placeholders(
+                    behavior,
+                    text,
+                    (known, matcher),
+                    strings,
+                ));
                 problems
             })
         })
@@ -200,7 +208,7 @@ impl ProtectState {
         text: &str,
         strings: &EditorStrings,
     ) -> Vec<Diagnostic> {
-        let mut problems = self.held_lock_problems(text, strings);
+        let mut problems = self.held_lock_problems(behavior, text, strings);
         problems.extend(self.range_changed_problem(text, strings));
         problems.extend(self.held_placeholder_problem(behavior, text, strings));
         problems
@@ -269,7 +277,12 @@ impl ProtectState {
 
     /// [`Self::held_problems`]' warnings at the locked fields held, each
     /// naming the cause recorded for it.
-    fn held_lock_problems(&self, text: &str, strings: &EditorStrings) -> Vec<Diagnostic> {
+    fn held_lock_problems(
+        &self,
+        behavior: &dyn ConfigLanguage,
+        text: &str,
+        strings: &EditorStrings,
+    ) -> Vec<Diagnostic> {
         self.protected.with(|protected| {
             let lines = LineIndex::new(text);
             protected
@@ -278,17 +291,33 @@ impl ProtectState {
                 .map(|(pointer, cause)| {
                     let reason = protected.held_reason(pointer);
                     let message = save_held(strings, pointer, &reason, cause);
-                    // Marked where its lock starts; one the text no longer
-                    // has (commented out, cut), where the lock nearest to
-                    // it by path starts (a field holding it first), else
-                    // on the first line: F8 shows it there.
-                    let start = protected
+                    // Marked where its lock starts; one with no span (see
+                    // `Protected::unplaced`) at its key; one the text no
+                    // longer has (commented out, cut), where the lock
+                    // nearest to it by path starts (a field holding it
+                    // first), else on the first line: F8 shows it there.
+                    let own = protected
                         .locks
                         .iter()
                         .find(|lock| lock.pointer.as_ref() == Some(pointer))
-                        .or_else(|| nearest_lock(&protected.locks, pointer))
                         .and_then(|lock| lock.ranges.first())
-                        .map_or(TextSize::default(), |range| range.start());
+                        .map(|range| range.start());
+                    let start = own
+                        .or_else(|| {
+                            protected
+                                .unplaced
+                                .iter()
+                                .any(|(known, _)| known == pointer)
+                                .then(|| key_range(behavior, text, pointer))
+                                .flatten()
+                                .map(|range| lines.range(range).start())
+                        })
+                        .or_else(|| {
+                            nearest_lock(&protected.locks, pointer)
+                                .and_then(|lock| lock.ranges.first())
+                                .map(|range| range.start())
+                        })
+                        .unwrap_or_default();
                     warning_at(&lines, text, start, message)
                 })
                 .collect()

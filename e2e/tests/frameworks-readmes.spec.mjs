@@ -67,3 +67,32 @@ test("the READMEs' React snippets import the hooks they call", () => {
   expect(snippets).toBeGreaterThan(3);
   expect([...new Set(missing)]).toEqual([]);
 });
+
+test("each framework README's section on late parents tells of revisions", () => {
+  for (const [name, summary, words] of [
+    ['config-editor-react', 'Parents that apply onChange late', ['onChange(text, revision)', '`valueRevision`']],
+    ['config-editor-vue', 'Late echoes, and resetting with setValue', ['second argument', '`valueRevision`']],
+    ['config-editor-svelte', 'Passing value one way, late echoes', ['onChange(text, revision)', '`valueRevision`']],
+  ]) {
+    const readme = readFileSync(join(js, name, 'README.md'), 'utf8');
+    const start = readme.indexOf(`<summary>${summary}`);
+    expect(start, `${name}: "${summary}"`).toBeGreaterThan(0);
+    const section = readme.slice(start, readme.indexOf('</details>', start));
+    for (const word of words) expect(section, `${name}: ${word}`).toContain(word);
+  }
+});
+
+test('no prop of the framework packages has two doc comments', () => {
+  const twice = [];
+  for (const path of [
+    'config-editor-react/src/index.tsx',
+    'config-editor-vue/src/ConfigEditor.ts',
+    'config-editor-vue/src/ConfigDocuments.ts',
+    'config-editor-svelte/src/types.ts',
+    'config-editor/binding.d.ts',
+  ]) {
+    const source = readFileSync(join(js, path), 'utf8');
+    for (const match of source.matchAll(/\*\/\n\s*\/\*\*[^\n]*/g)) twice.push(`${path}: ${match[0].trim()}`);
+  }
+  expect(twice).toEqual([]);
+});

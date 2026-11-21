@@ -65,6 +65,7 @@ mod languages;
 mod layout;
 mod line_breaks;
 mod line_endings;
+mod line_pick;
 mod line_rows;
 mod live_settings;
 mod metrics;
@@ -423,12 +424,13 @@ pub fn ConfigEditor(
         Effect::new(move |_| on_path_change.run(state.doc().caret_path.get()));
     }
     remeasure_on_window_changes(state);
+    state.follow_text_widths();
     popups::close_popups_on_outside_press(state);
     kept_focus::keep_focus_in_editor(state);
     popups::close_popups_on_escape_over_them(state);
     live_settings::follow(state);
     let rows = components::row_states(state);
-    folding::mount_fold_layers(state);
+    folding::mount_fold_layers(state, rows);
     let file_name = file_name
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| language.default_file_name().to_string());

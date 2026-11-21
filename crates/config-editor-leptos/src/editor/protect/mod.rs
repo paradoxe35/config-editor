@@ -42,6 +42,16 @@ mod follow_items;
 mod foreign;
 mod glued;
 mod guard;
+mod holder;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod holder_tests;
 mod hooks;
 mod host_ranges;
 #[cfg(test)]
@@ -57,6 +67,16 @@ mod rewritten;
 mod save;
 mod scan;
 mod secrets;
+mod since_host;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod span_matrix_tests;
 mod suggest;
 mod texts;
 mod tokens;
@@ -73,6 +93,23 @@ pub(crate) use live::{Inputs, ProtectInit, ProtectState};
 pub(crate) use marks::{mentions_marks, mentions_secrets};
 pub(crate) use save::ReadOnlyChange;
 pub(crate) use texts::{moved_placeholder, save_refused};
+
+/// The texts of the strings of `document` (the parse of `text`, read in
+/// `behavior`) holding a placeholder `find` finds in `text` (byte
+/// ranges), each the string written around it (see `holder`): what a
+/// message about `text` must not quote, a token glued to text being a
+/// secret's value.
+pub(crate) fn placeholder_holders(
+    behavior: &dyn super::language::ConfigLanguage,
+    text: &str,
+    document: &serde_json::Value,
+    find: &dyn Fn(&str) -> Vec<std::ops::Range<usize>>,
+) -> Vec<String> {
+    holder::Holders::found_by(behavior, text, document, find)
+        .texts()
+        .map(str::to_string)
+        .collect()
+}
 
 #[cfg(test)]
 mod follow_tests;
@@ -184,6 +221,15 @@ mod copies_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod cut_paste_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod duplicate_key_mask_tests;
 #[cfg(all(
     test,
@@ -284,6 +330,15 @@ mod guarantee_tests;
     feature = "xml"
 ))]
 mod guard_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod header_comment_tests;
 #[cfg(all(test, feature = "yaml"))]
 mod held_place_tests;
 #[cfg(all(test, feature = "yaml"))]
@@ -407,6 +462,15 @@ mod lock_scale_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod locked_after_change_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod many_copies_tests;
 #[cfg(all(
     test,
@@ -426,6 +490,15 @@ mod moved_token_tests;
     feature = "xml"
 ))]
 mod moved_whole_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod nested_copies_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -515,10 +588,27 @@ mod range_items_tests;
     feature = "yaml",
     feature = "json",
     feature = "toml",
+    feature = "hcl"
+))]
+mod range_rename_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
     feature = "hcl",
     feature = "xml"
 ))]
 mod range_scale_tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod range_undo_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -629,6 +719,8 @@ mod taken_tests;
     feature = "xml"
 ))]
 mod tests;
+#[cfg(all(test, feature = "yaml", feature = "xml"))]
+mod token_piece_tests;
 #[cfg(all(
     test,
     feature = "yaml",

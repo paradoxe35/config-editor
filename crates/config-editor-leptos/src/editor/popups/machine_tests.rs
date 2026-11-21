@@ -272,7 +272,13 @@ fn a_pointer_from_beside_the_card_is_let_through_until_it_stops() {
         Some(Some(120)),
         "where it stops decides"
     );
-    assert_eq!(machine.fired(), Some(Fire::Settle { line: 2, cell: 30 }));
+    assert_eq!(
+        machine.fired(),
+        Some(Fire::Settle {
+            line: 2,
+            column: 30
+        })
+    );
     assert_eq!(machine.settle(2, true), Settled::Text);
     assert!(matches!(machine.phase(), Phase::Open { at: At::Text, .. }));
 

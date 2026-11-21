@@ -254,6 +254,25 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only the JSON and XML columns note it")
     )]
     ColumnRecount,
+    /// A step finding the sticky lines at a scroll position (a binary
+    /// search, or a step up the tree of blocks, see `folding::sticky`).
+    #[cfg_attr(
+        not(feature = "folding"),
+        allow(dead_code, reason = "only sticky scroll notes it")
+    )]
+    StickyStep,
+    /// A holder query: the span of every string holding a placeholder
+    /// read (see `protect::holder`).
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only the placeholder checks note it")
+    )]
+    HolderRead,
+    /// A byte of an entry's lines read finding the line its containers
+    /// close on (`Text::closing_line`; one note per byte, see
+    /// [`note_many`]): an entry of many lines is read once, not once per
+    /// line.
+    ClosingLineBytes,
     /// One of a schema format's extra checks run on a document.
     SchemaCheck,
 }
@@ -313,7 +332,10 @@ impl Work {
             Self::ScannedBytes => 48,
             Self::LineEndBytes => 49,
             Self::ColumnRecount => 50,
-            Self::SchemaCheck => 51,
+            Self::StickyStep => 51,
+            Self::ClosingLineBytes => 52,
+            Self::HolderRead => 53,
+            Self::SchemaCheck => 54,
         }
     }
 
@@ -371,13 +393,16 @@ impl Work {
         Self::ScannedBytes,
         Self::LineEndBytes,
         Self::ColumnRecount,
+        Self::StickyStep,
+        Self::ClosingLineBytes,
+        Self::HolderRead,
         Self::SchemaCheck,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 52;
+const KINDS: usize = 55;
 
 #[cfg(test)]
 thread_local! {

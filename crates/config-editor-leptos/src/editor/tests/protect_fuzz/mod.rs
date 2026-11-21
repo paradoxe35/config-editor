@@ -37,7 +37,7 @@ use leptos::prelude::*;
 
 use acts::{Act, draw, make, pause};
 use cases::{BUILT_IN, CASES, LOCKS, value};
-use checks::{Check, leaks, original, safe};
+use checks::{Check, holds_new_secret, leaks, original, safe};
 use mount::{Setup, mount};
 use rng::{Rng, env_or, shrink};
 
@@ -128,7 +128,7 @@ fn run(setup: &Setup, acts: &[Act]) -> Result<(), Step> {
                 .map_err(|(check, detail)| at((check, format!("heard: {detail}"))))?;
         }
         heard = (changes.len(), saves.len());
-        if setup.lock == cases::Lock::Secret {
+        if setup.lock == cases::Lock::Secret && holds_new_secret(setup, view, &text) {
             state.problems().diagnosed_text.set(text);
             let messages: Vec<String> = state
                 .problems()

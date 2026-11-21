@@ -14,7 +14,7 @@ use super::runner::{Case, Property, Verdict, failure, language, run};
 use super::schemas::{Draw, schema};
 use super::xml_spelling::{self, Sides};
 use crate::editor::Language;
-use crate::editor::bridge::Bridge;
+use crate::editor::bridge::{Bridge, paired};
 
 pub(super) fn draw(rng: &mut Rng, index: usize) -> Case {
     let draw = Draw {
@@ -80,7 +80,11 @@ pub(super) fn check(case: &Case) -> Verdict {
     let Some(view_value) = both.read(edit, &typed) else {
         return Verdict::Skipped;
     };
-    let saved = match bridge.to_host(&typed, &host_text) {
+    paired::take();
+    let saved = bridge.to_host(&typed, &host_text);
+    // Which host value the save took each value from (see `xml_spelling`).
+    let paired = paired::take();
+    let saved = match saved {
         Ok(saved) => saved,
         // The save waits, telling why: no silent change.
         Err(_) => return Verdict::Skipped,
@@ -136,13 +140,17 @@ pub(super) fn check(case: &Case) -> Verdict {
                 before: &before,
                 view: &view_value,
                 saved,
+                paired: paired.as_ref(),
             })
         });
-        let class = if host == Language::XML && xml_cannot_hold(&view_value) {
+        // A documented spelling explains each value the save reads
+        // otherwise; a value XML cannot hold elsewhere in the view (a null
+        // the schema reads back) is no part of the difference.
+        let class = spelled.unwrap_or(if host == Language::XML && xml_cannot_hold(&view_value) {
             "a save writes what XML cannot hold, without waiting"
         } else {
-            spelled.unwrap_or("a save reads otherwise than the view")
-        };
+            "a save reads otherwise than the view"
+        });
         return Verdict::Fails(failure(class, seen("")));
     }
     let view_problems = both.view_problems((edit, &typed), (host, &saved), inexact);

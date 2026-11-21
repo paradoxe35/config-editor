@@ -109,10 +109,10 @@ fn wanted(pointers: &[String], repeats: bool) -> Vec<String> {
         let lone = pointer.replace("/0/", "/");
         let lone = lone.strip_suffix("/0").unwrap_or(&lone).to_string();
         for spelling in [pointer.as_str(), lone.as_str()] {
-            let mut end = spelling.len();
-            while end > 0 {
-                wanted.push(spelling[..end].to_string());
-                end = spelling[..end].rfind('/').unwrap_or(0);
+            let mut head = spelling;
+            while !head.is_empty() {
+                wanted.push(head.to_string());
+                head = head.rsplit_once('/').map_or("", |(before, _)| before);
             }
         }
     }

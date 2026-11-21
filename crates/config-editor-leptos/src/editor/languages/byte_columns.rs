@@ -1,5 +1,5 @@
-//! Parsers that place an error by the byte of its line (serde_json,
-//! hcl-edit), where the editor's columns count characters.
+//! Parsers that place an error by the byte of its line (serde_json),
+//! where the editor's columns count characters.
 
 /// The 1-based character column of 1-based byte column `column` of line
 /// `line` of `source` (the character holding that byte; one past the

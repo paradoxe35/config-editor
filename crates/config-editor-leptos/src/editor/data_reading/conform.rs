@@ -124,6 +124,17 @@ impl NodeAt<'_, '_> {
             *value = Value::Array(vec![value.take()]);
             let pointer = self.pointer.clone();
             self.reading.list_of_one_at(&pointer);
+        } else if repetition == Repetition::Elements
+            && value.is_object()
+            && applied.refutes()
+            && at.accepts_near(value, root) == Some(false)
+            && {
+                // The options the object refutes may be the list's.
+                let blind = Here::walk(at.clone(), root, Seen::default());
+                blind.types().allows_type("array") && names_list(blind.types(), &blind.branches())
+            }
+        {
+            self.read_as_item(value, at);
         }
         // Each child read with every schema that applies to it there.
         let segments: Vec<SchemaPathSegment> = match &*value {
@@ -160,6 +171,46 @@ impl NodeAt<'_, '_> {
         }
     }
 
+    /// `value` (a lone XML object the schemas at it refuse, whose one-item
+    /// list they do not take as parsed) made a list's one item where the
+    /// schemas take that list once the item's text is read as the item's
+    /// schemas want it (`<c>true</c>` as the text an item's `c` asks), the
+    /// text so read noted. Only the item's own scalars are read here (its
+    /// children are read as any list's item after): the trial costs the
+    /// object's members, not what they hold.
+    fn read_as_item(&mut self, value: &mut Value, at: &Entry<'_>) {
+        let root = self.root;
+        let mut item = value.clone();
+        let list = Here::walk(at.clone(), root, Seen::default());
+        let item_at = list.child_typed(&SchemaPathSegment::ArrayItem(0));
+        let here = Here::walk(item_at, root, Seen::value(Some(&item)));
+        let mut read = Vec::new();
+        if let Value::Object(map) = &mut item {
+            for (key, child) in map.iter_mut() {
+                if is_filled(child) {
+                    continue;
+                }
+                let child_at = here.child_typed(&SchemaPathSegment::Key(key.clone()));
+                let applied = Here::walk(child_at.clone(), root, Seen::default());
+                let parsed = child.clone();
+                read_text(child, &child_at, &applied.branches(), applied.types(), root);
+                if *child != parsed {
+                    read.push((pointer_key(key), parsed));
+                }
+            }
+        }
+        let list = Value::Array(vec![item]);
+        if read.is_empty() || at.accepts_near(&list, root) != Some(true) {
+            return;
+        }
+        *value = list;
+        let pointer = self.pointer.clone();
+        self.reading.list_of_one_at(&pointer);
+        for (key, parsed) in read {
+            self.note_retyped(format!("{pointer}/0/{key}"), parsed);
+        }
+    }
+
     /// Notes that the scalar at `pointer` was parsed as `parsed` (the
     /// first reading noted is the parse's).
     fn note_retyped(&mut self, pointer: String, parsed: Value) {
@@ -177,11 +228,25 @@ impl NodeAt<'_, '_> {
         if !(value.is_object() || value.is_array()) || at.accepts_near(value, root) != Some(false) {
             return;
         }
+        // A value under it read as a list's one item where its own schemas
+        // name a list, put back as the value written where this object's
+        // schemas then take it (`oneOf [{a: array}, {}]`, an option of the
+        // object or of one above the list: the list matches both).
+        let made = self.reading.lists_of_one_under(self.pointer, MAX_REREADS);
+        for slot in made {
+            if self.read_kept(value, &slot, at, Reading::Lone) {
+                return;
+            }
+        }
         // Each slot, and whether it may be a list's one item: a lone member
-        // its schemas name a list for.
+        // a schema at it names a list for. Not by the kinds its schemas
+        // allow together: they read an option silent on the member as
+        // leaving it to the one typing it, which another schema there may
+        // contradict (`anyOf [{additionalProperties: string}, {}]` beside
+        // `size: array` allows no kind), where the object takes the list.
         let listed = |child: &Entry<'_>| {
             let here = Here::walk(child.clone(), root, Seen::default());
-            here.types().allows_type("array") && here.branches().into_iter().any(describes_array)
+            here.branches().into_iter().any(describes_array)
         };
         let slots: Vec<(String, bool)> = match &*value {
             Value::Object(map) => map
@@ -268,9 +333,25 @@ impl NodeAt<'_, '_> {
         let Some(held) = value.pointer_mut(slot) else {
             return false;
         };
+        if matches!(other, Reading::Lone) {
+            let Some(lone) = held.as_array().and_then(|items| items.first()).cloned() else {
+                return false;
+            };
+            let list = std::mem::replace(held, lone);
+            if at.accepts_near(value, self.root) == Some(true) {
+                let pointer = format!("{}{slot}", self.pointer);
+                self.reading.lone_at(&pointer);
+                return true;
+            }
+            if let Some(held) = value.pointer_mut(slot) {
+                *held = list;
+            }
+            return false;
+        }
         let parsed = held.clone();
         let item = matches!(other, Reading::Item(_));
         let before = match other {
+            Reading::Lone => None,
             Reading::Other(other) => Some(std::mem::replace(held, other)),
             Reading::Item(Some(other)) => Some(std::mem::replace(held, Value::Array(vec![other]))),
             Reading::Item(None) => {
@@ -313,6 +394,8 @@ enum Reading {
     Other(Value),
     /// A list's one item: the value itself, or this other reading of it.
     Item(Option<Value>),
+    /// The value written once, where it was read as a list's one item.
+    Lone,
 }
 
 /// Whether `value` holds something (a map or list that is not empty): no

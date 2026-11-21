@@ -29,7 +29,11 @@ impl Reason {
     /// Why renaming or moving the key above a field locked for this reason
     /// is refused.
     pub(crate) fn holding(&self, strings: &EditorStrings) -> String {
-        fill(&strings.holds_read_only, &[("reason", &self.text(strings))])
+        // The default reasons only say again that the field is read-only.
+        match self {
+            Reason::Given(reason) => fill(&strings.holds_read_only_reason, &[("reason", reason)]),
+            Reason::Field | Reason::Range => strings.holds_read_only.clone(),
+        }
     }
 
     /// "Read-only: …", the gutter lock's label.
@@ -86,10 +90,13 @@ pub(crate) fn save_held(
         HoldCause::ChangedBeforeLock => &strings.save_held_before_lock,
         HoldCause::Unclear => &strings.save_held,
     };
-    fill(
-        template,
-        &[("pointer", &place), ("reason", &reason.text(strings))],
-    )
+    // Each text says the field is read-only: only a reason the schema
+    // gives says more.
+    let why = match reason {
+        Reason::Given(given) => fill(&strings.save_held_reason, &[("reason", given)]),
+        Reason::Field | Reason::Range => String::new(),
+    };
+    fill(template, &[("pointer", &place), ("reason", &why)])
 }
 
 /// A save waiting while the secret field at `pointer` reads text beside a
@@ -151,4 +158,53 @@ pub(crate) fn reference_label(prefix: &str, closer: &str) -> String {
         _ => "…",
     };
     format!("{prefix}{stand_in}{closer}")
+}
+
+/// `pointer` as a message names it: each key holding a piece of one of
+/// `tokens` (a placeholder a broken text cut in two, as an XML name ends
+/// at its space: `<se«secret 3f2a»ret>` reads as `se«secret`) shown as
+/// `…`, as a syntax message hides what it quotes of one. A key holding a
+/// token whole and no piece is the user's own key, shown as written.
+pub(crate) fn shown_pointer(pointer: &str, tokens: &[&str]) -> String {
+    pointer
+        .split('/')
+        .map(|key| {
+            if cuts_a_token(key, tokens) {
+                "…"
+            } else {
+                key
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Whether `key` (a pointer's, escaped) ends with the start of one of
+/// `tokens` or starts with its end, past the copies of it it holds whole.
+/// A piece is one holding a placeholder's marks (`«`, `${`, `}}`): one of
+/// letters and digits alone cannot be told from the key's own (a key
+/// `pass` ends with the `s` a token `s3cr…` starts with).
+fn cuts_a_token(key: &str, tokens: &[&str]) -> bool {
+    let key = key.replace("~1", "/").replace("~0", "~");
+    tokens
+        .iter()
+        .filter(|token| !token.is_empty())
+        .any(|token| {
+            let rest = key.replace(token, "");
+            let piece = |part: &str| {
+                part.len() < token.len()
+                    && part
+                        .chars()
+                        .any(|character| !character.is_alphanumeric() && character != '_')
+            };
+            let ends = rest
+                .char_indices()
+                .filter_map(|(at, _)| rest.get(at..))
+                .any(|tail| piece(tail) && token.starts_with(tail));
+            let starts = rest
+                .char_indices()
+                .filter_map(|(at, character)| rest.get(..at + character.len_utf8()))
+                .any(|head| piece(head) && token.ends_with(head));
+            ends || starts
+        })
 }

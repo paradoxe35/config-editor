@@ -230,20 +230,20 @@ pub(crate) fn fits(range: TextRange, text: &str) -> bool {
 }
 
 /// `protect::ranges_in` over positions: `ranges` given with `host_text`
-/// are read there; but when they name places it lacks and all fit
-/// `before` (the text the last ones came with), they were worked out on
-/// that one, and are moved from it; ranges fitting neither throw ("end
-/// past the text's end").
+/// are read there; but when they name places it lacks and all fit one of
+/// `before` (the texts the last ones came with), they were worked out on
+/// the first such one, and are moved from it; ranges fitting none throw
+/// ("end past the text's end").
 pub(crate) fn read_ranges(
     ranges: &[TextRange],
     host_text: &str,
-    before: Option<&str>,
+    before: &[&str],
 ) -> Result<Vec<TextRange>, Failure> {
     let all_fit = |text: &str| ranges.iter().all(|range| fits(*range, text));
-    if let Some(before) = before
-        && before != host_text
-        && !all_fit(host_text)
-        && all_fit(before)
+    if !all_fit(host_text)
+        && let Some(before) = before
+            .iter()
+            .find(|before| **before != host_text && all_fit(before))
     {
         return Ok(
             crate::remap::moved_between(before, host_text, Some(ranges.to_vec()), None)

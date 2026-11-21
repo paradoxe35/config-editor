@@ -56,7 +56,7 @@ versions move together.
   added in another view), and completion offers attributes in a start tag
   and elements in the content.
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-11-21
 
 The first release: a fast, VS Code–style editor for
 configuration files that runs in the browser, written in Rust and compiled to
@@ -95,6 +95,12 @@ WebAssembly.
 - The editing you expect from VS Code: auto-closed brackets, quotes and tags,
   smart indentation, comment toggling, find and replace with regular
   expressions, go to line, folding, `F8` through problems, undo and redo.
+- Line numbers select whole lines, as in VS Code: a click selects its line, a
+  drag over the numbers the lines it passes, and `Shift`+click extends the
+  selection to the line clicked.
+- Sticky scroll (`stickyScroll`, `stickyScrollMaxLines`): the lines that open
+  the blocks around the top line stay at the top while the text scrolls, in
+  every language, and a click goes back to one.
 - Fast on large files: only the visible lines are rendered, and typing stays
   responsive in documents of nearly 10,000 lines. A keystroke reads the whole
   document once for each thing that needs it, and the colors of constructs
@@ -213,6 +219,11 @@ do more. Here they are in one place.
 - After `replaceValue`, a host text equal to the one the host gave before the
   reset is read as a stale render and ignored. To go back to it, call
   `replaceValue` again.
+- Reset a framework component one way at a time: with its `setValue`, or by
+  setting your state, not both. `setValue` reports the text through
+  `onChange`, so with both your state lists it twice, and without
+  `valueRevision` the late echo of that report can undo the next typing.
+  With `valueRevision` the editor tells them apart exactly.
 - Without `valueRevision`, when your store still holds an older text after an
   echo, the editor waits 250 ms and then sends the document again. With
   `valueRevision` there is no pause, but a store that loses a text (a failed
@@ -220,7 +231,15 @@ do more. Here they are in one place.
 - Give `readOnlyRanges` with the text they were worked out for (the `value`,
   an echo, or `rangesFor`); the editor moves them to the document. A range
   whose text was changed before it was locked locks nothing, and the save
-  waits until that text is back.
+  waits until that text is back; so does a field named in `readOnlyPaths`
+  after it was changed.
+- `readOnlyRanges` name places in the text they come with. When your app
+  sends a new text of its own with the same ranges, the editor keeps the
+  locks where the edits moved them, and may lock the whole changed lines
+  around them until you send new ranges. Work the ranges out again for a new
+  text, or use `readOnlyPaths`, which do not depend on places in the text.
+  Hiding and showing the editor (an unmount) keeps the locks only through
+  the ranges your app gives for its current text.
 - In a custom language that gives no positions (`spans`), a locked field is
   checked by value, not by place. While the text does not parse, edits go
   through and the save waits until it parses again.

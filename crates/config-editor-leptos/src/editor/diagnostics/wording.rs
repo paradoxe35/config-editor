@@ -165,7 +165,9 @@ impl Wording<'_> {
     }
 
     /// `value` (at `pointer`) as a message quotes it: "the secret value"
-    /// for a secret field's, each secret inside it hidden, cut when long.
+    /// for a secret field's; a list or map holding one quoted with each
+    /// secret inside it written as `…` (its shape is shown, never the
+    /// secret); cut when long.
     pub(in crate::editor) fn value_at(&self, pointer: &str, value: &Value) -> String {
         if self.secrets.holds(pointer, value) {
             return self.strings.secret_value.clone();
@@ -178,7 +180,7 @@ impl Wording<'_> {
         cut(
             &hidden
                 .to_string()
-                .replace(&mark.to_string(), &self.strings.secret_value),
+                .replace(&mark.to_string(), &self.strings.secret_inside),
             self.tokens,
         )
     }

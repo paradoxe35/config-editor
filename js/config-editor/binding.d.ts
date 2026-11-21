@@ -27,7 +27,7 @@ import {
  * and how a framework declares them (Vue's runtime prop types). Plain data,
  * usable before the WebAssembly module loads.
  */
-export const SETTING_TYPES: Readonly<Record<keyof EditorSettings, "boolean" | "string" | "object">>;
+export const SETTING_TYPES: Readonly<Record<keyof EditorSettings, "boolean" | "number" | "string" | "object">>;
 
 /**
  * The props an `EditorBinding` reads: the document and its callbacks, the

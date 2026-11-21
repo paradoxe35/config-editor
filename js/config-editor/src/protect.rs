@@ -36,22 +36,34 @@ pub(crate) fn paths_from(list: &JsValue, name: &str) -> Result<Vec<FieldPath>, J
 }
 
 /// An optional list of ranges given with `host_text`, read in it; but read
-/// in `before`, the text the last ranges were given for, and moved from it
-/// to `host_text`, when they name places `host_text` lacks (a line or index
-/// past its end, a column past its line's end) and all fit `before`: a
-/// framework's render lists a newer text with ranges a host worked out on
-/// the text it rendered before (read in the newer text, a
-/// lock fell on the line above its field, or the list was refused).
+/// in the first of `before` (the texts the last ranges came with, see
+/// `HostLocks::came_with`) they all fit, and moved from it to `host_text`,
+/// when they name places `host_text` lacks (a line or index past its end,
+/// a column past its line's end): a framework's render lists a newer text
+/// with ranges a host worked out on the text it rendered before (read in
+/// the newer text, a lock fell on the line above its field, or the list
+/// was refused). The text from before a reset (`before[1]`) is taken only
+/// for ranges past `host_text`'s end: a column past a line's end there is
+/// read in `host_text`, where the host gave it.
 pub(crate) fn ranges_in(
     list: &JsValue,
     host_text: &str,
-    before: Option<&str>,
+    before: &[&str],
     name: &str,
 ) -> Result<Vec<TextRange>, JsError> {
-    if let Some(before) = before
-        && before != host_text
-        && !fits(list, host_text)
-        && fits(list, before)
+    let fitted = || {
+        before
+            .iter()
+            .enumerate()
+            .find(|(at, before)| {
+                **before != host_text
+                    && (*at == 0 || past_end(list, host_text))
+                    && fits(list, before)
+            })
+            .map(|(_, before)| before)
+    };
+    if !fits(list, host_text)
+        && let Some(before) = fitted()
     {
         let ranges = ranges_from(list, before, name)?;
         return Ok(
@@ -92,6 +104,23 @@ fn fits(list: &JsValue, text: &str) -> bool {
             "endLine"
         };
         index && line("startLine", "startColumn") && line(end_line, "endColumn")
+    })
+}
+
+/// Whether a range of `list` names a line or index past `text`'s end.
+fn past_end(list: &JsValue, text: &str) -> bool {
+    if !Array::is_array(list) {
+        return false;
+    }
+    let lines = TextLines::new(text);
+    let number = |range: &JsValue, name: &str| field(range, name).as_f64().map(|n| n as usize);
+    Array::from(list).iter().any(|range| {
+        ["start", "end"]
+            .iter()
+            .any(|key| number(&range, key).is_some_and(|at| at > lines.units()))
+            || ["startLine", "endLine"]
+                .iter()
+                .any(|key| number(&range, key).is_some_and(|line| line > lines.count()))
     })
 }
 

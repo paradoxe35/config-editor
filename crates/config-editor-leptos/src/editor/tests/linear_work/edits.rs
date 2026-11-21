@@ -21,6 +21,9 @@ pub(super) enum EditKind {
     /// A digit typed into the middle item's port, then the typing pause
     /// and a save.
     Type,
+    /// A letter typed at the end of the middle item's `host` key, then
+    /// the typing pause and a save (a key renamed by typing).
+    TypeKey,
     /// The middle item's name selected and typed over, then the typing
     /// pause and a save (a value retyped: the links are read, every
     /// item left where it was told).
@@ -57,9 +60,10 @@ impl EditKind {
         dead_code,
         reason = "used by an open finding's ignored test (none open now)"
     )]
-    pub(super) const ALL: [Self; 15] = [
+    pub(super) const ALL: [Self; 16] = [
         Self::Open,
         Self::Type,
+        Self::TypeKey,
         Self::Retype,
         Self::Enter,
         Self::DeleteLine,
@@ -251,6 +255,16 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
         EditKind::Open => unreachable!("the mount itself"),
         EditKind::Type => {
             type_at(state, port_digit_end(&shown(state)), "2");
+            read_view(state);
+            pause(state);
+            let _ = state.save();
+        }
+        EditKind::TypeKey => {
+            let text = shown(state);
+            let line = middle(&text, "host");
+            let written = text.split('\n').nth(line).unwrap_or_default();
+            let key = written.find("host").expect("the key") + "host".len();
+            type_at(state, line_start(&text, line) + units(&written[..key]), "x");
             read_view(state);
             pause(state);
             let _ = state.save();

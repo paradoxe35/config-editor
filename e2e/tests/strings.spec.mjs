@@ -92,11 +92,15 @@ const ELSEWHERE = {
   saveHeldRange: "a host range's field reading otherwise: hold_cause_tests",
   saveHeldBeforeLock:
     "a path the host named after its value changed: hold_cause_tests",
+  saveHeldReason:
+    "a hold of a field the schema says why is read-only: hold_cause_tests",
   saveHeldPlaceholder:
     "text beside a whole placeholder, held: hold_cause_tests, held_placeholder_tests",
   editAsTypedCommentsNone: "a JSON host: edit_as tests",
   addedLine: "a modified line is previewed here; diff tests",
+  removedLine: "as addedLine",
   removedLines: "as addedLine",
+  removedLineAtEnd: "as addedLine",
   removedLinesAtEnd: "as addedLine",
   showAdded: "as addedLine",
   showAddedTitle: "as addedLine",
@@ -148,11 +152,15 @@ const ELSEWHERE = {
   examples: "schema help tests",
   readOnlyText: "read-only ranges: protect tests",
   holdsReadOnly: "renaming a locked field’s key: protect tests",
+  holdsReadOnlyReason:
+    "renaming the key of a field the schema says why is read-only: protect tests (hold_cause_tests)",
   saveRefused: "an Edit-as save over a read-only value: protect tests",
   saveWaits:
     "a broken text in a custom language without spans: custom-languages-host spec",
   secretHint: "the page gives its own hint",
   secretValue: "schema messages on secret fields: protect tests",
+  secretInside:
+    "a schema message quoting a list or map holding a secret: tests/secret_inside_messages.rs",
   unknownPlaceholder: "protect tests",
   movedPlaceholder:
     "protect tests (moved_token_tests) and the locks-read-only spec",
@@ -388,7 +396,11 @@ test("every built-in text comes from the strings setting", async ({ page }) => {
   );
   await look();
 
-  // A read-only field, and an edit it refuses.
+  // A read-only field, and an edit it refuses. Replace All changed
+  // `public_address` above: undone, so it reads as the host gave it (a
+  // field locked after it was changed locks nothing until it does).
+  await input(page).focus();
+  await page.keyboard.press("Control+z");
   await page.locator("#lock-address").check();
   await expect(page.locator(".config-editor__lock-marker")).toHaveCount(1);
   await look();

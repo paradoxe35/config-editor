@@ -95,7 +95,7 @@ impl DocumentsSim {
         for (index, base) in bases.into_iter().enumerate() {
             let id = ["a", "b"][index].to_string();
             let (given, print) = ranges_in(base, form);
-            let ranges = read_ranges(&given, base, None)?;
+            let ranges = read_ranges(&given, base, &[])?;
             sim.texts.insert(id.clone(), base.to_string());
             sim.channels.insert(
                 id.clone(),
@@ -140,7 +140,7 @@ impl DocumentsSim {
                     None,
                     current,
                     false,
-                    |text, came_with| read_ranges(&given, text, Some(came_with)),
+                    |text, came_with| read_ranges(&given, text, came_with),
                 )?;
             listed.push((value, ranges));
         }

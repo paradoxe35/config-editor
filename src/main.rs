@@ -286,7 +286,14 @@ fn demo() -> impl IntoView {
         // language, with the reason on the value in the way), and back after
         // an undo across a switch. The picker follows it too.
         let editing = RwSignal::new(language);
+        // The view asked for follows only a change of the language on
+        // screen (a switch done, an undo across one): the report of the
+        // file's own language while it shows already (as at mount) leaves a
+        // switch that waits asked for, so it keeps waiting with its reason.
         let follow_editing = move |edit: Language| {
+            if editing.get_untracked() == edit {
+                return;
+            }
             editing.set(edit);
             let chosen = (edit != language).then_some(edit);
             if edit_as.get_untracked() != chosen {

@@ -8,7 +8,7 @@
 //! where the fields it covered are written in the new text: a conversion
 //! writes fields, so their paths are what it keeps.
 
-use crate::editor::text::{TextRange, TextSize};
+use crate::editor::text::{TextRange, TextSize, slice, text_size};
 
 use leptos::prelude::*;
 use serde_json::Value;
@@ -91,7 +91,30 @@ pub(super) fn followed_to(
     if rewritten.is_empty() {
         return placed;
     }
-    match at_fields(behavior, text, host, &rewritten, reading) {
+    let mut fields = at_fields(behavior, text, host, &rewritten, reading);
+    // A range whose text the new text holds where the fields it covered
+    // went is placed on that text: the fields alone would leave the rest of
+    // it (a comment's end, the line break before a key) unlocked, and the
+    // next conversion back free to write a field inside it.
+    let before = rewritten.len();
+    rewritten.retain(
+        |range| match same_text(text, host, range, fields.as_deref()) {
+            Some(found) => {
+                placed.push(found);
+                false
+            }
+            None => true,
+        },
+    );
+    if rewritten.is_empty() {
+        placed.sort_by_key(|range| (range.start(), range.end()));
+        placed.dedup();
+        return placed;
+    }
+    if rewritten.len() != before {
+        fields = at_fields(behavior, text, host, &rewritten, reading);
+    }
+    match fields {
         Some(fields) => placed.extend(fields),
         None => placed.extend(rewritten.iter().map(|range| {
             let shifted = follow_ranges(
@@ -107,6 +130,38 @@ pub(super) fn followed_to(
     placed.sort_by_key(|range| (range.start(), range.end()));
     placed.dedup();
     placed
+}
+
+/// Where `range`'s text (of `text`) is in `host`: the one place holding it
+/// that overlaps where the fields the ranges covered are written there
+/// (`fields`, see [`at_fields`]), or with no fields known, the one place
+/// `host` holds it at all. `None` when that is not one place: another
+/// copy of the text is another field's.
+fn same_text(
+    text: &str,
+    host: &str,
+    range: &TextRange,
+    fields: Option<&[TextRange]>,
+) -> Option<TextRange> {
+    let wanted = slice::slice(text, *range).filter(|wanted| !wanted.is_empty())?;
+    // Every place, also those overlapping another (`aa` twice in `aaa`):
+    // the next search starts past the first character of the last place.
+    let step = wanted.chars().next().map_or(1, char::len_utf8);
+    let mut from = 0;
+    let mut found = std::iter::from_fn(|| {
+        let at = from + host.get(from..)?.find(wanted)?;
+        from = at + step;
+        Some(TextRange::at(text_size(at), range.len()))
+    });
+    let fits = |candidate: &TextRange| {
+        fields.is_none_or(|fields| {
+            fields
+                .iter()
+                .any(|field| candidate.start() < field.end() && field.start() < candidate.end())
+        })
+    };
+    let first = found.by_ref().find(|candidate| fits(candidate))?;
+    found.all(|candidate| !fits(&candidate)).then_some(first)
 }
 
 /// Where the fields `ranges` cover in `text` are written in `host`: `None`

@@ -8,6 +8,14 @@ use crate::editor::text::{text_size, byte_range};
 pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
     let document: toml::Table = source.parse().map_err(|error: toml::de::Error| {
         let line_count = source.split('\n').count().max(1);
+        if let Some(extra) = error.span().and_then(|span| extra_word(source, span)) {
+            let (line, column) = line_column(source, text_size(extra));
+            return ParseError {
+                message: super::words::OUT_OF_PLACE.to_string(),
+                line: Some(line),
+                column: Some(column),
+            };
+        }
         let (line, column) = error
             .span()
             .map(|span| line_column(source, text_size(span.start)))
@@ -38,6 +46,23 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
             .map(|(key, value)| (key.clone(), toml_to_json(value)))
             .collect(),
     ))
+}
+
+/// The parser reads words apart on a line as one value (a date and a time
+/// may stand apart: `1979-05-27 07:32:00`), so `a = 1 2` is refused from
+/// its `1`. When the refused `span` is the value after a key's `=` and its
+/// first word is a whole value on its own, the mistake is the word after
+/// it: its byte.
+fn extra_word(source: &str, span: std::ops::Range<usize>) -> Option<usize> {
+    let line_start = source.get(..span.start)?.rfind('\n').map_or(0, |at| at + 1);
+    if !source[line_start..span.start].trim_end().ends_with('=') {
+        return None;
+    }
+    let words = source.get(span.clone())?;
+    let first_end = words.find(char::is_whitespace)?;
+    format!("x = {}", &words[..first_end]).parse::<toml::Table>().ok()?;
+    let rest = &words[first_end..];
+    Some(span.start + first_end + rest.len() - rest.trim_start().len())
 }
 
 /// A TOML value in the shared data model: dates and times are their TOML
@@ -103,10 +128,17 @@ pub(super) fn split_key_path(text: &str) -> Option<Vec<String>> {
     let mut segments = Vec::new();
     let mut current = String::new();
     let mut quote: Option<char> = None;
+    // A backslash in a basic (`"`) key escapes the next character
+    // (`"be\"ta"` is one key); a literal (`'`) key has no escapes.
+    let mut escaped = false;
     for character in text.chars() {
         if let Some(active) = quote {
             current.push(character);
-            if character == active {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' && active == '"' {
+                escaped = true;
+            } else if character == active {
                 quote = None;
             }
         } else if matches!(character, '"' | '\'') {
@@ -134,8 +166,18 @@ pub(super) fn split_key_path(text: &str) -> Option<Vec<String>> {
     )
 }
 
-/// Strips one layer of basic/literal quotes from a key segment.
+/// Strips one layer of basic/literal quotes from a key segment, a basic
+/// key's escapes read as TOML reads them (`"be\"ta"` is `be"ta`).
 pub(super) fn unquote_key(segment: &str) -> String {
+    if segment.len() >= 2
+        && segment.starts_with('"')
+        && segment.ends_with('"')
+        && segment.contains('\\')
+        && let Ok(table) = toml::from_str::<toml::Table>(&format!("{segment} = 0"))
+        && let Some(key) = table.keys().next()
+    {
+        return key.clone();
+    }
     if segment.len() >= 2
         && ((segment.starts_with('"') && segment.ends_with('"'))
             || (segment.starts_with('\'') && segment.ends_with('\'')))

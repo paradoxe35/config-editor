@@ -80,6 +80,22 @@ fn mismatched_tags_are_a_parse_error_with_a_position() {
     assert!(error.message.contains("port"), "{}", error.message);
 }
 
+/// An attribute the reader refuses is pointed at, not its tag.
+#[test]
+fn an_attribute_error_points_at_the_attribute_or_value_in_the_way() {
+    for (source, line, column, says) in [
+        ("<a x=1/>", 1, 6, "quotes"),
+        ("<r>\n  <a  x=1 />\n</r>", 2, 9, "quotes"),
+        ("<r><a x='1' x='2'/></r>", 1, 13, "duplicate"),
+        // Where the `=` is missing.
+        ("<r><a x/></r>", 1, 8, "="),
+    ] {
+        let error = parse_error(source);
+        assert_eq!((error.line, error.column), (Some(line), Some(column)), "{source:?}: {error:?}");
+        assert!(error.message.contains(says), "{source:?}: {}", error.message);
+    }
+}
+
 #[test]
 fn unclosed_tags_are_a_parse_error_at_the_open_tag() {
     let error = parse_error("<server>\n  <host>");

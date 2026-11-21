@@ -63,7 +63,76 @@ fn tag_close(tag: &str) -> Option<usize> {
 
 /// Elements started and not ended in `text`.
 pub(super) fn open_elements(text: &str) -> usize {
-    open_element_names(text).len()
+    let mut open = OpenCount::default();
+    text.chars().for_each(|character| open.read(character));
+    open.at_end()
+}
+
+/// The first line from `last` (of `lines`, from 0) where the lines from
+/// `first` through it, joined by line breaks, leave no element open
+/// ([`open_elements`]); the last line when none does. The lines
+/// are read once, so the end of an element of many lines costs its lines,
+/// not their square (as counting each longer joined text again would).
+pub(super) fn closing_line(lines: &[&str], (first, last): (usize, usize)) -> usize {
+    let mut open = OpenCount::default();
+    for (index, line) in lines.iter().enumerate().skip(first) {
+        if index > first {
+            open.read('\n');
+        }
+        crate::editor::work_count::note_many(crate::editor::work_count::Work::ClosingLineBytes, line.len() + 1);
+        line.chars().for_each(|character| open.read(character));
+        if index >= last && (open.at_end() == 0 || index + 1 == lines.len()) {
+            return index;
+        }
+    }
+    last
+}
+
+/// [`open_element_names`]'s count, read one character at a time: after
+/// each, [`OpenCount::at_end`] is what it counts for the text read so far.
+#[derive(Default)]
+struct OpenCount {
+    /// The elements the tags read whole leave open.
+    open: usize,
+    /// The tag being read (from its `<`, no `>` yet): its second character
+    /// once read, and its last.
+    tag: Option<(Option<char>, char)>,
+}
+
+impl OpenCount {
+    fn read(&mut self, character: char) {
+        match self.tag {
+            None if character == '<' => self.tag = Some((None, '<')),
+            None => {}
+            Some((second, last)) if character == '>' => {
+                self.tag = None;
+                // As `open_element_names` reads the tag `<…>` whole.
+                let self_closing = second.is_some() && last == '/';
+                self.open = self.counted(second, self_closing);
+            }
+            Some((second, _)) => self.tag = Some((second.or(Some(character)), character)),
+        }
+    }
+
+    /// The count for a text ending here (a tag cut off is read as
+    /// `open_element_names` reads the rest of a text without its `>`).
+    fn at_end(&self) -> usize {
+        match self.tag {
+            Some((second, _)) => self.counted(second, false),
+            None => self.open,
+        }
+    }
+
+    /// The count once a tag whose second character is `second` is read.
+    fn counted(&self, second: Option<char>, self_closing: bool) -> usize {
+        match second {
+            Some('/') => self.open.saturating_sub(1),
+            Some('!' | '?') => self.open,
+            _ if self_closing => self.open,
+            Some(character) if character.is_alphabetic() || character == '_' => self.open + 1,
+            _ => self.open,
+        }
+    }
 }
 
 /// The names of the elements `text` starts and does not end, outermost
@@ -212,7 +281,7 @@ pub(super) fn element_texts(text: &str) -> Vec<std::ops::Range<usize>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{element_end, element_texts, open_elements};
+    use super::{closing_line, element_end, element_texts, open_element_names, open_elements};
 
     #[test]
     fn element_texts_are_the_texts_holding_more_than_whitespace() {
@@ -256,5 +325,38 @@ mod tests {
     fn open_elements_count_starts_without_ends() {
         assert_eq!(open_elements("web>\n<a>1</a>\n<b/>"), 0);
         assert_eq!(open_elements("<web>\n<a>1</a>\n<!-- c -->"), 1);
+    }
+
+    /// The elements a text leaves open, counted a character at a time, are
+    /// the ones it names, and the line an element closes on, read once,
+    /// is the line counting each longer text again finds, whatever the lines hold: tags cut by a
+    /// line break, `/>`, `</`, comments and CDATA holding `<` and `>`, a
+    /// lone `<`, letters past ASCII (a seeded random sweep).
+    #[test]
+    fn the_closing_line_read_once_is_the_one_counted_again() {
+        const PIECES: [&str; 22] = [
+            "<a>", "</a>", "<b/>", "<c x=\"1\"\n/>", "<", ">", "/", "/>", "</", "\n", "\n",
+            "<!-- d > <e> -->", "<?p?>", "<![CDATA[<f>]]>", "text", "é", "<_g", "<\u{e9}h>", "<!",
+            "<?", " ", "\"",
+        ];
+        let mut seed: u64 = 0x5eed_0b1c;
+        let mut next = |below: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            usize::try_from(seed % below as u64).expect("below a usize")
+        };
+        for _ in 0..4000 {
+            let text: String = (0..next(40)).map(|_| PIECES[next(PIECES.len())]).collect();
+            let lines: Vec<&str> = text.split('\n').collect();
+            let first = next(lines.len());
+            let last = first + next(lines.len() - first);
+            let mut counted = last;
+            while counted + 1 < lines.len() && !open_element_names(&lines[first..=counted].join("\n")).is_empty() {
+                counted += 1;
+            }
+            assert_eq!(closing_line(&lines, (first, last)), counted, "{text:?} from {first}, {last}");
+            assert_eq!(open_elements(&text), open_element_names(&text).len(), "{text:?}");
+        }
     }
 }

@@ -197,7 +197,38 @@ fn patch_lines(
             }
         }
     }
+    // The outermost map each line opens, in the host and in the new
+    // rendering, read only where an insert lands above comment lines.
+    let host_keys = std::cell::OnceCell::new();
+    let new_keys = std::cell::OnceCell::new();
+    let past_comments_of = |slot: usize, new_line: usize| -> usize {
+        let mut below = slot;
+        while below < host.len() && is_comment(host[below]) {
+            below += 1;
+        }
+        if below == slot || below >= host.len() {
+            return slot;
+        }
+        let host_keys = host_keys.get_or_init(|| outermost_by_line(language, previous, old));
+        let new_keys = new_keys.get_or_init(|| outermost_by_line(language, &after, new));
+        // A map the host line opens with a key of its own inside it (not
+        // a list whose items each line opens).
+        let a_map = |pointer: &str| {
+            old.pointer(pointer).is_some_and(Value::is_object)
+                && new.pointer(pointer).is_some_and(Value::is_object)
+        };
+        match (host_keys.get(&below), new_keys.get(&new_line)) {
+            (Some(host), Some(new)) if host == new && a_map(host) => below,
+            _ => slot,
+        }
+    };
+    // A run of inserts moved past comment lines: where it would have gone,
+    // and where it goes.
+    let mut run: Option<(usize, usize)> = None;
     for edit in edits {
+        if !matches!(edit, DiffEdit::Insert) {
+            run = None;
+        }
         match edit {
             DiffEdit::Equal => {
                 old_index += 1;
@@ -236,13 +267,16 @@ fn patch_lines(
                     None => match place[..old_index].iter().rposition(Option::is_some) {
                         // Lines of code between it and the insert that
                         // the host does not write there (keys a YAML merge
-                        // brings in, written as its one line): before the
-                        // host line of the next placed one, past them.
+                        // brings in, written as its one line, or a value in
+                        // a spelling of its own): before the host line of
+                        // the next placed one (at the end, the host's end),
+                        // past them.
                         Some(placed)
                             if let Some(below) = below_unwritten(
                                 &rendered_old,
                                 &place,
                                 (placed, old_index),
+                                host.len(),
                                 &|line| {
                                     let code = comparable(language, line);
                                     !code.is_empty() && !punctuation(&code)
@@ -284,6 +318,19 @@ fn patch_lines(
                             None => host.len(),
                         },
                     },
+                };
+                // Past the comment lines above a host line that opens the
+                // map this line writes (`[beta.x]` opening `beta` below
+                // `# note`, where `[beta]` goes): they are that map's.
+                // The rest of the same run of inserts goes with it.
+                let slot = match run {
+                    _ if replacing.is_some() => slot,
+                    Some((from, to)) if from == slot => to,
+                    _ => {
+                        let moved = past_comments_of(slot, new_index);
+                        run = Some((slot, moved));
+                        moved
+                    }
                 };
                 inserted[slot].push(written_new[new_index].as_str());
                 new_index += 1;
@@ -405,21 +452,82 @@ fn patch_lines(
     Some(patched)
 }
 
+/// The outermost map entry whose key `text` (as `language` writes
+/// `value`) writes on each line (from 0), by its pointer: the map a line
+/// opens in the reader's eyes (a TOML `[beta.x]` header opens `beta`).
+fn outermost_by_line(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    value: &Value,
+) -> std::collections::HashMap<usize, String> {
+    fn entries(value: &Value, pointer: &mut String, out: &mut Vec<String>) {
+        let length = pointer.len();
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    pointer.push('/');
+                    pointer.push_str(&super::super::language::pointer_key(key));
+                    out.push(pointer.clone());
+                    entries(child, pointer, out);
+                    pointer.truncate(length);
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    pointer.push('/');
+                    pointer.push_str(&index.to_string());
+                    entries(child, pointer, out);
+                    pointer.truncate(length);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut pointers = Vec::new();
+    entries(value, &mut String::new(), &mut pointers);
+    super::super::paths::with_spans(language, text, &pointers, || {
+        let mut outermost: std::collections::HashMap<usize, String> =
+            std::collections::HashMap::new();
+        for pointer in &pointers {
+            let Some(span) = super::super::paths::memo_key_span(language, text, pointer) else {
+                continue;
+            };
+            let line = span.line.saturating_sub(1);
+            let depth = pointer.matches('/').count();
+            match outermost.get(&line) {
+                Some(known) if known.matches('/').count() <= depth => {}
+                _ => {
+                    outermost.insert(line, pointer.clone());
+                }
+            }
+        }
+        outermost
+    })
+}
+
 /// The host line of the first placed rendered line from `at` on, when a
 /// line of code between the placed one at `placed` and `at` has no host
-/// line: what the host writes for those lines (a YAML merge's one line)
-/// sits somewhere before that line, not right after `placed`'s.
+/// line: what the host writes for those lines (a YAML merge's one line, a
+/// number in its own spelling such as `3.10`) sits somewhere before that
+/// line, not right after `placed`'s. With nothing written from `at` on
+/// (an insert at the very end of the document, no closer after it), the
+/// end of the host, `host_len`: those lines are the host's last.
 fn below_unwritten(
     rendered: &[&str],
     place: &[Option<usize>],
     (placed, at): (usize, usize),
+    host_len: usize,
     code: &dyn Fn(&str) -> bool,
 ) -> Option<usize> {
     let unwritten = (placed + 1..at).any(|index| place[index].is_none() && code(rendered[index]));
     if !unwritten {
         return None;
     }
-    place[at..].iter().find_map(|line| *line)
+    match place[at..].iter().find_map(|line| *line) {
+        Some(below) => Some(below),
+        None if rendered[at..].iter().all(|line| line.trim().is_empty()) => Some(host_len),
+        None => None,
+    }
 }
 
 /// Whether `line` (trimmed) is only brackets and item separators (`}`,

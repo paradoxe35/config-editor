@@ -76,4 +76,26 @@ test.describe('locks the host clears', () => {
       await expect.poll(() => page.evaluate(() => window.changes.at(-1))).toBe('a: 19\nb: 2\nc: 3\n');
     });
   }
+
+  // A framework binding gives each prop its own update: the paths cleared
+  // first, the ranges next, in one task. The edit the range held back
+  // (its key written again in a text that does not parse) reaches the
+  // host then, whichever order the host clears its locks in.
+  for (const order of [['readOnlyPaths', 'readOnlyRanges'], ['readOnlyRanges', 'readOnlyPaths']]) {
+    test(`an edit a range held reaches the host once the locks are cleared in two updates, ${order.join(' then ')}`, async ({ page }) => {
+      await mount(page, {});
+      await page.evaluate(() => window.qa.update({ readOnlyPaths: ['/c'], readOnlyRanges: [{ start: 0, end: 4 }] }));
+      await page.waitForTimeout(300);
+      await input(page).evaluate((element) => {
+        element.focus();
+        element.setSelectionRange(element.value.length, element.value.length);
+      });
+      await page.keyboard.type('a#');
+      await expect.poll(() => page.evaluate(() => window.qa.text)).toBe('a: 1\nb: 2\nc: 3\na#');
+      await page.waitForTimeout(300);
+      expect(await page.evaluate(() => window.changes)).not.toContain('a: 1\nb: 2\nc: 3\na#');
+      await page.evaluate((order) => order.forEach((name) => window.qa.update({ [name]: null })), order);
+      await expect.poll(() => page.evaluate(() => window.changes.at(-1))).toBe('a: 1\nb: 2\nc: 3\na#');
+    });
+  }
 });

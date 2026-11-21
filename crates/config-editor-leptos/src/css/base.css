@@ -462,14 +462,19 @@
   position: relative;
   z-index: 5;
   background: var(--config-editor-bg);
-  /* A column for the markers (a lock or key, then the problem dot), the
-     longest line number (`--config-editor-gutter-digits`, set from the line
-     count, at least 3), then the padding before the text. */
-  --config-editor-marker-column: 24px;
-  --config-editor-gutter-padding: 13px;
+  /* A column for the markers (a lock or key, the problem dot, then the
+     change bar), the longest line number (`--config-editor-gutter-digits`,
+     set from the line count, at least 3), the padding after it, then the
+     fold chevrons' column when folding is on. The change bars sit before
+     the number, not after it: each bar and each chevron takes a 24px hit
+     area, and side by side after the number they would need 48px of empty
+     space between the number and the text. */
+  --config-editor-marker-column: 28px;
+  --config-editor-gutter-padding: 10px;
+  --config-editor-fold-gutter: 0px;
   width: calc(
     var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-      var(--config-editor-gutter-padding)
+      var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter)
   );
   flex: 0 0 auto;
   /* Its rows never size it: it stretches to the textarea, so resizing the
@@ -481,7 +486,8 @@
   /* A finger dragging over the line numbers scrolls the text (the editor
      moves it), not the page; two fingers still zoom. */
   touch-action: pinch-zoom;
-  padding: var(--config-editor-padding-top) var(--config-editor-gutter-padding)
+  padding: var(--config-editor-padding-top)
+    calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter))
     var(--config-editor-padding-bottom) 0;
   color: var(--config-editor-line-number);
   text-align: right;
@@ -504,8 +510,9 @@
 :not(#\#):not(#\#) .config-editor__line-number-modified { color: var(--config-editor-line-number-modified, var(--config-editor-modified)); }
 :not(#\#):not(#\#) .config-editor__line-number-error::before {
   position: absolute;
+  z-index: 2;
   top: 8px;
-  left: calc(var(--config-editor-marker-column) - 9px);
+  left: calc(var(--config-editor-marker-column) - 13px);
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -513,11 +520,13 @@
   content: "";
 }
 
-/* A read-only line: a lock before the number. */
+/* A read-only line: a lock before the number. Above the change bars' hit
+   areas (see the change bar), so it takes its own pointer and title. */
 :not(#\#):not(#\#) .config-editor__lock-marker {
   position: absolute;
+  z-index: 2;
   top: calc(50% - 5px);
-  left: calc(var(--config-editor-marker-column) - 20px);
+  left: calc(var(--config-editor-marker-column) - 25px);
   width: 9px;
   height: 10px;
   color: var(--config-editor-locked);
@@ -533,11 +542,13 @@
   fill: currentColor;
 }
 
-/* A line with a secret placeholder: a key before the number. */
+/* A line with a secret placeholder: a key before the number, above the
+   change bars' hit areas as the lock is. */
 :not(#\#):not(#\#) .config-editor__secret-marker {
   position: absolute;
+  z-index: 2;
   top: calc(50% - 5px);
-  left: calc(var(--config-editor-marker-column) - 20px);
+  left: calc(var(--config-editor-marker-column) - 25px);
   width: 10px;
   height: 10px;
   color: var(--config-editor-secret-chip-border);
@@ -545,7 +556,8 @@
 
 /* A secret placeholder: a chip, drawn without changing the text's width
    (the textarea above holds the same characters). */
-:not(#\#):not(#\#) .config-editor__highlight .config-editor__secret {
+:not(#\#):not(#\#) .config-editor__highlight .config-editor__secret,
+:not(#\#):not(#\#) .config-editor__sticky .config-editor__secret {
   border-radius: 3px;
   background: var(--config-editor-secret-chip);
   box-shadow: inset 0 0 0 1px var(--config-editor-secret-chip-border);
@@ -553,14 +565,25 @@
 
 /* A read-only value, muted (its key keeps its color). */
 :not(#\#):not(#\#) .config-editor__highlight .config-editor__locked,
-:not(#\#):not(#\#) .config-editor__highlight .config-editor__locked > span {
+:not(#\#):not(#\#) .config-editor__highlight .config-editor__locked > span,
+:not(#\#):not(#\#) .config-editor__sticky .config-editor__locked,
+:not(#\#):not(#\#) .config-editor__sticky .config-editor__locked > span {
   color: var(--config-editor-locked);
 }
 
+/* A changed line's bar: last in the marker column, before the number.
+   The markers of a line stack in two layers of the gutter's rows: the
+   change markers' large hit areas (their `::after`, z-index 1; a row's
+   over the row above, which it overlaps by a pixel), then every marker
+   drawn (the lock or key, the problem dot, the bar, the removed lines'
+   mark; z-index 2). Each marker is then what the pointer finds on it,
+   and a bar's area still takes the pointer around the others. The
+   buttons have no z-index of their own, which would lift their hit areas
+   with them. */
 :not(#\#):not(#\#) .config-editor__diff-marker {
   position: absolute;
   top: 0;
-  right: -9px;
+  left: calc(var(--config-editor-marker-column) - 6px);
   bottom: 0;
   width: 3px;
   padding: 0;
@@ -568,50 +591,55 @@
   background: transparent;
 }
 
-:not(#\#):not(#\#) .config-editor__diff-marker-added { background: var(--config-editor-added); }
-:not(#\#):not(#\#) .config-editor__diff-marker-modified { background: var(--config-editor-modified); }
-
 :not(#\#):not(#\#) .config-editor__diff-marker-added,
 :not(#\#):not(#\#) .config-editor__diff-marker-modified {
   cursor: pointer;
-  transition: width 100ms ease, right 100ms ease, box-shadow 100ms ease;
 }
+
+:not(#\#):not(#\#) .config-editor__diff-marker-added::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-modified::before {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  content: "";
+  transition: width 100ms ease, left 100ms ease, box-shadow 100ms ease;
+}
+
+:not(#\#):not(#\#) .config-editor__diff-marker-added::before { background: var(--config-editor-added); }
+:not(#\#):not(#\#) .config-editor__diff-marker-modified::before { background: var(--config-editor-modified); }
 
 :not(#\#):not(#\#) .config-editor__diff-marker-added::after,
 :not(#\#):not(#\#) .config-editor__diff-marker-modified::after {
   position: absolute;
-  top: 0;
-  right: -4px;
-  bottom: 0;
-  left: -4px;
+  z-index: 1;
   content: "";
 }
 
-:not(#\#):not(#\#) .config-editor__diff-marker-added:hover,
-:not(#\#):not(#\#) .config-editor__diff-marker-added:focus-visible,
-:not(#\#):not(#\#) .config-editor__diff-marker-modified:hover,
-:not(#\#):not(#\#) .config-editor__diff-marker-modified:focus-visible {
-  right: -10px;
+:not(#\#):not(#\#) .config-editor__diff-marker-added:hover::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-added:focus-visible::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-modified:hover::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-modified:focus-visible::before {
+  left: -1px;
   width: 5px;
 }
 
-:not(#\#):not(#\#) .config-editor__diff-marker-added:hover,
-:not(#\#):not(#\#) .config-editor__diff-marker-added:focus-visible {
-  background: var(--config-editor-added);
+:not(#\#):not(#\#) .config-editor__diff-marker-added:hover::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-added:focus-visible::before {
   box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-added) 70%, transparent);
 }
 
-:not(#\#):not(#\#) .config-editor__diff-marker-modified:hover,
-:not(#\#):not(#\#) .config-editor__diff-marker-modified:focus-visible {
-  background: var(--config-editor-modified);
+:not(#\#):not(#\#) .config-editor__diff-marker-modified:hover::before,
+:not(#\#):not(#\#) .config-editor__diff-marker-modified:focus-visible::before {
   box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-modified) 70%, transparent);
 }
 
 :not(#\#):not(#\#) .config-editor__diff-deleted {
   position: absolute;
-  z-index: 1;
   top: -3px;
-  right: -9px;
+  left: calc(var(--config-editor-marker-column) - 12px);
   width: 9px;
   height: 12px;
   padding: 0;
@@ -627,33 +655,36 @@
 
 :not(#\#):not(#\#) .config-editor__diff-deleted::before {
   position: absolute;
-  top: 4px;
+  z-index: 2;
+  /* A triangle pointing at the text, centred on the edge between the
+     lines where lines were removed (the button's 3px below its top), in
+     the change bars' column, as VS Code draws it. */
+  top: -1px;
   right: 0;
-  width: 3px;
-  height: 3px;
-  border-radius: 1px;
+  width: 5px;
+  height: 8px;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
   background: var(--config-editor-removed);
   content: "";
-  transition: height 100ms ease, top 100ms ease, box-shadow 100ms ease;
+  transition: width 100ms ease, height 100ms ease, top 100ms ease, bottom 100ms ease;
 }
 
 :not(#\#):not(#\#) .config-editor__diff-deleted-after::before {
   top: auto;
-  bottom: 4px;
+  bottom: -1px;
 }
 
 :not(#\#):not(#\#) .config-editor__diff-deleted:hover::before,
 :not(#\#):not(#\#) .config-editor__diff-deleted:focus-visible::before {
-  top: 3px;
-  height: 5px;
-  background: var(--config-editor-removed);
-  box-shadow: 0 0 4px color-mix(in srgb, var(--config-editor-removed) 65%, transparent);
+  top: -2px;
+  width: 6px;
+  height: 10px;
 }
 
 :not(#\#):not(#\#) .config-editor__diff-deleted-after:hover::before,
 :not(#\#):not(#\#) .config-editor__diff-deleted-after:focus-visible::before {
   top: auto;
-  bottom: 3px;
+  bottom: -2px;
 }
 
 :not(#\#):not(#\#) .config-editor__diff-change-trigger:focus-visible,
@@ -824,23 +855,21 @@
   position: relative;
 }
 
-/* Folding: chevrons right of the diff markers, shown while the gutter is
-   hovered (always on touch screens and on folded lines). */
+/* Folding: chevrons between the number and the text, shown while the
+   gutter is hovered (always on touch screens and on folded lines). Their
+   column is their 24px hit area; the number keeps a small gap from it. */
 :not(#\#):not(#\#) .config-editor__gutter.config-editor__gutter-folding {
-  --config-editor-fold-gutter: 14px;
-  width: calc(
-    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-      var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter)
-  );
-  padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter));
+  --config-editor-fold-gutter: 24px;
+  --config-editor-gutter-padding: 2px;
 }
 
 :not(#\#):not(#\#) .config-editor__fold-toggle {
   position: absolute;
   z-index: 1;
-  right: calc(-11px - var(--config-editor-fold-gutter));
+  right: calc(0px - var(--config-editor-gutter-padding) - var(--config-editor-fold-gutter));
+  top: calc((1lh - max(24px, 1lh)) / 2);
   width: var(--config-editor-fold-gutter);
-  height: 1lh;
+  height: max(24px, 1lh);
   line-height: var(--config-editor-line-height);
   padding: 0;
   border: 0;
@@ -854,7 +883,7 @@
 :not(#\#):not(#\#) .config-editor__fold-toggle::before {
   position: absolute;
   top: 50%;
-  left: 4px;
+  left: 9px;
   width: 5px;
   height: 5px;
   border-right: 1.5px solid currentColor;
@@ -881,10 +910,10 @@
   :not(#\#):not(#\#) .config-editor__fold-toggle { opacity: 1; }
 }
 
-/* A closed fold hiding changes: a dotted bar where the diff markers go. */
+/* A closed fold hiding changes: a dotted bar where the change bars go. */
 :not(#\#):not(#\#) .config-editor__fold-changes {
   position: absolute;
-  right: -9px;
+  left: calc(var(--config-editor-marker-column) - 6px);
   width: 3px;
   height: calc(1lh - 6px);
   margin-top: 3px;
@@ -928,6 +957,70 @@
 :not(#\#):not(#\#) .config-editor__fold-chip--warning { box-shadow: inset 0 -2px var(--config-editor-warning); }
 :not(#\#):not(#\#) .config-editor__fold-chip--info { box-shadow: inset 0 -2px var(--config-editor-info); }
 :not(#\#):not(#\#) .config-editor__fold-chip--hint { box-shadow: inset 0 -2px var(--config-editor-hint); }
+
+/* Sticky scroll: the header lines of the blocks scrolled past, over the top
+   of the text and of the gutter, opaque, a line under the last one. Each
+   line sits at its depth's top (`--config-editor-sticky-top-<depth>`, set
+   with the scroll); the layers take the pointer only on their lines. */
+:not(#\#):not(#\#) .config-editor__sticky,
+:not(#\#):not(#\#) .config-editor__sticky-numbers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: var(--config-editor-sticky-height, 0);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky {
+  z-index: 4;
+  touch-action: pinch-zoom;
+  color: var(--config-editor-text);
+  white-space: pre;
+  tab-size: 2;
+  font: var(--config-editor-font-size)/1.8 var(--config-editor-mono);
+  line-height: var(--config-editor-line-height);
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-numbers {
+  z-index: 2;
+  right: 0;
+  padding-right: inherit;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-line,
+:not(#\#):not(#\#) .config-editor__sticky-number {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1lh;
+  background: var(--config-editor-bg);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-number {
+  padding-right: inherit;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-line:last-child,
+:not(#\#):not(#\#) .config-editor__sticky-number:last-child {
+  box-shadow: inset 0 -1px 0 var(--config-editor-border);
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-line:hover .config-editor__sticky-code,
+:not(#\#):not(#\#) .config-editor__sticky-number:hover {
+  text-decoration: underline;
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-code {
+  display: inline-block;
+  transform: translateX(var(--config-editor-sticky-x, 0));
+}
+
+:not(#\#):not(#\#) .config-editor__sticky-code span {
+  font: inherit;
+}
 
 :not(#\#):not(#\#) .config-editor__code-line-active { background: var(--config-editor-active-line); }
 :not(#\#):not(#\#) .config-editor__code-line-error { background: var(--config-editor-error-line); }
@@ -2012,10 +2105,6 @@
 @media (max-width: 600px) {
   .config-editor__toolbar,
   :not(#\#):not(#\#) .config-editor__frame .config-editor__toolbar { padding: 0 10px; }
-  :not(#\#):not(#\#) .config-editor__gutter {
-    --config-editor-marker-column: 23px;
-    --config-editor-gutter-padding: 10px;
-  }
   /* The schema state as its check mark alone (its words still named). */
   .config-editor__schema-state,
   :not(#\#):not(#\#) .config-editor__frame .config-editor__schema-state { font-size: 0; }
@@ -2026,42 +2115,22 @@
 
 /* Every small control is at least 24×24px, by its own box or through a
    larger invisible hit area (WCAG 2.5.8, for a mouse as for a finger): the
-   change bars, the chevrons, the chip and the find buttons. The gutter is
-   wide enough for the bars' and the chevrons' areas to stay apart. */
-:not(#\#):not(#\#) .config-editor__gutter:not(.config-editor__gutter-folding) {
-  padding-right: calc(var(--config-editor-gutter-padding) + 11px);
-  width: calc(
-    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-      var(--config-editor-gutter-padding) + 11px
-  );
-}
-:not(#\#):not(#\#) .config-editor__gutter.config-editor__gutter-folding {
-  --config-editor-fold-gutter: 24px;
-  padding-right: calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px);
-  width: calc(
-    var(--config-editor-marker-column) + var(--config-editor-gutter-digits, 3) * 1ch +
-      var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter) + 13px
-  );
-}
-:not(#\#):not(#\#) .config-editor__fold-toggle {
-  right: calc(-24px - var(--config-editor-fold-gutter));
-  top: calc((1lh - max(24px, 1lh)) / 2);
-  height: max(24px, 1lh);
-}
-:not(#\#):not(#\#) .config-editor__fold-toggle::before { left: 9px; }
-/* The bar's area: from the number's edge to the chevrons, 24px tall. */
+   change bars, the chevrons, the chip and the find buttons. A bar's area
+   is the whole marker column (it ends 3px before the column's edge), so it
+   never reaches the number or the chevrons; the chevron's is its column. */
 :not(#\#):not(#\#) .config-editor__diff-marker-added::after,
 :not(#\#):not(#\#) .config-editor__diff-marker-modified::after {
   top: -1px;
-  right: -15px;
+  right: -3px;
   bottom: -1px;
-  left: -6px;
+  left: calc(6px - var(--config-editor-marker-column));
 }
 :not(#\#):not(#\#) .config-editor__diff-deleted::after {
   position: absolute;
+  z-index: 1;
   top: -6px;
-  right: -15px;
-  width: 24px;
+  left: calc(12px - var(--config-editor-marker-column));
+  width: var(--config-editor-marker-column);
   height: 24px;
   content: "";
 }
@@ -2095,13 +2164,14 @@
 @media (forced-colors: active) {
   :not(#\#):not(#\#) .config-editor__find-button[aria-disabled="true"] { color: GrayText; }
   :not(#\#):not(#\#) .config-editor__line-number-error::before,
-  :not(#\#):not(#\#) .config-editor__diff-marker-added,
-  :not(#\#):not(#\#) .config-editor__diff-marker-modified,
+  :not(#\#):not(#\#) .config-editor__diff-marker-added::before,
+  :not(#\#):not(#\#) .config-editor__diff-marker-modified::before,
   :not(#\#):not(#\#) .config-editor__diff-deleted::before,
   :not(#\#):not(#\#) .config-editor__lock-marker,
   :not(#\#):not(#\#) .config-editor__secret-marker,
   :not(#\#):not(#\#) .config-editor__search-match,
   :not(#\#):not(#\#) .config-editor__highlight .config-editor__secret,
+  :not(#\#):not(#\#) .config-editor__sticky .config-editor__secret,
   :not(#\#):not(#\#) .config-editor__completion-active,
   :not(#\#):not(#\#) .config-editor__find-toggle-on,
   :not(#\#):not(#\#) .config-editor__fold-chip--error,
@@ -2111,8 +2181,8 @@
     forced-color-adjust: none;
   }
   :not(#\#):not(#\#) .config-editor__line-number-error::before { background: CanvasText; }
-  :not(#\#):not(#\#) .config-editor__diff-marker-added,
-  :not(#\#):not(#\#) .config-editor__diff-marker-modified { background: Highlight; }
+  :not(#\#):not(#\#) .config-editor__diff-marker-added::before,
+  :not(#\#):not(#\#) .config-editor__diff-marker-modified::before { background: Highlight; }
   :not(#\#):not(#\#) .config-editor__diff-deleted::before { background: CanvasText; }
   :not(#\#):not(#\#) .config-editor__lock-marker,
   :not(#\#):not(#\#) .config-editor__secret-marker { color: CanvasText; }
@@ -2129,11 +2199,14 @@
   /* Its text too: the theme's string colour stays otherwise (forced
      colours do not reach inside `forced-color-adjust: none`). */
   :not(#\#):not(#\#) .config-editor__highlight .config-editor__secret,
-  .config-editor__highlight .config-editor__secret * {
+  .config-editor__highlight .config-editor__secret *,
+  :not(#\#):not(#\#) .config-editor__sticky .config-editor__secret,
+  .config-editor__sticky .config-editor__secret * {
     background: Canvas;
     color: CanvasText;
   }
-  :not(#\#):not(#\#) .config-editor__highlight .config-editor__secret {
+  :not(#\#):not(#\#) .config-editor__highlight .config-editor__secret,
+  :not(#\#):not(#\#) .config-editor__sticky .config-editor__secret {
     box-shadow: inset 0 0 0 1px CanvasText;
   }
   :not(#\#):not(#\#) .config-editor__completion-active,
@@ -2182,6 +2255,20 @@
     outline: 2px solid Highlight;
     outline-offset: 1px;
   }
+  /* The line under the sticky lines (a shadow, which forced colors drop),
+     drawn in the text's system color, as VS Code's high contrast themes
+     draw it. */
+  :not(#\#):not(#\#) .config-editor__sticky-line:last-child::after,
+  :not(#\#):not(#\#) .config-editor__sticky-number:last-child::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 1px;
+    background: CanvasText;
+    forced-color-adjust: none;
+    content: "";
+  }
   /* The caret's line, outlined. */
   :not(#\#):not(#\#) .config-editor__code-line-active { outline: 1px solid GrayText; outline-offset: -1px; }
   /* One color for every severity: each keeps its own line style (an
@@ -2198,8 +2285,8 @@
 @media (prefers-reduced-motion: reduce) {
   :not(#\#):not(#\#) .config-editor__fold-toggle,
   :not(#\#):not(#\#) .config-editor__find-expand,
-  :not(#\#):not(#\#) .config-editor__diff-marker-added,
-  :not(#\#):not(#\#) .config-editor__diff-marker-modified,
+  :not(#\#):not(#\#) .config-editor__diff-marker-added::before,
+  :not(#\#):not(#\#) .config-editor__diff-marker-modified::before,
   :not(#\#):not(#\#) .config-editor__diff-deleted::before {
     transition: none;
   }

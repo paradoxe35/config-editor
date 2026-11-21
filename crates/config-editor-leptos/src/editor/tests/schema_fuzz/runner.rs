@@ -249,7 +249,7 @@ mod tests {
     /// does not explain would show an allowed class as open.
     #[test]
     fn a_shrunk_case_keeps_the_allowance_of_its_class() {
-        const CLASS: &str = "a fill writes too few list items";
+        const CLASS: &str = "a fill writes a value its schema refuses (enum)";
         let property = Property {
             name: "fill",
             check_path: "",
@@ -261,7 +261,7 @@ mod tests {
         let case = Case {
             language: Language::YAML,
             pick: 3,
-            schema: json!({"properties": {"a": {"type": "array", "minItems": 2},
+            schema: json!({"properties": {"a": {"properties": {"n": {"enum": []}}},
                 "b": {"type": "string"}}}),
             doc: json!({"a": [1], "b": {"c": "two"}}),
             other: json!({"a": [1, 2]}),

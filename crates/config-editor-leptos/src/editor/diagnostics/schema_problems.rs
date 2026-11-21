@@ -9,7 +9,7 @@ use super::secrets::Secrets;
 use super::specific::{Explanations, specific_errors};
 use super::{
     Diagnostic, Fields, MAX_DIAGNOSTICS, Placeholders, ProblemKey, SchemaBundle, Severity,
-    accepted_pointers, cut, escape_pointer, placeholders, unevaluated, wording,
+    accepted_pointers, cut, escape_pointer, held_texts, placeholders, unevaluated, wording,
 };
 use crate::EditorStrings;
 use crate::editor::data_reading::DataReading;
@@ -38,7 +38,8 @@ pub(super) fn found(
 ) -> (Vec<(ProblemKey, Diagnostic)>, bool) {
     let document = reading.data.value();
     let placeholders = Fields::new(accepted_pointers(document, tokens.accepted));
-    let secrets = secrets(reading, schema);
+    // The strings holding a placeholder are hidden as a secret's are.
+    let secrets = secrets(reading, schema).hiding(held_texts(source, placing, tokens));
     // Infinities and NaN are numbers to the schema (see `non_finite`).
     use crate::editor::codec::non_finite::{StandIn, for_validation};
     let validated = for_validation(document, StandIn::Bounds);
@@ -295,7 +296,7 @@ pub(super) fn found(
 /// field one option reads as a list (so the reading made it one) is a
 /// secret's under another option, and its text is hidden wherever a
 /// message quotes it.
-fn secrets<'s>(reading: Reading<'s>, schema: &'s SchemaBundle) -> Secrets<'s> {
+pub(super) fn secrets<'s>(reading: Reading<'s>, schema: &'s SchemaBundle) -> Secrets<'s> {
     if !schema.has_marks {
         return Secrets::none();
     }

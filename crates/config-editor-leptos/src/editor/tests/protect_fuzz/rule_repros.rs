@@ -757,3 +757,271 @@ fn xml_list_items_outside_their_list_next_to_a_held_item_take_an_entry() {
         assert_ok(&setup, &acts);
     }
 }
+
+/// Over-refusal: a list's key line copied above its items, then cut there:
+/// the cut is taken, the copy holds the items. P1: whichever line is cut
+/// or the value pasted over next, the held item stays protected.
+#[test]
+fn a_cut_of_a_list_key_with_a_copy_holding_its_items_is_taken() {
+    let setup = Setup {
+        case: 14,
+        lock: Lock::Path,
+        host: None,
+        pairs: false,
+    };
+    let base = || {
+        vec![
+            Act::Line {
+                line: 29977,
+                command: 0,
+            },
+            Act::Type { at: 25433, text: 4 },
+            Act::Line {
+                line: 45228,
+                command: 2,
+            },
+            Act::Cut { line: 33489 },
+            Act::Cut { line: 33260 },
+        ]
+    };
+    assert_ok(&setup, &base());
+    for line in 0..4 {
+        let mut acts = base();
+        acts.push(Act::Cut { line });
+        assert_ok(&setup, &acts);
+    }
+    let mut acts = base();
+    acts.push(Act::NewValue);
+    assert_ok(&setup, &acts);
+}
+
+/// A quote typed before an XML secret's placeholder, after the element was
+/// copied and its copy's value cut: refused, or held while the value
+/// reads with text beside it.
+#[test]
+fn a_quote_typed_before_a_copied_xml_secret_is_not_glued() {
+    assert_ok(
+        &Setup {
+            case: 6,
+            lock: Lock::Secret,
+            host: None,
+            pairs: false,
+        },
+        &[
+            Act::Cut { line: 30074 },
+            Act::PasteCopy { line: 2739 },
+            Act::Entry {
+                anchor: 1,
+                name: 15,
+                paste: false,
+            },
+            Act::Cut { line: 52197 },
+            Act::Type { at: 345, text: 9 },
+            Act::Type { at: 36686, text: 5 },
+        ],
+    );
+}
+
+/// P1: in Dot's one-line map, a `<>` typed into the secret's key and then
+/// a `:` after the map's key, so the parse reads the whole map as one
+/// string holding the placeholder: refused.
+#[test]
+fn a_map_read_as_one_string_after_typed_marks_never_glues_its_placeholder() {
+    let setup = Setup {
+        case: 11,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Type { at: 33234, text: 6 },
+            Act::Type { at: 27726, text: 4 },
+        ],
+    );
+}
+
+/// P1: in Dot's one-line map, a quote typed before the secret's key after
+/// a Replace All, so the parse reads the rest of the map as one string
+/// holding the placeholder: refused.
+#[test]
+fn a_quote_typed_into_a_one_line_map_never_glues_its_placeholder() {
+    let setup = Setup {
+        case: 11,
+        lock: Lock::Secret,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Type { at: 45546, text: 5 },
+            Act::ReplaceAll { pair: 0 },
+            Act::Type { at: 40032, text: 4 },
+        ],
+    );
+}
+
+/// P1: a YAML list whose key is renamed, then marks typed so the parse
+/// reads the list's lines as one plain string: the placeholder is never
+/// read with the text around it.
+#[test]
+fn marks_typed_into_a_renamed_yaml_list_never_glue_its_placeholder() {
+    let setup = Setup {
+        case: 1,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 5061 },
+            Act::Type { at: 15438, text: 0 },
+            Act::ReplaceAll { pair: 7 },
+            Act::Cut { line: 58223 },
+            Act::Undo,
+            Act::Type { at: 55108, text: 6 },
+            Act::Type { at: 15502, text: 7 },
+        ],
+    );
+}
+
+/// P1: entries added to a YAML block so the secret's line, with a brace
+/// typed after its key, reads under a new key: the placeholder is never
+/// read with the text around it.
+#[test]
+fn entries_added_above_a_broken_secret_line_never_glue_its_placeholder() {
+    let setup = Setup {
+        case: 0,
+        lock: Lock::Secret,
+        host: None,
+        pairs: false,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Entry {
+                anchor: 2,
+                name: 16,
+                paste: false,
+            },
+            Act::Type { at: 10560, text: 9 },
+            Act::Entry {
+                anchor: 3,
+                name: 15,
+                paste: false,
+            },
+        ],
+    );
+}
+
+/// A Dot map written twice under one key, each holding the placeholder:
+/// an entry typed before the placeholder's entry in the map the parse
+/// keeps is an ordinary edit, taken.
+#[test]
+fn an_entry_typed_into_a_map_written_twice_with_a_placeholder_is_taken() {
+    let setup = Setup {
+        case: 11,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 47368 },
+            Act::Cut { line: 4262 },
+            Act::Entry {
+                anchor: 0,
+                name: 7,
+                paste: true,
+            },
+            Act::Type {
+                at: 60354,
+                text: 10,
+            },
+            Act::Entry {
+                anchor: 0,
+                name: 16,
+                paste: false,
+            },
+        ],
+    );
+}
+
+/// A Dot list written twice under one key, a copy of the placeholder in
+/// each: cutting another item of the first list is an ordinary edit,
+/// taken (no string holds the placeholder with text beside it).
+#[test]
+fn an_item_cut_from_a_list_written_twice_with_a_placeholder_is_taken() {
+    let setup = Setup {
+        case: 12,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Line {
+                line: 1664,
+                command: 2,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 7,
+                paste: true,
+            },
+            Act::PasteCopy { line: 53048 },
+            Act::Line {
+                line: 44350,
+                command: 3,
+            },
+            Act::Entry {
+                anchor: 2,
+                name: 8,
+                paste: false,
+            },
+            Act::Cut { line: 39383 },
+        ],
+    );
+}
+
+/// A secret XML element's line copied, then one copy given a new value:
+/// replacing a placeholder whole is the way to write a new secret.
+#[test]
+fn a_copied_xml_secret_line_takes_a_new_value() {
+    let setup = Setup {
+        case: 6,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(&setup, &[Act::PasteCopy { line: 42109 }, Act::NewValue]);
+}
+
+/// The same copy given a new value, then an entry typed elsewhere: the
+/// list left is held, and the entry is no repair of the secret.
+#[test]
+fn an_entry_after_a_new_value_in_a_copied_xml_secret_line_is_taken() {
+    let setup = Setup {
+        case: 6,
+        lock: Lock::Secret,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::PasteCopy { line: 42109 },
+            Act::NewValue,
+            Act::Entry {
+                anchor: 2,
+                name: 14,
+                paste: false,
+            },
+        ],
+    );
+}

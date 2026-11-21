@@ -95,6 +95,9 @@ Timed specs (latency budgets) are listed in `TIMED` in
 - `find-and-go-to`, `find-host-css`, `go-to-line`, `search` (timed),
   `highlight-geometry`.
 - `folding-commands`, `folding` (timed).
+- `sticky-scroll`: the header lines kept at the top while scrolling, in every
+  language, Edit-as and with folds; the push-up, clicks, the settings, the
+  caret kept below them, secret placeholders.
 
 ## Accessibility and look
 

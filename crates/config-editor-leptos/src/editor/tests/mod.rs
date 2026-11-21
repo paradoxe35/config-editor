@@ -423,6 +423,14 @@ mod schema_fuzz;
 ))]
 mod suggestion_scale;
 #[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod switch_caret;
+#[cfg(all(
     feature = "schema-validation",
     feature = "yaml",
     feature = "json",

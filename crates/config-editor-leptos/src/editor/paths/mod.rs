@@ -4,6 +4,11 @@
 //! (`key_span`, `value_span`, `hover_path`, `completion_context`), so a
 //! language gets them by implementing those.
 
+// Every cut at a position goes through `text::slice` (see CONTRIBUTING.md,
+// "Text positions are typed"): a caret or a language's length may lie
+// inside a character.
+#![deny(clippy::string_slice)]
+
 mod fields;
 mod lines;
 mod span_memo;
@@ -11,7 +16,7 @@ mod types;
 mod walk;
 mod written;
 
-use crate::editor::text::text_size;
+use crate::editor::text::{TextRange as Bytes, byte_range, slice, text_size};
 pub(crate) use fields::fields;
 #[cfg(any(feature = "toml", feature = "hcl"))]
 pub(crate) use lines::byte_at_column;
@@ -214,14 +219,19 @@ fn field_span(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Opt
                 .nth(start - 1)
                 .map_or(line_text.len(), |(byte, _)| byte);
             let start = match super::flow_syntax::markup_before(behavior, &line_text, name) {
-                Some(open) => start - line_text[open..name].chars().count(),
+                Some(open) => {
+                    start
+                        - slice::within(&line_text, byte_range(open..name))
+                            .chars()
+                            .count()
+                }
                 None => start,
             };
             Some(TextRange::new(
                 TextPosition::new(key.line, start),
                 TextPosition::new(
                     end.line,
-                    end.column + rest[..closing.min(rest.len())].chars().count(),
+                    end.column + slice::within(&rest, byte_range(0..closing)).chars().count(),
                 ),
             ))
         }
@@ -393,14 +403,14 @@ pub(crate) fn field_key(pointer: &str) -> String {
 /// Where the closing markup (an XML end tag) the caret at byte `at` of
 /// `line` is inside starts, looking back a bounded distance.
 fn closing_markup_around(behavior: &dyn ConfigLanguage, line: &str, at: usize) -> Option<usize> {
-    line[..at]
+    slice::within(line, byte_range(0..at))
         .char_indices()
         .rev()
         .take(256)
         .map(|(start, _)| start)
         .find(|start| {
             behavior
-                .closing_markup_len(&line[*start..])
+                .closing_markup_len(slice::within(line, byte_range(*start..line.len())))
                 .is_some_and(|length| *start + 1 < at && at <= *start + length)
         })
 }
@@ -421,15 +431,21 @@ pub(crate) fn path_at(
     if cursor > api_units(source, source.len()) {
         return None;
     }
-    let byte = utf16_to_byte_index(source, cursor);
-    let line_start = source[..byte].rfind('\n').map_or(0, |index| index + 1);
-    let line_index = line_column(source, text_size(line_start)).0 - 1;
-    let column = source[line_start..byte].chars().count();
-    let line = source[line_start..].split('\n').next().unwrap_or("");
+    let byte = text_size(utf16_to_byte_index(source, cursor));
+    let line_start = slice::line_start_of(source, byte);
+    let line_index = line_column(source, line_start).0 - 1;
+    let before_caret = slice::within(source, Bytes::new(line_start, byte));
+    let column = before_caret.chars().count();
+    let line = slice::after(source, line_start)
+        .unwrap_or_default()
+        .split('\n')
+        .next()
+        .unwrap_or("");
+    let in_line = usize::from(byte - line_start);
+    let line_start = usize::from(line_start);
     // In markup closing a value (`<a>1</a|>`): the value it closes; past
     // markup closing others (`</b></a>|`), stepped back over them all on
     // the line first, so a run of them costs one walk, not one each.
-    let in_line = byte - line_start;
     let mut open = in_line;
     while let Some(start) = closing_markup_around(behavior, line, open) {
         open = start;
@@ -441,14 +457,19 @@ pub(crate) fn path_at(
     // On the key, just past it, past it and its separator (`listen =| 1`),
     // or before the markup that opens it (`|<listen>`).
     let separators: String = behavior.config().separators.concat();
-    let before: Vec<char> = source[line_start..byte].chars().collect();
+    let before: Vec<char> = before_caret.chars().collect();
     let past_separator = before
         .iter()
         .rposition(|character| !character.is_whitespace() && !separators.contains(*character))
         .filter(|found| *found + 1 < column);
     let opening_markup = behavior
-        .key_markup_len(&line[in_line..])
-        .map(|length| column + line[in_line..in_line + length].chars().count());
+        .key_markup_len(slice::within(line, byte_range(in_line..line.len())))
+        .map(|length| {
+            column
+                + slice::within(line, byte_range(in_line..in_line + length))
+                    .chars()
+                    .count()
+        });
     let columns = [
         Some(column),
         column.checked_sub(1),

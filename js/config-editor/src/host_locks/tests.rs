@@ -46,3 +46,19 @@ fn the_same_ranges_stay_until_a_text_of_the_hosts_own() {
     let locks = HostLocks::given(None, T, T, vec![line(2)]);
     assert!(!locks.again(None));
 }
+
+/// P1: ranges given next that do not fit a reset's text may have been
+/// worked out on the text they came with before it (a host that renders the
+/// ranges it had after a reset of its own): that text stays a place to read
+/// them, through resets one after another, until ranges are given anew.
+#[test]
+fn ranges_after_a_reset_may_be_worked_out_on_the_text_before_it() {
+    let mut locks = HostLocks::given(Some("[2]".into()), T, T, vec![line(2)]);
+    assert_eq!(locks.came_with(), [T, T]);
+    locks.replaced(ABOVE);
+    assert_eq!(locks.came_with(), [ABOVE, T]);
+    locks.replaced(TWO_ABOVE);
+    assert_eq!(locks.came_with(), [TWO_ABOVE, T]);
+    let locks = HostLocks::given(Some("[3]".into()), ABOVE, ABOVE, vec![line(3)]);
+    assert_eq!(locks.came_with(), [ABOVE, ABOVE]);
+}

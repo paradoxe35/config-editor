@@ -334,7 +334,13 @@ impl EditorState {
             spanning(doc.text, sync.edit_language, doc.readings),
         );
         #[cfg(feature = "folding")]
-        let fold = FoldState::new(doc.text, sync.edit_language, settings.folding, doc.readings);
+        let fold = FoldState::new(
+            doc.text,
+            sync.edit_language,
+            settings.folding,
+            settings.sticky_scroll,
+            doc.readings,
+        );
         let state = Self(StoredValue::new(EditorFields {
             #[cfg(feature = "search")]
             search: SearchState::new(doc.text),

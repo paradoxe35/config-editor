@@ -70,6 +70,7 @@ change-compose         edit     lib       CHANGE_CASES       CHANGE_SEED       2
 change-rebase          edit     lib       CHANGE_CASES       CHANGE_SEED       2000 change_tests::two_changes_rebased_over_each_other_meet
 change-map             edit     lib       CHANGE_CASES       CHANGE_SEED       2000 change_tests::positions_map_in_order_and_kept_text_stays_on_its_text
 change-diffed          edit     lib       CHANGE_CASES       CHANGE_SEED       2000 change_tests::a_change_read_off_two_texts_makes_the_second
+sticky                 edit     lib       STICKY_CASES       STICKY_SEED       300  sticky::tests::random_blocks_stick_as_the_reference_finds_and_never_cover_a_revealed_row
 protect-reach          protect  lib       REACH_CASES        REACH_SEED        400  reach_tests::the_fast_path_answers_as_the_full_rule_on_random_edits
 save                   save     lib       FUZZ_CASES         FUZZ_SEED         40   fuzz_save::random_sessions_keep_the_save_promise
 '

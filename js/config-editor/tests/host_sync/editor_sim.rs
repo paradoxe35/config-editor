@@ -62,7 +62,7 @@ impl EditorSim {
                     ranges_for.as_deref(),
                     &latest,
                     false,
-                    |text, came_with| read_ranges(&ranges, text, Some(came_with)),
+                    |text, came_with| read_ranges(&ranges, text, came_with),
                 )
             })
             .transpose()?;

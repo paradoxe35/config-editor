@@ -10,7 +10,7 @@ use std::sync::Arc;
 use super::bridge::links::{Clipboard, Links};
 use super::bridge::{self, Bridge};
 use super::codec;
-use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, Placeholders, syntax_message};
+use super::diagnostics::{DIAGNOSTICS_DEBOUNCE_MS, Placeholders, save_message, syntax_message};
 use super::edit::{Edit, Origin};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::history::{EditHistory, ViewState};
@@ -721,8 +721,8 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
             }
         };
         // However the edit got there, the gate decides whether the host
-        // may have it: a save never changes a read-only value. A text the
-        // host itself had is its own to restore.
+        // may have it: a save never changes a read-only value, not even
+        // back to a text the host itself had.
         let made = if hosts_own {
             Made::Restored
         } else {
@@ -734,7 +734,15 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         // A text the guard holds shows the guard's problem, not one of its
         // conversion.
         let problems = match &result {
-            Err(Held::Refused(error)) => bridge.problems(&text, &Err(error.clone())),
+            // A parse error is the syntax problem's to show (`problems`
+            // lists none for it): only another reason is worded here.
+            Err(Held::Refused(error @ SaveError::Convert(codec::ConvertError::Parse(_)))) => {
+                bridge.problems(&text, &Err(error.clone()))
+            }
+            Err(Held::Refused(error)) => bridge.problems(
+                &text,
+                &Err(without_secret_quotes(state, error.clone(), &text, language)),
+            ),
             _ => Vec::new(),
         };
         note_conversion_problems(state, problems);
@@ -1088,33 +1096,55 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
     }
 }
 
-/// `error`, when it is a parse error of `source` (in `language`), worded
-/// as its syntax problem is (see `diagnostics::syntax_message`): without
-/// what it quotes where a secret may be.
+/// `error`, the reason `source` (in `language`) cannot be saved or
+/// switched, without what it quotes of a secret: a parse error worded as
+/// its syntax problem is (see `diagnostics::syntax_message`), any other
+/// reason with each secret's text it quotes hidden (see
+/// `diagnostics::save_message`). Every save or switch problem shown is
+/// worded through here.
 fn without_secret_quotes(
     state: EditorState,
     error: SaveError,
     source: &str,
     language: Language,
 ) -> SaveError {
-    let SaveError::Convert(codec::ConvertError::Parse(mut parse)) = error else {
-        return error;
-    };
-    let protect = state.protect();
-    let (accepted, patterns) = (protect.accepted_tokens(), protect.placeholder_patterns());
-    parse.message = state.config().schema.with_value(|schema| {
-        syntax_message(
-            source,
-            &parse,
-            schema.as_deref(),
-            language.behavior(),
-            Placeholders {
-                accepted: &accepted,
-                patterns: &patterns,
-            },
-        )
-    });
-    SaveError::Convert(codec::ConvertError::Parse(parse))
+    match error {
+        SaveError::Convert(codec::ConvertError::Parse(mut parse)) => {
+            let protect = state.protect();
+            let (accepted, patterns) = (protect.accepted_tokens(), protect.placeholder_patterns());
+            parse.message = state.config().schema.with_value(|schema| {
+                syntax_message(
+                    source,
+                    &parse,
+                    schema.as_deref(),
+                    language.behavior(),
+                    Placeholders {
+                        accepted: &accepted,
+                        patterns: &patterns,
+                    },
+                )
+            });
+            SaveError::Convert(codec::ConvertError::Parse(parse))
+        }
+        SaveError::Convert(codec::ConvertError::Unsupported(message)) => {
+            let protect = state.protect();
+            let (accepted, patterns) = (protect.accepted_tokens(), protect.placeholder_patterns());
+            let message = state.config().schema.with_value(|schema| {
+                save_message(
+                    &message,
+                    source,
+                    schema.as_deref(),
+                    language.behavior(),
+                    Placeholders {
+                        accepted: &accepted,
+                        patterns: &patterns,
+                    },
+                )
+            });
+            SaveError::Convert(codec::ConvertError::Unsupported(message))
+        }
+        other => other,
+    }
 }
 
 /// Why `language` cannot write documents, when it cannot (a language

@@ -17,9 +17,8 @@ use super::super::tokens::Known;
 pub(crate) struct WholeIndex {
     /// Where the first such token of each text is in the host's tokens.
     by_token: HashMap<String, usize>,
-    /// Where each is, by its text and its field (lone repeated elements
-    /// read either way).
-    by_field: HashMap<(String, String), usize>,
+    /// Where each placed one is, by its text.
+    of_token: HashMap<String, Vec<usize>>,
     /// All of them, in the host's order.
     all: Vec<usize>,
     /// Their fields, sorted: as written, and without the `/0` steps of lone
@@ -46,9 +45,10 @@ impl WholeIndex {
                 continue;
             }
             index
-                .by_field
-                .entry((known.token.clone(), field_key(field)))
-                .or_insert(at);
+                .of_token
+                .entry(known.token.clone())
+                .or_default()
+                .push(at);
             index.all.push(at);
             index.fields.push(field.to_string());
             index.lone_fields.push(field_key(field));
@@ -81,13 +81,11 @@ impl WholeIndex {
         self.by_token.get(token).copied()
     }
 
-    /// The position of the token written `token` given whole in the field
-    /// at `pointer` (lone repeated elements read either way): one lookup.
-    pub(super) fn in_field(&self, token: &str, pointer: &str) -> Option<usize> {
+    /// The positions of the placed tokens written `token` given whole, one
+    /// for each field the host gave it in: one lookup.
+    pub(super) fn of_token(&self, token: &str) -> impl Iterator<Item = usize> + '_ {
         note(Work::TokenScan);
-        self.by_field
-            .get(&(token.to_string(), field_key(pointer)))
-            .copied()
+        self.of_token.get(token).into_iter().flatten().copied()
     }
 
     /// Whether `path` (as `behavior` compares paths) is, holds or is inside

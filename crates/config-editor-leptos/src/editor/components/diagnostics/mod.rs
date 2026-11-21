@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use leptos::prelude::*;
 
 use super::super::a11y::problem_marker;
-use super::super::completion::visual_column;
 use super::super::diagnostics::{Diagnostic, DiagnosticOrigin, Severity};
 use super::super::positioning::row_box;
 use super::super::state::EditorState;
@@ -173,9 +172,10 @@ fn marker(
         .chars()
         .take(segment.column.saturating_sub(1))
         .collect();
-    // Rendered columns, so tabs (two columns wide) do not shift the underline.
-    let left = visual_column(&before);
-    let visual_width = visual_column(&format!("{before}{marked}")) - left;
+    // Drawn columns, so tabs and wide characters do not shift the underline.
+    let widths = state.text_widths();
+    let left = widths.columns(&before);
+    let visual_width = widths.columns(&format!("{before}{marked}")) - left;
     let severity = diagnostic.severity;
     let from_host = diagnostic.origin == DiagnosticOrigin::Host;
     let detail = state.strings_untracked(|strings| detail(strings, diagnostic));

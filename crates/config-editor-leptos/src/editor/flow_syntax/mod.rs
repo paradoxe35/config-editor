@@ -9,6 +9,7 @@ mod paths;
 pub(crate) use paths::{Kept, Walked};
 
 use super::language::{ConfigLanguage, LanguageConfig};
+use super::work_count::{Work, note_many};
 
 /// A language's syntax for values written between brackets.
 #[derive(Clone, Debug)]
@@ -259,20 +260,34 @@ impl Flow {
 
     /// How many of `pairs` `text` opens and leaves open, outside quotes.
     pub(crate) fn unclosed(&self, text: &str, pairs: &[(char, char)]) -> usize {
-        let (mut depth, mut at) = (0usize, 0);
-        while let Some(character) = text[at..].chars().next() {
-            if self.quote(character).is_some() {
-                at = self.quote_end(text, at);
-                continue;
+        let mut open = Unclosed::new(self, pairs);
+        text.chars().for_each(|character| open.read(character));
+        open.depth
+    }
+
+    /// The first line from `last` (of `lines`, from 0) where the lines from
+    /// `first` through it, joined by line breaks, leave none of `pairs`
+    /// open ([`Self::unclosed`]); the last line when none does. The lines
+    /// are read once: the end of an entry of many lines costs its lines,
+    /// not their square (as counting each longer joined text again would).
+    pub(crate) fn closing_line(
+        &self,
+        lines: &[&str],
+        pairs: &[(char, char)],
+        (first, last): (usize, usize),
+    ) -> usize {
+        let mut open = Unclosed::new(self, pairs);
+        for (index, line) in lines.iter().enumerate().skip(first) {
+            if index > first {
+                open.read('\n');
             }
-            if pairs.iter().any(|(open, _)| *open == character) {
-                depth += 1;
-            } else if pairs.iter().any(|(_, close)| *close == character) {
-                depth = depth.saturating_sub(1);
+            note_many(Work::ClosingLineBytes, line.len() + 1);
+            line.chars().for_each(|character| open.read(character));
+            if index >= last && (open.depth == 0 || index + 1 == lines.len()) {
+                return index;
             }
-            at += character.len_utf8();
         }
-        depth
+        last
     }
 
     /// The closers of the `pairs` `text` opens and leaves open, outside
@@ -442,6 +457,50 @@ pub(crate) fn markup_before(
         .find(|at| language.key_markup_len(&text[*at..]) == Some(name - at))
 }
 
+/// [`Flow::unclosed`]'s count, read one character at a time: what it
+/// counts for the text read so far (a string left open counts nothing
+/// past its quote).
+struct Unclosed<'a> {
+    flow: &'a Flow,
+    pairs: &'a [(char, char)],
+    depth: usize,
+    /// The string being read: its quote, whether a backslash escapes in
+    /// it, and whether the last character was such a backslash.
+    quoted: Option<(char, bool, bool)>,
+}
+
+impl<'a> Unclosed<'a> {
+    fn new(flow: &'a Flow, pairs: &'a [(char, char)]) -> Self {
+        Unclosed {
+            flow,
+            pairs,
+            depth: 0,
+            quoted: None,
+        }
+    }
+
+    fn read(&mut self, character: char) {
+        match &mut self.quoted {
+            Some((_, _, escaped)) if *escaped => *escaped = false,
+            Some((_, true, escaped)) if character == '\\' => *escaped = true,
+            Some((quote, ..)) => {
+                if character == *quote {
+                    self.quoted = None;
+                }
+            }
+            None => {
+                if let Some(escapes) = self.flow.quote(character) {
+                    self.quoted = Some((character, escapes, false));
+                } else if self.pairs.iter().any(|(open, _)| *open == character) {
+                    self.depth += 1;
+                } else if self.pairs.iter().any(|(_, close)| *close == character) {
+                    self.depth = self.depth.saturating_sub(1);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Flow;
@@ -520,5 +579,47 @@ mod tests {
         });
         assert_eq!(toml.matching_close(r#"['C:\', "a\"]"]"#), Some(14));
         assert_eq!(toml.split_items(r"'C:\', 'd'").unwrap().len(), 2);
+    }
+
+    /// The line an entry closes on, read once, is the line counting each
+    /// longer text again finds, whatever the lines hold: brackets in and
+    /// out of strings, strings over lines, escapes, a quote left open (a
+    /// seeded random sweep over every built-in language's brackets and
+    /// quotes).
+    #[test]
+    fn the_closing_line_read_once_is_the_one_counted_again() {
+        use crate::editor::languages::Language;
+        const PIECES: [&str; 16] = [
+            "{", "}", "[", "]", "(", ")", "\"", "'", "\\", "\n", "\n", "a", "é", " ", ",", "`",
+        ];
+        let mut seed: u64 = 0x5eed_f10e;
+        let mut next = |below: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            usize::try_from(seed % below as u64).expect("below a usize")
+        };
+        for &language in Language::ALL {
+            let behavior = language.behavior();
+            let flow = Flow::of(behavior);
+            let pairs = behavior.config().brackets;
+            for _ in 0..1000 {
+                let text: String = (0..next(40)).map(|_| PIECES[next(PIECES.len())]).collect();
+                let lines: Vec<&str> = text.split('\n').collect();
+                let first = next(lines.len());
+                let last = first + next(lines.len() - first);
+                let mut counted = last;
+                while counted + 1 < lines.len()
+                    && flow.unclosed(&lines[first..=counted].join("\n"), pairs) > 0
+                {
+                    counted += 1;
+                }
+                assert_eq!(
+                    flow.closing_line(&lines, pairs, (first, last)),
+                    counted,
+                    "{language}: {text:?} from {first}, {last}"
+                );
+            }
+        }
     }
 }

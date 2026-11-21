@@ -1,6 +1,9 @@
 //! The TOML parser's errors in plain words: what is missing or wrong and
 //! how to write it, without the parser's "expected …" lists.
 
+/// Something after a whole `key = value` on its line.
+pub(super) const OUT_OF_PLACE: &str = "this does not belong here: write one key = value per line";
+
 /// The parser's `message` at `line` and `column` of `source`, in plain
 /// words.
 pub(super) fn plain(source: &str, line: usize, column: usize, message: &str) -> String {
@@ -42,7 +45,7 @@ pub(super) fn plain(source: &str, line: usize, column: usize, message: &str) -> 
     } else if message.starts_with("extra comma in array") {
         "a value is missing before this comma"
     } else if message.starts_with("unexpected key or value") {
-        "this does not belong here: write one key = value per line"
+        OUT_OF_PLACE
     } else if message.starts_with("`_` may only go between digits") {
         "an underscore in a number must stand between two digits"
     } else if message.starts_with("integer number overflowed") {

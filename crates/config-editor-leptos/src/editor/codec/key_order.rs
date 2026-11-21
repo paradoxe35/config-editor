@@ -265,10 +265,7 @@ pub(in super::super) fn own_lines(
         last = last.max(paths::line_column(text, text_size(own.end)).0 - 1);
     }
     // A container opened on its lines runs to where it closes.
-    while last + 1 < lines.len() && language.unclosed_containers(&lines[line..=last].join("\n")) > 0
-    {
-        last += 1;
-    }
+    last = language.closing_line(lines, (line, last));
     if language.indent_is_structure() {
         let indent = indent_of(lines[line]);
         let mut next = last + 1;

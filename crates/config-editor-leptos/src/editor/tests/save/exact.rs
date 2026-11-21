@@ -354,24 +354,24 @@ fn keys_in_two_namespaces_are_refused_alike_by_parsing_and_converting() {
     report(failures);
 }
 
-/// Round 26: a key no XML name can be (`a b`, `1x`) was refused in the
-/// writer's own terms (`unsupported value: character ` ` is not allowed in
-/// an XML name`); it is said plainly, at the key.
+/// A key no XML name can be (`a b`, `1x`) is refused plainly, at the key,
+/// with what to do, not in the writer's own terms (`unsupported value:
+/// character ` ` is not allowed in an XML name`).
 #[test]
 fn a_key_that_cannot_be_an_xml_name_is_refused_plainly_at_the_key() {
     let mut failures = Vec::new();
     for (json, expected) in [
         (
             "{\"r\": {\"a b\": 1}}",
-            "`a b` is not an XML name, so it cannot name an element or an attribute (at /r/a b)",
+            "`a b` is not an XML name, so it cannot name an element or an attribute: rename it (at /r/a b)",
         ),
         (
             "{\"r\": [{\"1x\": 1}]}",
-            "`1x` is not an XML name, so it cannot name an element or an attribute (at /r/0/1x)",
+            "`1x` is not an XML name, so it cannot name an element or an attribute: rename it (at /r/0/1x)",
         ),
         (
             "{\"r\": {\"@a=b\": 1}}",
-            "`@a=b` is not an XML name, so it cannot name an element or an attribute (at /r/@a=b)",
+            "`@a=b` is not an XML name, so it cannot name an element or an attribute: rename it (at /r/@a=b)",
         ),
     ] {
         match Language::JSON.convert(json, Language::XML) {

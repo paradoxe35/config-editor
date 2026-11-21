@@ -1,13 +1,16 @@
 //! Where the popups go and what the pointer is over: the frame fixed
 //! popups count from (a host's transformed container), the hover card's
-//! side and size, the cell under the pointer, and bringing the caret into
-//! view.
+//! side and size, the character under the pointer, and bringing the caret
+//! into view. Places on a line become x's (and back) only through
+//! [`TextWidths`], as the text is drawn.
 
-use super::metrics::read_editor_metrics;
+use super::metrics::{TextWidths, read_editor_metrics};
+use super::paths::split_line;
 use super::source_area::SourceArea;
 use super::state::EditorState;
 use crate::cssom::Declarations;
 use crate::editor::text::{TextSize, slice};
+use crate::reactive::later;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -171,22 +174,67 @@ impl PopupFrame {
     }
 }
 
-/// Zero-based document line and column of the textarea cell under a
-/// pointer position.
+impl EditorState {
+    /// How the text area draws text (counted until it is on the page to
+    /// measure). Read in a view or memo, it draws again once the widths
+    /// are measured, and when they change.
+    pub(super) fn text_widths(&self) -> TextWidths {
+        self.view().widths.get()
+    }
+
+    /// Keeps [`text_widths`](Self::text_widths) measured: once the text
+    /// area is on the page (a frame after it is made, as a host may put
+    /// the editor in the page after building it), and again when its font
+    /// may have changed: another theme, the window or the text area
+    /// resized. Without it the overlays drawn at mount kept counted
+    /// widths until the first edit.
+    pub(super) fn follow_text_widths(self) {
+        let view = self.view();
+        let measure = move |_: EditorState| {
+            let Some(element) = view.textarea_ref.get_untracked() else {
+                return;
+            };
+            if !element.is_connected() {
+                return;
+            }
+            let widths = read_editor_metrics(&element).widths;
+            if view.widths.get_untracked() != widths {
+                view.widths.set(widths);
+            }
+        };
+        Effect::new(move |_| {
+            view.layout_revision.track();
+            self.config().settings.theme.track();
+            if view.textarea_ref.get().is_some() {
+                // Now, for the first frame when the text area is on the
+                // page already; and once more before the next frame, when
+                // it (or a new theme's style) is there.
+                untrack(|| measure(self));
+                later::next_frame(self, measure);
+            }
+        });
+    }
+}
+
+/// Zero-based document line and character column under a pointer
+/// position: the character drawn there (see [`TextWidths::column_at`]).
 pub(super) fn pointer_text_position(element: &SourceArea, x: f64, y: f64) -> (usize, usize) {
     let target: &web_sys::Element = element.element().unchecked_ref();
     let frame = PopupFrame::measure(element.state());
     let rect = frame.bounds(&target.get_bounding_client_rect());
     let (x, y) = (frame.x(x), frame.y(y));
     let metrics = read_editor_metrics(target);
-    let line =
+    let row =
         (y - rect.top - metrics.padding_top + element.scroll_top() as f64) / metrics.line_height;
-    let column =
+    let x =
         (x - rect.left - metrics.padding_left + element.scroll_left() as f64) / metrics.char_width;
-    (
-        element.line_of_row(line.max(0.0).floor() as usize),
-        column.max(0.0).floor() as usize,
-    )
+    let line = element.line_of_row(row.max(0.0).floor() as usize);
+    let column = element.state().doc().text.with_untracked(|text| {
+        metrics
+            .widths
+            .column_at(split_line(text, line).unwrap_or(""), x.max(0.0))
+    });
+    (line, column)
 }
 
 /// Where a hover card points: the text at editor `x` on a line at
@@ -200,16 +248,27 @@ pub(crate) struct CardAnchor {
     line_height: f64,
 }
 
-/// Where the hover card for character `column` of zero-based `line` points.
+/// Where the hover card for character `column` (zero-based) of
+/// zero-based `line` points.
 pub(super) fn hover_card_anchor(element: &SourceArea, line: usize, column: usize) -> CardAnchor {
     let target: &web_sys::Element = element.element().unchecked_ref();
-    let line = element.row_of_line(line);
     let frame = PopupFrame::measure(element.state());
     let rect = frame.bounds(&target.get_bounding_client_rect());
     let metrics = read_editor_metrics(target);
-    let x = rect.left + metrics.padding_left + column as f64 * metrics.char_width
+    let drawn = element.state().doc().text.with_untracked(|text| {
+        let line_text = split_line(text, line).unwrap_or("");
+        let end = line_text
+            .char_indices()
+            .nth(column)
+            .map_or(line_text.len(), |(at, _)| at);
+        metrics
+            .widths
+            .columns(line_text.get(..end).unwrap_or(line_text))
+    });
+    let row = element.row_of_line(line);
+    let x = rect.left + metrics.padding_left + drawn * metrics.char_width
         - element.scroll_left() as f64;
-    let line_top = rect.top + metrics.padding_top + line as f64 * metrics.line_height
+    let line_top = rect.top + metrics.padding_top + row as f64 * metrics.line_height
         - element.scroll_top() as f64;
     CardAnchor {
         frame,
@@ -219,7 +278,8 @@ pub(super) fn hover_card_anchor(element: &SourceArea, line: usize, column: usize
     }
 }
 
-/// The style of a one-line tip at character `column` of zero-based `line`
+/// The style of a one-line tip at character `column` (zero-based) of
+/// zero-based `line`
 /// (the protected text's tip, the read-only notice): below the line,
 /// above when the room below is short.
 pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize) -> Declarations {
@@ -234,29 +294,52 @@ pub(super) fn hover_card_style(element: &SourceArea, line: usize, column: usize)
 /// either way. Not measured yet (`natural` 0, unseen), or a one-line tip:
 /// below unless the room there is short.
 pub(super) fn hover_card_geometry(anchor: CardAnchor, natural: f64) -> Declarations {
+    hover_card_on_side(anchor, hover_card_above(anchor, natural))
+}
+
+/// The window's room above and below the line `anchor` is on (the card is
+/// fixed: it may reach past the editor).
+fn card_rooms(anchor: CardAnchor) -> (f64, f64) {
+    let CardAnchor {
+        frame,
+        line_top,
+        line_height,
+        ..
+    } = anchor;
+    let room_below = frame.viewport_height - POPUP_MARGIN - (line_top + line_height + POPUP_GAP);
+    let room_above = line_top - POPUP_GAP - POPUP_MARGIN;
+    (room_above, room_below)
+}
+
+/// Whether the hover card at `anchor`, `natural` pixels tall, goes above
+/// its line (see [`hover_card_geometry`]).
+pub(super) fn hover_card_above(anchor: CardAnchor, natural: f64) -> bool {
+    let (room_above, room_below) = card_rooms(anchor);
+    if natural > 0.0 {
+        natural <= room_above || (natural > room_below && room_above > room_below)
+    } else {
+        room_below < HOVER_CARD_ESTIMATED_HEIGHT && room_above > room_below
+    }
+}
+
+/// The hover card's style at `anchor` on its side (`above` the line or
+/// below it), no taller than the window's room there (it scrolls).
+pub(super) fn hover_card_on_side(anchor: CardAnchor, above: bool) -> Declarations {
     let CardAnchor {
         frame,
         x,
         line_top,
         line_height,
     } = anchor;
-    let (viewport_width, viewport_height) = (frame.viewport_width, frame.viewport_height);
+    let viewport_width = frame.viewport_width;
     // At most the window's width, so narrow screens do not clip the text.
     let width = HOVER_CARD_MAX_WIDTH.min(viewport_width - 2.0 * POPUP_MARGIN);
     let left = x.clamp(
         POPUP_MARGIN,
         (viewport_width - width - POPUP_MARGIN).max(POPUP_MARGIN),
     );
-    // The window's room on each side of the line (the card is fixed: it
-    // may reach past the editor).
-    let room_below = viewport_height - POPUP_MARGIN - (line_top + line_height + POPUP_GAP);
-    let room_above = line_top - POPUP_GAP - POPUP_MARGIN;
+    let (room_above, room_below) = card_rooms(anchor);
     let left = frame.left(left);
-    let above = if natural > 0.0 {
-        natural <= room_above || (natural > room_below && room_above > room_below)
-    } else {
-        room_below < HOVER_CARD_ESTIMATED_HEIGHT && room_above > room_below
-    };
     let top = if above {
         frame.top(line_top)
     } else {
@@ -333,10 +416,12 @@ pub(super) fn reveal_offset(editor: &SourceArea, text: &str, offset: TextSize) {
     editor.set_scroll_top(next_top as i32);
     // Horizontally too: a caret back at the start of a line after a long one
     // must not stay scrolled off to the left.
-    let byte_offset = usize::from(offset);
-    let line_start = text[..byte_offset].rfind('\n').map_or(0, |index| index + 1);
-    let caret_x =
-        super::completion::visual_column(&text[line_start..byte_offset]) * metrics.char_width;
+    let before = slice::before(text, offset).unwrap_or(text);
+    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
+    let caret_x = metrics
+        .widths
+        .columns(before.get(line_start..).unwrap_or_default())
+        * metrics.char_width;
     let current_left = editor.scroll_left() as f64;
     let client_width = editor.client_width() as f64 - metrics.padding_left;
     if caret_x < current_left {
@@ -347,7 +432,8 @@ pub(super) fn reveal_offset(editor: &SourceArea, text: &str, offset: TextSize) {
 }
 
 /// The box of an overlay on a code row (a problem's underline, a match, a
-/// fold chip): `left` and `width` in columns (`ch`), its row's `top`.
+/// fold chip): `left` and `width` in columns (`ch`, as
+/// [`TextWidths::columns`] measures them), its row's `top`.
 pub(super) fn row_box(
     left: impl std::fmt::Display,
     row: usize,

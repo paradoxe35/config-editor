@@ -544,6 +544,137 @@ pub(super) fn syntax_message(
     })
 }
 
+/// The texts of `source` (in `behavior`) no message may quote for this
+/// document's placeholders (the host's tokens, `placeholders.accepted`,
+/// found by its patterns): each string the parse holds one in with other
+/// text beside it where it is written (the holder query, see `protect`),
+/// a token glued to text being a secret's value. A token alone is a
+/// placeholder, quoted whole as any; another document's is plain text
+/// here.
+fn held_texts(
+    source: &str,
+    behavior: &dyn ConfigLanguage,
+    placeholders: Placeholders<'_>,
+) -> Vec<String> {
+    let own: std::collections::HashSet<&str> = placeholders
+        .accepted
+        .iter()
+        .map(|(token, _)| token.as_str())
+        .filter(|token| source.contains(*token))
+        .collect();
+    if own.is_empty() {
+        return Vec::new();
+    }
+    let parsed = super::parse_cache::parsed(behavior, source);
+    let Ok(document) = parsed.as_ref() else {
+        return Vec::new();
+    };
+    // Only a string of the document can hold one with text beside it: with
+    // none, the holder query (a read of every such string's span) is not
+    // asked.
+    let glued =
+        |text: &str| !own.contains(text.trim()) && own.iter().any(|token| text.contains(token));
+    if !any_string(document, &glued) {
+        return Vec::new();
+    }
+    placeholders
+        .patterns
+        .iter()
+        .flat_map(|pattern| {
+            super::protect::placeholder_holders(behavior, source, document, &**pattern)
+        })
+        .filter(|text| glued(text))
+        .collect()
+}
+
+/// Whether one of the strings of `value` (keys left out) is one `wanted`.
+fn any_string(value: &serde_json::Value, wanted: &dyn Fn(&str) -> bool) -> bool {
+    match value {
+        serde_json::Value::String(text) => wanted(text),
+        serde_json::Value::Array(items) => items.iter().any(|item| any_string(item, wanted)),
+        serde_json::Value::Object(map) => map.values().any(|item| any_string(item, wanted)),
+        _ => false,
+    }
+}
+
+/// `message`, the reason a save of `source` (in `behavior`) waits, with
+/// each secret's text it quotes shown as `…`. A reason quotes values in
+/// many words, the languages' own among them (`XML reads the string …`,
+/// a writer's error), so no wording is read: every text of a value the
+/// schema marks secret, or of a string standing where it wants a holder
+/// of one (see [`secrets::Secrets`]), of each string written around a
+/// placeholder of this document's with text beside it (see [`held_texts`]),
+/// is hidden wherever the message holds it, as written and as JSON quotes
+/// it.
+pub(super) fn save_message(
+    message: &str,
+    source: &str,
+    schema: Option<&SchemaBundle>,
+    behavior: &dyn ConfigLanguage,
+    placeholders: Placeholders<'_>,
+) -> String {
+    #[cfg(feature = "schema-validation")]
+    let marked = schema
+        .filter(|schema| schema.has_marks)
+        .and_then(|schema| {
+            let data = super::data_reading::read(behavior, source, Some(&schema.schema)).ok()?;
+            let secrets = schema_problems::secrets(
+                schema_problems::Reading {
+                    data: &data,
+                    behavior,
+                },
+                schema,
+            );
+            Some(secrets.hidden_texts(data.value()))
+        })
+        .unwrap_or_default();
+    #[cfg(not(feature = "schema-validation"))]
+    let marked: Vec<String> = {
+        let _ = schema;
+        Vec::new()
+    };
+    let mut texts: Vec<String> = held_texts(source, behavior, placeholders)
+        .into_iter()
+        .chain(marked)
+        .flat_map(|text| {
+            let quoted = serde_json::Value::String(text.clone()).to_string();
+            let escaped = quoted
+                .strip_prefix('"')
+                .and_then(|inner| inner.strip_suffix('"'))
+                .unwrap_or_default()
+                .to_string();
+            [text, escaped]
+        })
+        .filter(|text| !text.is_empty())
+        .collect();
+    // The longest first: a secret holding another is hidden whole.
+    texts.sort_by_key(|text| std::cmp::Reverse(text.len()));
+    texts.dedup();
+    texts.iter().fold(message.to_string(), |message, text| {
+        hide_quoted(&message, text)
+    })
+}
+
+/// `message` with each place it quotes `text` shown as `…`: where `text`
+/// stands with no letter or digit glued to it on either side, so a short
+/// secret (`x`) hides itself, not the words holding its letters.
+fn hide_quoted(message: &str, text: &str) -> String {
+    let word = |character: Option<char>| character.is_some_and(char::is_alphanumeric);
+    let mut shown = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some(at) = rest.find(text) {
+        let (before, from) = rest.split_at(at);
+        let after = from.strip_prefix(text).unwrap_or_default();
+        let glued = (word(text.chars().next()) && word(before.chars().next_back()))
+            || (word(text.chars().next_back()) && word(after.chars().next()));
+        shown.push_str(before);
+        shown.push_str(if glued { text } else { "…" });
+        rest = after;
+    }
+    shown.push_str(rest);
+    shown
+}
+
 /// Pointers of the values of `document` that are one of `accepted`: each
 /// string looked up among the tokens, then its field among the token's (a
 /// pass over them all for each string took seconds with thousands of

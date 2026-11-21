@@ -496,8 +496,8 @@ impl Sharing for YamlBehavior {
         aliases::written_at(source, &path.to_pointer()).map(FieldPath::from)
     }
 
-    fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
-        aliases_back::aliases_back(saved, origin)
+    fn references_back(&self, saved: &str, origin: &str, placed: &[(String, String)]) -> Option<String> {
+        aliases_back::aliases_back(saved, origin, placed)
     }
 
     fn tags(&self, source: &str) -> Vec<(String, String)> {

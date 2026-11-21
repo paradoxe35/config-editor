@@ -1,7 +1,7 @@
 //! Folding, compiled out (the `folding` feature is off): the hooks of
 //! `folding/` with nothing behind them. Nothing folds, so the textarea
-//! shows the document itself; the folding keys stay the browser's and the
-//! `folding` setting does nothing.
+//! shows the document itself and no line sticks; the folding keys stay the
+//! browser's and the `folding` and `sticky_scroll` settings do nothing.
 
 use web_sys::KeyboardEvent;
 
@@ -61,7 +61,7 @@ impl EditorState {
     }
 }
 
-pub(super) fn mount_fold_layers(_state: EditorState) {}
+pub(super) fn mount_fold_layers(_state: EditorState, _rows: super::line_rows::LineRows) {}
 
 pub(super) fn shortcuts(_state: EditorState, _event: &KeyboardEvent) -> bool {
     false

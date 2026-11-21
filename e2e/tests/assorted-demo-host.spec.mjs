@@ -48,6 +48,25 @@ test.describe('an Edit-as switch that waits', () => {
   });
 });
 
+test.describe('an Edit-as switch asked for in the address', () => {
+  test('that cannot happen yet waits with its reason, not dropped at mount', async ({ page, baseURL }) => {
+    const e = editor(page);
+    await page.addInitScript(() => {
+      window.configEditorSample = 'listen: null\npublic_address: x\n';
+    });
+    await page.goto(`${baseURL}?sample=page&edit=toml`);
+    await page.locator('.config-editor__input').waitFor();
+    const marker = page.locator('.config-editor__diagnostic-marker[data-message*="Cannot switch to TOML yet"]');
+    await expect(marker).toHaveCount(1);
+    expect(await e.value()).toContain('listen: null');
+    await expect(page.locator('.config-editor__file')).toContainText('waiting to edit as TOML');
+    // Once the document converts, the switch completes.
+    await e.paste('listen: 1\npublic_address: x\n');
+    await expect.poll(() => e.value()).toContain('listen = 1');
+    await expect(page.locator('.demo__edit-select')).toHaveValue('toml');
+  });
+});
+
 test.describe('the page sample', () => {
   test('is named as what it is in the Sample picker', async ({ page, baseURL }) => {
     await page.addInitScript(() => {

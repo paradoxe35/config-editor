@@ -201,9 +201,13 @@ pub(crate) fn unknown_placeholders(
                 continue;
             };
             let pointer = path.to_pointer();
+            // Read at the token's place: a broken text's key may hold a
+            // piece of it, which no message shows.
+            let shown = texts::shown_pointer(&pointer, &[token]);
             let place = Place {
                 before: text.get(line_start..range.start).unwrap_or_default(),
                 pointer: &pointer,
+                shown: &shown,
             };
             match owner {
                 Some(_) => {
@@ -227,12 +231,12 @@ pub(crate) fn unknown_placeholders(
                     moved_or_extra(behavior, document, fields, &place, strings)
                 }
                 None if in_comments.contains_key(token) => {
-                    texts::comment_placeholder(strings, &pointer)
+                    texts::comment_placeholder(strings, &shown)
                 }
                 None if schema
                     .is_some_and(|schema| marks_at(schema, path.segments(), repeats).1) =>
                 {
-                    texts::unknown_placeholder(strings, &pointer)
+                    texts::unknown_placeholder(strings, &shown)
                 }
                 None => continue,
             }
@@ -257,10 +261,11 @@ pub(crate) fn unknown_placeholders(
 }
 
 /// Where a token is written: what its line holds before it, and the path
-/// it is at.
+/// it is at (`shown`: as a message names it, see `texts::shown_pointer`).
 struct Place<'a> {
     before: &'a str,
     pointer: &'a str,
+    shown: &'a str,
 }
 
 /// What a host's token at `place` outside its count in its `fields`
@@ -274,7 +279,6 @@ fn moved_or_extra(
     place: &Place<'_>,
     strings: &EditorStrings,
 ) -> String {
-    let pointer = place.pointer;
     if let Some((field, _)) = fields
         .iter()
         .find(|(field, _)| in_own_field(behavior, document, field, place))
@@ -292,7 +296,7 @@ fn moved_or_extra(
         missing
     };
     owners.dedup();
-    texts::moved_placeholder(strings, pointer, &owners.join(", "))
+    texts::moved_placeholder(strings, place.shown, &owners.join(", "))
 }
 
 /// Whether the token at `place` is in the field `field` the host gave it

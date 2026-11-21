@@ -3,7 +3,9 @@
 //! and checks it is up to date:
 //!
 //! - `src/settings.d.ts`: the TypeScript `EditorSettings` and
-//!   `EditorStrings` interfaces, with each field's doc comment and default;
+//!   `EditorStrings` interfaces, with each field's doc comment and default,
+//!   and the names `ThemeName` and `LanguageName` (the bundled themes and
+//!   built-in languages, for completion);
 //! - `setting-types.js`: each setting's key and JavaScript type, which the
 //!   framework packages read before the WebAssembly loads (Vue declares its
 //!   props from it);
@@ -21,7 +23,9 @@
 
 use std::path::{Path, PathBuf};
 
-use config_editor_leptos::{EditorSettings, EditorStrings, EditorTheme, PRESET_CSS, ThemeColor};
+use config_editor_leptos::{
+    EditorSettings, EditorStrings, EditorTheme, Language, PRESET_CSS, ThemeColor,
+};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -187,6 +191,7 @@ fn ts_type(rust_type: &str) -> &'static str {
         "EditorTheme" => "ThemeName",
         "ThemeColors" => "ThemeColorMap",
         "EditorStrings" => "EditorStrings",
+        "StickyScrollLines" => "number",
         other => panic!("no TypeScript type for `{other}`: add it to ts_type in tests/settings.rs"),
     }
 }
@@ -195,6 +200,7 @@ fn ts_type(rust_type: &str) -> &'static str {
 fn js_type(rust_type: &str) -> &'static str {
     match ts_type(rust_type) {
         "boolean" => "boolean",
+        "number" => "number",
         "string" | "ThemeName" => "string",
         _ => "object",
     }
@@ -222,6 +228,7 @@ fn rust_default(rust_type: &str, value: &Value) -> String {
             format!("`EditorTheme::{:?}`", slug.parse::<EditorTheme>().unwrap())
         }
         ("ThemeColors", _) => "none".to_string(),
+        ("StickyScrollLines", value) => format!("`StickyScrollLines::new({value})`"),
         ("EditorStrings", _) => "English (see below)".to_string(),
         (_, value) => code(value),
     }
@@ -317,12 +324,46 @@ fn interface(described: &Described) -> String {
 fn typescript() -> String {
     let (settings, strings) = (settings(), strings());
     format!(
-        "// {}\n// {}\n\n{}\n{}\n{}",
+        "// {}\n// {}\n\n{}\n{}\n{}\n{}",
         header(&settings),
         header(&strings),
         interface(&settings),
         interface(&strings),
-        color_tokens()
+        color_tokens(),
+        names()
+    )
+}
+
+/// `ThemeName` and `LanguageName`: the bundled themes' slugs and the
+/// built-in languages' names as literals, so editors complete them, and
+/// any other string too (`(string & {})` keeps the literals from merging
+/// into `string`): a language from `registerLanguage`, a theme name the
+/// host reads at run time (one the editor does not know throws).
+fn names() -> String {
+    let union = |names: Vec<String>| {
+        let members: Vec<String> = names
+            .iter()
+            .map(|name| format!("  | \"{name}\"\n"))
+            .collect();
+        format!("\n{}  | (string & {{}})", members.concat())
+    };
+    let languages = union(
+        Language::ALL
+            .iter()
+            .map(|language| language.label().to_lowercase())
+            .collect(),
+    );
+    let themes = union(
+        EditorTheme::ALL
+            .iter()
+            .map(|theme| theme.as_str().to_string())
+            .collect(),
+    );
+    format!(
+        "/** A built-in language name (from `Language::ALL` in the crate; its file extensions name it too, `\"yml\"`, `\"tf\"`) or one from `registerLanguage`. */\n\
+         export type LanguageName ={languages};\n\n\
+         /** A bundled theme slug (from `EditorTheme::ALL` in the crate). See `themes()`. */\n\
+         export type ThemeName ={themes};\n"
     )
 }
 

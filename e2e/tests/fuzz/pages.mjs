@@ -69,6 +69,11 @@ export function installProbe({ kind, vanilla }) {
     const file = fz.files().find((candidate) => candidate.id === (id ?? fz.activeId()));
     return file ? file.value : null;
   };
+  // The text `readOnlyRanges` given alone name places in: the text the host
+  // lists them with (its own, which a late echo may leave older than the
+  // editor's), or on the vanilla editor page, whose `update` gives no value
+  // with them, the editor's document.
+  fz.rangesText = () => (kind === 'single' && vanilla ? window.editor.value : fz.host());
   // The editor on screen: the selected tab's panel's, or the one whose
   // textarea takes up room.
   fz.root = () => {
@@ -110,7 +115,7 @@ export function installProbe({ kind, vanilla }) {
     );
   // What a copy of the selection should put on the clipboard: the text
   // selected, hidden lines included; the caret's whole line when nothing
-  // is selected.
+  // is selected. `doc` is the text it was read from.
   fz.selected = () => {
     const editor = fz.editor();
     const input = fz.root()?.querySelector('.config-editor__input');
@@ -125,13 +130,18 @@ export function installProbe({ kind, vanilla }) {
       if (token.index < start && start < after) start = token.index;
       if (token.index < end && end < after) end = after;
     }
-    if (start !== end) return { text: text.slice(start, end), line: false };
+    if (start !== end) return { text: text.slice(start, end), line: false, doc: text };
     const lineStart = text.lastIndexOf('\n', start - 1) + 1;
     const next = text.indexOf('\n', start);
     // A closed fold on the line: its block goes too (and what closes it).
     const line = text.slice(0, start).split('\n').length;
     const folds = folded.some((range) => range.startLine === line);
-    return { text: text.slice(lineStart, next < 0 ? text.length : next + 1), line: true, rest: folds ? text.slice(lineStart) : null };
+    return {
+      text: text.slice(lineStart, next < 0 ? text.length : next + 1),
+      line: true,
+      rest: folds ? text.slice(lineStart) : null,
+      doc: text,
+    };
   };
   // The editor's own problems per document ('' on a single-editor page),
   // as `onProblems` reports them (a callback given later hears them at
@@ -288,8 +298,11 @@ export function installProbe({ kind, vanilla }) {
       card: true,
       key: card.querySelector('.config-editor__hover-key')?.textContent ?? null,
       // The pointer is in the card, which took it (one that lets it
-      // through to the text under it is marked `data-passing`).
-      inside: card.matches(':hover') && !card.hasAttribute('data-passing'),
+      // through to the text under it is marked `data-passing`). Read off
+      // what is at the point, not `:hover`: a headless browser moves the
+      // hover only on a mouse move, so a card that let a pointer through
+      // and then took it where it stopped keeps `:hover` on the text.
+      inside: !card.hasAttribute('data-passing') && card.contains(document.elementFromPoint(x, y)),
       under,
       pointer,
       center: { x: box.left + box.width / 2, y: box.top + Math.min(box.height / 2, 24) },

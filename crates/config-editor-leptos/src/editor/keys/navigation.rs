@@ -6,7 +6,6 @@ use web_sys::KeyboardEvent;
 
 use super::super::a11y::problem_announcement;
 use super::super::commands::smart_home as home_target;
-use super::super::completion::visual_column;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::reveal_offset;
 use super::super::problem_walk::next_stop;
@@ -43,11 +42,13 @@ pub(super) fn smart_home(state: EditorState, event: &KeyboardEvent) -> bool {
         select(&element, target, target, false);
     }
     // Bring the caret back into view when the line is scrolled sideways.
+    let metrics = read_editor_metrics(element.element());
     let column = state.doc().text.with_untracked(|text| {
         let head = slice::before(text, target).unwrap_or_default();
-        visual_column(head.rsplit('\n').next().unwrap_or_default())
+        metrics
+            .widths
+            .columns(head.rsplit('\n').next().unwrap_or_default())
     });
-    let metrics = read_editor_metrics(element.element());
     let caret_x = column * metrics.char_width;
     if caret_x < f64::from(element.scroll_left()) {
         element.set_scroll_left((caret_x - 2.0 * metrics.char_width).max(0.0) as i32);

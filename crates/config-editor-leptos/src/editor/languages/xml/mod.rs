@@ -255,6 +255,10 @@ impl Text for XmlBehavior {
         markup::open_elements(text)
     }
 
+    fn closing_line(&self, _language: &dyn ConfigLanguage, lines: &[&str], (first, last): (usize, usize)) -> usize {
+        markup::closing_line(lines, (first, last))
+    }
+
     fn container_closers(&self, _language: &dyn ConfigLanguage, text: &str) -> Vec<String> {
         markup::open_element_names(text)
             .into_iter()
@@ -571,10 +575,10 @@ impl XmlBehavior {
     /// `value` is by an Edit-as save (see `SaveTold`).
     fn written(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Result<String, String> {
         if let Some(pointer) = empty_key(value, String::new()) {
-            return Err(format!("an empty key cannot be an XML element name (at {pointer})"));
+            return Err(format!("an empty key cannot be an XML element name: give it a name (at {pointer})"));
         }
         if let Some((pointer, character)) = first_non_xml_char(value, "") {
-            return Err(format!("{} (at {pointer})", not_xml_char_message(character)));
+            return Err(format!("{}: remove it (at {pointer})", not_xml_char_message(character)));
         }
         // A character XML holds, in a key that is no name (`/*`).
         if let Some(reason) = names::first_non_name(value) {

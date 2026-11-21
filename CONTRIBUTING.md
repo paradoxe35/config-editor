@@ -171,10 +171,10 @@ bytes). Every cut of text at a position goes through
 `src/editor/text/slice.rs`, which never panics on a position inside a
 character or past the end; `clippy::string_slice` and the truncating casts
 are denied in the typed modules (`text/`, `edit/`, `history`, `projection`,
-`source_area`). `tests/typed_offsets.rs` counts the plain `usize` parameters
-and fields named like an offset per file against
-`tests/typed_offsets_allowed.txt`: a file's count may only go down, so the
-list only shrinks.
+`source_area`), and `clippy::string_slice` in `paths/` too.
+`tests/typed_offsets.rs` counts the plain `usize` parameters and fields
+named like an offset per file against `tests/typed_offsets_allowed.txt`: a
+file's count may only go down, so the list only shrinks.
 
 ### Views that come and go read long-lived state through a relay
 

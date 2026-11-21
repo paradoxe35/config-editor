@@ -2,12 +2,14 @@
 //! written on: from the first line holding one of its keys or values to
 //! the last. Of entries sharing a first line that are not each inside the
 //! one before (the items of a flow list), only the outermost has lines:
-//! lines do not tell the others apart.
+//! lines do not tell the others apart. Those others are told apart only by
+//! where their own text starts ([`Shared`]), which is what the link of an
+//! item joined onto another's line still records.
 
 use super::super::super::codec;
 use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::paths;
-use super::super::super::text::{TextRange, TextSize, text_size};
+use super::super::super::text::{TextRange, TextSize, slice, text_size};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -19,9 +21,31 @@ pub(super) struct Item {
     pub(super) lines: TextRange,
 }
 
+/// An item sharing its first line with another it is not inside (`"a": 1,
+/// "b": 2` on one line): where its own key or value starts (see
+/// [`shared_starts`]).
+#[derive(Clone, Debug)]
+pub(super) struct Shared {
+    pub(super) pointer: String,
+    /// The line (from 0).
+    pub(super) line: usize,
+    /// The character column (from 1).
+    pub(super) column: usize,
+}
+
 /// The list items and map entries of `text` in `language` with lines of
 /// their own, in document order, from its value `value`.
 pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) -> Vec<Item> {
+    items_and_shared(language, text, value).0
+}
+
+/// [`items`], and the items lines do not tell apart ([`Shared`]), in
+/// document order.
+pub(super) fn items_and_shared(
+    language: &dyn ConfigLanguage,
+    text: &str,
+    value: &Value,
+) -> (Vec<Item>, Vec<Shared>) {
     // Every value's pointer, each item's marked, in document order.
     let mut pointers = Vec::new();
     walk(value, &mut String::new(), false, &mut pointers);
@@ -81,10 +105,13 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
         ) else {
             continue;
         };
-        found.push(Item {
-            pointer: pointer.clone(),
-            lines: TextRange::new(start, end.max(start)),
-        });
+        found.push((
+            Item {
+                pointer: pointer.clone(),
+                lines: TextRange::new(start, end.max(start)),
+            },
+            index,
+        ));
     }
     // Entries starting on one line are told apart by no line, unless all
     // but the first (in document order: the outermost) are inside it; and
@@ -100,7 +127,7 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
     // Each line's first item, whether all are inside it, whether each is
     // inside the one before, and the last one seen.
     let mut on_line: HashMap<TextSize, (&str, bool, bool, &str)> = HashMap::new();
-    for item in &found {
+    for (item, _) in &found {
         on_line
             .entry(item.lines.start())
             .and_modify(|(first, alone, chain, last)| {
@@ -112,14 +139,51 @@ pub(super) fn items(language: &dyn ConfigLanguage, text: &str, value: &Value) ->
     }
     let kept: Vec<bool> = found
         .iter()
-        .map(|item| {
+        .map(|(item, _)| {
             let (first, alone, chain, _) = on_line[&item.lines.start()];
             alone && (chain || first == item.pointer)
         })
         .collect();
-    let mut kept = kept.into_iter();
-    found.retain(|_| kept.next().unwrap_or(false));
-    found
+    let mut items = Vec::with_capacity(found.len());
+    let mut shared = Vec::new();
+    for ((item, index), kept) in found.into_iter().zip(kept) {
+        if kept {
+            items.push(item);
+            continue;
+        }
+        let start = values[index]
+            .iter()
+            .chain(keys[index].iter())
+            .map(|span| (span.line, span.start_column))
+            .min();
+        if let Some((line, column)) = start {
+            shared.push(Shared {
+                pointer: item.pointer,
+                line: line.saturating_sub(1),
+                column,
+            });
+        }
+    }
+    (items, shared)
+}
+
+/// Where each of `shared` (items starting on the line of `text` that
+/// starts at `line_start`) starts, in bytes: the line's characters are
+/// counted once for all of them.
+pub(super) fn shared_starts(text: &str, line_start: TextSize, shared: &[Shared]) -> Vec<TextSize> {
+    let line = slice::after(text, line_start).unwrap_or_default();
+    let line = line.split('\n').next().unwrap_or_default();
+    let offsets: Vec<usize> = line.char_indices().map(|(at, _)| at).collect();
+    shared
+        .iter()
+        .map(|item| {
+            let at = offsets
+                .get(item.column.saturating_sub(1))
+                .copied()
+                .unwrap_or(line.len());
+            line_start + text_size(at)
+        })
+        .collect()
 }
 
 /// Where each line of `text` starts.

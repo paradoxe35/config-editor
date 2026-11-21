@@ -108,11 +108,11 @@ fn a_value_holding_a_secret_is_told_with_the_secret_hidden() {
         .collect();
     for wanted in [
         "/ks: the list holds the secret value more than once: each item must differ",
-        "/ko: the list holds {\"tok\":the secret value} more than once: each item must differ",
-        "/deep: the list holds {\"a\":{\"tok\":the secret value}} more than once: each item must differ",
-        "/eo: {\"tok\":the secret value} is not one of {\"tok\":\"a\"}",
-        "/ty: {\"tok\":the secret value} is not of type \"string\"",
-        "/nt: {\"tok\":the secret value} must not be of type \"object\"",
+        "/ko: the list holds {\"tok\":…} more than once: each item must differ",
+        "/deep: the list holds {\"a\":{\"tok\":…}} more than once: each item must differ",
+        "/eo: {\"tok\":…} is not one of {\"tok\":\"a\"}",
+        "/ty: {\"tok\":…} is not of type \"string\"",
+        "/nt: {\"tok\":…} must not be of type \"object\"",
         "/ni/0: the secret value is not allowed here",
         "/nc: the secret value is not allowed here",
     ] {

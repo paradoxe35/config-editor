@@ -72,6 +72,11 @@ function checkView(snap, projected) {
   return null;
 }
 
+// Where each secret placeholder stands in `text`: `[from, to)` pairs.
+function placeholders(text) {
+  return [...text.matchAll(/«[^»\n]*»?/g)].map((found) => [found.index, found.index + found[0].length]);
+}
+
 function checkHost(snap, run) {
   // Locks and secrets (P1), judged on the host's language.
   if (typeof snap.value === 'string') {
@@ -84,22 +89,12 @@ function checkHost(snap, run) {
     // is in the text once, on its rows in view.
     if (snap.ownLanguage) {
       for (const lock of run.locksOf(snap.activeId)) {
-        const at = snap.text.indexOf(lock.text);
-        if (at < 0 || snap.text.indexOf(lock.text, at + 1) >= 0) continue;
-        // A secret placeholder shows as a secret, locked or not.
-        if (/[«»]/.test(lock.text)) continue;
-        const first = snap.text.slice(0, at).split('\n').length;
-        const pieces = lock.text.split('\n');
-        for (let index = 0; index < pieces.length; index += 1) {
-          const piece = pieces[index].trim();
-          const row = snap.rows.find((candidate) => candidate.n === first + index);
-          if (!piece || !row) continue;
-          if (!row.m.includes(piece)) {
-            return { check: 'lock-marks', detail: `line ${row.n}: locked ${short(piece)}, marked ${short(row.m)}` };
-          }
-        }
+        const marked = lockMarks(snap, lock.text);
+        if (marked?.missing) return { check: 'lock-marks', detail: marked.missing };
       }
     }
+    const pathHold = checkPathHold(snap, run);
+    if (pathHold) return pathHold;
     for (const secret of snap.value.match(/«[^»\n]*»?/g) ?? []) {
       if (!run.secrets.has(secret)) return { check: 'secret', detail: `${short(secret)} in ${short(snap.value)}` };
     }
@@ -115,6 +110,67 @@ function checkHost(snap, run) {
     }
   } else if (snap.value && snap.value.error) {
     return { check: 'api', detail: snap.value.error };
+  }
+  return null;
+}
+
+// Whether the editor marks the locked `text` on its rows in view: null
+// when that cannot be judged (the text not in the text once, a secret
+// placeholder in it, no row of it in view), `{ missing }` saying which row
+// lacks its mark, or `{}` when every row in view has it.
+function lockMarks(snap, text) {
+  const at = snap.text.indexOf(text);
+  if (at < 0 || snap.text.indexOf(text, at + 1) >= 0) return null;
+  // A secret placeholder shows as a secret, locked or not: so does a
+  // lock that holds only a piece of one.
+  if (/[«»]/.test(text)) return null;
+  if (placeholders(snap.text).some(([from, to]) => from < at + text.length && at < to)) return null;
+  const first = snap.text.slice(0, at).split('\n').length;
+  const pieces = text.split('\n');
+  let judged = false;
+  for (let index = 0; index < pieces.length; index += 1) {
+    const piece = pieces[index].trim();
+    const row = snap.rows.find((candidate) => candidate.n === first + index);
+    if (!piece || !row) continue;
+    if (!row.m.includes(piece)) return { missing: `line ${row.n}: locked ${short(piece)}, marked ${short(row.m)}` };
+    judged = true;
+  }
+  return judged ? {} : null;
+}
+
+// A path the host named after the user changed its field (`run.pendingPath`,
+// see `lockPath`) locks nothing while the save waits, saying why (a "Not
+// saved" problem naming it); once the field reads as the host's text again
+// it locks, and from then on it is checked as any lock. A field that reads
+// as the host's in another spelling locks at once: its text then.
+function checkPathHold(snap, run) {
+  const pending = run.kind === 'single' ? run.pendingPath : null;
+  if (!pending || !snap.ownLanguage) return null;
+  const held = (snap.problems ?? []).some(
+    (problem) => problem.message.startsWith('Not saved: ') && problem.message.includes('/public_address'),
+  );
+  if (held) {
+    // Nothing locked on screen while it waits (judged with no range lock,
+    // whose marks may cover it).
+    const ranged = run.locksOf(null).length > 0;
+    if (!ranged && lockMarks(snap, pending.text) && !lockMarks(snap, pending.text).missing) {
+      return { check: 'lock-hold', detail: `/public_address held after it was changed, yet ${short(pending.text)} is marked locked` };
+    }
+    return null;
+  }
+  const candidates = [pending.text, pending.host].filter((text) => typeof text === 'string' && text);
+  const marks = candidates.map((text) => [text, lockMarks(snap, text)]);
+  const locked = marks.find(([, marked]) => marked && !marked.missing);
+  if (locked) {
+    run.pendingPath = null;
+    run.setLock(null, 'path', { text: locked[0], path: '/public_address' });
+    return null;
+  }
+  if (marks.length && marks.every(([, marked]) => marked?.missing)) {
+    return {
+      check: 'lock-hold',
+      detail: `/public_address named read-only after it was changed to ${short(pending.text)} (the host's ${short(pending.host)}): neither held with a reason nor locked`,
+    };
   }
   return null;
 }

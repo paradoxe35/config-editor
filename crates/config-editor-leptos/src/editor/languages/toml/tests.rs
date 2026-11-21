@@ -27,6 +27,19 @@ fn schema() -> SchemaBundle {
     .unwrap()
 }
 
+/// A key with an escape (`["be\"ta"]`, `"a\\b" = 1`) is found as the key
+/// TOML reads, in a header and before `=`: its values' places are known.
+#[test]
+fn keys_with_escapes_name_their_values() {
+    let source = "[\"be\\\"ta\"]\nk3 = 07:32:00\n\"a\\\\b\" = 1\n[plain]\n'lit\\eral' = 2\n";
+    let paths: Vec<FieldPath> = ["/be\"ta/k3", "/be\"ta/a\\b", "/plain/lit\\eral"]
+        .into_iter()
+        .map(FieldPath::from)
+        .collect();
+    let spans = LANGUAGE.value_spans(source, &paths);
+    assert!(spans.iter().all(Option::is_some), "{spans:?}");
+}
+
 fn complete(source: &str, schema: &SchemaBundle) -> Vec<Completion> {
     completions(
         source,
@@ -93,6 +106,28 @@ fn syntax_errors_report_a_position() {
     let error = LANGUAGE.parse("listen = \n").unwrap_err();
     assert_eq!(error.line, Some(1));
     assert!(error.column.is_some());
+}
+
+/// A word after a whole value (`a = 1 2`) is the mistake, not the value
+/// before it: the parser reads the words as one (a date and a time may
+/// stand apart), so the error is pointed at the first word too many.
+#[test]
+fn a_word_after_a_whole_value_is_pointed_at() {
+    for (source, line, column) in [
+        ("a = 1 2\n", 1, 7),
+        ("a = 1   2 3\n", 1, 9),
+        ("x = 0\nport = true no\n", 2, 13),
+        ("when = 1979-05-27 x\n", 1, 19),
+    ] {
+        let error = LANGUAGE.parse(source).unwrap_err();
+        assert_eq!((error.line, error.column), (Some(line), Some(column)), "{source:?}: {error:?}");
+        assert!(error.message.contains("does not belong here"), "{source:?}: {}", error.message);
+    }
+    // A date and a time apart are one value; words that are no value at
+    // all are still pointed at from their start.
+    assert!(LANGUAGE.parse("when = 1979-05-27 07:32:00\n").is_ok());
+    let error = LANGUAGE.parse("a = hello world\n").unwrap_err();
+    assert_eq!(error.column, Some(5), "{error:?}");
 }
 
 #[test]
@@ -605,7 +640,7 @@ fn a_dotted_keys_span_is_its_last_segment() {
 fn an_integer_past_the_signed_64_bit_range_is_named_in_the_error() {
     let value = serde_json::json!({"big": 9_223_372_036_854_775_808_u64});
     let error = LANGUAGE.serialize(&value, None).unwrap_err();
-    assert_eq!(error, "TOML integers end at 9223372036854775807 (at /big)");
+    assert_eq!(error, "TOML integers end at 9223372036854775807: write a smaller one, or a string (at /big)");
 }
 
 #[test]

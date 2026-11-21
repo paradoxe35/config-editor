@@ -6,6 +6,7 @@ use super::super::changes::ChangeMarkers;
 use super::super::commands::line_range;
 use super::super::diff::DiffKind;
 use super::super::input;
+use super::super::line_pick::LinePick;
 use super::super::line_rows::{LineRows, RowUiState};
 use super::super::scroll_through::{
     Swipe, gutter_touch_end, gutter_touch_move, gutter_touch_start, gutter_wheel,
@@ -18,12 +19,19 @@ use crate::reactive::{KeyedList, MANY_ROWS, RowSpacer};
 #[component]
 pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
     let swipe = StoredValue::new(Swipe::default());
+    let content = NodeRef::new();
+    let pick = LinePick::new(content);
     view! {
         <div
             class="config-editor__gutter"
             class:config-editor__gutter-folding=state.config().settings.folding
             on:mousemove=move |event| input::gutter_move(state, &event)
             on:mousedown=move |event| input::gutter_press(state, &event)
+            on:pointermove=move |event| pick.drag(state, &event)
+            on:pointerleave=move |event| pick.hold(&event)
+            on:pointerup=move |_| pick.release()
+            on:pointercancel=move |_| pick.release()
+            on:lostpointercapture=move |_| pick.release()
             // The wheel and a finger scroll the text, as over the text.
             on:wheel=move |event| gutter_wheel(state, &event)
             on:touchstart=move |event| gutter_touch_start(swipe, &event)
@@ -37,6 +45,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
             }
         >
             <div
+                node_ref=content
                 class="config-editor__gutter-content"
                 style:transform=move || format!("translateY(-{}px)", state.view().scroll_y.get())
             >
@@ -48,7 +57,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
                     each=move || state.view().visible_lines.get()
                     key=|index| *index
                     reserve=MANY_ROWS
-                    children=move |index| view! { <LineNumber state=state rows=rows index=index /> }
+                    children=move |index| view! { <LineNumber state=state rows=rows pick=pick index=index /> }
                 />
             </div>
         </div>
@@ -56,11 +65,15 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
 }
 
 #[component]
-fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView {
+fn LineNumber(state: EditorState, rows: LineRows, pick: LinePick, index: usize) -> impl IntoView {
     let line = index + 1;
     let row = row_state_for(state, rows, index);
     let select_line = move |_| {
-        // A line number selects its whole line, as in VS Code.
+        // A line number selects its whole line, as in VS Code: the mouse's
+        // press selected it already (see `line_pick`), a tap selects here.
+        if pick.clicked() {
+            return;
+        }
         let Some(offset) = state.focus_at(line, 1) else {
             return;
         };
@@ -78,6 +91,7 @@ fn LineNumber(state: EditorState, rows: LineRows, index: usize) -> impl IntoView
             // One binding for every state class: rows are many, and each
             // binding is a reactive node of its own.
             class=move || row.with(line_number_class)
+            on:pointerdown=move |event| pick.press(state, index, &event)
             on:click=select_line
         >
             <span aria-hidden="true">{line}</span>

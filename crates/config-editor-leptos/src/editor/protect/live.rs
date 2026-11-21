@@ -27,6 +27,7 @@ use super::locate::LineIndex;
 use super::locks::{HoldCause, Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
+use super::since_host::SinceHost;
 use super::texts::{Reason, save_held, save_held_placeholder, save_waits};
 use super::whole_guard::Placeholders;
 use crate::EditorStrings;
@@ -66,18 +67,6 @@ pub(crate) struct Marks {
     /// What the edits since the host's last text made of it (see
     /// [`SinceHost`]).
     since_host: Option<SinceHost>,
-}
-
-/// The change the edits on screen made of the host's last text (`from`)
-/// to give the text on screen (`to`), recorded edit by edit while the host
-/// has not heard them (a save held): the host's ranges name places in its
-/// text, and are mapped through it to the text on screen, never guessed
-/// from the two texts.
-#[derive(Clone)]
-struct SinceHost {
-    from: Arc<str>,
-    to: Arc<str>,
-    change: Change,
 }
 
 /// An edit the locks follow: the text it was made on and the text it made,
@@ -291,10 +280,11 @@ impl ProtectState {
         let origin = self
             .protected
             .with_untracked(|protected| protected.origin.clone());
-        let still = self
-            .secrets
-            .known
-            .with_untracked(|known| held.still(behavior, known, text, origin.as_deref()));
+        let still = self.secrets.known.with_untracked(|known| {
+            self.secrets.matcher.with_value(|matcher| {
+                held.still(behavior, (known, matcher), text, origin.as_deref())
+            })
+        });
         still.then_some(held.field)
     }
 
@@ -596,39 +586,57 @@ fn locks_changed(old: Option<&Arc<Protected>>, new: Option<&Arc<Protected>>) -> 
 }
 
 impl EditorState {
-    /// Places the host's ranges again each time the host changes them.
+    /// Places the host's ranges again each time the host changes them, and
+    /// asks again what the old locks refused each time it changes its
+    /// ranges or paths.
+    ///
+    /// One effect does both, in that order: with two, the one asking again
+    /// could run first when the host changes its paths and then its ranges
+    /// in one task (a framework binding gives each prop its own update),
+    /// judge the text by ranges not placed yet, and leave an edit the old
+    /// locks held back unsent once they are gone.
     pub(crate) fn connect_protection(&self) {
         let state = *self;
-
-        Effect::new(move |previous: Option<()>| {
+        // Counts the host's changes of its ranges: given again at the same
+        // places (for another text), they are placed anew too.
+        let ranges_given = Memo::new(move |seen: Option<&u64>| {
             state.protect().host_ranges.track();
-            // The first run places them only if the host changed them since
-            // the mount (in the same task: the effect runs after it).
-            let changed = previous.is_some()
-                || state
-                    .protect()
-                    .placed_at_mount
-                    .try_update_value(Option::take)
-                    .flatten()
-                    .is_some_and(|placed| {
-                        state
-                            .protect()
-                            .host_ranges
-                            .with_untracked(|ranges| *ranges != placed)
-                    });
-            if changed {
-                state.place_ranges();
-            }
+            seen.map_or(0, |seen| seen + 1)
         });
-        // New locks from the host: what the old ones refused is asked
-        // again (a key at the refused place, an Edit-as edit the pause
-        // could not convert).
-        Effect::new(move |previous: Option<()>| {
+        Effect::new(move |previous: Option<u64>| {
             state.protect().host_paths.track();
-            state.protect().host_ranges.track();
-            if previous.is_some() {
-                untrack(|| state.locks_changed_by_host());
-            }
+            let given = ranges_given.get();
+            untrack(|| match previous {
+                // The first run places them only if the host changed them
+                // since the mount (in the same task: the effect runs after
+                // it).
+                None => {
+                    let changed = state
+                        .protect()
+                        .placed_at_mount
+                        .try_update_value(Option::take)
+                        .flatten()
+                        .is_some_and(|placed| {
+                            state
+                                .protect()
+                                .host_ranges
+                                .with_untracked(|ranges| *ranges != placed)
+                        });
+                    if changed {
+                        state.place_ranges();
+                    }
+                }
+                // New locks from the host: what the old ones refused is
+                // asked again (a key at the refused place, an Edit-as edit
+                // the pause could not convert).
+                Some(placed) => {
+                    if placed != given {
+                        state.place_ranges();
+                    }
+                    state.locks_changed_by_host();
+                }
+            });
+            given
         });
     }
 
@@ -712,6 +720,16 @@ impl EditorState {
             .protect()
             .protected
             .with_untracked(|p| p.origin.clone());
+        let label = behavior.info().label;
+        let earlier = secrets
+            .parsed
+            .with_value(|parsed| {
+                parsed
+                    .as_ref()
+                    .filter(|(known, text, _)| *known == label && text == before)
+                    .map(|(_, _, parse)| std::rc::Rc::clone(parse))
+            })
+            .or_else(|| parse_cache::kept(behavior, before));
         let verdict = secrets.known.with_untracked(|known| {
             secrets.tokens.with_untracked(|tokens| {
                 secrets.matcher.with_value(|matcher| {
@@ -723,6 +741,7 @@ impl EditorState {
                         matcher,
                         origin: origin.as_deref(),
                         holding: secrets.held.with_value(Option::is_some),
+                        earlier: earlier.as_deref().and_then(|parse| parse.as_ref().ok()),
                     }
                     .check(before, after, before_parses)
                 })
@@ -732,6 +751,11 @@ impl EditorState {
             secrets
                 .parsing
                 .set_value((verdict.parses == Some(true)).then(|| after.to_string()));
+            // The parse the check made, for the next edit's text before.
+            let parse = parse_cache::kept(behavior, after);
+            secrets
+                .parsed
+                .set_value(parse.map(|parse| (label, after.to_string(), parse)));
         }
         // An Edit-as view's text reaches the host converted, checked there
         // (`check_host_save`), not through the hold: refused as before.
@@ -828,24 +852,15 @@ impl EditorState {
         if self.config().host_language != self.sync().edit_language.get_untracked() {
             return None;
         }
-        let change = edit.mapping();
-        if self.sync().host_text.with_value(|host| *host == **before) {
-            return Some(SinceHost {
-                from: before.clone(),
-                to: after.clone(),
-                change,
-            });
-        }
-        let since = self
-            .protect()
-            .marks
-            .with_value(|marks| marks.since_host.clone())
-            .filter(|since| *since.to == **before)?;
-        let composed = since.change.compose(&change)?.narrowed(&since.from)?;
-        Some(SinceHost {
-            from: since.from,
-            to: after.clone(),
-            change: composed,
+        let host_is_before = self.sync().host_text.with_value(|host| *host == **before);
+        self.protect().marks.with_value(|marks| {
+            SinceHost::with(
+                marks.since_host.as_ref(),
+                host_is_before,
+                edit,
+                before,
+                after,
+            )
         })
     }
 
@@ -1041,7 +1056,11 @@ impl EditorState {
             .with_untracked(|text| parse_cache::parsed(self.behavior(), text));
         let document = parsed.as_ref().as_ref().ok()?;
         let pointer = secrets.known.with_untracked(|known| {
-            first_glued(self.behavior(), document, known).and_then(|known| known.field.clone())
+            let text = self.doc().text.get_untracked();
+            secrets.matcher.with_value(|matcher| {
+                first_glued(self.behavior(), (&text, document), known, matcher)
+                    .and_then(|known| known.field.clone())
+            })
         })?;
         Some(self.strings_untracked(|strings| glued_message(strings, &pointer)))
     }
@@ -1079,9 +1098,11 @@ impl EditorState {
         let secrets = self.protect().secrets;
         let glued = self.config().schema.with_value(|schema| {
             let reading = schema.as_deref().map(|bundle| &bundle.schema);
-            secrets
-                .known
-                .with_untracked(|known| glued_in_save(behavior, known, old, new, reading))
+            secrets.known.with_untracked(|known| {
+                secrets.matcher.with_value(|matcher| {
+                    glued_in_save(behavior, (known, matcher), old, new, reading)
+                })
+            })
         });
         if let Some(pointer) = glued {
             return Err(SaveError::GluedPlaceholder { pointer });

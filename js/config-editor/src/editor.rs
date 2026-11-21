@@ -218,21 +218,17 @@ impl ConfigEditor {
         };
         let on_schema_warning = function_option(&options, "onSchemaWarning")?;
         let read_only_paths = paths_from(&field(&options, "readOnlyPaths"), "readOnlyPaths")?;
-        let read_only_ranges = ranges_from(
-            &field(&options, "readOnlyRanges"),
-            host_text,
-            "readOnlyRanges",
-        )?;
-        let (read_only_ranges, host_diagnostics) = moved_between(
-            host_text,
-            &value,
-            Some(read_only_ranges),
-            Some(host_diagnostics),
-        );
-        let (read_only_ranges, host_diagnostics) = (
-            read_only_ranges.unwrap_or_default(),
-            host_diagnostics.unwrap_or_default(),
-        );
+        // An editor taking a channel over with no `readOnlyRanges` holds
+        // the ones the channel holds (see `HostChannel::remount`).
+        let ranges_list = field(&options, "readOnlyRanges");
+        let channel = field(&options, "channel");
+        let channel_given = !channel.is_undefined() && !channel.is_null();
+        let read_only_ranges = (!(channel_given && ranges_list.is_undefined()))
+            .then(|| ranges_from(&ranges_list, host_text, "readOnlyRanges"))
+            .transpose()?;
+        let (read_only_ranges, host_diagnostics) =
+            moved_between(host_text, &value, read_only_ranges, Some(host_diagnostics));
+        let host_diagnostics = host_diagnostics.unwrap_or_default();
         warn_unknown_options(&options, EDITOR_OPTIONS);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -245,24 +241,19 @@ impl ConfigEditor {
         // Taken last, once nothing can throw: a channel taken over is the
         // old editor's no more.
         let came_with = ranges_for.as_deref().unwrap_or(&value);
-        let ranges_print = print(&field(&options, "readOnlyRanges"));
-        let channel = match taken_channel(&options)? {
+        let ranges_print = print(&ranges_list);
+        let (channel, read_only_ranges) = match taken_channel(&options)? {
             Some(EditorChannel(channel)) => {
-                channel.borrow_mut().remount(
-                    &value,
-                    ranges_print,
-                    came_with,
-                    read_only_ranges.clone(),
-                );
-                channel
+                let given = read_only_ranges.map(|ranges| (ranges_print, came_with, ranges));
+                let ranges = channel.borrow_mut().remount(&value, given);
+                (channel, ranges)
             }
-            None => Rc::new(RefCell::new(HostChannel::new(
-                echoes,
-                &value,
-                ranges_print,
-                came_with,
-                read_only_ranges.clone(),
-            ))),
+            None => {
+                let ranges = read_only_ranges.unwrap_or_default();
+                let channel =
+                    HostChannel::new(echoes, &value, ranges_print, came_with, ranges.clone());
+                (Rc::new(RefCell::new(channel)), ranges)
+            }
         };
         let state = owner.with(|| State {
             language,
@@ -287,7 +278,7 @@ impl ConfigEditor {
             handle: EditorHandle::new(),
             host_diagnostics: RwSignal::new(host_diagnostics),
             read_only_paths: RwSignal::new(read_only_paths),
-            read_only_ranges: RwSignal::new(read_only_ranges.clone()),
+            read_only_ranges: RwSignal::new(read_only_ranges),
             told: StoredValue::new_local(Told::default()),
             channel: StoredValue::new_local(channel.clone()),
             settle: StoredValue::new_local(Timer::default()),
@@ -480,7 +471,7 @@ impl ConfigEditor {
                         ranges_for.as_deref(),
                         &latest,
                         told,
-                        |text, came_with| ranges_in(&list, text, Some(came_with), "readOnlyRanges"),
+                        |text, came_with| ranges_in(&list, text, came_with, "readOnlyRanges"),
                     )
                 })
                 .transpose()?;

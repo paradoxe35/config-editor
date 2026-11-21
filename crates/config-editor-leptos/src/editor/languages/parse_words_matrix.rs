@@ -187,9 +187,9 @@ const TOML: &[Case] = &[
     ("a", "a key needs = and a value, as in key = value", 1, 2),
     (
         "a = 1 2",
-        "this is not a TOML value: write text in quotes, or a number, true, false, a date, a list [ … ] or a table { … }",
+        "this does not belong here: write one key = value per line",
         1,
-        5,
+        7,
     ),
     (
         "a = @",
@@ -422,13 +422,13 @@ const XML: &[Case] = &[
         "<a b=1/>",
         "an attribute value must be in quotes, as in name=\"value\"",
         1,
-        1,
+        6,
     ),
     (
         "<a b/>",
         "an attribute needs = and a value in quotes, as in name=\"value\"",
         1,
-        1,
+        5,
     ),
     (
         "<a>&</a>",

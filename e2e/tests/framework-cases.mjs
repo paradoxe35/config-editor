@@ -112,6 +112,128 @@ export function frameworkCases(name) {
       await expect(input(browserPage)).toHaveValue(/tunnel\.example\.com\na$/);
     });
 
+    test('an edit a lock held back reaches the parent once the parent takes its locks away', async ({ page: browserPage }) => {
+      await open(browserPage, name);
+      const extra = (props) => browserPage.evaluate((props) => window.setExtraProps(props), props);
+      const host = () => browserPage.evaluate(() => document.getElementById('saved').textContent);
+      // The `listen` line locked by range, `public_address` by path.
+      await extra({ readOnlyRanges: [{ start: 30, end: 42 }], readOnlyPaths: ['/public_address'] });
+      await browserPage.waitForTimeout(300);
+      await input(browserPage).click();
+      await browserPage.keyboard.press('Control+End');
+      // The locked key written again in a text that does not parse: held.
+      await browserPage.keyboard.type('listen#');
+      const typed = await browserPage.evaluate(() => window.editorHandle.current.text);
+      expect(typed).toMatch(/\nlisten#$/);
+      await browserPage.waitForTimeout(300);
+      expect(await host()).not.toBe(typed);
+      // Both locks go in one render: the binding updates the paths, then
+      // the ranges.
+      await extra({});
+      await expect.poll(host).toBe(typed);
+    });
+
+    // P1: the locks a parent renders unchanged with a text of its own are
+    // carried into it from the text they were given with (the binding cannot
+    // tell that text from a late echo of an editor's own, after a re-mount
+    // too). They lock at least what they name there, never less; where the
+    // carry cannot tell where a lock went, whole changed lines around it
+    // stay locked until the parent gives ranges again.
+    for (const query of ['', '?late']) {
+      test(`${query || '(controlled)'}: a parent's locks rendered unchanged with a new text of its own lock at least what they name there`, async ({ page: browserPage }) => {
+        const errors = [];
+        browserPage.on('pageerror', (error) => errors.push(String(error)));
+        browserPage.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+        await browserPage.goto(page(name) + query);
+        await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+        await browserPage.locator('#lock-first-line').check();
+        await browserPage.waitForTimeout(200);
+        const text = '# new header\nlisten: 1\npublic_address: a.example\n';
+        await browserPage.evaluate((text) => window.setParentValue(text), text);
+        await expect(input(browserPage)).toHaveValue(text);
+        await browserPage.waitForTimeout(300);
+        const typeAfter = async (what, typed) => {
+          await input(browserPage).evaluate((element, what) => {
+            const at = element.value.indexOf(what) + what.length;
+            element.focus();
+            element.setSelectionRange(at, at);
+          }, what);
+          await browserPage.keyboard.type(typed);
+        };
+        await typeAfter('listen: 1', '9');
+        await typeAfter('a.example', '8');
+        await typeAfter('# new header', 'Z');
+        // The line the ranges name is kept; whatever else took the typing
+        // reaches the parent.
+        const shown = await input(browserPage).inputValue();
+        expect(shown.startsWith('# new header\n')).toBe(true);
+        await expect(saved(browserPage)).toHaveText(shown, { timeout: 5000 });
+        expect(errors).toEqual([]);
+      });
+    }
+
+    // P1: a line typed above a locked line, then the editor hidden and shown
+    // again (a conditional render: a new component) before the late parent
+    // applies the edit. The new editor never sent that text, so its echo
+    // looks like the parent's own; the ranges the parent renders unchanged
+    // with it are still for the text it gave them with, and keep locking
+    // public_address where the typed line moved it.
+    test('hidden and shown again while an echo is late, the locked line stays locked where the typing moved it', async ({ page: browserPage }) => {
+      const errors = [];
+      browserPage.on('pageerror', (error) => errors.push(String(error)));
+      browserPage.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+      await browserPage.goto(page(name) + '?late');
+      await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      await input(browserPage).waitFor();
+      const before = await input(browserPage).inputValue();
+      expect(before.split('\n')[2]).toBe('public_address: tunnel.example.com');
+      await browserPage.evaluate(() =>
+        window.setExtraProps({ readOnlyRanges: [{ startLine: 3, startColumn: 1, endLine: 4, endColumn: 1 }] }),
+      );
+      await browserPage.waitForTimeout(300);
+      await input(browserPage).click();
+      await browserPage.keyboard.press('Control+Home');
+      await browserPage.keyboard.press('ArrowDown');
+      await browserPage.keyboard.type('top: 1\n', { delay: 10 });
+      await browserPage.evaluate(async () => {
+        window.setShown(false);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        window.setShown(true);
+      });
+      await input(browserPage).waitFor();
+      await expect(input(browserPage)).toHaveValue(/\ntop: 1\n/);
+      await browserPage.waitForTimeout(800);
+      // The locked value typed over with real keys.
+      await input(browserPage).evaluate((element) => {
+        const at = element.value.indexOf('tunnel.example.com') + 'tunnel.example.com'.length;
+        element.focus();
+        element.setSelectionRange(at, at);
+      });
+      await browserPage.keyboard.press('Backspace');
+      await browserPage.keyboard.type('evil', { delay: 5 });
+      await browserPage.waitForTimeout(1000);
+      expect(await input(browserPage).inputValue()).toContain('\npublic_address: tunnel.example.com\n');
+      await expect(saved(browserPage)).toContainText('public_address: tunnel.example.com');
+      expect(await saved(browserPage).textContent()).not.toContain('evil');
+      expect(errors).toEqual([]);
+    });
+
+    test("setValue to a text the parent's locks name places past: read in the text they came with, no error", async ({ page: browserPage }) => {
+      const errors = await open(browserPage, name);
+      // `public_address` locked by lines; the reset text has two lines.
+      await browserPage.evaluate(() =>
+        window.setExtraProps({ readOnlyRanges: [{ startLine: 3, startColumn: 1, endLine: 3, endColumn: 15 }] }),
+      );
+      await browserPage.waitForTimeout(200);
+      await browserPage.evaluate(() => window.editorHandle.current.setValue('listen: 1\n'));
+      await expect(saved(browserPage)).toHaveText('listen: 1\n');
+      await input(browserPage).click();
+      await browserPage.keyboard.press('Control+End');
+      await browserPage.keyboard.type('x: 2');
+      await expect(saved(browserPage)).toHaveText('listen: 1\nx: 2');
+      expect(errors).toEqual([]);
+    });
+
     for (const mode of ['', '?uncontrolled']) {
       test(`a re-mount keeps the edited document ${mode || '(controlled)'}`, async ({ page: browserPage }) => {
         await browserPage.goto(page(name) + mode);
@@ -125,6 +247,46 @@ export function frameworkCases(name) {
         await expect(input(browserPage)).toHaveValue(/limits: \{\}/);
         // The diff gutter still compares against the original text.
         await expect(browserPage.locator('.config-editor__diff-marker-added').first()).toBeVisible();
+      });
+    }
+
+    // The ranges a parent renders again with the editor's own text (its
+    // echo) were given for the text before the edit: a re-mount locks the
+    // text they locked there, not what the same numbers name in the echo.
+    for (const query of ['', '?random']) {
+      test(`${query || '(controlled)'}: a re-mount after an edit above a lock keeps the locked text locked and marked`, async ({ page: browserPage }) => {
+        const errors = [];
+        browserPage.on('pageerror', (error) => errors.push(String(error)));
+        browserPage.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+        await browserPage.goto(page(name) + query);
+        await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+        const locked = 'public_address: tunnel.example.com';
+        // Longer than the lock: read in the echo, the range lay wholly above it.
+        const above = 'first: 1\nsecond: 2\nthird: 3\nfourth: 4\nfifth: 5\n';
+        const text = await input(browserPage).inputValue();
+        const start = text.indexOf(locked);
+        await browserPage.evaluate((range) => window.setExtraProps({ readOnlyRanges: [range] }), { start, end: start + locked.length });
+        await browserPage.waitForTimeout(200);
+        await input(browserPage).evaluate((element) => {
+          element.focus();
+          element.setSelectionRange(0, 0);
+        });
+        await browserPage.keyboard.insertText(above);
+        const typed = above + text;
+        await expect(saved(browserPage)).toHaveText(typed);
+        await browserPage.waitForTimeout(300);
+        await browserPage.locator('#rename').click();
+        await expect(browserPage.locator('.config-editor__toolbar')).toContainText('renamed-tunnel.yaml');
+        await expect(browserPage.locator('.config-editor__locked')).toHaveText([locked]);
+        await input(browserPage).evaluate((element, locked) => {
+          const at = element.value.indexOf(locked) + 'public_address: tunnel'.length;
+          element.focus();
+          element.setSelectionRange(at, at);
+        }, locked);
+        await browserPage.keyboard.type('Z');
+        await browserPage.waitForTimeout(300);
+        await expect(input(browserPage)).toHaveValue(typed);
+        expect(errors).toEqual([]);
       });
     }
 
@@ -293,6 +455,40 @@ export function frameworkCases(name) {
       await browserPage.waitForTimeout(2500);
       await expect(input(browserPage)).toHaveValue(before);
       await expect(saved(browserPage)).toHaveText(before, { timeout: 5000 });
+    });
+
+    // P1 through the readOnlyPaths prop: a path named after the user
+    // changed its field (the change already in the parent's state) locks
+    // nothing and holds the save, saying why, until the field reads as the
+    // parent's text again; then it locks.
+    test('a path the parent names after the user changed its field holds the save until it reads as before, then locks', async ({ page: browserPage }) => {
+      await open(browserPage, name);
+      const before = await input(browserPage).inputValue();
+      await input(browserPage).evaluate((element) => {
+        const at = element.value.indexOf('example.com') + 'example.com'.length;
+        element.focus();
+        element.setSelectionRange(at, at);
+      });
+      await browserPage.keyboard.type('X');
+      await expect(saved(browserPage)).toContainText('example.comX');
+      await browserPage.evaluate(() => window.setExtraProps({ readOnlyPaths: ['/public_address'] }));
+      const held = () =>
+        browserPage.evaluate(() =>
+          [...document.querySelectorAll('.config-editor__diagnostic-marker')]
+            .map((marker) => marker.getAttribute('data-message') ?? '')
+            .filter((message) => message.startsWith('Not saved')),
+        );
+      await expect.poll(held).toEqual([
+        'Not saved: /public_address was changed before the host made it read-only; put it back as the host gave it to save',
+      ]);
+      await expect(browserPage.locator('.config-editor__locked')).toHaveCount(0);
+      await browserPage.keyboard.press('Backspace');
+      await expect.poll(held).toEqual([]);
+      await expect(saved(browserPage)).toHaveText(before);
+      await expect(browserPage.locator('.config-editor__locked').first()).toBeVisible();
+      // Locked now: typing in it changes nothing.
+      await browserPage.keyboard.type('Y');
+      await expect(input(browserPage)).toHaveValue(before);
     });
 
     test('setValue resets to a text the user just passed through', async ({ page: browserPage }) => {

@@ -139,11 +139,11 @@ impl ConfigLanguage for TomlBehavior {
             return Err("a TOML document is a table: the top level must be an object".to_string());
         }
         if let Some(pointer) = first_pointer(value, &Value::is_null) {
-            return Err(format!("TOML has no null value (at {pointer})"));
+            return Err(format!("TOML has no null value: give it a value or remove it (at {pointer})"));
         }
         let too_large = |value: &Value| value.as_u64().is_some_and(|number| i64::try_from(number).is_err());
         if let Some(pointer) = first_pointer(value, &too_large) {
-            return Err(format!("TOML integers end at 9223372036854775807 (at {pointer})"));
+            return Err(format!("TOML integers end at 9223372036854775807: write a smaller one, or a string (at {pointer})"));
         }
         let rendered = toml::to_string(&super::super::codec::non_finite::Floats(value))
             .map_err(|error| error.to_string())?;

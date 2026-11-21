@@ -1243,9 +1243,30 @@ pub trait Text {
 
     /// How many containers `text` opens and leaves open: by default its
     /// [`LanguageConfig::brackets`] outside its quotes; XML counts the
-    /// elements it starts and does not end.
+    /// elements it starts and does not end. A language counting them
+    /// otherwise counts them so in [`closing_line`](Self::closing_line) too.
     fn unclosed_containers(&self, language: &dyn ConfigLanguage, text: &str) -> usize {
         super::flow_syntax::Flow::of(language).unclosed(text, language.config().brackets)
+    }
+
+    /// The first line from `last` (of `lines`, from 0) where the lines
+    /// from `first` through it, joined by line breaks, leave no container
+    /// open ([`unclosed_containers`](Self::unclosed_containers)); the last
+    /// line when none does: where an entry opened on line `first` ends.
+    /// Read once over the lines, so an entry of many lines costs its lines;
+    /// a language counting containers otherwise than by its brackets (XML
+    /// its elements) counts them here the same way.
+    fn closing_line(
+        &self,
+        language: &dyn ConfigLanguage,
+        lines: &[&str],
+        (first, last): (usize, usize),
+    ) -> usize {
+        super::flow_syntax::Flow::of(language).closing_line(
+            lines,
+            language.config().brackets,
+            (first, last),
+        )
     }
 
     /// What closes each container `text` opens and leaves open, innermost
@@ -1936,14 +1957,24 @@ pub trait Sharing {
         None
     }
 
-    /// `saved` (an Edit-as save's text) with each value the session's
-    /// first text `origin` wrote as a reference to a value written once
-    /// (a YAML alias `*p`), that `saved` writes out while it writes that
-    /// value again before it (an anchor cut, saved, and pasted back),
+    /// `saved` (an Edit-as save's text) with each value a host text of the
+    /// session `origin` (its first, or the host's last) wrote as a
+    /// reference to a value written once (a YAML alias `*p`), that `saved`
+    /// writes out while it writes that value again before it (an anchor
+    /// cut, saved, and pasted back; a reference moved with its anchor),
     /// written as that reference again; `None` (the default) when there
-    /// is none. The text must read as `saved` does.
-    fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
-        let _ = (saved, origin);
+    /// is none. The text must read as `saved` does. `placed`: the items of
+    /// `saved` the edit's links tell came from `origin`, each as its
+    /// pointer in `saved` and its pointer in `origin` (a value under one
+    /// of them comes from under its source); every other value stands for
+    /// the one at its own pointer.
+    fn references_back(
+        &self,
+        saved: &str,
+        origin: &str,
+        placed: &[(String, String)],
+    ) -> Option<String> {
+        let _ = (saved, origin, placed);
         None
     }
 
@@ -2020,6 +2051,13 @@ impl Text for Defaults {}
 impl Typing for Defaults {}
 impl Hover for Defaults {}
 impl SaveLayout for Defaults {}
+
+/// Whether a hook's length of what starts `text` ends inside it, on a
+/// character boundary: a custom language's longer length, or one inside a
+/// character, is no markup the editor can cut, so it counts as none.
+fn is_prefix(text: &str, length: usize) -> bool {
+    text.is_char_boundary(length)
+}
 
 /// The hooks of every group, read through the language: each from the
 /// group the language refines, else its default.
@@ -2114,6 +2152,11 @@ impl dyn ConfigLanguage {
         self.text().unclosed_containers(self, text)
     }
 
+    /// See [`Text::closing_line`].
+    pub fn closing_line(&self, lines: &[&str], (first, last): (usize, usize)) -> usize {
+        self.text().closing_line(self, lines, (first, last))
+    }
+
     /// See [`Text::container_closers`].
     pub fn container_closers(&self, text: &str) -> Vec<String> {
         self.text().container_closers(self, text)
@@ -2121,7 +2164,9 @@ impl dyn ConfigLanguage {
 
     /// See [`Text::container_closer_len`].
     pub fn container_closer_len(&self, text: &str) -> Option<usize> {
-        self.text().container_closer_len(self, text)
+        self.text()
+            .container_closer_len(self, text)
+            .filter(|length| is_prefix(text, *length))
     }
 
     /// See [`Typing::newline`].
@@ -2376,11 +2421,14 @@ impl dyn ConfigLanguage {
     pub fn closing_markup_len(&self, text: &str) -> Option<usize> {
         self.markup()
             .and_then(|group| group.closing_markup_len(text))
+            .filter(|length| is_prefix(text, *length))
     }
 
     /// See [`Markup::key_markup_len`].
     pub fn key_markup_len(&self, text: &str) -> Option<usize> {
-        self.markup().and_then(|group| group.key_markup_len(text))
+        self.markup()
+            .and_then(|group| group.key_markup_len(text))
+            .filter(|length| is_prefix(text, *length))
     }
 
     /// See [`Markup::element_end`].
@@ -2467,9 +2515,14 @@ impl dyn ConfigLanguage {
     }
 
     /// See [`Sharing::references_back`].
-    pub fn references_back(&self, saved: &str, origin: &str) -> Option<String> {
+    pub fn references_back(
+        &self,
+        saved: &str,
+        origin: &str,
+        placed: &[(String, String)],
+    ) -> Option<String> {
         self.sharing()
-            .and_then(|group| group.references_back(saved, origin))
+            .and_then(|group| group.references_back(saved, origin, placed))
     }
 
     /// See [`Sharing::reference_len`].

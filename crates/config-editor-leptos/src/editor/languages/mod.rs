@@ -186,6 +186,8 @@ mod harness;
     feature = "xml"
 ))]
 mod highlight_matrix;
+#[cfg(all(test, feature = "xml"))]
+mod hook_lengths_tests;
 #[cfg(all(
     test,
     feature = "yaml",
@@ -226,6 +228,16 @@ mod key_writing_matrix;
     feature = "xml"
 ))]
 mod least_list_matrix;
+#[cfg(all(
+    test,
+    feature = "schema-validation",
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod list_plan_matrix;
 #[cfg(all(
     test,
     feature = "schema-validation",
@@ -404,7 +416,7 @@ mod number_forms;
 #[cfg(any(feature = "json", feature = "yaml", feature = "toml", feature = "hcl"))]
 mod wide_integers;
 // Error columns some parsers count in bytes.
-#[cfg(any(feature = "json", feature = "hcl"))]
+#[cfg(feature = "json")]
 mod byte_columns;
 // One sentence for a text nested deeper than its reader goes.
 #[cfg(any(

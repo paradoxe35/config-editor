@@ -9,6 +9,7 @@ use crate::editor::language::pointer_key;
 use serde_json::Value;
 
 use super::documents::{Shape, document};
+use super::list_search::{Search, unmet};
 use super::random::Rng;
 use super::reference::{Both, annotations_fit, compile, holds_empty};
 use super::runner::{Case, Property, Verdict, failure, language, run};
@@ -123,11 +124,23 @@ pub(super) fn check(case: &Case) -> Verdict {
                 continue;
             }
             let keyword = error.kind().keyword();
+            let unmet = || unmet(&both, language, (&case.schema, &case.doc), &read, &at);
             let class = match keyword {
+                // Each language's insert writes a key's own list empty or
+                // with its one first item, the caret inside to type the
+                // items (`[]`, YAML's `- ` read as `[null]`, XML's
+                // `<a></a>` read as `[{}]`, a list of objects' first one).
+                _ if at == pointer && read.pointer(&at).is_some_and(own_list) => {
+                    "a fill writes the key's own list empty, the caret inside"
+                }
                 "required" => "a fill leaves out a required child",
-                "minItems" | "minContains" | "contains" => "a fill writes too few list items",
+                "minItems" | "minContains" | "contains" => {
+                    unmet_class(unmet()).unwrap_or("a fill writes too few list items")
+                }
                 _ if holds_empty(error.instance()) => continue,
-                _ => "a fill writes a value its schema refuses",
+                // A problem above an empty list (an option holding it) that
+                // no list there meets is that list's.
+                _ => unmet_class(unmet()).unwrap_or("a fill writes a value its schema refuses"),
             };
             return Verdict::Fails(failure(
                 format!("{class} ({keyword})"),
@@ -140,6 +153,24 @@ pub(super) fn check(case: &Case) -> Verdict {
     } else {
         Verdict::Skipped
     }
+}
+
+/// The class of a problem an empty list explains, by what the search for
+/// a list there found.
+fn unmet_class(found: Option<Search>) -> Option<&'static str> {
+    match found? {
+        Search::None => Some("a fill writes an empty list where no list meets every schema"),
+        Search::Undecided => Some("a fill writes an empty list where a bounded search finds none"),
+        Search::Found => None,
+    }
+}
+
+/// Whether `value` is a key's own list as an insert writes it: empty, or
+/// its one item the caret's place (an empty slot, or the first object
+/// with its required children), as each language reads it. What is
+/// inside that item is judged at its own places.
+pub(super) fn own_list(value: &Value) -> bool {
+    value.as_array().is_some_and(|items| items.len() <= 1)
 }
 
 /// Whether the problem at `at` (a `keyword` one) goes once the values

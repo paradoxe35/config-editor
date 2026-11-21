@@ -98,6 +98,18 @@ export interface EditorSettings {
    */
   folding?: boolean;
   /**
+   * Sticky scroll, as in VS Code: the lines opening the blocks around the top line stay at the top while the text scrolls; a click goes back to one. Works with `folding` off too. In Rust, needs the `folding` Cargo feature.
+   *
+   * @default true
+   */
+  stickyScroll?: boolean;
+  /**
+   * The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never more than fit in a quarter of the text area (at least one).
+   *
+   * @default 5
+   */
+  stickyScrollMaxLines?: number;
+  /**
    * Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.
    *
    * @default true
@@ -592,13 +604,25 @@ export interface EditorStrings {
    */
   modifiedLine?: string;
   /**
-   * For removed lines.
+   * For one removed line.
+   *
+   * @default "Removed line"
+   */
+  removedLine?: string;
+  /**
+   * For several removed lines.
    *
    * @default "Removed lines"
    */
   removedLines?: string;
   /**
-   * For lines removed after the last one.
+   * For one line removed after the last one.
+   *
+   * @default "Removed line at end of document"
+   */
+  removedLineAtEnd?: string;
+  /**
+   * For several lines removed after the last one.
    *
    * @default "Removed lines at end of document"
    */
@@ -976,11 +1000,17 @@ export interface EditorStrings {
    */
   readOnlyText?: string;
   /**
-   * Why renaming or moving the key above a read-only field is refused.
+   * Why renaming or moving the key above a read-only field is refused, when nothing says why the field is read-only.
+   *
+   * @default "Holds a read-only field"
+   */
+  holdsReadOnly?: string;
+  /**
+   * The same, for a field the schema says why is read-only (`x-readonly-reason`): `{reason}`.
    *
    * @default "Holds a read-only field: {reason}"
    */
-  holdsReadOnly?: string;
+  holdsReadOnlyReason?: string;
   /**
    * A save refused because it would change a read-only value.
    *
@@ -994,71 +1024,77 @@ export interface EditorStrings {
    */
   saveWaits?: string;
   /**
-   * A save waiting because the read-only field at `{pointer}` no longer reads as the host gave it, held where the editor cannot tell why, and why the field is read-only (`{reason}`). The texts after it name each cause a hold records.
+   * A save waiting because the read-only field at `{pointer}` no longer reads as the host gave it, held where the editor cannot tell why; `{reason}` is the `save_held_reason` text when the schema says why the field is read-only (`x-readonly-reason`), else empty. The texts after it name each cause a hold records, with the same placeholders.
    *
-   * @default "Not saved: {pointer} no longer reads as the host gave it ({reason}); put it back as it was to save"
+   * @default "Not saved: the read-only field {pointer} no longer reads as the host gave it{reason}; put it back as it was to save"
    */
   saveHeld?: string;
   /**
    * The same, because its key or a block holding it is written twice, and the other copy is read in its place.
    *
-   * @default "Not saved: {pointer} is written twice, and the other copy is read in its place ({reason}); remove the copy to save"
+   * @default "Not saved: the read-only field {pointer} is written twice, and the other copy is read in its place{reason}; remove the copy to save"
    */
   saveHeldDuplicate?: string;
   /**
    * The same, because a key on its path was renamed (by an edit or an undo).
    *
-   * @default "Not saved: a key of {pointer} was renamed ({reason}); give the key its old name back to save"
+   * @default "Not saved: a key holding the read-only field {pointer} was renamed{reason}; give the key its old name back to save"
    */
   saveHeldRenamed?: string;
   /**
    * The same, because its text now sits under another parent.
    *
-   * @default "Not saved: {pointer} moved under another parent ({reason}); move it back to save"
+   * @default "Not saved: the read-only field {pointer} moved under another parent{reason}; move it back to save"
    */
   saveHeldMoved?: string;
   /**
    * The same, for a list item whose place in its list now holds another item (items were added, removed or moved before it).
    *
-   * @default "Not saved: {pointer} is now another item of its list, because items were added, removed or moved before it ({reason}); put the items back in order to save"
+   * @default "Not saved: the read-only field {pointer} is now another item of its list, because items were added, removed or moved before it{reason}; put the items back in order to save"
    */
   saveHeldListItem?: string;
   /**
    * The same, because its line is commented out.
    *
-   * @default "Not saved: {pointer} is commented out ({reason}); remove the comment mark to save"
+   * @default "Not saved: the read-only field {pointer} is commented out{reason}; remove the comment mark to save"
    */
   saveHeldCommented?: string;
   /**
    * The same, because the text no longer has it.
    *
-   * @default "Not saved: {pointer} is no longer in the text ({reason}); write it back as the host gave it to save"
+   * @default "Not saved: the read-only field {pointer} is no longer in the text{reason}; write it back as the host gave it to save"
    */
   saveHeldRemoved?: string;
   /**
    * The same, because text was added into it or beside it (a key in its block, a line taken into its value).
    *
-   * @default "Not saved: {pointer} now reads text that was added into it or beside it ({reason}); remove that text to save"
+   * @default "Not saved: the read-only field {pointer} now reads text that was added into it or beside it{reason}; remove that text to save"
    */
   saveHeldAdded?: string;
   /**
    * The same, in a language that cannot say where the field is written: its value reads otherwise.
    *
-   * @default "Not saved: {pointer} now reads another value than the host gave ({reason}); put its value back as it was to save"
+   * @default "Not saved: the read-only field {pointer} now reads another value than the host gave{reason}; put its value back as it was to save"
    */
   saveHeldSpanless?: string;
   /**
    * The same, for a field in a read-only range the host gave: the range's text no longer reads as that field.
    *
-   * @default "Not saved: the read-only text the host gave no longer reads as {pointer} ({reason}); put that text back where it was to save"
+   * @default "Not saved: the read-only text the host gave no longer reads as {pointer}{reason}; put that text back where it was to save"
    */
   saveHeldRange?: string;
   /**
    * The same, for a field the host made read-only after it was changed: the text reads it otherwise than the host's text does.
    *
-   * @default "Not saved: {pointer} was changed before the host made it read-only ({reason}); put it back as the host gave it to save"
+   * @default "Not saved: {pointer} was changed before the host made it read-only{reason}; put it back as the host gave it to save"
    */
   saveHeldBeforeLock?: string;
+  /**
+   * What a `save_held…` text says of why the field is read-only, when the schema says (`x-readonly-reason`): its `{reason}`.
+   *
+   * @default " ({reason})"
+   */
+  saveHeldReason?: string;
   /**
    * A save waiting because the secret field at `{pointer}` now reads text beside a placeholder the host gave as its whole value (an edit beside it, or an undo, made the parse read them together).
    *
@@ -1089,6 +1125,12 @@ export interface EditorStrings {
    * @default "the secret value"
    */
   secretValue?: string;
+  /**
+   * What a schema problem writes in place of each secret inside a value it quotes (a list or map holding one).
+   *
+   * @default "…"
+   */
+  secretInside?: string;
   /**
    * A placeholder the host did not give, in a secret field.
    *
@@ -1374,7 +1416,7 @@ export interface EditorStrings {
   /**
    * A value the host's language reads back differently (Edit-as).
    *
-   * @default "{pointer}: {host} cannot keep this value exactly; it reads back differently"
+   * @default "{pointer}: {host} cannot keep this value exactly, as it reads back differently: change it, or edit it as {host}, to save"
    */
   hostCannotKeep?: string;
   /**
@@ -1392,13 +1434,13 @@ export interface EditorStrings {
   /**
    * A null the host's language cannot write (Edit-as).
    *
-   * @default "{host} has no null value (at {pointer})"
+   * @default "{host} has no null value: give it a value or remove it to save (at {pointer})"
    */
   noNull?: string;
   /**
    * An infinity or NaN the host's language has no number for (Edit-as).
    *
-   * @default "{host} has no infinity or NaN (at {pointer})"
+   * @default "{host} has no infinity or NaN: write a finite number or remove it to save (at {pointer})"
    */
   noNonFinite?: string;
   /**
@@ -1559,3 +1601,27 @@ export type ThemeColorToken =
 
 /** Color overrides: a CSS color per token, e.g. `{ bg: "#101418", key: "#7dd3fc" }`. */
 export type ThemeColorMap = Partial<Record<ThemeColorToken, string>>;
+
+/** A built-in language name (from `Language::ALL` in the crate; its file extensions name it too, `"yml"`, `"tf"`) or one from `registerLanguage`. */
+export type LanguageName =
+  | "yaml"
+  | "json"
+  | "toml"
+  | "hcl"
+  | "xml"
+  | (string & {});
+
+/** A bundled theme slug (from `EditorTheme::ALL` in the crate). See `themes()`. */
+export type ThemeName =
+  | "vscode-dark"
+  | "vscode-light"
+  | "obsidian"
+  | "obsidian-light"
+  | "dracula"
+  | "nord"
+  | "atom-one-dark"
+  | "github-light"
+  | "github-dark"
+  | "solarized-light"
+  | "vira-inspired"
+  | (string & {});

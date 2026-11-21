@@ -112,7 +112,7 @@ mod strings;
 
 pub use documents::{CloseRequest, ConfigDocuments, Document, DocumentsHandle};
 pub use editor::language;
-pub use settings::EditorSettings;
+pub use settings::{EditorSettings, StickyScrollLines};
 pub use strings::{EditorStrings, StringsProblem};
 
 #[cfg(feature = "diff")]

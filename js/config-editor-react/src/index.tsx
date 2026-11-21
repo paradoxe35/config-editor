@@ -55,8 +55,7 @@ export interface ConfigEditorProps extends EditorSettings {
   value?: string;
   /** The initial document when uncontrolled. */
   defaultValue?: string;
-  /** Called with the document, in `language`, after every edit. */
-  /** Called with the document after every edit, and its `revision`: store both and pass the revision back as `valueRevision` for an exact echo match. */
+  /** Called with the document, in `language`, after every edit, and its `revision`: store both and pass the revision back as `valueRevision` for an exact echo match. */
   onChange?: (value: string, revision: number) => void;
   /** The `revision` `onChange` gave `value` with (see `onChange`): with it, a late echo is matched exactly, with no pause. Keep the newest revision you were given and never go back to an older one. Leave it out for a value of your own. */
   valueRevision?: number;
