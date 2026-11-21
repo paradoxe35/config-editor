@@ -106,18 +106,7 @@ impl SchemaCheck for JsCheck {
         );
         set("value", &json_to_js(document.value));
         set("schema", &json_to_js(document.schema));
-        let threw = |message: String| {
-            vec![
-                CheckProblem::new(
-                    "",
-                    format!(
-                        "{}'s check \"{}\" did not run: {message}",
-                        self.format, self.name
-                    ),
-                )
-                .severity(Severity::Warning),
-            ]
-        };
+        let threw = |message: String| vec![document.not_run(self.format, &self.name, &message)];
         let result = match self.check.call1(&self.object, &argument) {
             Ok(result) => result,
             Err(error) => {

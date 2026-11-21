@@ -74,6 +74,8 @@ const ELSEWHERE = {
     "an unusable secrets pattern: protect pattern_tests (JS throws before mounting)",
   invalidSchemaSource:
     "a schema its format refuses: JS throws before mounting (schema-formats.spec checks the message); shown inline in schema_formats tests (a_formatted_source_resolves_and_its_error_names_the_format)",
+  schemaCheckFailed:
+    "a check registered from JavaScript that throws: schema-formats spec (a format's checks run where the editor validates)",
   xsdNotDeclared:
     "an XSD check (the opt-in xsd feature, not in this page's build): xsd checks tests (the_checks_word_their_problems_with_the_editors_texts)",
   xsdNoMoreElements: "as xsdNotDeclared",

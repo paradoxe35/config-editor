@@ -136,6 +136,49 @@ fn a_check_runs_once_per_validation_and_its_problems_are_capped_with_the_rest() 
     assert_eq!(checks, 0);
 }
 
+/// A check that cannot run says so through the editor's texts.
+struct Refusing;
+
+impl SchemaCheck for Refusing {
+    fn name(&self) -> Cow<'static, str> {
+        Cow::Borrowed("refusing")
+    }
+
+    fn check(&self, document: &CheckedDocument<'_>) -> Vec<CheckProblem> {
+        vec![document.not_run("Sorted", "refusing", "it threw")]
+    }
+}
+
+struct RefusingFormat;
+
+impl SchemaCompiler for RefusingFormat {
+    fn info(&self) -> SchemaFormatInfo {
+        SchemaFormatInfo {
+            name: "refusing",
+            label: "Refusing",
+            extensions: &[],
+        }
+    }
+
+    fn compile(&self, _input: &SchemaInput<'_>) -> Result<CompiledSchema, SchemaError> {
+        Ok(CompiledSchema::new(json!({})).with_checks(vec![Arc::new(Refusing)]))
+    }
+}
+
+static REFUSING: RefusingFormat = RefusingFormat;
+
+#[test]
+fn a_check_that_cannot_run_is_a_warning_worded_by_the_editors_texts() {
+    let schema = Schema::compile_as(SchemaFormat::new(&REFUSING), &SchemaInput::new("")).unwrap();
+    let problems = schema.validate(Language::YAML, "a: 1\n");
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(
+        problems[0].message,
+        "Sorted's check \"refusing\" did not run: it threw"
+    );
+    assert_eq!(problems[0].severity, Severity::Warning);
+}
+
 /// Secrets in a check's messages (a schema marks them only with protection
 /// and validation).
 #[cfg(all(feature = "protect", feature = "schema-validation"))]

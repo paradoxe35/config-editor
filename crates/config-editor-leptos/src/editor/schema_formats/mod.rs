@@ -322,6 +322,19 @@ pub struct CheckedDocument<'a> {
     pub strings: &'a EditorStrings,
 }
 
+impl CheckedDocument<'_> {
+    /// The warning that a check of `format` named `check` could not run,
+    /// and why (`reason`), worded by the editor's texts: for a check that
+    /// calls code it cannot trust to run (a host's).
+    pub fn not_run(&self, format: &str, check: &str, reason: &str) -> CheckProblem {
+        let message = crate::strings::fill(
+            &self.strings.schema_check_failed,
+            &[("format", &format), ("check", &check), ("reason", &reason)],
+        );
+        CheckProblem::new("", message).severity(Severity::Warning)
+    }
+}
+
 /// A problem a [`SchemaCheck`] found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]

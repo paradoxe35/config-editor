@@ -1402,6 +1402,12 @@ export interface EditorStrings {
    */
   emptySchema?: string;
   /**
+   * A schema format's check that could not run (a JavaScript check that threw, or gave something else than problems): the format's `{format}`, the check's name (`{check}`) and why (`{reason}`).
+   *
+   * @default "{format}'s check \"{check}\" did not run: {reason}"
+   */
+  schemaCheckFailed?: string;
+  /**
    * An XSD check (cargo feature `xsd`): an attribute, or another language's key, named `{name}`, that its element neither declares nor allows by a wildcard.
    *
    * @default "\"{name}\" is neither declared here nor allowed by a wildcard"

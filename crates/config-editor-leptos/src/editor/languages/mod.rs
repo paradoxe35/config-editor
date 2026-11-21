@@ -480,7 +480,10 @@ registry! {
 /// The key XML reads text beside attributes or child elements under (see
 /// `ConfigLanguage::text_key`), which the XSD format writes its schemas
 /// with.
-#[cfg_attr(not(feature = "xml"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "xml"),
+    allow(dead_code, reason = "only XML and the XSD format read it")
+)]
 pub(crate) const XML_TEXT_KEY: &str = "#text";
 
 /// OpenAPI documents (`SchemaFormat::OPENAPI`), read as YAML too where the

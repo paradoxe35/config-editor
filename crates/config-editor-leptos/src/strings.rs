@@ -592,6 +592,10 @@ pub struct EditorStrings {
     pub invalid_schema_source: String,
     /// A schema whose text is empty, or only spaces and line breaks.
     pub empty_schema: String,
+    /// A schema format's check that could not run (a JavaScript check that
+    /// threw, or gave something else than problems): the format's
+    /// `{format}`, the check's name (`{check}`) and why (`{reason}`).
+    pub schema_check_failed: String,
     /// An XSD check (cargo feature `xsd`): an attribute, or another
     /// language's key, named `{name}`, that its element neither declares
     /// nor allows by a wildcard.
@@ -955,6 +959,7 @@ impl Default for EditorStrings {
             invalid_schema: text("Invalid JSON Schema: {error}"),
             invalid_schema_source: text("Invalid {format}: {error}"),
             empty_schema: text("Invalid JSON Schema: the schema text is empty"),
+            schema_check_failed: text("{format}'s check \"{check}\" did not run: {reason}"),
             xsd_not_declared: text("\"{name}\" is neither declared here nor allowed by a wildcard"),
             xsd_no_more_elements: text(
                 "<{name}> is not expected here: no more elements are allowed",
