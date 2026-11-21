@@ -1402,6 +1402,60 @@ export interface EditorStrings {
    */
   emptySchema?: string;
   /**
+   * An XSD check (cargo feature `xsd`): an attribute, or another language's key, named `{name}`, that its element neither declares nor allows by a wildcard.
+   *
+   * @default "\"{name}\" is neither declared here nor allowed by a wildcard"
+   */
+  xsdNotDeclared?: string;
+  /**
+   * An XSD check: child element `{name}` where its element's content model allows no more.
+   *
+   * @default "<{name}> is not expected here: no more elements are allowed"
+   */
+  xsdNoMoreElements?: string;
+  /**
+   * An XSD check: child element `{name}` where its element's content model wants another (`{expected}`, worded as `xsd_one_of`).
+   *
+   * @default "<{name}> is not expected here; expected {expected}"
+   */
+  xsdElementNotExpected?: string;
+  /**
+   * An XSD check: the child elements end before their element's content model does; it wants `{expected}` (worded as `xsd_one_of`).
+   *
+   * @default "an element is missing at the end: expected {expected}"
+   */
+  xsdElementMissing?: string;
+  /**
+   * What an XSD check expects when it is one of several: the others (`{names}`, joined by `, `) and the `{last}`; one alone is named as it is.
+   *
+   * @default "one of {names} or {last}"
+   */
+  xsdOneOf?: string;
+  /**
+   * What an XSD check expects where a wildcard (`xs:any`) allows an element of another name.
+   *
+   * @default "another element"
+   */
+  xsdAnotherElement?: string;
+  /**
+   * An XSD check: an element an `xs:key` (`{name}`) selects has no value for its fields (`{fields}`, joined by `, `).
+   *
+   * @default "the xs:key \"{name}\" needs a value for {fields}"
+   */
+  xsdKeyNeedsValue?: string;
+  /**
+   * An XSD check: a value (`{value}`, the fields' values joined by `, `) an `xs:key` or `xs:unique` (`{kind}`: `key` or `unique`, named `{name}`) has at `{first}` already.
+   *
+   * @default "\"{value}\" is already the value of the xs:{kind} \"{name}\" at {first}"
+   */
+  xsdValueRepeated?: string;
+  /**
+   * An XSD check: an `xs:keyref` (`{name}`) value (`{value}`) that no element of its `xs:key` (`{key}`) has.
+   *
+   * @default "\"{value}\" is no value of the xs:key \"{key}\" (xs:keyref \"{name}\")"
+   */
+  xsdKeyrefUnknown?: string;
+  /**
    * A secret placeholder pattern the editor cannot use (it does not compile, or matches empty text): no token is taken for a placeholder.
    *
    * @default "secrets.placeholder: {error}"

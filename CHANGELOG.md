@@ -34,9 +34,11 @@ versions move together.
   mapping, it validates and completes every view of the document. Options
   `root`, `configRoot` and `lax`. Content models (element order, choices,
   substitution groups, occurrences, wildcards' namespaces) and `xs:key`,
-  `xs:keyref` and `xs:unique` are checked beside the JSON Schema; what is
-  not checked is a reported loss with its line. `xs:include`, `xs:import`
-  and `xs:redefine` read their files from the host's resources.
+  `xs:keyref` and `xs:unique` are checked beside the JSON Schema, their
+  problems worded by the `xsd_*` texts of `EditorStrings` and hiding the
+  secrets they quote; what is not checked is a reported loss with its
+  line. `xs:include`, `xs:import` and `xs:redefine` read their files from
+  the host's resources.
 - A JSON Schema's `$ref`s to other files are followed when the host passes
   those files as resources: they are bundled into the schema.
 
