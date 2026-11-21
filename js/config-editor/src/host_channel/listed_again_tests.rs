@@ -7,7 +7,7 @@
 //! index, and typing above, next to and below the lock: the lock stays on
 //! its field.
 
-use config_editor_leptos::{TextPosition, TextRange};
+use leptos_config_editor::{TextPosition, TextRange};
 
 use super::super::HostChannel;
 use super::{SAMPLES, list};

@@ -14,7 +14,7 @@ use crate::{
 ///
 /// ```
 /// # #[cfg(all(feature = "yaml", feature = "toml"))] {
-/// use config_editor_leptos::{Document, Language};
+/// use leptos_config_editor::{Document, Language};
 ///
 /// let main = Document::new("main", "config.yaml", "listen: 7835\n");
 /// let drop_in = Document::new("tls", "conf.d/tls.toml", "cert = \"a.pem\"\n").read_only(true);

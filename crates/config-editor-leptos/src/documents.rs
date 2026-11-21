@@ -84,7 +84,7 @@ use entries::{Callbacks, Documents, Entry};
 /// edited.
 ///
 /// ```ignore
-/// use config_editor_leptos::{ConfigDocuments, Document};
+/// use leptos_config_editor::{ConfigDocuments, Document};
 ///
 /// let documents = RwSignal::new(vec![
 ///     Document::new("main", "config.yaml", main_text).schema(SCHEMA),

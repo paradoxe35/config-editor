@@ -10,7 +10,7 @@ use super::super::language::SchemaPathSegment;
 /// `~` in keys; the leading `/` may be left out) or from segments:
 ///
 /// ```
-/// use config_editor_leptos::FieldPath;
+/// use leptos_config_editor::FieldPath;
 /// let path = FieldPath::root().key("web").key("hosts").index(1);
 /// assert_eq!(path, FieldPath::from("/web/hosts/1"));
 /// assert_eq!(path.to_pointer(), "/web/hosts/1");

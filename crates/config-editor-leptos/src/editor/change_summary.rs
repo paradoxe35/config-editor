@@ -12,7 +12,7 @@
 ///
 /// ```
 /// # #[cfg(feature = "diff")] {
-/// use config_editor_leptos::{ChangeSummary, unified_diff};
+/// use leptos_config_editor::{ChangeSummary, unified_diff};
 ///
 /// let summary = ChangeSummary::between("a: 1\nb: 2\nc: 3\n", "a: 1\nb: 20\nc: 3\nd: 4\n");
 /// assert_eq!((summary.added, summary.modified, summary.removed), (1, 1, 0));

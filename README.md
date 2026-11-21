@@ -70,7 +70,7 @@ More: [every feature in screenshots](docs/screenshots/README.md).
 
 | Package                                                    | For                                            | Install                                                            |
 | ---------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
-| [`config-editor-leptos`](crates/config-editor-leptos)      | Leptos (Rust) apps, plus a headless Rust API   | `cargo add config-editor-leptos`                                   |
+| [`leptos-config-editor`](crates/config-editor-leptos)      | Leptos (Rust) apps, plus a headless Rust API   | `cargo add leptos-config-editor`                                   |
 | [`@pngwasi/config-editor`](js/config-editor)               | Any web page or framework (vanilla JavaScript) | `npm install @pngwasi/config-editor`                               |
 | [`@pngwasi/config-editor-react`](js/config-editor-react)   | React                                          | `npm install @pngwasi/config-editor-react @pngwasi/config-editor`  |
 | [`@pngwasi/config-editor-vue`](js/config-editor-vue)       | Vue 3                                          | `npm install @pngwasi/config-editor-vue @pngwasi/config-editor`    |
@@ -85,12 +85,12 @@ instance API, each in its framework's idiom.
 ### Leptos
 
 ```sh
-cargo add config-editor-leptos
+cargo add leptos-config-editor
 ```
 
 ```rust
 use leptos::prelude::*;
-use config_editor_leptos::{ConfigEditor, Language};
+use leptos_config_editor::{ConfigEditor, Language};
 
 #[component]
 fn Settings() -> impl IntoView {
@@ -233,7 +233,7 @@ Requirements: Rust 1.89+ with the `wasm32-unknown-unknown` target,
 trunk serve --open
 
 # Rust tests and lints
-cargo test -p config-editor-leptos
+cargo test -p leptos-config-editor
 cargo clippy --all-targets
 cargo clippy -p config-editor-js --target wasm32-unknown-unknown
 
@@ -266,7 +266,7 @@ says so. A version already on a registry is skipped, so a release that failed
 halfway is finished by re-running the workflow on the same tag.
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.1.1 && git push origin v0.1.1
 ```
 
 </details>

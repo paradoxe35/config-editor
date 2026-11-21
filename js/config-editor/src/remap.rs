@@ -22,7 +22,7 @@ mod stretches;
 #[path = "remap/exact.rs"]
 mod exact;
 
-use config_editor_leptos::{DiagnosticTarget, HostDiagnostic, TextPosition, TextRange};
+use leptos_config_editor::{DiagnosticTarget, HostDiagnostic, TextPosition, TextRange};
 
 use crate::text_lines::TextLines;
 use stretches::{Stretch, stretches};

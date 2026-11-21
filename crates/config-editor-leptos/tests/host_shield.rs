@@ -14,7 +14,7 @@
 //! the page's; each such rule also names the built-in toolbar or footer
 //! inside the frame with the shield, which is shielded.
 
-use config_editor_leptos::PRESET_CSS;
+use leptos_config_editor::PRESET_CSS;
 
 const SHIELD: &str = r":not(#\#):not(#\#) ";
 

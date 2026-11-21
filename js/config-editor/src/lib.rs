@@ -1,4 +1,4 @@
-//! Browser bindings for `config-editor-leptos`, published to npm as
+//! Browser bindings for `leptos-config-editor`, published to npm as
 //! `@pngwasi/config-editor`. The editor itself is the crate's Leptos
 //! component, mounted into any element; JavaScript sees a plain class and
 //! functions. Framework wrappers (`@pngwasi/config-editor-react`, …) build on

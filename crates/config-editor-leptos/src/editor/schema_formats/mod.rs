@@ -57,7 +57,7 @@ pub struct SchemaFormatInfo {
 /// is a [`SchemaLoss`], reported to the host like a schema warning.
 ///
 /// ```
-/// use config_editor_leptos::{CompiledSchema, Schema, SchemaCompiler, SchemaError, SchemaFormat,
+/// use leptos_config_editor::{CompiledSchema, Schema, SchemaCompiler, SchemaError, SchemaFormat,
 ///     SchemaFormatInfo, SchemaInput};
 ///
 /// /// `name: type` lines: an object with those properties.
@@ -274,7 +274,7 @@ impl CompiledSchema {
 /// ```
 /// use std::borrow::Cow;
 /// use std::sync::Arc;
-/// use config_editor_leptos::{CheckProblem, CheckedDocument, SchemaCheck};
+/// use leptos_config_editor::{CheckProblem, CheckedDocument, SchemaCheck};
 ///
 /// /// Keys in alphabetical order.
 /// struct Sorted;

@@ -4,13 +4,13 @@
 
 use std::collections::HashMap;
 
-use config_editor_leptos::js_support::Timer;
-use config_editor_leptos::{
+use js_sys::Function;
+use leptos::prelude::*;
+use leptos_config_editor::js_support::Timer;
+use leptos_config_editor::{
     CloseRequest, ConfigDocuments as DocumentsView, Diagnostic, Document, DocumentsHandle,
     EditorSettings, Language, SaveRequest,
 };
-use js_sys::Function;
-use leptos::prelude::*;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -539,7 +539,7 @@ impl ConfigDocuments {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         Ok(self.state.handle.select(&text_arg(&id, "id")?))
     }
 
@@ -555,7 +555,7 @@ impl ConfigDocuments {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         let id = text_arg(&id, "id")?;
         Ok(untrack(|| self.state.handle.is_dirty(&id)))
     }
@@ -567,7 +567,7 @@ impl ConfigDocuments {
         &self,
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         let id = text_arg(&id, "id")?;
         if self.state.on_save.try_with_value(Option::is_some) != Some(true) {
             return Ok(false);
@@ -580,7 +580,7 @@ impl ConfigDocuments {
     /// the ids sent.
     #[wasm_bindgen(js_name = saveAll)]
     pub fn save_all(&self) -> Vec<String> {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         if self.state.on_save.try_with_value(Option::is_some) != Some(true) {
             return Vec::new();
         }
@@ -604,7 +604,7 @@ impl ConfigDocuments {
         #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
         #[wasm_bindgen(unchecked_param_type = "LanguageName")] language: JsValue,
     ) -> Result<bool, JsError> {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         let id = text_arg(&id, "id")?;
         let language = language_named(&text_arg(&language, "language")?)?;
         let Some(own) = self.state.language_of(&id) else {
@@ -668,7 +668,7 @@ impl ConfigDocuments {
         self.reentry.note(&key);
         let newer = self
             .reentry
-            .flush(config_editor_leptos::flush_pending_edits);
+            .flush(leptos_config_editor::flush_pending_edits);
         if self.id.get().is_none() || self.state.texts_of(&id).is_none() {
             return Ok(false);
         }
@@ -714,7 +714,7 @@ impl ConfigDocuments {
         });
         if let Some(documents) = self.state.documents.try_get_untracked() {
             self.owner.with(|| {
-                config_editor_leptos::js_support::take_documents(&self.state.handle, &documents);
+                leptos_config_editor::js_support::take_documents(&self.state.handle, &documents);
             });
         }
         Ok(true)
@@ -756,10 +756,10 @@ impl ConfigDocuments {
         // `flushed` on: the host did not know them). What the host set from
         // `onChange` meanwhile is newer than this call, and stays.
         self.reentry.note_options(&options);
-        let flushed = config_editor_leptos::js_support::echo_clock();
+        let flushed = leptos_config_editor::js_support::echo_clock();
         let newer = self
             .reentry
-            .flush(config_editor_leptos::js_support::flush_pending_input);
+            .flush(leptos_config_editor::js_support::flush_pending_input);
         if self.id.get().is_none() {
             return Ok(());
         }
@@ -863,7 +863,7 @@ impl ConfigDocuments {
             // right after `update` returns.
             if let Some(documents) = self.state.documents.try_get_untracked() {
                 self.owner.with(|| {
-                    config_editor_leptos::js_support::take_documents(
+                    leptos_config_editor::js_support::take_documents(
                         &self.state.handle,
                         &documents,
                     );
@@ -929,7 +929,7 @@ impl ConfigDocuments {
             .unwrap_or_default();
         ids.into_iter()
             .filter_map(|id| {
-                let edit_as = config_editor_leptos::js_support::edit_as(&self.state.handle, &id)?;
+                let edit_as = leptos_config_editor::js_support::edit_as(&self.state.handle, &id)?;
                 let value = self
                     .state
                     .handle
@@ -969,7 +969,7 @@ impl ConfigDocuments {
     /// Unmounts the view and its editors. The instance cannot be used
     /// afterwards.
     pub fn destroy(&self) {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         crate::settle::cancel(self.state.settle);
         let Some((mounted, owner, _)) = self
             .id
@@ -1001,7 +1001,7 @@ struct Edited {
     /// The text its editor holds (pending input applied), once shown.
     value: Option<String>,
     /// The language it is edited as, as its list or `editAs` asked last.
-    edit_as: Option<config_editor_leptos::Language>,
+    edit_as: Option<leptos_config_editor::Language>,
 }
 
 /// Lists each document with the text its editor holds and the language it

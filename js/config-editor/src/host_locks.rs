@@ -35,7 +35,7 @@
 
 use std::rc::Rc;
 
-use config_editor_leptos::TextRange;
+use leptos_config_editor::TextRange;
 use wasm_bindgen::JsValue;
 
 use crate::remap::{carried, moved_between};

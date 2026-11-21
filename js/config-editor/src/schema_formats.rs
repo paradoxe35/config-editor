@@ -6,11 +6,11 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
-use config_editor_leptos::{
+use js_sys::{Array, Function, Object};
+use leptos_config_editor::{
     CompiledSchema, LossEffect, SchemaCompiler, SchemaError, SchemaFormat, SchemaFormatInfo,
     SchemaInput, SchemaLoss, SchemaResources,
 };
-use js_sys::{Array, Function, Object};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use wasm_bindgen::prelude::*;

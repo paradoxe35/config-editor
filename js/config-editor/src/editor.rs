@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::PoisonError;
 
-use config_editor_leptos::js_support::Timer;
-use config_editor_leptos::{EditorHandle, Language};
+use leptos_config_editor::js_support::Timer;
+use leptos_config_editor::{EditorHandle, Language};
 
 use crate::schema_formats::{SOURCE_KEYS, read_spec};
 use js_sys::Function;
@@ -36,7 +36,7 @@ use crate::update::{
     Fixed, callback_change, flag_change, given, plain_object, refuse_remount, settings_change,
 };
 use crate::values::{context_arg, field, text_arg};
-use config_editor_leptos::js_support::{Echo, echo_clock};
+use leptos_config_editor::js_support::{Echo, echo_clock};
 
 /// A config editor mounted into an element.
 ///
@@ -321,7 +321,7 @@ impl ConfigEditor {
     pub fn value(&self) -> String {
         // Input the browser sent in this task, and an Edit-as edit still
         // waiting out the typing pause, first: the document as shown.
-        config_editor_leptos::flush_pending_edits();
+        leptos_config_editor::flush_pending_edits();
         match &*self.final_value.borrow() {
             Some(value) => value.clone(),
             None => self.latest_text(),
@@ -398,9 +398,9 @@ impl ConfigEditor {
         });
         let newer = self.reentry.flush(|| {
             if value.is_some() {
-                config_editor_leptos::flush_pending_edits();
+                leptos_config_editor::flush_pending_edits();
             } else {
-                config_editor_leptos::js_support::flush_pending_input();
+                leptos_config_editor::js_support::flush_pending_input();
             }
         });
         if self.id.get().is_none() {
@@ -594,7 +594,7 @@ impl ConfigEditor {
             }
             let latest = self.latest.clone();
             settle::arm(state.settle, move || {
-                config_editor_leptos::js_support::flush_pending_input();
+                leptos_config_editor::js_support::flush_pending_input();
                 let again = {
                     let current = latest.lock().unwrap_or_else(PoisonError::into_inner);
                     state.channel(|channel| channel.settle(&current))
@@ -626,7 +626,7 @@ impl ConfigEditor {
         self.reentry.note("value");
         let newer = self
             .reentry
-            .flush(config_editor_leptos::flush_pending_edits);
+            .flush(leptos_config_editor::flush_pending_edits);
         // A text the host gave from `onChange` meanwhile is newer.
         if self.id.get().is_none() || newer.contains("value") || value == self.latest_text() {
             return Ok(false);
@@ -660,7 +660,7 @@ impl ConfigEditor {
             .baseline
             .try_get_untracked()
             .unwrap_or_else(|| current.clone());
-        Ok(config_editor_leptos::unified_diff(
+        Ok(leptos_config_editor::unified_diff(
             &baseline, &current, context,
         ))
     }
@@ -768,7 +768,7 @@ impl ConfigEditor {
     /// `destroy`, or while an `editAs` edit cannot convert back (the caret
     /// goes to the problem).
     pub fn save(&self) -> bool {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         if self.state.on_save.try_with_value(Option::is_some) != Some(true) {
             return false;
         }
@@ -778,7 +778,7 @@ impl ConfigEditor {
     /// Whether the document differs from the baseline.
     #[wasm_bindgen(getter, js_name = isDirty)]
     pub fn is_dirty(&self) -> bool {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         untrack(|| self.state.handle.is_dirty())
     }
 
@@ -787,7 +787,7 @@ impl ConfigEditor {
     /// to `onChange` first.
     pub fn destroy(&self) {
         // Input the browser sent in this task first (see `flush_pending_input`).
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         settle::cancel(self.state.settle);
         let Some((mounted, owner, _)) = self
             .id

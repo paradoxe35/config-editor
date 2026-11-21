@@ -3,10 +3,10 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use config_editor_leptos::{
+use js_sys::{Array, Object};
+use leptos_config_editor::{
     Document, EditorSettings, Language, Schema, SecretOptions, TextPosition, TextRange,
 };
-use js_sys::{Array, Object};
 use wasm_bindgen::prelude::*;
 
 use crate::given::Given;

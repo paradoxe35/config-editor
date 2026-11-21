@@ -16,10 +16,10 @@
     feature = "folding"
 ))]
 
-use config_editor_leptos::language::pointer_key;
+use leptos_config_editor::language::pointer_key;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use config_editor_leptos::{
+use leptos_config_editor::{
     ConvertError, Diagnostic, FieldPath, Language, ParseError, Schema, TextPosition, TextRange,
     check_syntax,
 };
@@ -112,8 +112,8 @@ fn shifted_diagnostic(mut diagnostic: Diagnostic) -> Diagnostic {
 }
 
 fn shifted_conversion(
-    result: Result<config_editor_leptos::Conversion, ConvertError>,
-) -> Result<config_editor_leptos::Conversion, ConvertError> {
+    result: Result<leptos_config_editor::Conversion, ConvertError>,
+) -> Result<leptos_config_editor::Conversion, ConvertError> {
     result.map_err(|error| match error {
         ConvertError::Parse(error) => ConvertError::Parse(shifted_error(error)),
         other => other,

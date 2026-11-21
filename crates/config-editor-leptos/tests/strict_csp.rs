@@ -89,7 +89,7 @@ fn the_shipped_preset_css_matches_preset_css() {
     let shipped = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("preset.css"))
         .expect("preset.css next to Cargo.toml (`make docs-generate` writes it)");
     assert!(
-        shipped == config_editor_leptos::PRESET_CSS,
+        shipped == leptos_config_editor::PRESET_CSS,
         "preset.css is stale: run `make docs-generate`"
     );
 }
@@ -98,7 +98,7 @@ fn the_shipped_preset_css_matches_preset_css() {
 /// `data:` icon) would be refused, so its icons are inline SVG markup.
 #[test]
 fn the_preset_loads_nothing() {
-    let urls: Vec<&str> = config_editor_leptos::PRESET_CSS
+    let urls: Vec<&str> = leptos_config_editor::PRESET_CSS
         .lines()
         .filter(|line| line.contains("url(") || line.contains("@import"))
         .collect();

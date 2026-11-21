@@ -1,8 +1,8 @@
 //! What one update does through a document's channel: its text, its
 //! ranges, and the record the next update compares with.
 
-use config_editor_leptos::js_support::{Echo, echo_clock};
-use config_editor_leptos::{TextPosition, TextRange};
+use leptos_config_editor::js_support::{Echo, echo_clock};
+use leptos_config_editor::{TextPosition, TextRange};
 
 use super::{Given, HostChannel, Taken};
 

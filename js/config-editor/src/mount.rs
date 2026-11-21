@@ -1,13 +1,13 @@
 //! Mounting the crate's component for a `ConfigEditor`: the live state its
 //! `update` writes, and the props and callbacks wired to JavaScript.
 
-use config_editor_leptos::{
+use js_sys::Function;
+use leptos::prelude::*;
+use leptos_config_editor::{
     BaselineConflict, ChangeSummary, ConfigEditor as Editor, Diagnostic, EditorHandle,
     EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest, Schema, SchemaSource,
     SecretOptions, TextRange,
 };
-use js_sys::Function;
-use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;

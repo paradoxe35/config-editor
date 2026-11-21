@@ -4,7 +4,7 @@
 
 use std::cell::Cell;
 
-use config_editor_leptos::{Schema, SchemaError, SchemaFormat, SchemaInput, SchemaResources};
+use leptos_config_editor::{Schema, SchemaError, SchemaFormat, SchemaInput, SchemaResources};
 use serde_json::{Map, Value};
 
 /// A schema's format, resources and options.

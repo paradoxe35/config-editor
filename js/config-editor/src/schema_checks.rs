@@ -4,8 +4,8 @@
 
 use std::borrow::Cow;
 
-use config_editor_leptos::{CheckProblem, CheckedDocument, SchemaCheck, Severity};
 use js_sys::{Array, Function, Object};
+use leptos_config_editor::{CheckProblem, CheckedDocument, SchemaCheck, Severity};
 use wasm_bindgen::prelude::*;
 
 use crate::values::{field, json_to_js, string_field};

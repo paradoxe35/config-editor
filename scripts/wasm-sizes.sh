@@ -39,7 +39,7 @@ languages_all=(yaml json toml hcl xml)
 # comma-separated, on top of none).
 size_of() {
   cargo build --quiet --release --target wasm32-unknown-unknown \
-    -p config-editor-leptos --example wasm_size --no-default-features --features "$1"
+    -p leptos-config-editor --example wasm_size --no-default-features --features "$1"
   rm -rf "$work/out"
   "$bindgen" --target web --out-dir "$work/out" 2>/dev/null \
     "${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/release/examples/wasm_size.wasm"

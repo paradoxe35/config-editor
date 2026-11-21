@@ -15,7 +15,7 @@ use crate::{EditorHandle, Language};
 /// answer `None` (or `false`) and the actions do nothing.
 ///
 /// ```ignore
-/// use config_editor_leptos::{ConfigDocuments, DocumentsHandle};
+/// use leptos_config_editor::{ConfigDocuments, DocumentsHandle};
 ///
 /// let tabs = DocumentsHandle::new();
 /// view! {

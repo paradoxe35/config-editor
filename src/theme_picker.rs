@@ -1,7 +1,7 @@
 //! The theme select of both demo pages: switches the `theme` setting live.
 
-use config_editor_leptos::{EditorSettings, EditorTheme};
 use leptos::prelude::*;
+use leptos_config_editor::{EditorSettings, EditorTheme};
 
 /// Sets the theme the select picked.
 fn pick(settings: RwSignal<EditorSettings>, event: &leptos::ev::Event) {

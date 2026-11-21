@@ -4,7 +4,7 @@
 //! completion and hover methods place the caret in the structure, which is
 //! all schema completion and hover docs need.
 
-use config_editor_leptos::language::{
+use leptos_config_editor::language::{
     CompletionContext, ConfigLanguage, InsertContext, InsertPlan, LanguageConfig, LanguageInfo,
     ParseError, SchemaPathSegment, utf16_to_byte_index,
 };

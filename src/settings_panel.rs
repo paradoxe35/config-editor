@@ -9,9 +9,9 @@
 //! stays inside the window at every width (re-placed when it resizes), and
 //! Escape in it, a click outside or focus moving on closes it.
 
-use config_editor_leptos::EditorSettings;
 use leptos::prelude::*;
 use leptos::wasm_bindgen::JsCast;
+use leptos_config_editor::EditorSettings;
 
 /// Room kept between the open list and the window's edges, in pixels.
 const EDGE: f64 = 8.0;

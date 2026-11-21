@@ -95,7 +95,7 @@ function relativeLinks(text) {
 /** Links to our own packages' pages on npm or crates.io: the docs live on GitHub. */
 function packageSiteLinks(text) {
   return [
-    ...text.matchAll(/https:\/\/(?:www\.)?(?:npmjs\.com\/package\/@pngwasi\/[^)\s]*|crates\.io\/crates\/config-editor-leptos[^)\s]*)/g),
+    ...text.matchAll(/https:\/\/(?:www\.)?(?:npmjs\.com\/package\/@pngwasi\/[^)\s]*|crates\.io\/crates\/leptos-config-editor[^)\s]*)/g),
   ].map((match) => match[0]);
 }
 

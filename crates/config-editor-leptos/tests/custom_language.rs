@@ -3,12 +3,12 @@
 //! and conversion to and from every built-in language.
 
 #[cfg(feature = "schema-validation")]
-use config_editor_leptos::Schema;
-use config_editor_leptos::language::{
+use leptos_config_editor::Schema;
+use leptos_config_editor::language::{
     ConfigLanguage, LanguageInfo, Lexical, ParseError, SchemaPathSegment, Span, Text, Token,
     TokenKind, Tokens, value_after_separator,
 };
-use config_editor_leptos::{FieldPath, Language};
+use leptos_config_editor::{FieldPath, Language};
 use serde_json::{Map, Value};
 
 mod ini;
@@ -240,7 +240,7 @@ fn a_naive_writer_writes_infinities_nan_and_huge_integers_as_text() {
     assert_eq!(forged.text, "s=\u{FDD0}inf\n");
     // A value written alone takes the same door.
     let env: &dyn ConfigLanguage = &DOTENV;
-    let value = config_editor_leptos::float_value(f64::NEG_INFINITY);
+    let value = leptos_config_editor::float_value(f64::NEG_INFINITY);
     assert_eq!(env.write_value(&value), "\"-inf\"");
     assert_eq!(env.write_value_like(&value, "1"), "\"-inf\"");
 }
@@ -297,7 +297,7 @@ fn a_language_described_by_config_knows_its_comments_and_strings() {
 #[cfg(feature = "folding")]
 #[test]
 fn a_language_without_folding_code_folds_by_its_config() {
-    use config_editor_leptos::language::FoldRange;
+    use leptos_config_editor::language::FoldRange;
     let ranges = (&Ini as &dyn ConfigLanguage)
         .fold_ranges("; a\n; b\n[web]\nhosts = [\n  \"a\",\n]\nlisten = 1");
     assert_eq!(ranges, [FoldRange::new(0, 1), FoldRange::new(3, 4)]);
@@ -313,8 +313,8 @@ fn a_language_without_folding_code_folds_by_its_config() {
 struct LongStrings;
 
 impl ConfigLanguage for LongStrings {
-    fn info(&self) -> config_editor_leptos::language::LanguageInfo {
-        config_editor_leptos::language::LanguageInfo {
+    fn info(&self) -> leptos_config_editor::language::LanguageInfo {
+        leptos_config_editor::language::LanguageInfo {
             label: "LS",
             icon: "L",
             extensions: &[],
@@ -324,12 +324,12 @@ impl ConfigLanguage for LongStrings {
     fn parse(
         &self,
         _source: &str,
-    ) -> Result<serde_json::Value, config_editor_leptos::language::ParseError> {
+    ) -> Result<serde_json::Value, leptos_config_editor::language::ParseError> {
         Ok(serde_json::json!({}))
     }
 
-    fn config(&self) -> config_editor_leptos::language::LanguageConfig {
-        config_editor_leptos::language::LanguageConfig {
+    fn config(&self) -> leptos_config_editor::language::LanguageConfig {
+        leptos_config_editor::language::LanguageConfig {
             line_comments: &[";"],
             block_comment: None,
             brackets: &[],

@@ -5,7 +5,7 @@
 
 use std::cell::RefCell;
 
-use config_editor_leptos::{Schema, SchemaError};
+use leptos_config_editor::{Schema, SchemaError};
 
 use crate::schema_spec::{SchemaSpec, SpecKey};
 

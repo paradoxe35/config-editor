@@ -105,7 +105,7 @@ impl EditorStrings {
     /// every text is fine. A text may leave out placeholders it takes.
     ///
     /// ```
-    /// use config_editor_leptos::EditorStrings;
+    /// use leptos_config_editor::EditorStrings;
     ///
     /// let strings = EditorStrings {
     ///     errors_other: "{cout} Fehler".into(),

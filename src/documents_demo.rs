@@ -8,10 +8,10 @@
 //! drop-in for the tab strip's "+" (or the "Add drop-in" button). What it saw is
 //! in the status line's `data-*` attributes, for the e2e tests.
 
-use config_editor_leptos::{
+use leptos::prelude::*;
+use leptos_config_editor::{
     CloseRequest, ConfigDocuments, Document, DocumentsHandle, Language, SaveRequest,
 };
-use leptos::prelude::*;
 
 use crate::settings_panel::SettingsPanel;
 use crate::theme_picker::ThemePicker;

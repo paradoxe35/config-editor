@@ -19,7 +19,7 @@ use crate::{EditorStrings, EditorTheme, ThemeColors};
 /// only what it changes:
 ///
 /// ```
-/// use config_editor_leptos::{EditorSettings, EditorTheme};
+/// use leptos_config_editor::{EditorSettings, EditorTheme};
 ///
 /// let settings = EditorSettings {
 ///     theme: EditorTheme::Nord,

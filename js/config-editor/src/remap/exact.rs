@@ -17,7 +17,7 @@
 
 use std::ops::Range;
 
-use config_editor_leptos::{TextPosition, TextRange};
+use leptos_config_editor::{TextPosition, TextRange};
 
 use super::stretches::line_runs::{Run, line_runs, myers};
 

@@ -4,10 +4,10 @@
 //! through `Schema::suggestions` / `Schema::hover`, for `=` and `:`
 //! separators.
 
-use config_editor_leptos::language::{
+use leptos_config_editor::language::{
     CompletionContext, ConfigLanguage, LanguageConfig, LanguageInfo, ParseError,
 };
-use config_editor_leptos::{Language, Schema, TextPosition};
+use leptos_config_editor::{Language, Schema, TextPosition};
 use serde_json::{Map, Value};
 
 struct Flat {

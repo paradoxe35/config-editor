@@ -223,7 +223,7 @@ pub(crate) fn comment_target(
 /// non-blank line already starts with one of `markers`, uncommented.
 ///
 /// ```
-/// use config_editor_leptos::language::toggle_line_comments;
+/// use leptos_config_editor::language::toggle_line_comments;
 /// let source = "a:\n  b: 1\n";
 /// let toggled = toggle_line_comments(source, 0, 9, &["#"]).unwrap();
 /// assert_eq!(toggled.edits, [(0..0, "# ".to_string()), (3..3, "# ".to_string())]);

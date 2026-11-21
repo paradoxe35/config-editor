@@ -5,8 +5,8 @@
 //! (`handle_calls`). It looks the editor up on each call, so it follows a
 //! document whose editor is mounted again (a new language or schema).
 
-use config_editor_leptos::EditorHandle;
 use leptos::prelude::*;
+use leptos_config_editor::EditorHandle;
 use wasm_bindgen::prelude::*;
 
 use crate::documents_view::{State, Texts};
@@ -36,7 +36,7 @@ impl DocumentEditorView {
         // An editor waiting to mount (listed with `editAsText`) holds the
         // document's text: mounted first, its edit converts with the rest.
         let _ = self.handle();
-        config_editor_leptos::flush_pending_edits();
+        leptos_config_editor::flush_pending_edits();
         self.texts().map(|texts| texts.value)
     }
 
@@ -86,7 +86,7 @@ impl DocumentEditorView {
         let baseline = self
             .texts()
             .map_or_else(|| current.clone(), |texts| texts.baseline);
-        Ok(config_editor_leptos::unified_diff(
+        Ok(leptos_config_editor::unified_diff(
             &baseline, &current, context,
         ))
     }
@@ -194,7 +194,7 @@ impl DocumentEditorView {
     /// Saves the document as `Ctrl+S` in its editor does (calls the view's
     /// `onSave`); `false` when nothing was sent.
     pub fn save(&self) -> bool {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         if self.state.saves.try_get_untracked() != Some(true) || self.texts().is_none() {
             return false;
         }
@@ -204,7 +204,7 @@ impl DocumentEditorView {
     /// Whether the document differs from its baseline.
     #[wasm_bindgen(getter, js_name = isDirty)]
     pub fn is_dirty(&self) -> bool {
-        config_editor_leptos::js_support::flush_pending_input();
+        leptos_config_editor::js_support::flush_pending_input();
         self.texts().is_some() && untrack(|| self.state.handle.is_dirty(&self.id))
     }
 }

@@ -23,7 +23,7 @@ impl LanguageConfig {
     /// without separators.
     ///
     /// ```
-    /// use config_editor_leptos::language::LanguageConfig;
+    /// use leptos_config_editor::language::LanguageConfig;
     /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
     /// assert_eq!(env.flat_separator().as_deref(), Some("="));
     /// let colon = LanguageConfig {
@@ -46,7 +46,7 @@ impl LanguageConfig {
     /// `None` without separators.
     ///
     /// ```
-    /// use config_editor_leptos::language::LanguageConfig;
+    /// use leptos_config_editor::language::LanguageConfig;
     /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
     /// assert_eq!(env.flat_property_insert("PORT"), Some(("PORT=".to_string(), 5)));
     /// ```
@@ -61,7 +61,7 @@ impl LanguageConfig {
     /// character `column` is on it, and the column it starts at.
     ///
     /// ```
-    /// use config_editor_leptos::language::LanguageConfig;
+    /// use leptos_config_editor::language::LanguageConfig;
     /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
     /// assert_eq!(env.flat_hover_key("  PORT=1", 3), Some(("PORT".to_string(), 2)));
     /// assert_eq!(env.flat_hover_key("  PORT=1", 7), None);
@@ -93,7 +93,7 @@ impl LanguageConfig {
     /// break), else JSON-quoted; other values as JSON.
     ///
     /// ```
-    /// use config_editor_leptos::language::LanguageConfig;
+    /// use leptos_config_editor::language::LanguageConfig;
     /// use serde_json::json;
     /// let env = LanguageConfig { separators: &["="], line_comments: &["#"], ..LanguageConfig::default() };
     /// assert_eq!(env.flat_format_value(&json!("debug")), "debug");
@@ -130,7 +130,7 @@ impl LanguageConfig {
     /// [`literal_quotes`](Self::literal_quotes)).
     ///
     /// ```
-    /// use config_editor_leptos::language::LanguageConfig;
+    /// use leptos_config_editor::language::LanguageConfig;
     /// use serde_json::json;
     /// let dot = LanguageConfig { quotes: &["\"", "'"], literal_quotes: &["'"], ..LanguageConfig::default() };
     /// assert_eq!(dot.quoted_like(&json!("three"), "'two'", "three".into()), "'three'");
@@ -177,8 +177,8 @@ impl LanguageConfig {
     /// without separators.
     ///
     /// ```
-    /// use config_editor_leptos::FieldPath;
-    /// use config_editor_leptos::language::LanguageConfig;
+    /// use leptos_config_editor::FieldPath;
+    /// use leptos_config_editor::language::LanguageConfig;
     /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
     /// let span = env.flat_key_span("A=1\nexport PORT = 80\n", &FieldPath::from("/PORT")).unwrap();
     /// assert_eq!((span.line, span.start_column, span.end_column), (2, 8, 12));
@@ -205,8 +205,8 @@ impl LanguageConfig {
     /// nested pointer, an empty value, or without separators.
     ///
     /// ```
-    /// use config_editor_leptos::FieldPath;
-    /// use config_editor_leptos::language::LanguageConfig;
+    /// use leptos_config_editor::FieldPath;
+    /// use leptos_config_editor::language::LanguageConfig;
     /// let env = LanguageConfig { separators: &["="], line_comments: &["#"], quotes: &["\""], ..LanguageConfig::default() };
     /// let span = env.flat_value_span("PORT = 80 \n", &FieldPath::from("/PORT")).unwrap();
     /// assert_eq!((span.line, span.start_column, span.end_column), (1, 8, 10));

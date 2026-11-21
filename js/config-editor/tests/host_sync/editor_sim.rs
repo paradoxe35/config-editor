@@ -4,12 +4,12 @@
 //! positions; only the JavaScript around it is left out (no edit is held
 //! back here, so `told` and the flush change nothing).
 
-use config_editor_leptos::TextRange;
+use leptos_config_editor::TextRange;
 
 use crate::host::{HostDoc, ranges_in};
 use crate::host_channel::{Given, HostChannel};
 use crate::model::{Act, Class, Core, Failure, Form, Outcome, ResetKind, read_ranges, user_edit};
-use config_editor_leptos::js_support::{Echo, echo_clock as clock};
+use leptos_config_editor::js_support::{Echo, echo_clock as clock};
 
 pub(crate) struct EditorSim {
     core: Core,

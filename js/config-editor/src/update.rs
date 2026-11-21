@@ -4,8 +4,8 @@
 //! (and `strings` text by text); a key the component is built from is
 //! refused.
 
-use config_editor_leptos::EditorSettings;
 use js_sys::{Array, Function, Reflect};
+use leptos_config_editor::EditorSettings;
 use wasm_bindgen::prelude::*;
 
 use crate::settings::{is_record, merged_texts, setting_keys, settings_from, settings_to_js};

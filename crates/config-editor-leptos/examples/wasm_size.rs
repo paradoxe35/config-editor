@@ -6,8 +6,8 @@
 //! (so `xsd` counts). Code a host does not use (`ConfigDocuments`, the handle's
 //! methods, the headless functions) is left out by the linker.
 
-use config_editor_leptos::{ConfigEditor, EditorSettings, Language, SchemaFormat, SchemaSource};
 use leptos::prelude::*;
+use leptos_config_editor::{ConfigEditor, EditorSettings, Language, SchemaFormat, SchemaSource};
 
 fn main() {
     leptos::mount::mount_to_body(|| {

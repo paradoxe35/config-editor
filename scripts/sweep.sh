@@ -26,7 +26,7 @@ cd "$(dirname "$0")/.."
 ROOT=$PWD
 
 # The properties. Columns: name, group (the CI job it runs in, so small ones
-# share a runner), binary (lib: the config-editor-leptos lib tests;
+# share a runner), binary (lib: the leptos-config-editor lib tests;
 # host_sync: config-editor-js's host_sync test), the cases and seed env
 # variables, the CI case count (the test's own default), the test path (its
 # last segments), and `ignored` for a test that runs only on request.
@@ -165,7 +165,7 @@ cmd_build() {
   local dir=${1:-target/sweep}
   mkdir -p "$dir"
   local spec bin
-  for spec in "lib:-p config-editor-leptos --lib" "host_sync:-p config-editor-js --test host_sync"; do
+  for spec in "lib:-p leptos-config-editor --lib" "host_sync:-p config-editor-js --test host_sync"; do
     bin=${spec%%:*}
     local path
     # shellcheck disable=SC2086 # the cargo arguments, split on spaces

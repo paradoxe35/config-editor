@@ -10,7 +10,7 @@
 //!
 //! ```ignore
 //! use leptos::prelude::*;
-//! use config_editor_leptos::{ConfigEditor, Language};
+//! use leptos_config_editor::{ConfigEditor, Language};
 //!
 //! let saved = RwSignal::new("name: app\n".to_string());
 //! view! {
@@ -51,7 +51,7 @@
 //!
 //! ```
 //! # #[cfg(all(feature = "schema-validation", feature = "toml", feature = "yaml", feature = "hcl"))] {
-//! use config_editor_leptos::{Language, Schema};
+//! use leptos_config_editor::{Language, Schema};
 //!
 //! let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
 //! assert!(schema.validate(Language::TOML, "listen = 7835\n").is_empty());
@@ -162,14 +162,14 @@ pub mod js_support {
     /// a placeholder). The error says what is wrong with it.
     ///
     /// ```
-    /// use config_editor_leptos::SecretOptions;
-    /// use config_editor_leptos::js_support::check_placeholder;
+    /// use leptos_config_editor::SecretOptions;
+    /// use leptos_config_editor::js_support::check_placeholder;
     /// assert!(check_placeholder(&SecretOptions::default()).is_ok());
     /// assert!(check_placeholder(&SecretOptions::default().with_placeholder("(")).is_err());
     /// assert!(check_placeholder(&SecretOptions::default().with_placeholder(".*")).is_err());
-    /// assert!(config_editor_leptos::js_support::is_web_url("https://example.com/docs"));
-    /// assert!(!config_editor_leptos::js_support::is_web_url("javascript:alert(1)"));
-    /// assert!(!config_editor_leptos::js_support::is_web_url("http://"));
+    /// assert!(leptos_config_editor::js_support::is_web_url("https://example.com/docs"));
+    /// assert!(!leptos_config_editor::js_support::is_web_url("javascript:alert(1)"));
+    /// assert!(!leptos_config_editor::js_support::is_web_url("http://"));
     /// ```
     pub fn check_placeholder(options: &crate::SecretOptions) -> Result<(), String> {
         options.check_placeholder()

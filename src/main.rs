@@ -1,4 +1,4 @@
-//! Demo host for `config-editor-leptos`: the same tunnel server config in every
+//! Demo host for `leptos-config-editor`: the same tunnel server config in every
 //! language, switchable from the toolbar (the language and Edit as live in
 //! the URL, so a reload keeps them; the theme, settings and read-only
 //! switches made on the page do not, but the flags below set them):
@@ -24,11 +24,11 @@
 //!   stylesheet loads; this page serves none;
 //!   `?colors=custom` overrides a few theme colors (`colors`).
 
-use config_editor_leptos::{
+use leptos::prelude::*;
+use leptos_config_editor::{
     ConfigEditor, ConfigEditorToolbar, EditorHandle, EditorSettings, FieldPath, Language,
     SaveRequest, ThemeColor, ThemeColors,
 };
-use leptos::prelude::*;
 
 mod documents_demo;
 mod output_panel;

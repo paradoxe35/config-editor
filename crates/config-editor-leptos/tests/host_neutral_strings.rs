@@ -3,7 +3,7 @@
 //! another user, and the editor cannot tell which. A host that knows says so
 //! through `strings` ("The file changed on the server.").
 
-use config_editor_leptos::EditorStrings;
+use leptos_config_editor::EditorStrings;
 
 /// Words that name one kind of host's storage.
 const ASSUMED: [&str; 4] = ["server", "disk", "backend", "cloud"];

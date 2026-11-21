@@ -51,7 +51,7 @@ const MARK: char = '\u{FDD0}';
 /// standing for an infinity or NaN.
 ///
 /// ```
-/// use config_editor_leptos::{float_of, float_value};
+/// use leptos_config_editor::{float_of, float_value};
 /// assert_eq!(float_value(1.5), serde_json::json!(1.5));
 /// assert_eq!(float_of(&float_value(f64::INFINITY)), Some(f64::INFINITY));
 /// ```
@@ -86,7 +86,7 @@ pub fn float_of(value: &Value) -> Option<f64> {
 /// whenever its text may start with U+FDD0; [`string_of`] reads it back.
 ///
 /// ```
-/// use config_editor_leptos::{float_of, string_of, string_value};
+/// use leptos_config_editor::{float_of, string_of, string_value};
 /// let text = string_value("\u{FDD0}inf");
 /// assert_eq!(float_of(&text), None);
 /// assert_eq!(string_of(&text), Some("\u{FDD0}inf"));

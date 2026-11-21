@@ -4,11 +4,11 @@
 //! same engine suggests and documents. A result of the wrong shape is warned
 //! about and read as `null`.
 
-use config_editor_leptos::language::{
+use js_sys::Array;
+use leptos_config_editor::language::{
     CompletionContext, ConfigLanguage, InsertContext, InsertPlan, SchemaPathSegment,
     utf16_to_byte_index,
 };
-use js_sys::Array;
 use wasm_bindgen::prelude::*;
 
 use super::js_language::JsLanguage;

@@ -1,6 +1,6 @@
 //! The keys table against the READMEs and `aria-keyshortcuts`: the crate
 //! README's Keyboard table is written from `KEYS` (regenerate with
-//! `UPDATE_GENERATED=1 cargo test -p config-editor-leptos --lib keyboard`),
+//! `UPDATE_GENERATED=1 cargo test -p leptos-config-editor --lib keyboard`),
 //! the npm README's key list names the same single chords, and the
 //! textarea's attribute names every one of them that works in the text,
 //! each while its setting is on.
@@ -57,7 +57,7 @@ fn generated() -> String {
         .collect();
     let (last, rest) = control_only.split_last().expect("Ctrl-only chords");
     format!(
-        "<!-- Generated from crates/config-editor-leptos/src/editor/a11y/keyboard.rs by its tests; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-leptos --lib keyboard`. -->\n\n{}\n\n`Cmd` works in place of `Ctrl` on macOS, except in {} and {last}.\n\n",
+        "<!-- Generated from crates/config-editor-leptos/src/editor/a11y/keyboard.rs by its tests; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p leptos-config-editor --lib keyboard`. -->\n\n{}\n\n`Cmd` works in place of `Ctrl` on macOS, except in {} and {last}.\n\n",
         aligned(&rows),
         rest.join(", "),
     )
@@ -80,7 +80,7 @@ fn the_readme_keyboard_table_is_written_from_the_keys() {
             std::fs::write(&path, updated).unwrap();
         } else {
             panic!(
-                "the README's Keyboard table is out of date: run `UPDATE_GENERATED=1 cargo test -p config-editor-leptos --lib keyboard`"
+                "the README's Keyboard table is out of date: run `UPDATE_GENERATED=1 cargo test -p leptos-config-editor --lib keyboard`"
             );
         }
     }

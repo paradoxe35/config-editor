@@ -72,7 +72,7 @@ method and headless function here has a JS option, method or function there
 ## Install
 
 ```sh
-cargo add config-editor-leptos
+cargo add leptos-config-editor
 ```
 
 Requires Leptos 0.8 with client-side rendering (`csr`), a Rust 1.89+
@@ -95,7 +95,7 @@ bytecount = { git = "https://github.com/CharlesNg35/bytecount", rev = "f9dd655e3
 
 ```rust
 use leptos::prelude::*;
-use config_editor_leptos::{ConfigEditor, EditorSettings, Language};
+use leptos_config_editor::{ConfigEditor, EditorSettings, Language};
 
 #[component]
 fn Config() -> impl IntoView {
@@ -163,7 +163,7 @@ a file instead (see
 | `on_baseline_conflict` | `Fn(BaselineConflict)`                       | —                     | Called when a new `baseline` arrives under unsaved edits (the notice opens) and when that is settled.                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 While editing as another language, edits reach `on_change` after each typing
-pause. Call `config_editor_leptos::flush_pending_edits()` before reading the
+pause. Call `leptos_config_editor::flush_pending_edits()` before reading the
 document from code (a Save button) to send an edit still waiting first.
 
 To build your own chrome, turn the built-in toolbar or footer off and compose
@@ -178,7 +178,7 @@ change, and pass a signal to switch any of them live: the caret, the undo
 history and the folds stay.
 
 ```rust
-use config_editor_leptos::{ConfigEditor, EditorSettings, EditorTheme};
+use leptos_config_editor::{ConfigEditor, EditorSettings, EditorTheme};
 
 let settings = RwSignal::new(EditorSettings {
     theme: EditorTheme::Nord,
@@ -639,7 +639,7 @@ through `on_change`, converted back while editing as another language). The
 footer shows the number of changes; clicking it moves to the next one.
 
 ```rust
-use config_editor_leptos::{unified_diff, ChangeSummary, ConfigEditor, Language};
+use leptos_config_editor::{unified_diff, ChangeSummary, ConfigEditor, Language};
 
 let saved = RwSignal::new(load());
 let text = RwSignal::new(saved.get_untracked());
@@ -708,7 +708,7 @@ mount when no `baseline` is given). `on_dirty_change` reports it once on
 mount and on every change; `EditorHandle::is_dirty` reads it.
 
 ```rust
-use config_editor_leptos::{BaselineConflict, ConfigEditor, EditorHandle, SaveRequest};
+use leptos_config_editor::{BaselineConflict, ConfigEditor, EditorHandle, SaveRequest};
 
 let saved = RwSignal::new(load());
 let text = RwSignal::new(saved.get_untracked());
@@ -821,7 +821,7 @@ the same schema text share one compiled `Schema` (pass a compiled `Schema`
 to share it with editors elsewhere).
 
 ```rust
-use config_editor_leptos::{CloseRequest, ConfigDocuments, Document, DocumentsHandle, SaveRequest};
+use leptos_config_editor::{CloseRequest, ConfigDocuments, Document, DocumentsHandle, SaveRequest};
 
 const SCHEMA: &str = include_str!("schema.json");
 let documents = RwSignal::new(vec![
@@ -927,7 +927,7 @@ text)` (the `edit_as` language and the `edit_as_text` field) opens the
   text area's accessible description.
 
 ```rust
-use config_editor_leptos::{Document, DocumentsHandle, Language};
+use leptos_config_editor::{Document, DocumentsHandle, Language};
 
 let tabs = DocumentsHandle::new();
 // Restored after the page came back: the TOML the user had, not yet valid.
@@ -976,7 +976,7 @@ tabs.edit_as("main", Language::TOML);
   mounts).
 
 ```rust
-use config_editor_leptos::{Document, EditorSettings, FieldPath, HostDiagnostic, Severity};
+use leptos_config_editor::{Document, EditorSettings, FieldPath, HostDiagnostic, Severity};
 
 let view_settings = EditorSettings { show_footer: true, ..EditorSettings::default() };
 let drop_in = Document::new("tls", "conf.d/tls.toml", tls_text)
@@ -1022,7 +1022,7 @@ An [`EditorHandle`] passed as `handle` maps paths to the text on screen and
 back, and jumps to fields:
 
 ```rust
-use config_editor_leptos::{ConfigEditor, EditorHandle, FieldPath};
+use leptos_config_editor::{ConfigEditor, EditorHandle, FieldPath};
 
 let editor = EditorHandle::new();
 let crumb = RwSignal::new(FieldPath::root());
@@ -1064,7 +1064,7 @@ its problems as `host_diagnostics`. Each points at a field by path
 of the host's text, or at the whole document:
 
 ```rust
-use config_editor_leptos::{ConfigEditor, EditorSettings, HostDiagnostic, Severity};
+use leptos_config_editor::{ConfigEditor, EditorSettings, HostDiagnostic, Severity};
 
 let problems = RwSignal::new(Vec::new());
 // After the host's check answered:
@@ -1131,7 +1131,7 @@ any, in `x-readonly-reason`), when the host names it in `read_only_paths`
 whole-document `read_only` stays as it is.
 
 ```rust
-use config_editor_leptos::{ConfigEditor, FieldPath, TextPosition, TextRange};
+use leptos_config_editor::{ConfigEditor, FieldPath, TextPosition, TextRange};
 
 // {"properties": {"id": {"type": "string", "readOnly": true,
 //                        "x-readonly-reason": "Assigned when created"}}}
@@ -1226,7 +1226,7 @@ The host never sends their values: it writes a placeholder token instead
 user replaces it.
 
 ```rust
-use config_editor_leptos::{ConfigEditor, SecretOptions};
+use leptos_config_editor::{ConfigEditor, SecretOptions};
 
 // tls:
 //   key: «secret 3f2a»
@@ -1442,7 +1442,7 @@ the built-in format of a schema file by its extension.
 | Your own: `SchemaFormat::new(&YOURS)`           | its `info().name` | its `info().extensions`                                           |
 
 ```rust
-use config_editor_leptos::{SchemaFormat, SchemaResources, SchemaSource};
+use leptos_config_editor::{SchemaFormat, SchemaResources, SchemaSource};
 
 // An OpenAPI document's named schema:
 let mut options = serde_json::Map::new();
@@ -1510,7 +1510,7 @@ pass the [`Schema`].
   JSON Schema at build time).
 
 ```rust
-use config_editor_leptos::{CompiledSchema, SchemaCompiler, SchemaError, SchemaFormatInfo,
+use leptos_config_editor::{CompiledSchema, SchemaCompiler, SchemaError, SchemaFormatInfo,
     SchemaInput, SchemaLoss, LossEffect};
 
 struct Fields;
@@ -1554,7 +1554,7 @@ documents every view of the document (Edit-as YAML of a `pom.xml` is
 checked against the POM's XSD too):
 
 ```rust
-use config_editor_leptos::{Schema, SchemaFormat, SchemaInput};
+use leptos_config_editor::{Schema, SchemaFormat, SchemaInput};
 
 let mut options = serde_json::Map::new();
 options.insert("root".into(), "project".into());
@@ -1645,7 +1645,7 @@ no key, an unknown attribute beside a wildcard): the verdicts agree.
 ## Keyboard
 
 <!-- keyboard:start -->
-<!-- Generated from crates/config-editor-leptos/src/editor/a11y/keyboard.rs by its tests; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-leptos --lib keyboard`. -->
+<!-- Generated from crates/config-editor-leptos/src/editor/a11y/keyboard.rs by its tests; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p leptos-config-editor --lib keyboard`. -->
 
 | Keys                                         | Action                                                                                                                                                                                          |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1850,7 +1850,7 @@ in their place keeps it instant; the demo pages use one.
 The same engine without the component:
 
 ```rust
-use config_editor_leptos::{check_syntax, Language, Schema};
+use leptos_config_editor::{check_syntax, Language, Schema};
 
 let schema = Schema::compile(include_str!("schema.json"))?;
 // At most 20; past that, a last one without a position says more follow
@@ -1975,8 +1975,8 @@ a capability (diagnostic positions, completion, hover, highlighting,
 conversion), and `config` describes the syntax and traits as data:
 
 ```rust
-use config_editor_leptos::Language;
-use config_editor_leptos::language::{ConfigLanguage, LanguageInfo, ParseError};
+use leptos_config_editor::Language;
+use leptos_config_editor::language::{ConfigLanguage, LanguageInfo, ParseError};
 
 struct DotEnv;
 
@@ -2049,7 +2049,7 @@ needed. The crate's `tests/ini/mod.rs` is the whole INI language, and
 `tests/custom_language_completion.rs` its tests.
 
 ```rust
-use config_editor_leptos::{Schema, TextPosition};
+use leptos_config_editor::{Schema, TextPosition};
 
 let schema = Schema::compile(r#"{"properties": {"server": {"properties": {
     "port": {"type": "integer", "description": "Port to listen on"}}}}}"#)?;
@@ -2075,7 +2075,7 @@ characters; it asks the language.
 <summary>The LanguageConfig fields, with an example</summary>
 
 ```rust
-use config_editor_leptos::language::{LanguageConfig, LanguageTraits};
+use leptos_config_editor::language::{LanguageConfig, LanguageTraits};
 
 fn config(&self) -> LanguageConfig {
     LanguageConfig {
@@ -2124,7 +2124,7 @@ The traits in `config().traits` (`LanguageTraits`): `writes_non_finite`,
 `one_number_type`, `indent_is_structure`, `plain_scalars`,
 `scalars_are_text`.
 
-`config_editor_leptos::language` also exports the other helpers the built-in
+`leptos_config_editor::language` also exports the other helpers the built-in
 languages use (tokens, schema lookups, inline-container scanning, indent
 detection). `tests/custom_language.rs` is a complete example.
 
@@ -2157,7 +2157,7 @@ their slugs parse with `FromStr`, as the JS package names them).
 Override any color for a brand palette; every token is a `ThemeColor`:
 
 ```rust
-use config_editor_leptos::{EditorSettings, EditorTheme, ThemeColor, ThemeColors};
+use leptos_config_editor::{EditorSettings, EditorTheme, ThemeColor, ThemeColors};
 
 let brand = ThemeColors::new()
     .set(ThemeColor::Background, "#101418")
@@ -2270,11 +2270,11 @@ build.
 
 ```toml
 # YAML with live schema diagnostics:
-config-editor-leptos = { version = "0.1", default-features = false, features = ["schema-validation", "yaml"] }
+leptos-config-editor = { version = "0.1", default-features = false, features = ["schema-validation", "yaml"] }
 # YAML and TOML with schema completions and hover, validated elsewhere:
-config-editor-leptos = { version = "0.1", default-features = false, features = ["yaml", "toml"] }
+leptos-config-editor = { version = "0.1", default-features = false, features = ["yaml", "toml"] }
 # The smallest editor: YAML, nothing optional:
-config-editor-leptos = { version = "0.1", default-features = false, features = ["yaml"] }
+leptos-config-editor = { version = "0.1", default-features = false, features = ["yaml"] }
 ```
 
 With no language feature, use your own languages through `Language::new`.
@@ -2352,14 +2352,14 @@ puts it here. Sizes move with the toolchain and the dependencies.
 MIT. See [LICENSE](LICENSE).
 
 [Leptos]: https://leptos.dev
-[`Schema::warnings`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.Schema.html#method.warnings
-[`PRESET_CSS`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/constant.PRESET_CSS.html
-[`Schema`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.Schema.html
-[`SchemaCompiler`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/trait.SchemaCompiler.html
-[`SchemaFormat`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.SchemaFormat.html
-[`SchemaLoss`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.SchemaLoss.html
-[`SchemaCheck`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/trait.SchemaCheck.html
-[`CheckedDocument`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.CheckedDocument.html
-[`CheckProblem`]: https://docs.rs/config-editor-leptos/latest/config_editor_leptos/struct.CheckProblem.html
+[`Schema::warnings`]: https://docs.rs/leptos-config-editor/latest/leptos_config_editor/struct.Schema.html#method.warnings
+[`PRESET_CSS`]: https://docs.rs/leptos-config-editor/latest/leptos_config_editor/constant.PRESET_CSS.html
+[`Schema`]: https://docs.rs/leptos-config-editor/latest/leptos_config_editor/struct.Schema.html
+[`SchemaCompiler`]: https://docs.rs/leptos-config-editor/latest/leptos_config_editor/trait.SchemaCompiler.html
+[`SchemaFormat`]: https://docs.rs/leptos-config-editor/latest/leptos_config_editor/struct.SchemaFormat.html
+[`SchemaLoss`]: https://docs.rs/leptos-config-editor/latest/leptos_config_editor/struct.SchemaLoss.html
+[`SchemaCheck`]: https://docs.rs/leptos-config-editor/latest/leptos_config_editor/trait.SchemaCheck.html
+[`CheckedDocument`]: https://docs.rs/leptos-config-editor/latest/leptos_config_editor/struct.CheckedDocument.html
+[`CheckProblem`]: https://docs.rs/leptos-config-editor/latest/leptos_config_editor/struct.CheckProblem.html
 [`@pngwasi/config-editor`]: https://github.com/paradoxe35/config-editor/tree/main/js/config-editor
 [`@pngwasi/config-editor-react`]: https://github.com/paradoxe35/config-editor/tree/main/js/config-editor-react

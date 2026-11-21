@@ -4,13 +4,13 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ops::Range;
 
-use config_editor_leptos::FieldPath;
-use config_editor_leptos::language::{
+use js_sys::{Array, Function};
+use leptos_config_editor::FieldPath;
+use leptos_config_editor::language::{
     CompletionContext, ConfigLanguage, Hover, InsertContext, InsertPlan, LanguageConfig,
     LanguageInfo, ParseError, SaveLayout, SchemaPathSegment, Span, Text, Token, TokenKind, Tokens,
     Typing, flat_value_text, flat_write_insert,
 };
-use js_sys::{Array, Function};
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
 

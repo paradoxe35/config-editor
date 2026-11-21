@@ -1,6 +1,6 @@
 {
   "name": "@pngwasi/config-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Schema-aware config editor for YAML, JSON, TOML, HCL and XML in the browser (Rust/WebAssembly)",
   "type": "module",
   "main": "index.js",

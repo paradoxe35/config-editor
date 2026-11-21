@@ -5,9 +5,9 @@
 
 use std::collections::HashMap;
 
-use config_editor_leptos::TextRange;
-use config_editor_leptos::js_support::{Echo, flush_pending_input};
 use leptos::prelude::{GetValue, UpdateValue, WithUntracked, WithValue};
+use leptos_config_editor::TextRange;
+use leptos_config_editor::js_support::{Echo, flush_pending_input};
 use wasm_bindgen::JsValue;
 
 use super::State;

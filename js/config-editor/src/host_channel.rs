@@ -15,8 +15,8 @@
 //! By path: the native tests (`tests/host_channel.rs`, `tests/host_sync`)
 //! load this file too.
 
-use config_editor_leptos::js_support::{Echo, Echoes};
-use config_editor_leptos::{HostDiagnostic, TextRange};
+use leptos_config_editor::js_support::{Echo, Echoes};
+use leptos_config_editor::{HostDiagnostic, TextRange};
 
 use crate::host_locks::HostLocks;
 use crate::remap::{moved_between, reads_as};

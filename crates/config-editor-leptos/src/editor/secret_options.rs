@@ -12,7 +12,7 @@ const REFERENCE_PREFIXES: [&str; 2] = ["${", "file:"];
 /// How the editor treats secret placeholders, for the `secrets` prop.
 ///
 /// ```
-/// use config_editor_leptos::SecretOptions;
+/// use leptos_config_editor::SecretOptions;
 /// let options = SecretOptions::default()
 ///     .with_placeholder(r"<redacted:[a-z0-9]+>")
 ///     .with_hint("Leave as is to keep the stored secret")

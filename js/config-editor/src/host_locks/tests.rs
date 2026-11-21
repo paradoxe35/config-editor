@@ -1,6 +1,6 @@
 //! The model's transitions: each reset carries the ranges as
 //! given, afresh; nothing a reset hands the editor becomes the given ones.
-use config_editor_leptos::{TextPosition, TextRange};
+use leptos_config_editor::{TextPosition, TextRange};
 
 use super::HostLocks;
 

@@ -401,7 +401,7 @@ packages.
 - The crate README's Keyboard table, written from the keys table in
   `src/editor/a11y/keyboard.rs` (which also names the keys in
   `aria-keyshortcuts`): `UPDATE_GENERATED=1 cargo test -p
-config-editor-leptos --lib keyboard`.
+leptos-config-editor --lib keyboard`.
 - The screenshots in `docs/screenshots` and their gallery page:
   `cd e2e && npm run screenshots` (after `trunk build --release` and the npm
   build). A UI change reruns the scenes it affects; a new visible feature
