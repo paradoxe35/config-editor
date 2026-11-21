@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { editor, setupEditor } from './helpers.mjs';
 
 // What the editor draws over the text sits on the text it marks when the
@@ -152,3 +155,131 @@ for (const theme of THEMES) {
     });
   });
 }
+
+// The same overlays over wide text the editor starts with, before any
+// edit: drawn at mount, before the text area was on the page to measure,
+// the underlines once took each character for a column and stayed so
+// until the first key.
+const WIDE = FILLS.cjk;
+const STARTS_WITH = {
+  json: `{"${WIDE}": "${WIDE}", "listen": true}\n`,
+  yaml: `# ${WIDE}\n"${WIDE}": "${WIDE}"\nlisten: true\n${WIDE}: x\n`,
+  toml: `"${WIDE}" = "${WIDE}"\nlisten = true\n`,
+};
+
+/**
+ * The problem underlines of the editors shown in `root` with wide text
+ * before or under them, each with whether it sits on its own text as
+ * painted (on any copy of that text on its line).
+ */
+function underlinesOnText(page, root) {
+  return page.evaluate((root) => {
+    const range = document.createRange();
+    const paintedAt = (row, start, end) => {
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+      let offset = 0;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const after = offset + node.length;
+        if (start >= offset && start <= after) range.setStart(node, start - offset);
+        if (end >= offset && end <= after) range.setEnd(node, end - offset);
+        offset = after;
+      }
+      return range.getBoundingClientRect();
+    };
+    const underlinesOf = (scope) => {
+      const rows = [...scope.querySelectorAll('.config-editor__highlight .config-editor__code-line')];
+      return [...scope.querySelectorAll('.config-editor__diagnostic-marker')]
+        .filter((marker) => marker.textContent)
+        .map((marker) => {
+          const box = marker.getBoundingClientRect();
+          const middle = (box.top + box.bottom) / 2;
+          const row = rows.find((row) => {
+            const line = row.getBoundingClientRect();
+            return line.top <= middle && middle <= line.bottom;
+          });
+          const text = row?.textContent ?? '';
+          const marked = marker.textContent;
+          const places = [];
+          for (let at = text.indexOf(marked); at >= 0; at = text.indexOf(marked, at + 1)) {
+            places.push(paintedAt(row, at, at + marked.length));
+          }
+          const wide = /[^\x00-\x7f]/.test(text.slice(0, text.lastIndexOf(marked) + marked.length));
+          const on = places.some(
+            (place) => Math.abs(place.left - box.left) < 1.5 && Math.abs(place.right - box.right) < 1.5,
+          );
+          return { marked, wide, on, drawn: [box.left, box.right], painted: places.map((place) => [place.left, place.right]) };
+        })
+        .filter((underline) => underline.wide);
+    };
+    // A documents view keeps its other documents' editors, hidden.
+    const editors = [...document.querySelector(root).querySelectorAll('.config-editor')];
+    return editors.filter((editor) => editor.checkVisibility({ visibilityProperty: true })).flatMap(underlinesOf);
+  }, root);
+}
+
+/** Expects underlines over or after wide text in `root`, every one on its text. */
+async function expectUnderlinesOnText(page, root = 'body') {
+  const underlines = await underlinesOnText(page, root);
+  expect(underlines.length, 'underlines over or after wide text').toBeGreaterThan(0);
+  expect(underlines.filter((underline) => !underline.on), 'underlines off their text').toEqual([]);
+}
+
+const js = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
+const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm'));
+const VANILLA = pathToFileURL(join(js, 'examples', 'vanilla.html')).href;
+
+test.describe('overlays on wide text the editor starts with', () => {
+  for (const [language, value] of Object.entries(STARTS_WITH)) {
+    test(`${language}: the underlines (and the tip) sit on their text before any edit`, async ({ page, baseURL }) => {
+      await page.addInitScript((text) => {
+        window.configEditorSample = text;
+      }, value);
+      await page.goto(`${baseURL}?language=${language}&sample=page`);
+      await page.locator('.config-editor__diagnostic-marker').first().waitFor();
+      await expectUnderlinesOnText(page);
+      if (language !== 'json') return;
+      // The tip opens at the painted text under the pointer.
+      const text = await paintedNeedle(page, 0, 'true');
+      await page.mouse.move((text.left + text.right) / 2, (text.top + text.bottom) / 2, { steps: 3 });
+      const tip = page.locator('.config-editor__problem-tip');
+      await expect(tip).toBeVisible();
+      expect(Math.abs((await box(tip)).left - text.left), 'tip left').toBeLessThan(2);
+    });
+  }
+
+  test.describe('in the JS package', () => {
+    test.skip(!built, 'js packages not built: run `npm run build` in js/');
+
+    test('a ConfigEditor made with wide text draws its underlines on it', async ({ page }) => {
+      const options = { language: 'json', value: STARTS_WITH.json };
+      await page.goto(`${VANILLA}?options=${encodeURIComponent(JSON.stringify(options))}`);
+      await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      await page.locator('#editor .config-editor__diagnostic-marker').first().waitFor();
+      await expectUnderlinesOnText(page, '#editor');
+    });
+
+    test('each Documents tab with wide text draws its underlines on it', async ({ page }) => {
+      await page.goto(VANILLA);
+      await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      await page.evaluate(async (documents) => {
+        const { ConfigDocuments } = await import('../config-editor/index.js');
+        const schema = await (await fetch('../../schema.json')).text();
+        window.editor.destroy();
+        const host = document.createElement('div');
+        host.id = 'documents';
+        host.style.height = '400px';
+        document.body.prepend(host);
+        window.documentsView = new ConfigDocuments(host, {
+          documents: documents.map(([language, value]) => ({ id: language, fileName: `wide.${language}`, value, schema })),
+          activeId: 'json',
+        });
+      }, Object.entries(STARTS_WITH));
+      for (const language of Object.keys(STARTS_WITH)) {
+        await page.evaluate((id) => window.documentsView.update({ activeId: id }), language);
+        await page.locator('#documents .config-editor__diagnostic-marker:visible').first().waitFor();
+        await page.waitForTimeout(200);
+        await expectUnderlinesOnText(page, '#documents');
+      }
+    });
+  });
+});

@@ -417,6 +417,7 @@ pub fn ConfigEditor(
         Effect::new(move |_| on_path_change.run(state.doc().caret_path.get()));
     }
     remeasure_on_window_changes(state);
+    state.follow_text_widths();
     popups::close_popups_on_outside_press(state);
     kept_focus::keep_focus_in_editor(state);
     popups::close_popups_on_escape_over_them(state);

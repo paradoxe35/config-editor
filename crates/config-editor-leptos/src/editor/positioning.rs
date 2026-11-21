@@ -10,6 +10,7 @@ use super::source_area::SourceArea;
 use super::state::EditorState;
 use crate::cssom::Declarations;
 use crate::editor::text::{TextSize, slice};
+use crate::reactive::later;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
@@ -174,14 +175,44 @@ impl PopupFrame {
 }
 
 impl EditorState {
-    /// How the text area draws text (counted before it is mounted).
+    /// How the text area draws text (counted until it is on the page to
+    /// measure). Read in a view or memo, it draws again once the widths
+    /// are measured, and when they change.
     pub(super) fn text_widths(&self) -> TextWidths {
-        self.view()
-            .textarea_ref
-            .get_untracked()
-            .map_or(TextWidths::COUNTED, |element| {
-                read_editor_metrics(&element).widths
-            })
+        self.view().widths.get()
+    }
+
+    /// Keeps [`text_widths`](Self::text_widths) measured: once the text
+    /// area is on the page (a frame after it is made, as a host may put
+    /// the editor in the page after building it), and again when its font
+    /// may have changed: another theme, the window or the text area
+    /// resized. Without it the overlays drawn at mount kept counted
+    /// widths until the first edit.
+    pub(super) fn follow_text_widths(self) {
+        let view = self.view();
+        let measure = move |_: EditorState| {
+            let Some(element) = view.textarea_ref.get_untracked() else {
+                return;
+            };
+            if !element.is_connected() {
+                return;
+            }
+            let widths = read_editor_metrics(&element).widths;
+            if view.widths.get_untracked() != widths {
+                view.widths.set(widths);
+            }
+        };
+        Effect::new(move |_| {
+            view.layout_revision.track();
+            self.config().settings.theme.track();
+            if view.textarea_ref.get().is_some() {
+                // Now, for the first frame when the text area is on the
+                // page already; and once more before the next frame, when
+                // it (or a new theme's style) is there.
+                untrack(|| measure(self));
+                later::next_frame(self, measure);
+            }
+        });
     }
 }
 
