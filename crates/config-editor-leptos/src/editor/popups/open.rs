@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use super::super::components::HoverCard;
-use super::super::problem_hit::{column_at_cell, covering};
+use super::super::problem_hit::covering;
 use super::super::state::EditorState;
 use super::machine::{Fire, Kind, Opener, Settled, Then};
 use super::{PendingCard, Popup};
@@ -172,22 +172,22 @@ impl EditorState {
         }
     }
 
-    /// The pointer is over rendered cell `cell` of zero-based `line`: the
-    /// tip shows the problems covering the character there, or closes (a
-    /// moment later) where none does.
-    pub(crate) fn point_at_problems(&self, line: usize, cell: usize) {
-        match self.problem_place_at(line, cell) {
+    /// The pointer is over character `column` (zero-based) of zero-based
+    /// `line`: the tip shows the problems covering it, or closes (a moment
+    /// later) where none does.
+    pub(crate) fn point_at_problems(&self, line: usize, column: usize) {
+        match self.problem_place_at(line, column) {
             Some(place) => self.hover_problem(place),
             None => self.leave_problem(),
         }
     }
 
-    /// The place (one-based line, column) of rendered cell `cell` of
-    /// zero-based `line` when problems cover the character there.
-    pub(crate) fn problem_place_at(&self, line: usize, cell: usize) -> Option<(usize, usize)> {
+    /// The place (one-based line, column) of character `column`
+    /// (zero-based) of zero-based `line` when problems cover it.
+    pub(crate) fn problem_place_at(&self, line: usize, column: usize) -> Option<(usize, usize)> {
         self.doc().text.with_untracked(|text| {
             let line_text = text.split('\n').nth(line).unwrap_or("");
-            let place = (line + 1, column_at_cell(line_text, cell));
+            let place = (line + 1, column + 1);
             self.problems().diagnostics.with_untracked(|problems| {
                 covering(problems, place.0, place.1, line_text)
                     .next()
@@ -270,11 +270,11 @@ impl EditorState {
             Fire::Close {
                 kind: Kind::Tip, ..
             } => self.hide_problem_tip(),
-            Fire::Settle { line, cell } => {
+            Fire::Settle { line, column } => {
                 if self.reachable_popup().is_none() {
                     return;
                 }
-                let shows_own = self.shows_own_popup(line, cell);
+                let shows_own = self.shows_own_popup(line, column);
                 if self.step(|machine| machine.settle(line, shows_own)) == Some(Settled::Text) {
                     self.hide_hover();
                     self.hide_problem_tip();

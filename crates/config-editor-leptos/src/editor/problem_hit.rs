@@ -4,8 +4,8 @@
 //! The underlines themselves take no pointer events: a click, double-click,
 //! drag or tap on underlined text reaches the text, as in VS Code.
 
-use super::completion::{advance, visual_column};
 use super::diagnostics::Diagnostic;
+use super::metrics::TextWidths;
 
 /// The one-based character columns `from..to` that `problem`'s underline
 /// covers on one-based `line`, `length` characters long (at least one
@@ -66,39 +66,24 @@ pub(super) fn innermost_start(
 }
 
 /// Where the tip of the problems covering `line`:`column` points: the
-/// rendered column where the innermost of them starts on that line.
+/// drawn column (in `widths`) where the innermost of them starts on that
+/// line.
 pub(super) fn tip_column(
     problems: &[Diagnostic],
     line: usize,
     column: usize,
     line_text: &str,
+    widths: TextWidths,
 ) -> f64 {
     let from = innermost_start(problems, line, column, line_text).unwrap_or(column);
     let before: String = line_text.chars().take(from.saturating_sub(1)).collect();
-    visual_column(&before)
-}
-
-/// The one-based character column drawn at rendered cell `cell` (zero-based,
-/// a tab two cells) of `line_text`; past its end, one more per cell.
-pub(super) fn column_at_cell(line_text: &str, cell: usize) -> usize {
-    let cell = cell as f64;
-    let mut drawn = 0.0;
-    let mut count = 0;
-    for character in line_text.chars() {
-        let next = advance(drawn, character);
-        // A mark with no width belongs to the character before it.
-        if next > drawn && cell < next {
-            return count + 1;
-        }
-        drawn = next;
-        count += 1;
-    }
-    count + 1 + (cell - drawn).max(0.0) as usize
+    widths.columns(&before)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{column_at_cell, covering, span_on, tip_column};
+    use super::{covering, span_on, tip_column};
+    use crate::editor::metrics::TextWidths;
     use crate::{Diagnostic, Severity};
 
     fn range(line: usize, column: usize, end_line: Option<usize>, end_column: usize) -> Diagnostic {
@@ -138,8 +123,8 @@ mod tests {
         // Past the line's end only the range's line-end mark (none here).
         assert_eq!(at(23), Vec::<&str>::new());
         // The tip points at the innermost start.
-        assert_eq!(tip_column(&problems, 6, 5, text), 2.0);
-        assert_eq!(tip_column(&problems, 6, 12, text), 0.0);
+        assert_eq!(tip_column(&problems, 6, 5, text, TextWidths::COUNTED), 2.0);
+        assert_eq!(tip_column(&problems, 6, 12, text, TextWidths::COUNTED), 0.0);
     }
 
     #[test]
@@ -153,18 +138,5 @@ mod tests {
         assert_eq!(span_on(&problem, 5, 10), None);
         // At a line's end: one character wide.
         assert_eq!(span_on(&range(1, 4, None, 4), 1, 3), Some((4, 5)));
-    }
-
-    #[test]
-    fn cells_map_to_characters_across_tabs_and_marks() {
-        assert_eq!(column_at_cell("abc", 0), 1);
-        assert_eq!(column_at_cell("abc", 2), 3);
-        assert_eq!(column_at_cell("abc", 3), 4);
-        assert_eq!(column_at_cell("abc", 5), 6);
-        // A tab is two cells wide.
-        assert_eq!(column_at_cell("\tab", 1), 1);
-        assert_eq!(column_at_cell("\tab", 2), 2);
-        // `e` + U+0301 is drawn in one cell.
-        assert_eq!(column_at_cell("e\u{301}x", 1), 3);
     }
 }

@@ -9,7 +9,7 @@
 
 use wasm_bindgen::JsCast;
 
-use super::super::completion::{visual_column, zero_width};
+use super::super::metrics::{TextWidths, zero_width};
 use super::super::source_area::SourceArea;
 use crate::page_scroll::scale_of;
 
@@ -75,7 +75,7 @@ fn columns_x(line: &str, units: usize) -> f64 {
         }
         taken += character.len_utf16();
     }
-    visual_column(&line[..end])
+    TextWidths::COUNTED.columns(&line[..end])
 }
 
 /// The UTF-16 offsets into `line` a caret can stand at: between
@@ -203,7 +203,7 @@ mod tests {
     fn columns_count_tabs_to_their_stops_and_marks_as_none() {
         assert_eq!(COLUMNS.goal("a\tx", 2), 2.0);
         assert_eq!(COLUMNS.goal("e\u{301}x", 2), 1.0);
-        assert_eq!(COLUMNS.goal("😀x", 2), visual_column("😀"));
+        assert_eq!(COLUMNS.goal("😀x", 2), TextWidths::COUNTED.columns("😀"));
         assert_eq!(Ruler::Columns { width: 7.5 }.goal("ab", 2), 15.0);
         assert_eq!(COLUMNS.goal("ab", 9), 2.0);
     }

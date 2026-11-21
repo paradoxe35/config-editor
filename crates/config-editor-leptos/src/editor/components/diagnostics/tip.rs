@@ -40,9 +40,9 @@ struct TipContent {
     entries: Vec<Entry>,
 }
 
-/// Where the tip points: one-based `line`, from rendered column `column`
-/// (zero-based; tabs count two), where the innermost problem shown starts
-/// there. The same while the pointer moves over the same problems, so the
+/// Where the tip points: one-based `line`, from drawn column `column`
+/// (zero-based, as `TextWidths` measures it), where the innermost problem
+/// shown starts there. The same while the pointer moves over the same problems, so the
 /// tip stays put.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Anchor {
@@ -258,12 +258,13 @@ fn tip_content(state: EditorState) -> Option<TipContent> {
     if entries.is_empty() {
         return None;
     }
+    let widths = state.text_widths();
     let column = state.doc().text.with_untracked(|text| {
         let line_text = text.split('\n').nth(line - 1).unwrap_or("");
         state
             .problems()
             .diagnostics
-            .with_untracked(|found| tip_column(found, line, column, line_text))
+            .with_untracked(|found| tip_column(found, line, column, line_text, widths))
     });
     Some(TipContent {
         anchor: Anchor { line, column },

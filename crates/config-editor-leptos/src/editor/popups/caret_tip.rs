@@ -5,7 +5,6 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use super::super::completion::visual_column;
 use super::super::keyboard::utf16_to_byte_index;
 use super::super::metrics::read_editor_metrics;
 use super::super::positioning::hover_card_style;
@@ -25,7 +24,7 @@ pub(crate) fn caret_tip_style(state: EditorState, offset: usize) -> Option<Decla
         let line_start = text[..byte].rfind('\n').map_or(0, |at| at + 1);
         (
             text[..line_start].matches('\n').count(),
-            visual_column(&text[line_start..byte]) as usize,
+            text[line_start..byte].chars().count(),
         )
     });
     line_in_view(&element, line).then(|| hover_card_style(&element, line, column))

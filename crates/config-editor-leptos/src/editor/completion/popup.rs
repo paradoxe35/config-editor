@@ -41,52 +41,6 @@ pub(crate) fn completion_list_scrolled(state: EditorState) {
     }
 }
 
-/// Tab width, in columns, for estimating the caret's x position without
-/// measuring text; close enough for the short keys suggested.
-pub(crate) const COMPLETION_TAB_STOP_WIDTH: f64 = 2.0;
-
-/// The rendered column after `text`, with tabs at their tab stops and
-/// marks drawn over the character before them (`e` + U+0301 is one `é`)
-/// taking no column.
-pub(crate) fn visual_column(text: &str) -> f64 {
-    text.chars().fold(0.0, advance)
-}
-
-/// The rendered column after `character` drawn at `column` (see
-/// `visual_column`).
-pub(crate) fn advance(column: f64, character: char) -> f64 {
-    if character == '\t' {
-        column + COMPLETION_TAB_STOP_WIDTH - (column % COMPLETION_TAB_STOP_WIDTH)
-    } else if zero_width(character) {
-        column
-    } else {
-        column + 1.0
-    }
-}
-
-/// Whether `character` is drawn without a width of its own: a combining
-/// mark, a variation selector, or a zero-width joiner or space.
-pub(crate) fn zero_width(character: char) -> bool {
-    matches!(
-        u32::from(character),
-        0x0300..=0x036F
-            | 0x0483..=0x0489
-            | 0x0591..=0x05BD
-            | 0x0610..=0x061A
-            | 0x064B..=0x065F
-            | 0x0E31
-            | 0x0E34..=0x0E3A
-            | 0x0E47..=0x0E4E
-            | 0x1AB0..=0x1AFF
-            | 0x1DC0..=0x1DFF
-            | 0x200B..=0x200F
-            | 0x20D0..=0x20FF
-            | 0xFE00..=0xFE0F
-            | 0xFE20..=0xFE2F
-            | 0xE0100..=0xE01EF
-    )
-}
-
 /// Completion popup width, in pixels: room for key, type and detail.
 pub(crate) const COMPLETION_POPUP_WIDTH: f64 = 420.0;
 
@@ -201,11 +155,15 @@ pub(crate) fn completion_popup_style(
     let rect = frame.bounds(&element.get_bounding_client_rect());
     let metrics = read_editor_metrics(element);
     let prefix = &source[..utf16_to_byte_index(source, cursor)];
-    let (line, column) = prefix
-        .rsplit_once('\n')
-        .map_or((0, visual_column(prefix)), |(before, after)| {
-            (before.matches('\n').count() + 1, visual_column(after))
-        });
+    let (line, column) =
+        prefix
+            .rsplit_once('\n')
+            .map_or((0, metrics.widths.columns(prefix)), |(before, after)| {
+                (
+                    before.matches('\n').count() + 1,
+                    metrics.widths.columns(after),
+                )
+            });
     let caret_x = rect.left + metrics.padding_left + column * metrics.char_width
         - editor.scroll_left() as f64;
     // The caret's row, folded lines skipped.
@@ -220,31 +178,4 @@ pub(crate) fn completion_popup_style(
         option_count,
         row_size,
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::visual_column;
-
-    /// An underline after `é` written as `e` + U+0301 sat one column
-    /// to the right: the mark takes no column of its own, in every overlay
-    /// that places itself by column (problems, matches, locks, fold chips).
-    #[test]
-    fn marks_over_a_character_take_no_column() {
-        let cases = [
-            ("e\u{301}x", 2.0),
-            ("caf\u{e9}", 4.0),
-            ("cafe\u{301}", 4.0),
-            ("a\u{20dd}b", 2.0),
-            ("\u{2764}\u{fe0f}", 1.0),
-            ("a\u{200d}b", 2.0),
-            ("\tx", 3.0),
-        ];
-        let failures: Vec<String> = cases
-            .iter()
-            .filter(|(text, expected)| visual_column(text) != *expected)
-            .map(|(text, expected)| format!("{text:?}: {} not {expected}", visual_column(text)))
-            .collect();
-        assert!(failures.is_empty(), "{}", failures.join("\n"));
-    }
 }

@@ -7,7 +7,6 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use super::super::changes::hides_change;
-use super::super::completion::visual_column;
 use super::super::diagnostics::Severity;
 use super::super::line_rows::LineRows;
 use super::super::positioning::row_box;
@@ -82,10 +81,11 @@ fn fold_items(state: EditorState) -> FoldItems {
 /// width.
 fn closed_details(state: EditorState, line: usize, last: usize) -> (bool, usize) {
     let changed = hides_change(state, line + 1..=last);
+    let widths = state.text_widths();
     let width = state.view().lines.with(|lines| {
         lines
             .get(line)
-            .map_or(0.0, |rendered| visual_column(&rendered.text))
+            .map_or(0.0, |rendered| widths.columns(&rendered.text))
     });
     (changed, (width * 100.0).round() as usize)
 }

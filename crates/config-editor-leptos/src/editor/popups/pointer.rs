@@ -17,10 +17,9 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlElement, MouseEvent, WheelEvent};
 
-use super::super::completion::visual_column;
 use super::super::paths::split_line;
 use super::super::positioning::{hover_card_anchor, pointer_text_position};
-use super::super::problem_hit::{column_at_cell, covering};
+use super::super::problem_hit::covering;
 use super::super::scroll_through::{scroll_past, wheel_pixels};
 use super::super::source_area::SourceArea;
 use super::super::state::EditorState;
@@ -33,21 +32,19 @@ impl EditorState {
     /// The pointer is at `(x, y)` in the window over the text (`free`: no
     /// button held): what is there shows.
     pub(crate) fn pointer_at(&self, element: &SourceArea, x: f64, y: f64, free: bool) {
-        let (line, cell) = pointer_text_position(element, x, y);
+        let (line, column) = pointer_text_position(element, x, y);
         // Heading for the popup across other text: that text waits.
-        if free && self.on_the_way_to_popup(x, y, line, cell) {
+        if free && self.on_the_way_to_popup(x, y, line, column) {
             return;
         }
         if free {
-            self.point_at_problems(line, cell);
+            self.point_at_problems(line, column);
             self.step(|machine| machine.on_problems());
         }
         if !self.completion().suggestions.with_untracked(Vec::is_empty) {
             self.hide_hover();
             return;
         }
-        // The text reads characters, the screen cells (a tab is wider).
-        let column = self.column_at(line, cell);
         let on_protected = self.hover_protected(line, column).is_some();
         if !self.config().settings.hover_docs.get_untracked() {
             return;
@@ -81,7 +78,7 @@ impl EditorState {
             return;
         }
         self.hide_hover();
-        let anchor = hover_card_anchor(element, line, self.cell_at(line, field.start_column));
+        let anchor = hover_card_anchor(element, line, field.start_column);
         self.step(|machine| {
             machine.pend(PendingCard {
                 line,
@@ -91,36 +88,17 @@ impl EditorState {
         });
     }
 
-    /// The character column of rendered cell `cell` of zero-based `line`.
-    fn column_at(&self, line: usize, cell: usize) -> usize {
-        self.doc()
-            .text
-            .with_untracked(|text| column_at_cell(split_line(text, line).unwrap_or(""), cell) - 1)
-    }
-
-    /// The rendered cell of character column `column` of zero-based `line`.
-    pub(crate) fn cell_at(&self, line: usize, column: usize) -> usize {
-        self.doc().text.with_untracked(|text| {
-            let line_text = split_line(text, line).unwrap_or("");
-            let end = line_text
-                .char_indices()
-                .nth(column)
-                .map_or(line_text.len(), |(at, _)| at);
-            visual_column(&line_text[..end]) as usize
-        })
-    }
-
-    /// The pointer moved to `(x, y)` in the window, over cell `cell` of
-    /// zero-based `line`: whether it is on its way to the popup it can
+    /// The pointer moved to `(x, y)` in the window, over character
+    /// `column` of zero-based `line`: whether it is on its way to the popup it can
     /// enter, across other text, so what it crosses waits (and the popup
     /// with it).
-    fn on_the_way_to_popup(&self, x: f64, y: f64, line: usize, cell: usize) -> bool {
+    fn on_the_way_to_popup(&self, x: f64, y: f64, line: usize, column: usize) -> bool {
         let popup = self.reachable_popup();
         let sight = Sight {
             popup: popup.as_ref().and_then(popup_box),
-            on_anchor: self.on_popup_anchor(line, cell),
+            on_anchor: self.on_popup_anchor(line, column),
         };
-        self.step(|machine| machine.over_text((x, y), line, cell, sight)) == Some(Over::Waits)
+        self.step(|machine| machine.over_text((x, y), line, column, sight)) == Some(Over::Waits)
     }
 
     /// The pointer stopped on the way and the popup went: what it rests
@@ -179,12 +157,13 @@ impl EditorState {
         None
     }
 
-    /// Whether cell `cell` of zero-based `line` is what the popup is for:
-    /// the card's key, or the problems the tip the pointer opened shows.
-    fn on_popup_anchor(&self, line: usize, cell: usize) -> bool {
+    /// Whether character `column` of zero-based `line` is what the popup
+    /// is for: the card's key, or the problems the tip the pointer opened
+    /// shows.
+    fn on_popup_anchor(&self, line: usize, column: usize) -> bool {
         if self.popups().with_card(|card| card.is_some()) {
             return self
-                .field_under_pointer(line, self.column_at(line, cell))
+                .field_under_pointer(line, column)
                 .is_some_and(|field| self.card_shows(line, &field));
         }
         let Some((hovered_line, hovered_column)) = self.popups().hovered_problem() else {
@@ -193,9 +172,8 @@ impl EditorState {
         self.doc().text.with_untracked(|text| {
             let here = split_line(text, line).unwrap_or("");
             let there = split_line(text, hovered_line - 1).unwrap_or("");
-            let column = column_at_cell(here, cell);
             self.problems().diagnostics.with_untracked(|problems| {
-                let now: Vec<_> = covering(problems, line + 1, column, here).collect();
+                let now: Vec<_> = covering(problems, line + 1, column + 1, here).collect();
                 let shown: Vec<_> =
                     covering(problems, hovered_line, hovered_column, there).collect();
                 !now.is_empty() && now == shown
@@ -203,18 +181,16 @@ impl EditorState {
         })
     }
 
-    /// Whether cell `cell` of zero-based `line` shows something of its own
-    /// to the pointer: docs other than the card's, problems other than the
-    /// tip's.
-    pub(super) fn shows_own_popup(&self, line: usize, cell: usize) -> bool {
-        if self.on_popup_anchor(line, cell) {
+    /// Whether character `column` of zero-based `line` shows something of
+    /// its own to the pointer: docs other than the card's, problems other
+    /// than the tip's.
+    pub(super) fn shows_own_popup(&self, line: usize, column: usize) -> bool {
+        if self.on_popup_anchor(line, column) {
             return false;
         }
         let docs = self.config().settings.hover_docs.get_untracked()
-            && self
-                .docs_under_pointer(line, self.column_at(line, cell))
-                .is_some();
-        docs || self.problem_place_at(line, cell).is_some()
+            && self.docs_under_pointer(line, column).is_some();
+        docs || self.problem_place_at(line, column).is_some()
     }
 
     /// The pointer came onto `popup`: whether it enters it. A popup shown

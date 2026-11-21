@@ -101,12 +101,12 @@ pub(crate) enum At {
     /// Over the text (or off it).
     Text,
     /// Under the popup, which lets it through, having come in along
-    /// zero-based line `entered`; last over cell `cell` of `line`. Where
+    /// zero-based line `entered`; last over character `column` of `line`. Where
     /// it stops decides (see `under`).
     Under {
         entered: usize,
         line: usize,
-        cell: usize,
+        column: usize,
     },
     /// In the popup.
     Inside,
@@ -168,8 +168,8 @@ pub(crate) enum Fire<K> {
     Open(K),
     /// The popup's moment is over.
     Close { kind: Kind, then: Then },
-    /// The pointer stopped under the popup, over `cell` of `line`.
-    Settle { line: usize, cell: usize },
+    /// The pointer stopped under the popup, over character `column` of `line`.
+    Settle { line: usize, column: usize },
 }
 
 /// What the text under a move does.
@@ -444,10 +444,16 @@ impl<K: Clone> Machine<K> {
         self.leave_from_here(Then::Close);
     }
 
-    /// The pointer moved to `to` over cell `cell` of zero-based `line`, a
-    /// popup it can reach shown as `sight` says: whether the text there
-    /// waits (the pointer heads for the popup across it) or answers.
-    pub(crate) fn over_text(&mut self, to: Point, line: usize, cell: usize, sight: Sight) -> Over {
+    /// The pointer moved to `to` over character `column` of zero-based
+    /// `line`, a popup it can reach shown as `sight` says: whether the text
+    /// there waits (the pointer heads for the popup across it) or answers.
+    pub(crate) fn over_text(
+        &mut self,
+        to: Point,
+        line: usize,
+        column: usize,
+        sight: Sight,
+    ) -> Over {
         let from = self.pointer.replace(to);
         let Some(mut reach) = self.reach() else {
             return Over::Answers;
@@ -460,7 +466,7 @@ impl<K: Clone> Machine<K> {
         if at == Spot::Under {
             reach.on_way = false;
             self.set_reach(reach);
-            self.under_popup(line, cell);
+            self.under_popup(line, column);
             return Over::Waits;
         }
         self.leave_under();
@@ -578,11 +584,11 @@ impl<K: Clone> Machine<K> {
         }
     }
 
-    /// The pointer moved under the popup, which lets it through, over cell
-    /// `cell` of zero-based `line`: the popup stays; it takes the pointer
-    /// when it heads off the line it came in along, else where it stops
-    /// decides.
-    fn under_popup(&mut self, line: usize, cell: usize) {
+    /// The pointer moved under the popup, which lets it through, over
+    /// character `column` of zero-based `line`: the popup stays; it takes
+    /// the pointer when it heads off the line it came in along, else where
+    /// it stops decides.
+    fn under_popup(&mut self, line: usize, column: usize) {
         let entered = match self.shown() {
             Some(Phase::Open {
                 at: At::Under { entered, .. },
@@ -607,7 +613,7 @@ impl<K: Clone> Machine<K> {
                 at: At::Under {
                     entered: entered.unwrap_or(line),
                     line,
-                    cell,
+                    column,
                 },
             });
         }
@@ -774,11 +780,11 @@ impl<K: Clone> Machine<K> {
                 then: *then,
             }),
             Phase::Open {
-                at: At::Under { line, cell, .. },
+                at: At::Under { line, column, .. },
                 ..
             } => Some(Fire::Settle {
                 line: *line,
-                cell: *cell,
+                column: *column,
             }),
             _ => None,
         }

@@ -70,7 +70,7 @@ impl EditorState {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(". ");
-        let anchor = hover_card_anchor(&element, line, self.cell_at(line, info.start_column));
+        let anchor = hover_card_anchor(&element, line, info.start_column);
         self.show_card_at_caret(HoverCard {
             info,
             line,
