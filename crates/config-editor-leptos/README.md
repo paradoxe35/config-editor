@@ -1566,7 +1566,9 @@ is one), the others are `$defs` it refers to. OpenAPI 3.1 schemas are
 JSON Schema 2020-12 as they are; 3.0 and Swagger ones are rewritten where
 they differ (`nullable: true` adds `null` to the type, a boolean
 `exclusiveMinimum`/`exclusiveMaximum` takes its bound, `example` becomes
-`examples`). The XML object is kept, so `"xml": {"attribute": true}` writes
+`examples`); a JSON Schema keyword they do not define (`contains`, `const`,
+`if`, `prefixItems`, Swagger's missing `oneOf`) is kept and checked as JSON
+Schema says. The XML object is kept, so `"xml": {"attribute": true}` writes
 attributes in an XML view. A `discriminator` is a loss: the options are
 matched by their schemas.
 

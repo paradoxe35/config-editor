@@ -3,7 +3,9 @@
 //! document's schema, the others its `$defs`. OpenAPI 3.1 schemas are
 //! JSON Schema 2020-12 already; 3.0 and Swagger ones are rewritten where
 //! they differ (`nullable`, boolean `exclusiveMinimum`/`exclusiveMaximum`,
-//! `example`). The OpenAPI XML object (`xml.attribute`) is kept, so an
+//! `example`); a JSON Schema keyword they do not define (`contains`,
+//! `const`, `if`, Swagger's missing `oneOf`) is kept as JSON Schema means
+//! it, as the document says it. The OpenAPI XML object (`xml.attribute`) is kept, so an
 //! XML view writes attributes where the API says.
 
 use serde_json::{Map, Value, json};

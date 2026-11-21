@@ -184,3 +184,109 @@ fn an_openapi_document_written_in_yaml() {
         json!(["string", "null"])
     );
 }
+
+/// Every JSON Schema keyword OpenAPI 3.0 or Swagger 2.0 does not define
+/// (`contains` and its bounds, `prefixItems`, `const`, `if`, the
+/// dependent and unevaluated keywords, `patternProperties`,
+/// `propertyNames`; Swagger also lacks `oneOf`, `anyOf` and `not`) is
+/// kept as written and means what it means in JSON Schema: such a
+/// document checks a value as the plain schema does, in each format.
+#[cfg(all(feature = "schema-validation", feature = "json"))]
+#[test]
+fn keywords_openapi_3_0_and_swagger_lack_are_kept_and_checked_as_json_schema() {
+    use crate::editor::Language;
+    let cases = [
+        (
+            json!({"minItems": 1, "contains": {"type": "integer", "minimum": 0}}),
+            "[0]",
+            "[\"a\"]",
+        ),
+        (
+            json!({"contains": {"type": "integer"}, "minContains": 2, "maxContains": 2}),
+            "[1, 2]",
+            "[1]",
+        ),
+        (
+            json!({"prefixItems": [{"type": "string"}], "items": false}),
+            "[\"a\"]",
+            "[\"a\", 1]",
+        ),
+        (json!({"const": 3}), "3", "4"),
+        (
+            json!({"if": {"type": "integer"}, "then": {"minimum": 1}, "else": {"type": "string"}}),
+            "2",
+            "0",
+        ),
+        (
+            json!({"dependentRequired": {"a": ["b"]}}),
+            "{\"a\": 1, \"b\": 2}",
+            "{\"a\": 1}",
+        ),
+        (
+            json!({"dependentSchemas": {"a": {"required": ["b"]}}}),
+            "{\"a\": 1, \"b\": 2}",
+            "{\"a\": 1}",
+        ),
+        (
+            json!({"properties": {"a": {}}, "unevaluatedProperties": false}),
+            "{\"a\": 1}",
+            "{\"b\": 1}",
+        ),
+        (
+            json!({"prefixItems": [{}], "unevaluatedItems": false}),
+            "[1]",
+            "[1, 2]",
+        ),
+        (
+            json!({"patternProperties": {"^x": {"type": "integer"}}}),
+            "{\"xa\": 1}",
+            "{\"xa\": \"s\"}",
+        ),
+        (
+            json!({"propertyNames": {"maxLength": 2}}),
+            "{\"ab\": 1}",
+            "{\"abc\": 1}",
+        ),
+        (
+            json!({"oneOf": [{"type": "integer"}, {"minimum": 0}]}),
+            "-1",
+            "1",
+        ),
+        (
+            json!({"anyOf": [{"type": "integer"}, {"type": "boolean"}]}),
+            "true",
+            "\"s\"",
+        ),
+        (json!({"not": {"type": "string"}}), "1", "\"s\""),
+    ];
+    for (keyword_schema, good, bad) in cases {
+        let plain = Schema::compile(&keyword_schema.to_string()).unwrap();
+        for document in [
+            json!({"openapi": "3.0.3", "components": {"schemas": {"Root": keyword_schema}}}),
+            json!({"swagger": "2.0", "definitions": {"Root": keyword_schema}}),
+        ] {
+            let through = compile(&document.to_string(), None).unwrap();
+            assert_eq!(
+                through.json()["$defs"]["Root"],
+                keyword_schema,
+                "{document}: kept as written"
+            );
+            let messages = |schema: &Schema, text: &str| -> Vec<String> {
+                let problems = schema.validate(Language::JSON, text);
+                problems
+                    .into_iter()
+                    .map(|problem| problem.message)
+                    .collect()
+            };
+            for text in [good, bad] {
+                assert_eq!(
+                    messages(&through, text),
+                    messages(&plain, text),
+                    "{document}: {text}"
+                );
+            }
+            assert!(messages(&through, good).is_empty(), "{document}: {good}");
+            assert!(!messages(&through, bad).is_empty(), "{document}: {bad}");
+        }
+    }
+}

@@ -369,6 +369,37 @@ fn each_written_form_of_a_schema_with_definitions_compiles() {
     }
 }
 
+/// A failure's class names the same keyword through every format as on
+/// the plain schema: with two problems at one place (`minItems` and
+/// `contains` on an empty list), the class does not hang on the order the
+/// problems were found in, so a failure the plain schema shares is not
+/// taken for the format's. Each check runs many times, as an order that
+/// could change from one run to the next would.
+#[test]
+fn a_failure_shared_with_the_plain_schema_is_not_the_formats() {
+    let schema = json!({"properties": {"c": {"minItems": 1, "items": {"description": "t"},
+        "contains": {"type": "integer", "minimum": 0}}}});
+    for _ in 0..16 {
+        for pick in 0..WRITTEN.len() {
+            let case = Case {
+                language: crate::editor::Language::TOML,
+                pick,
+                schema: schema.clone(),
+                doc: json!({}),
+                other: json!({"c": 0}),
+            };
+            for (name, check) in [
+                ("suggestions", suggestions_check as fn(&Case) -> Verdict),
+                ("fill", fill_check),
+            ] {
+                if let Verdict::Fails(failure) = check(&case) {
+                    panic!("{name}, pick {pick}: {}\n{}", failure.class, failure.detail);
+                }
+            }
+        }
+    }
+}
+
 /// A property named like a keyword (`nullable`, `$ref`, `example`) is a
 /// property, not a keyword, in every written form.
 #[test]

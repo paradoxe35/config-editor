@@ -6,7 +6,7 @@
 //! met), in schemas whose defaults and examples fit.
 
 use crate::editor::language::pointer_key;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use serde_json::Value;
 
@@ -70,8 +70,11 @@ pub(super) fn with_entry(language: Language, text: &str, key: Option<&str>) -> (
     (format!("{before}{after}"), before.len())
 }
 
-/// The reference's errors of `value`, as (place, keyword).
-fn errors(both: &Both, value: &Value) -> HashSet<(String, String)> {
+/// The reference's errors of `value`, as (place, keyword), in order: the
+/// first one names a failure's class, which must be the same for the same
+/// errors however they were found (a schema through a format is judged
+/// by its class matching the plain schema's).
+fn errors(both: &Both, value: &Value) -> BTreeSet<(String, String)> {
     both.reference
         .iter_errors(value)
         .map(|error| {

@@ -106,7 +106,16 @@ pub(super) fn check_with(both: &Both, case: &Case) -> Verdict {
             ));
         }
         checked = true;
-        for error in both.reference.iter_errors(&read) {
+        // In order of place and keyword: the first error names the class,
+        // which must not hang on the order the reference finds them in
+        // (a schema through a format is judged by its class matching the
+        // plain schema's).
+        let mut errors: Vec<_> = both.reference.iter_errors(&read).collect();
+        errors.sort_by(|one, other| {
+            (one.instance_path().as_str(), one.kind().keyword())
+                .cmp(&(other.instance_path().as_str(), other.kind().keyword()))
+        });
+        for error in errors {
             let at = error.instance_path().as_str().to_string();
             if at != pointer && !at.starts_with(&format!("{pointer}/")) {
                 continue;
