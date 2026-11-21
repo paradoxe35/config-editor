@@ -77,7 +77,17 @@ fn a_switch_parses_only_the_text_it_shows_and_back_parses_nothing() {
         let (_owner, state) = mounted(host, text, &schema);
         let ((), parsed) = counted(Work::ParsedBytes, || switch(state, view));
         let shown = state.doc().text.get_untracked().len();
-        if parsed != shown {
+        // With protect and validation on, the mount has read the host's
+        // text already, and the view's text is read for its problems: the
+        // switch reads exactly the view. Without one of them, the host's
+        // text may be read here for the first time, or the view's not at
+        // all; each still at most once.
+        let once = if cfg!(all(feature = "protect", feature = "schema-validation")) {
+            parsed == shown
+        } else {
+            parsed <= shown + text.len()
+        };
+        if !once {
             failures.push(format!(
                 "{host} as {view}: {parsed} bytes parsed, the view is {shown}"
             ));
