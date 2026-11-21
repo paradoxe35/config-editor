@@ -526,7 +526,7 @@ impl Links {
             self.untouched(from_language, from_text)
                 .unwrap_or_default()
                 .into_iter()
-                .map(|untouched| (untouched.pointer, (untouched.host, untouched.from)))
+                .map(|untouched| (untouched.pointer.clone(), untouched))
                 .collect(),
         );
         let sources: HashMap<String, Arc<Source>> = self

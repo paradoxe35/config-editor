@@ -1018,6 +1018,19 @@ fn check_forms(
             .filter(|(other, held)| *held == value && named(other) == name)
             .map(|(other, _)| other)
             .collect();
+        // A scalar an earlier save held otherwise (the user changed it, then
+        // gave it its value back) may be where it came from, and holds no
+        // form of it any more: the host the move came from wrote another
+        // value there, so the save writes the value in the host's default
+        // form (P3, judged by the read back).
+        let scalar = !value.is_object() && !value.is_array();
+        if scalar
+            && candidates
+                .iter()
+                .any(|other| changed_before.contains(other))
+        {
+            continue;
+        }
         // A source with no text of its own (a key a YAML merge brings in)
         // has no form to keep: P3 writes it in the host's default form,
         // which the read back checks.
@@ -1066,7 +1079,7 @@ fn check_comments(
     {
         let mut edited = start.edited.borrow_mut();
         for pointer in start.comments.iter().flat_map(|(_, owner)| owner) {
-            if !left_alone(&start.value, now, pointer) {
+            if !left_alone(&start.value, now, pointer) || renamed(&start.value, now, pointer) {
                 edited.insert(pointer.clone());
             }
         }
@@ -1094,6 +1107,65 @@ fn check_comments(
         }
     }
     Ok(())
+}
+
+/// Whether the map at `pointer` of `start` was renamed by the save
+/// (reading `now`), though a map of its name is still there: entries it
+/// held are gone from it and held, as they were, by a map at a pointer
+/// the start did not hold that differs from it in one name only. A
+/// header renamed in a view where the map's children have headers of
+/// their own (`[a.b]` made `[a.c]` above `[a.b.d]`) splits the map: the
+/// renamed part keeps the header's line, and its comments, while the
+/// children still make a map of the old name.
+fn renamed(start: &Value, now: &Value, pointer: &str) -> bool {
+    let (Some(Value::Object(was)), Some(Value::Object(is))) =
+        (start.pointer(pointer), now.pointer(pointer))
+    else {
+        return false;
+    };
+    let lost: Vec<(&String, &Value)> = was
+        .iter()
+        .filter(|(key, value)| is.get(*key) != Some(*value))
+        .collect();
+    if lost.is_empty() {
+        return false;
+    }
+    let names: Vec<&str> = pointer.split('/').collect();
+    pointers(now).into_iter().any(|(other, held)| {
+        let Value::Object(held) = held else {
+            return false;
+        };
+        let others: Vec<&str> = other.split('/').collect();
+        others.len() == names.len()
+            && names.iter().zip(&others).filter(|(a, b)| a != b).count() == 1
+            && start.pointer(&other).is_none()
+            && lost
+                .iter()
+                .any(|(key, value)| held.get(*key) == Some(*value))
+    })
+}
+
+#[test]
+fn a_map_split_by_a_header_renamed_is_renamed() {
+    use serde_json::json;
+    let start = json!({"r": {"m": {"v": 1, "c": 2, "t": {"n": 3}}}});
+    // `[r.m]` made `[r.x]` above `[r.m.t]`.
+    let split = json!({"r": {"x": {"v": 1, "c": 2}, "m": {"t": {"n": 3}}}});
+    assert!(renamed(&start, &split, "/r/m"));
+    // An outer name renamed on the same line.
+    let outer = json!({"q": {"m": {"v": 1, "c": 2}}, "r": {"m": {"t": {"n": 3}}}});
+    assert!(renamed(&start, &outer, "/r/m"));
+    // An entry cut and pasted under a new map elsewhere: no rename.
+    let moved = json!({"o": {"v": 1}, "r": {"m": {"c": 2, "t": {"n": 3}}}});
+    assert!(!renamed(&start, &moved, "/r/m"));
+    // An entry deleted, or the map left alone: no rename.
+    let deleted = json!({"r": {"m": {"c": 2, "t": {"n": 3}}}});
+    assert!(!renamed(&start, &deleted, "/r/m"));
+    assert!(!renamed(&start, &start, "/r/m"));
+    // Its entries moved into a sibling the start held: no new name.
+    let twins = json!({"r": {"m": {"v": 1}, "k": {"z": 0}}});
+    let merged = json!({"r": {"m": {}, "k": {"z": 0, "v": 1}}});
+    assert!(!renamed(&twins, &merged, "/r/m"));
 }
 
 /// Whether the map or list `was` (as the session started) is held as

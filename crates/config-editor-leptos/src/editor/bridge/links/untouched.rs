@@ -171,18 +171,28 @@ impl Links {
                         // A text a switch wrote names each scalar's own
                         // source: the item holding it may hold items moved
                         // or copied within it.
-                        let (host, from) = match &shown.kept {
-                            Some(kept) => kept.get(&at)?.clone(),
+                        // A copy keeps its mark across the switch, its item
+                        // there linked or not.
+                        let (host, from, copied) = match &shown.kept {
+                            Some(kept) => {
+                                let kept = kept.get(&at)?;
+                                (
+                                    kept.host.clone(),
+                                    kept.from.clone(),
+                                    kept.copied || source.copied,
+                                )
+                            }
                             None => (
                                 source.host.clone(),
                                 format!(
                                     "{}{rest}",
                                     source.holding.value_of(source.pointer.clone())
                                 ),
+                                source.copied,
                             ),
                         };
                         Some(Candidate {
-                            copied: source.copied,
+                            copied,
                             host,
                             from,
                             shown: shown.text.clone(),

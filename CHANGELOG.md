@@ -144,6 +144,10 @@ versions move together.
   it where the schema takes only that reading (a `<d>0</d>` copied where
   the schema wants a string saves `"0"`), and keeps its source's type
   elsewhere. The item it was copied from keeps the host's.
+- A copied list item stays a copy across an Edit-as switch made while
+  its save waits: switched to a TOML view (which writes the list on one
+  line) and back to XML, it still saves as the schema reads it, not as
+  the item it was copied from.
 - With `echoes`, a reset to the text the document already holds
   (`replaceValue` or `setValue` with the same text, which reports nothing)
   no longer makes the editor take the host for holding it: a host left on

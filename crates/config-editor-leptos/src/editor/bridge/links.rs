@@ -69,17 +69,18 @@ pub(crate) struct Shown {
     pub(crate) language: &'static str,
     /// The scalars written there as the editor first wrote them, when not
     /// all are (a switch converting unsaved edits writes the user's values
-    /// too): each one's pointer in `text`, and the host text and pointer
-    /// it stands for, as the view before the switch told them (a list item
-    /// copied there stands for the item it was copied from, which its
-    /// pointer under the list does not tell).
+    /// too): each one's pointer in `text`, the host text and pointer it
+    /// stands for, and whether it is of a copy of its item, as the view
+    /// before the switch told them (a list item copied there stands for
+    /// the item it was copied from, which its pointer under the list does
+    /// not tell, and a view writing the list on one line has no item
+    /// there to carry the copy's mark).
     pub(crate) kept: Option<Arc<KeptScalars>>,
 }
 
-/// Scalars a switch wrote as the editor first wrote them: each one's
-/// pointer in the text written, and the host text and pointer it stands
-/// for (see [`Shown::kept`]).
-pub(crate) type KeptScalars = std::collections::HashMap<String, (Arc<str>, String)>;
+/// Scalars a switch wrote as the editor first wrote them, by their
+/// pointers in the text written (see [`Shown::kept`]).
+pub(crate) type KeptScalars = std::collections::HashMap<String, Untouched>;
 
 /// An item's link: its text in the view (from the first character of its
 /// first line that is not blank to the end of its last one's), and its

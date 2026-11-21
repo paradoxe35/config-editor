@@ -17,18 +17,21 @@ use serde_json::{Value, json};
 /// The host's text once the XML view of `host` (in `language`, under
 /// `schema`) has its `d` element written `count` times, each one after
 /// the first as `source` says (typed, or pasted from a copy of the first),
-/// saved as the editor saves it, told by the links the edits kept.
+/// saved as the editor saves it, told by the links the edits kept; with
+/// `through`, the unsaved edits switched to that view and back first, as
+/// a switch carries them (see `sync::switch_to`).
 fn saved_with_copies(
     language: Language,
     host: &str,
     schema: Option<&Value>,
     count: usize,
     source: &Inserted,
+    through: Option<Language>,
 ) -> Result<String, String> {
     let xml = Language::XML.behavior();
     let bundle =
         schema.map(|schema| Arc::new(build_schema(&schema.to_string()).expect("a schema")));
-    let bridge = Bridge::new(language, Language::XML, bundle).unwrap();
+    let bridge = Bridge::new(language, Language::XML, bundle.clone()).unwrap();
     let view = bridge.to_edit(host).unwrap().text;
     let start = view.find("<d>").expect("the element");
     let end = start + view[start..].find('\n').unwrap() + 1;
@@ -54,6 +57,22 @@ fn saved_with_copies(
         links.edited(xml, &next, &[piece], &mut clipboard);
         next = edited;
     }
+    if let Some(other) = through {
+        let untouched = links.untouched(xml, &next);
+        let shown = bridge
+            .to_other_view(&next, other, untouched.as_deref())
+            .map_err(|error| format!("{error:?}: {next}"))?
+            .text;
+        links = links.converted(xml, &next, other.behavior(), &shown);
+        let untouched = links.untouched(other.behavior(), &shown);
+        let back = Bridge::new(language, other, bundle)
+            .unwrap()
+            .to_other_view(&shown, Language::XML, untouched.as_deref())
+            .map_err(|error| format!("{error:?}: {shown}"))?
+            .text;
+        links = links.converted(other.behavior(), &shown, xml, &back);
+        next = back;
+    }
     let identity = language.behavior().items_hold_unshown(host);
     let told = links.told(xml, &next, host, identity);
     let untouched = links.untouched(xml, &next);
@@ -76,7 +95,8 @@ fn a_host_scalar_written_as_several_elements_saves_as_the_view_reads_it() {
         for count in 1..=3 {
             for schema in [None, Some(&strings)] {
                 for source in [Inserted::Typed, Inserted::Pasted] {
-                    let saved = saved_with_copies(language, host, schema, count, &source).unwrap();
+                    let saved =
+                        saved_with_copies(language, host, schema, count, &source, None).unwrap();
                     let read = language.parse(&saved).expect(&saved);
                     let expected = match (count, schema) {
                         // Unchanged: nothing is saved.
@@ -125,7 +145,7 @@ fn a_copy_a_host_list_grows_by_saves_as_the_schema_reads_it() {
     let mut failed = Vec::new();
     for (language, host) in hosts {
         for schema in [None, Some(&strings)] {
-            let read = saved_with_copies(language, host, schema, 2, &Inserted::Pasted)
+            let read = saved_with_copies(language, host, schema, 2, &Inserted::Pasted, None)
                 .map(|saved| language.parse(&saved).expect(&saved));
             let Ok(read) = read else {
                 failed.push(format!("{language}: {read:?}"));
@@ -143,6 +163,63 @@ fn a_copy_a_host_list_grows_by_saves_as_the_schema_reads_it() {
                     "no schema"
                 };
                 failed.push(format!("{language} {schema}: {read} (want {expected})"));
+            }
+        }
+    }
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
+}
+
+/// P3 across a switch: a copy of a list item pasted in an XML view, the
+/// edits switched unsaved to another view and back, is still a copy (its
+/// mark carried by the scalars a switch writes as the editor wrote them,
+/// in a view that writes the list on one line too): under a schema taking
+/// only text there it saves as the view reads it, as it does with no
+/// switch.
+#[test]
+fn a_copy_switched_to_another_view_and_back_saves_as_the_schema_reads_it() {
+    let strings = json!({"properties": {"r": {"properties": {"d": {
+        "prefixItems": [{"type": "integer"}, {"type": "string"}]
+    }}}}});
+    let hosts = [
+        (Language::JSON, "{\"r\": {\"d\": [0, \"a\"]}}\n"),
+        (Language::YAML, "r:\n  d:\n    - 0\n    - a\n"),
+        (Language::TOML, "[r]\nd = [0, \"a\"]\n"),
+        (Language::HCL, "r {\n  d = [0, \"a\"]\n}\n"),
+    ];
+    let views = [
+        Language::JSON,
+        Language::YAML,
+        Language::TOML,
+        Language::HCL,
+    ];
+    let mut failed = Vec::new();
+    for (language, host) in hosts {
+        // A switch to the host's language saves the edits: no view.
+        for through in views.into_iter().filter(|view| *view != language) {
+            for schema in [None, Some(&strings)] {
+                let read =
+                    saved_with_copies(language, host, schema, 2, &Inserted::Pasted, Some(through))
+                        .map(|saved| language.parse(&saved).expect(&saved));
+                let label = format!(
+                    "{language} through {through}, {}",
+                    if schema.is_some() {
+                        "schema"
+                    } else {
+                        "no schema"
+                    }
+                );
+                let Ok(read) = read else {
+                    failed.push(format!("{label}: {read:?}"));
+                    continue;
+                };
+                let expected = match schema {
+                    Some(_) => json!([0, "0", "a"]),
+                    None => json!([0, 0, "a"]),
+                };
+                let read = read.pointer("/r/d").cloned().unwrap_or_default();
+                if read != expected {
+                    failed.push(format!("{label}: {read} (want {expected})"));
+                }
             }
         }
     }

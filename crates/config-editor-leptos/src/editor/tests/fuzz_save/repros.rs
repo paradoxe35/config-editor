@@ -2938,3 +2938,52 @@ fn copied_strings_switched_from_an_xml_view_keep_the_hosts_type_in_the_next_view
         ],
     );
 }
+
+/// P2: an HCL block's header renamed in a TOML view (the block split: its
+/// tags table keeps the old name) keeps its comment with the renamed
+/// block; the renamed header cut later is the user's edit of the
+/// comment's line, which may then go.
+#[test]
+fn a_comment_of_a_block_renamed_in_a_toml_view_goes_with_its_header() {
+    replay(
+        Language::HCL,
+        Language::TOML,
+        "# network\nresource \"aws_subnet\" \"main\" {\n  vpc_id     = aws_vpc.main.id # the vpc\n  cidr_block = cidrsubnet(var.cidr, 8, 1)\n  tags = { Name = \"main-${var.env}\", Tier = \"app\" }\n}\nlocals {\n  count = 3\n  names = [\"a\", \"b\"]\n  script = <<EOT\n#!/bin/sh\necho hi\nEOT\n}\nmodule \"web\" {\n  source = \"./web\"\n  ami = data.aws_ami.ubuntu.id\n}\n",
+        &[
+            Op::Type {
+                line: 38,
+                column: 1001,
+                text: "x",
+            },
+            Op::Pause,
+            Op::Cut {
+                line: 57,
+                how: Take::Text,
+            },
+        ],
+    );
+}
+
+/// P3: a TOML hex number a cut in a YAML view joined with the next line's
+/// text (saved as a string), then given its value back and moved, has no
+/// host form left to keep: the host the move came from holds the string,
+/// so the save writes the number in TOML's default form.
+#[test]
+fn a_toml_hex_number_changed_saved_then_moved_back_to_its_value_in_a_yaml_view_saves() {
+    replay(
+        Language::TOML,
+        Language::YAML,
+        "[alpha]\nk1 = true # note 2\nk2 = 1979-05-27T07:32:00\nk3 = [1, 0x2, 3] # note 3\n[beta]\nk4 = \"plain\" # note 5\nk5 = 1_000\nk6 = 0x1F\n[gamma]\nk7 = 0x1F # note 8\nk8 = '''\nraw text\n'''\n[delta]\nk9 = 1979-05-27 # note 10\nk10 = \"\"\"\nmulti\nline\"\"\"\nk11 = 1979-05-27T07:32:00Z\nk12 = \"\"\"\nmulti\nline\"\"\"\n",
+        &[
+            Op::Cut {
+                line: 61,
+                how: Take::Text,
+            },
+            Op::Pause,
+            Op::MoveLine {
+                line: 57,
+                down: true,
+            },
+        ],
+    );
+}
