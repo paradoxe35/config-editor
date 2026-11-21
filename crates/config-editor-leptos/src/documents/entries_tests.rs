@@ -324,6 +324,25 @@ fn a_closed_document_unmounts_its_editor_before_its_signals_go() {
     );
 }
 
+/// A closed document's host record (a binding's channel, its log holding
+/// the text) goes with it: kept, every document opened and closed stayed.
+#[test]
+fn a_closed_document_lets_go_of_its_host_record() {
+    let owner = Owner::new();
+    owner.set();
+    let (documents, _) = view(&files(), true, false);
+    for document in files() {
+        let channel = crate::editor::HostChannel::new(false, &document.value, None);
+        documents.bind_channel(&document.id, channel);
+    }
+    hold(|| {
+        documents.sync(&files()[..1]);
+        run_held();
+    });
+    assert!(documents.bound_channel("main").is_some());
+    assert!(documents.bound_channel("tls").is_none());
+}
+
 /// A document is dirty by the editor's own rule before its editor mounts:
 /// a text and a baseline that differ only by a byte order mark or their
 /// line breaks (CRLF, a lone CR) are the same document, as its editor reads

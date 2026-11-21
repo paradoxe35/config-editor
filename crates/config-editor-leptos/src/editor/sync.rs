@@ -44,8 +44,11 @@ impl SyncState {
     /// recorded as sent: its echo is told apart when it comes back.
     pub(super) fn tell_host(&self, text: String) {
         self.link(|link| link.sent(&text));
-        if let Some(on_change) = self.host_on_change {
-            on_change.run(text);
+        match self.host_on_change {
+            Some(on_change) => on_change.run(text),
+            None => {
+                let _ = self.link(Link::untold);
+            }
         }
     }
 
@@ -251,12 +254,16 @@ impl EditorState {
             _ => "",
         };
         let mapping = edit.mapping();
-        let (before, after) = (
-            Arc::<str>::from(edit.before.as_str()),
-            Arc::<str>::from(edit.text.as_str()),
-        );
-        self.sync()
-            .link(|link| link.log.edited(&mapping, kind, &before, &after));
+        let after = Arc::<str>::from(edit.text.as_str());
+        self.sync().link(|link| {
+            // The log's own document when it is the text edited (it is,
+            // but for a text no edit made since): not a second copy.
+            let before = match link.log.document() {
+                document if **document == *edit.before => document.clone(),
+                _ => Arc::from(edit.before.as_str()),
+            };
+            link.log.edited(&mapping, kind, &before, &after);
+        });
     }
 
     /// The edit pipeline's notify stage: `on_change` hears of the document

@@ -601,10 +601,23 @@ impl Link {
 
     /// The editor sent `text` to the host (`on_change`): its revision.
     pub(crate) fn sent(&mut self, text: &str) -> u64 {
+        // The text sent before, if no host heard it, is no version now,
+        // unless the ranges in force name it.
+        self.log
+            .forget_unheard(self.given.as_ref().map(|given| given.revision));
         let revision = self.echoes.sent(text);
         let print = self.echoes.print_sent(revision);
         self.log.sent(revision, text, print);
         revision
+    }
+
+    /// The text sent last reached no host (no `on_change`): it is no echo
+    /// to wait for, and no version once the next is sent.
+    pub(crate) fn untold(&mut self) {
+        if let Some(revision) = self.echoes.last_sent() {
+            self.echoes.untold(revision);
+            self.log.unheard(revision);
+        }
     }
 
     /// The echo engine heard texts come back: the versions of the log
@@ -939,11 +952,7 @@ impl HostChannel {
     /// The text sent last reached no host (no `onChange`): it is no echo
     /// to wait for.
     pub fn untold(&self) {
-        self.with(|link| {
-            if let Some(revision) = link.echoes.last_sent() {
-                link.echoes.untold(revision);
-            }
-        });
+        self.with(Link::untold);
     }
 
     /// The statement of the ranges list whose locks a text of the host's
@@ -952,9 +961,10 @@ impl HostChannel {
         self.with(|link| link.carried_list)
     }
 
-    /// The document as the channel knows it.
-    pub fn document(&self) -> String {
-        self.with(|link| link.log.document().to_string())
+    /// The document as the channel knows it: the record's own copy,
+    /// shared, not copied.
+    pub fn document(&self) -> Arc<str> {
+        self.with(|link| link.log.document().clone())
     }
 
     /// An editor's edit, for a simulated one (the native tests of the

@@ -598,7 +598,13 @@ impl Documents {
         }
         self.repeated.set_value(repeated);
         for index in removed {
-            existing[index].dispose_later(*self);
+            let closed = &existing[index];
+            closed.dispose_later(*self);
+            // Its host's record goes with it: a document listed again is a
+            // new one, with a new record.
+            self.channels.update_value(|channels| {
+                channels.remove(&closed.id);
+            });
         }
         let ids: Vec<String> = entries.iter().map(|entry| entry.id.clone()).collect();
         self.relabel(&entries);

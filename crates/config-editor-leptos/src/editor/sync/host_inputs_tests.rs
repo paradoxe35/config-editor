@@ -328,7 +328,7 @@ fn ranges_named_by_the_loaded_text_follow_it_into_a_text_of_the_hosts_own() {
 fn a_crlf_hosts_record_works_in_the_editors_line_breaks() {
     let host = "a: 1\r\nb: 2\r\nc: 3\r\n";
     let channel = super::HostChannel::new(true, host, None);
-    assert_eq!(channel.document(), "a: 1\nb: 2\nc: 3\n");
+    assert_eq!(&*channel.document(), "a: 1\nb: 2\nc: 3\n");
     channel
         .take_unmounted(
             HostUpdate {
@@ -369,4 +369,49 @@ fn a_reset_names_the_list_whose_locks_it_carried() {
         "b: 2\n",
     );
     assert_eq!(link.carried_list, None);
+}
+
+/// A host that hears nothing (no `on_change`) keeps no version per text
+/// sent: kept, the log grew by one version and its steps per edit, for as
+/// long as the editor lived.
+#[test]
+fn a_host_that_hears_nothing_keeps_no_version_per_text_sent() {
+    let mut link = Link::new(false, "a: 1\n", None);
+    for _ in 0..200 {
+        typed_and_sent(&mut link, 4, 4, "9");
+        link.untold();
+        typed_and_sent(&mut link, 4, 5, "");
+        link.untold();
+    }
+    assert!(
+        link.log.revisions().len() <= 2,
+        "{:?}",
+        link.log.revisions()
+    );
+    assert!(link.log.step_count() <= 2, "{}", link.log.step_count());
+    assert_eq!(&**link.log.document(), "a: 1\n");
+}
+
+/// A text no host heard that a list in force names stays a version: its
+/// positions still map to the document.
+#[test]
+fn a_text_no_host_heard_stays_while_a_list_names_it() {
+    let mut link = Link::new(false, "a: 1\nb: 2\n", None);
+    let (document, revision) = typed_and_sent(&mut link, 0, 0, "# top\n");
+    link.untold();
+    take(
+        &mut link,
+        HostUpdate {
+            ranges: ranges(vec![on(3, 1, 5)]),
+            ranges_for: Some(RangesFor::Revision(revision)),
+            ..HostUpdate::default()
+        },
+        &document,
+    );
+    assert_eq!(locked(&link), ["b: 2"]);
+    typed_and_sent(&mut link, 0, 0, "x");
+    link.untold();
+    typed_and_sent(&mut link, 0, 0, "y");
+    assert_eq!(link.log.named(revision), super::Named::Kept);
+    assert_eq!(locked(&link), ["b: 2"]);
 }

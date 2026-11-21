@@ -378,7 +378,7 @@ impl Core {
     /// Checks the locked text is there once and locked, and (`exact`)
     /// that nothing beside it is.
     pub(crate) fn check(&self, what: &str, exact: Option<Class>) -> Outcome {
-        if self.channel.document() != self.text {
+        if *self.channel.document() != *self.text {
             return Err(Failure::new(
                 Class::Panic,
                 format!(

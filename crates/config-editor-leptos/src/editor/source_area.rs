@@ -266,6 +266,15 @@ impl EditorState {
     /// Puts the document, folds cut out, in the textarea. Returns whether
     /// its text changed.
     pub(super) fn show_text(&self) -> bool {
+        self.show_text_over(None)
+    }
+
+    /// [`Self::show_text`], the textarea showing `shown` when the caller
+    /// knows it (the document before an edit no browser input made, seen
+    /// through the folds then): the textarea's text is then not copied into
+    /// the module to compare. A textarea whose length is not `shown`'s is
+    /// read after all.
+    pub(super) fn show_text_over(&self, shown: Option<&str>) -> bool {
         let projection = self.with_closed_folds_untracked(|folds| {
             self.doc()
                 .text
@@ -278,10 +287,21 @@ impl EditorState {
             .is_some_and(|element| {
                 self.doc().text.with_untracked(|doc| {
                     let view = projection.view(doc);
-                    let shown = element.value();
+                    let known = shown.filter(|shown| {
+                        usize::try_from(element.text_length())
+                            .is_ok_and(|length| length == super::text_change::utf16_len(shown))
+                    });
+                    let read;
+                    let shown = match known {
+                        Some(shown) => shown,
+                        None => {
+                            read = element.value();
+                            read.as_str()
+                        }
+                    };
                     let rewrite = shown != view;
                     if rewrite {
-                        replace_changed(&element, &shown, view);
+                        replace_changed(&element, shown, view);
                     }
                     rewrite
                 })

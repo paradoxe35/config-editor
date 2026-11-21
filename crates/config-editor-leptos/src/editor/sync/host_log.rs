@@ -104,6 +104,9 @@ pub(crate) struct HostLog {
     confirms: bool,
     /// The text of the version asked for last (see [`HostLog::text_at`]).
     asked: Option<(u64, Arc<str>)>,
+    /// The newest version, when no host heard it (see
+    /// [`HostLog::unheard`]).
+    unheard: Option<u64>,
 }
 
 impl HostLog {
@@ -121,6 +124,7 @@ impl HostLog {
             first: revision,
             confirms,
             asked: None,
+            unheard: None,
         }
     }
 
@@ -195,6 +199,7 @@ impl HostLog {
         self.steps = VecDeque::from([Vec::new()]);
         self.dragged = None;
         self.asked = None;
+        self.unheard = None;
     }
 
     /// An edit of input `kind` (its `inputType`, empty for another edit)
@@ -303,6 +308,7 @@ impl HostLog {
     /// `text` was sent to the host at `revision` (printed `print`, when the
     /// echo engine read it): the document is that version now.
     pub(crate) fn sent(&mut self, revision: u64, text: &str, print: Option<Print>) {
+        self.unheard = None;
         if *self.document != *text {
             self.rewritten(&Arc::from(text));
         }
@@ -314,6 +320,89 @@ impl HostLog {
         self.steps.push_back(Vec::new());
         self.dragged = None;
         self.bound();
+    }
+
+    /// The text sent at `revision`, the newest version, reached no host (no
+    /// `on_change`): it stays the host's text now (code may read it and
+    /// name its revision) until the next text is sent (see
+    /// [`HostLog::forget_unheard`]).
+    pub(crate) fn unheard(&mut self, revision: u64) {
+        if self
+            .versions
+            .back()
+            .is_some_and(|newest| newest.revision == revision)
+        {
+            self.unheard = Some(revision);
+        }
+    }
+
+    /// Drops the newest version when no host heard it and `named` (the
+    /// revision a list in force names) is not it: its steps join those of
+    /// the version before, composed (or, when they do not compose, made
+    /// one step from its text). A host that hears nothing keeps no version
+    /// per text sent.
+    pub(crate) fn forget_unheard(&mut self, named: Option<u64>) {
+        let Some(revision) = self.unheard.take() else {
+            return;
+        };
+        if named == Some(revision)
+            || self.versions.len() < 2
+            || self
+                .versions
+                .back()
+                .is_none_or(|newest| newest.revision != revision)
+        {
+            return;
+        }
+        self.versions.pop_back();
+        let after = self.steps.pop_back().unwrap_or_default();
+        if self
+            .asked
+            .as_ref()
+            .is_some_and(|(asked, _)| *asked == revision)
+        {
+            self.asked = None;
+        }
+        let steps = self.last_steps();
+        for step in after {
+            let (
+                Some(Step::Exact { change, undo }),
+                Step::Exact {
+                    change: next,
+                    undo: next_undo,
+                },
+            ) = (steps.last(), &step)
+            else {
+                steps.push(step);
+                continue;
+            };
+            let composed = change
+                .compose(next)
+                .map(|composed| carried(composed, change, next))
+                .zip(next_undo.compose(undo));
+            match composed {
+                Some((change, undo)) => {
+                    steps.pop();
+                    steps.push(Step::Exact { change, undo });
+                }
+                None => steps.push(step),
+            }
+        }
+        // Steps that do not compose (a text no edit made: an Edit-as
+        // conversion) become one, from the version's text to the document:
+        // else each text sent would add one for as long as the log lives.
+        if steps.len() > 1
+            && let Some(previous) = self.versions.back().map(|version| version.revision)
+            && let Some(from) = self.text_at(previous)
+        {
+            let to = self.document.clone();
+            *self.last_steps() = if *from == *to {
+                Vec::new()
+            } else {
+                vec![Step::Rewritten { from, to }]
+            };
+            self.asked = None;
+        }
     }
 
     /// Keeps at most [`VERSIONS_KEPT`] versions for a host that hands

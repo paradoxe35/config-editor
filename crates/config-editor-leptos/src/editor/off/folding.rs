@@ -27,9 +27,14 @@ impl EditorState {
         None
     }
 
-    /// Shows the text, as with folding but with nothing folded.
-    pub(super) fn settle_folds(&self, _moved: Option<Vec<FoldRange>>) -> bool {
-        self.show_text()
+    /// Shows the text, as with folding but with nothing folded, the
+    /// textarea showing `shown` (see `show_text_over`).
+    pub(super) fn settle_folds_over(
+        &self,
+        _moved: Option<Vec<FoldRange>>,
+        shown: Option<&str>,
+    ) -> bool {
+        self.show_text_over(shown)
     }
 
     pub(super) fn touches_fold(&self, _start: TextSize, _end: TextSize) -> bool {

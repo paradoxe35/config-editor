@@ -49,8 +49,10 @@ use leptos_config_editor::js_support::echo_clock;
 pub struct ConfigEditor {
     state: State,
     latest: Latest,
-    /// The document when `destroy` ran, so `value` still answers afterwards.
-    final_value: RefCell<Option<String>>,
+    /// The document when `destroy` ran, so `value` still answers
+    /// afterwards: the channel's own copy when it holds that text (see
+    /// [`ConfigEditor::kept_once`]).
+    final_value: RefCell<Option<std::sync::Arc<str>>>,
     /// The editor's entry in [`MOUNTED`] until `destroy`. Both are cells:
     /// `destroy` takes `&self`, so a callback that a method of this
     /// instance fired (`save()` calling `onSave`) can call it.
@@ -160,6 +162,18 @@ impl ConfigEditor {
         Ok(taken.shown)
     }
 
+    /// `text`, the document a destroyed editor answers with, kept once: the
+    /// channel (kept for an editor that takes it over) holds the document
+    /// too, and when it is `text` that copy is shared.
+    fn kept_once(&self, text: String) -> std::sync::Arc<str> {
+        let held = self.channel.document();
+        if *held == *text {
+            held
+        } else {
+            std::sync::Arc::from(text)
+        }
+    }
+
     /// The document as the host last saw it.
     fn latest_text(&self) -> String {
         self.latest
@@ -264,7 +278,9 @@ impl ConfigEditor {
                 .take_unmounted(update, &value)
                 .map_err(|error| JsError::new(&error.to_string()))?;
         }
-        let handle = EditorHandle::new();
+        // Made in the editor's owner, as everything the editor holds: made
+        // outside it, the handle's values would stay after `destroy`.
+        let handle = owner.with(EditorHandle::new);
         js_support::give_channel(&handle, channel.clone());
         let state = owner.with(|| State {
             language,
@@ -330,7 +346,7 @@ impl ConfigEditor {
         // waiting out the typing pause, first: the document as shown.
         leptos_config_editor::flush_pending_edits();
         match &*self.final_value.borrow() {
-            Some(value) => value.clone(),
+            Some(value) => value.to_string(),
             None => self.latest_text(),
         }
     }
@@ -809,13 +825,14 @@ impl ConfigEditor {
             // Called from a callback: the editor's handler is still running,
             // so it unmounts once that returns, calling nothing more.
             self.state.silence();
-            *self.final_value.borrow_mut() = Some(self.latest_text());
+            *self.final_value.borrow_mut() = Some(self.kept_once(self.latest_text()));
             let deferred = Closure::once_into_js(move || drop(unmount()));
             if let Ok(queue) = field(&js_sys::global(), "queueMicrotask").dyn_into::<Function>() {
                 let _ = queue.call1(&JsValue::NULL, &deferred);
             }
         } else {
-            *self.final_value.borrow_mut() = Some(unmount());
+            let text = unmount();
+            *self.final_value.borrow_mut() = Some(self.kept_once(text));
         }
     }
 }

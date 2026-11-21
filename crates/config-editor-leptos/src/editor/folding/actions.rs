@@ -32,6 +32,16 @@ impl EditorState {
     /// text, and shows it. Returns whether the textarea's text had to be
     /// rewritten (its selection is then lost).
     pub(crate) fn settle_folds(&self, moved: Option<Vec<FoldRange>>) -> bool {
+        self.settle_folds_over(moved, None)
+    }
+
+    /// [`Self::settle_folds`], the textarea showing `shown` (see
+    /// `show_text_over`).
+    pub(crate) fn settle_folds_over(
+        &self,
+        moved: Option<Vec<FoldRange>>,
+        shown: Option<&str>,
+    ) -> bool {
         if let Some(moved) = moved {
             // The closed folds kept are those still foldable in the new text.
             self.settle_readings();
@@ -43,7 +53,7 @@ impl EditorState {
                 self.fold().folded.set(kept);
             }
         }
-        self.show_text()
+        self.show_text_over(shown)
     }
 
     /// Whether deleting bytes `start..end` changes a closed fold beyond

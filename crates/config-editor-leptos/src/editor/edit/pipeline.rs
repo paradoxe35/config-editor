@@ -129,7 +129,12 @@ impl EditorState {
         }
         self.follow_problems(&mapping, &edit.before);
         let version = self.doc().version.get_value();
-        let rewritten = self.write_text(&mapping, edit.text.clone(), edit.folds.take());
+        // The textarea shows the document before through the folds then,
+        // unless the browser wrote into it (its input, applied now or still
+        // waiting in a burst).
+        let shown_kept = !matches!(edit.origin, Origin::Input { .. })
+            && self.typing().input_burst.with_value(Option::is_none);
+        let rewritten = self.write_text(&mapping, edit.text.clone(), edit.folds.take(), shown_kept);
         let links = self.note_view_edit(&edit, &origin, language_before);
         let rewritten = switching
             .is_some_and(|language| self.fold_fields(&folded_fields, language))
@@ -178,15 +183,30 @@ impl EditorState {
     /// through the change (or are `folds`, when the edit says), the
     /// document's version moves on, and the textarea shows the result.
     /// Returns whether the textarea's text had to be rewritten (its
-    /// selection is then lost).
-    fn write_text(&self, change: &Change, text: String, folds: Option<Vec<FoldRange>>) -> bool {
+    /// selection is then lost). `shown_kept`: the textarea still shows the
+    /// document before (no browser input wrote into it), so its text is
+    /// not read back to compare.
+    fn write_text(
+        &self,
+        change: &Change,
+        text: String,
+        folds: Option<Vec<FoldRange>>,
+        shown_kept: bool,
+    ) -> bool {
         let moved = folds.or_else(|| self.folds_through(change, &text));
         self.doc()
             .text
             .with_untracked(|before| self.note_text_change(before, &text));
         self.doc().version.update_value(|version| *version += 1);
-        self.doc().text.set(text);
-        self.settle_folds(moved)
+        let projection = shown_kept.then(|| self.view().projection.get_untracked());
+        let mut before = String::new();
+        self.doc()
+            .text
+            .update(|doc| before = std::mem::replace(doc, text));
+        let shown = projection
+            .as_ref()
+            .map(|projection| projection.view(&before));
+        self.settle_folds_over(moved, shown)
     }
 
     /// Ends a refused edit: the document never changed, so the textarea
