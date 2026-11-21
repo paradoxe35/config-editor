@@ -7,7 +7,8 @@
 //! its host value, any other one is the user's.
 
 use super::super::schema_readings;
-use crate::editor::data_reading::DataReading;
+use crate::editor::applies::scalar_text;
+use crate::editor::data_reading::{DataReading, Scalar};
 use crate::editor::decimal_text::decimal;
 use crate::editor::language::pointer_key;
 use serde_json::Value;
@@ -43,7 +44,19 @@ pub(in crate::editor::bridge) fn in_host_types(
     let mut retyped = Vec::new();
     let mut value = in_host_types_at(old, Some(seen), value, "", &mut retyped, record)?;
     if let Some(schema) = schema {
-        read_otherwise(&value, edited, record, &mut String::new(), &mut retyped)?;
+        let mut typed = Vec::new();
+        read_otherwise(
+            &value,
+            edited,
+            record,
+            &mut String::new(),
+            (&mut retyped, &mut typed),
+        )?;
+        for (pointer, text) in typed {
+            if let Some(slot) = value.pointer_mut(&pointer) {
+                *slot = text;
+            }
+        }
         schema_readings::keep(&mut value, retyped, schema);
     }
     Ok(value)
@@ -94,6 +107,25 @@ impl Record<'_> {
         Some(untouched.contains(written) || lone.is_some_and(|lone| untouched.contains(lone)))
     }
 
+    /// The text the user typed for the scalar at `at` (which the view
+    /// reads as `read`) as a string, where the host holds a string `host`
+    /// of another text: the view's parse of it, which the schema may read
+    /// as a number, a boolean or `null`.
+    fn respelled(&self, at: &str, host: &Value, read: &Value) -> Option<Value> {
+        let (Record::Kept { reading, .. }, Value::String(held)) = (self, host) else {
+            return None;
+        };
+        let parsed = match reading.node(at).scalar {
+            Scalar::Retyped(parsed) => parsed,
+            Scalar::AsParsed => read,
+        };
+        if parsed.is_object() || parsed.is_array() {
+            return None;
+        }
+        let text = scalar_text(parsed);
+        (text != *held).then_some(Value::String(text))
+    }
+
     /// Whether the user wrote the scalar at `at`, or why that is not known.
     fn wrote(&self, at: &str) -> Result<bool, Unsaved> {
         self.left(at)
@@ -113,14 +145,18 @@ fn shown_pointer(at: &str) -> String {
 
 /// Each scalar of `value` the view reads otherwise in `edited` (at the
 /// same pointer), with the view's reading, where the user wrote it: an
-/// untouched value keeps the host's text.
+/// untouched value keeps the host's text. `out`: those readings, and the
+/// host strings the user wrote in another text, each as typed (which the
+/// schema may read as it reads the host's text: `8` over `"08"` where it
+/// reads numbers), saved so unless the schema keeps the reading.
 fn read_otherwise(
     value: &Value,
     edited: &Value,
     record: &Record<'_>,
     at: &mut String,
-    out: &mut Retyped,
+    out: (&mut Retyped, &mut Retyped),
 ) -> Result<(), Unsaved> {
+    let (readings, typed) = out;
     let length = at.len();
     match (value, edited) {
         (Value::Object(map), Value::Object(theirs)) => {
@@ -128,7 +164,7 @@ fn read_otherwise(
                 if let Some(other) = theirs.get(key) {
                     at.push('/');
                     at.push_str(&pointer_key(key));
-                    read_otherwise(child, other, record, at, out)?;
+                    read_otherwise(child, other, record, at, (&mut *readings, &mut *typed))?;
                     at.truncate(length);
                 }
             }
@@ -137,7 +173,7 @@ fn read_otherwise(
             for (index, (child, other)) in items.iter().zip(theirs).enumerate() {
                 at.push('/');
                 at.push_str(&index.to_string());
-                read_otherwise(child, other, record, at, out)?;
+                read_otherwise(child, other, record, at, (&mut *readings, &mut *typed))?;
                 at.truncate(length);
             }
         }
@@ -149,13 +185,20 @@ fn read_otherwise(
                 && !scalar.is_array()
                 && matches!(items.as_slice(), [item] if !item.is_object() && !item.is_array()) =>
         {
-            if record.wrote(&format!("{at}/0"))? {
-                out.push((at.clone(), edited.clone()));
+            let item = format!("{at}/0");
+            if record.wrote(&item)? {
+                if let Some(text) = record.respelled(&item, scalar, &items[0]) {
+                    typed.push((at.clone(), text));
+                }
+                readings.push((at.clone(), edited.clone()));
             }
         }
         (Value::Object(_) | Value::Array(_), _) | (_, Value::Object(_) | Value::Array(_)) => {}
         (value, other) if value != other && record.wrote(at)? => {
-            out.push((at.clone(), other.clone()));
+            if let Some(text) = record.respelled(at, value, other) {
+                typed.push((at.clone(), text));
+            }
+            readings.push((at.clone(), other.clone()));
         }
         _ => {}
     }

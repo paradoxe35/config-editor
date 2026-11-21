@@ -380,7 +380,11 @@ fn merge_at(
 
 /// The non-list items of `items`, nested lists read through, with their
 /// pointers relative to `items`.
-fn array_leaves<'a>(items: &'a [Value], prefix: &mut String, out: &mut Vec<(String, &'a Value)>) {
+pub(super) fn array_leaves<'a>(
+    items: &'a [Value],
+    prefix: &mut String,
+    out: &mut Vec<(String, &'a Value)>,
+) {
     for (index, item) in items.iter().enumerate() {
         let length = prefix.len();
         prefix.push_str(&format!("/{index}"));

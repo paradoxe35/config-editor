@@ -91,6 +91,21 @@ versions move together.
   record could decide a value's type. Switching from an XML view with
   unsaved edits to another view writes each value the user left as the
   host holds it (a copied `edition = "2021"` stays the string `"2021"`).
+- In an XML view under a schema: a host string typed in another spelling
+  the schema reads alike (`8` over `"08"` where it reads numbers) saves as
+  typed instead of keeping the old text; and a part of the schema the
+  document fails whichever way a value is read no longer hides the part
+  that takes only the view's reading.
+- Switching from an XML view of nested lists with unsaved edits keeps each
+  value left alone: the view's flat list is paired with the host's values
+  in order, not by index (which wrote another value, or none, in its
+  place).
+- An empty XML element reads as `null` where the schema refuses the empty
+  text and an option takes `null` (`anyOf: [{type: null}, {enum:
+  [auto]}]`), instead of the empty text it then marks as a problem.
+- An Edit-as view (XML, HCL) shows the host's schema problems where it
+  shows a list of one as its item, which the save keeps as a list: a
+  problem only the list has (an option wanting it) shows in the view too.
 - A secret's field is named by its language's reading of indexes: only
   XML and HCL, which write a list by repeating a key, read `/l/0` and
   `/l` as the same field.

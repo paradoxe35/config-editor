@@ -51,21 +51,24 @@ pub(super) fn keep(value: &mut Value, retyped: Vec<(String, Value)>, schema: &Va
                 .collect();
             (above, here.entry().clone(), listed)
         };
-        // What the schemas at `held` make of the value with `candidate` at
-        // the pointer.
-        let judged = |value: &mut Value, (held, entry): &(&str, Entry<'_>), candidate: &Value| {
+        // The value at `held` with `candidate` at the pointer.
+        let with = |value: &mut Value, held: &str, candidate: &Value| {
             if let Some(slot) = value.pointer_mut(&pointer) {
                 *slot = candidate.clone();
             }
-            value
-                .pointer(held)
-                .and_then(|held| entry.accepts_below(held, schema))
+            value.pointer(held).cloned()
         };
-        let decided = above.iter().find_map(|level| {
-            match (judged(value, level, &typed), judged(value, level, &read)) {
-                (Some(false), Some(true)) => Some(true),
-                (Some(true), Some(false)) => Some(false),
-                _ => None,
+        // A part of the schemas at a level refusing both readings (the
+        // document fails there whichever is saved) tells nothing; one
+        // refusing each reading refuses the reading too.
+        let decided = above.iter().find_map(|(held, entry)| {
+            let as_typed = with(value, held, &typed)?;
+            let as_read = with(value, held, &read)?;
+            let told = entry.refusing(&as_typed, &as_read, schema);
+            match (told.first, told.second) {
+                (true, false) => Some(true),
+                (_, true) => Some(false),
+                (false, false) => None,
             }
         });
         let put_back = decided.unwrap_or_else(|| {

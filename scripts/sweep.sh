@@ -80,6 +80,7 @@ change-diffed          edit     lib       CHANGE_CASES       CHANGE_SEED       2
 sticky                 edit     lib       STICKY_CASES       STICKY_SEED       300  sticky::tests::random_blocks_stick_as_the_reference_finds_and_never_cover_a_revealed_row
 protect-reach          protect  lib       REACH_CASES        REACH_SEED        400  reach_tests::the_fast_path_answers_as_the_full_rule_on_random_edits
 save                   save     lib       FUZZ_CASES         FUZZ_SEED         40   fuzz_save::random_sessions_keep_the_save_promise
+save-schema            save     lib       FUZZ_CASES         FUZZ_SEED         40   fuzz_save::random_sessions_under_a_schema_keep_the_save_promise
 '
 # The browser fuzz's seed variable (its runs and pages come from the spec).
 BROWSER_SEED_VAR=FUZZ_BROWSER_SEED

@@ -73,3 +73,52 @@ fn a_text_with_no_record_waits_where_its_items_types_are_not_known() {
         "the wait says why: {error:?}"
     );
 }
+
+/// The strings of `value` in order, nested lists read through.
+fn leaves(value: &serde_json::Value, out: &mut Vec<serde_json::Value>) {
+    match value {
+        serde_json::Value::Array(items) => items.iter().for_each(|item| leaves(item, out)),
+        leaf => out.push(leaf.clone()),
+    }
+}
+
+/// An XML view shows nested lists flat, their leaves in order: each
+/// untouched leaf stands for the host's leaf it shows, never for the host
+/// item at its own index (a list, or another leaf). A switch writing the
+/// unsaved view into another one keeps every leaf the user left alone.
+#[test]
+fn a_switch_from_an_xml_view_of_nested_lists_keeps_each_untouched_leaf() {
+    let xml = Language::XML.behavior();
+    for host in [
+        "{\"m\": [[\"a\", \"b\"], [[\"e\"], \"f\"], \"x\"], \"n\": \"1\"}\n",
+        "{\"m\": [[\"a\", \"b\"]], \"n\": \"1\"}\n",
+        "{\"m\": [\"a\", [\"b\", \"e\"], [\"f\"]], \"n\": \"1\"}\n",
+        "{\"m\": [[\"1\", 2], [\"3\"]], \"n\": \"1\"}\n",
+    ] {
+        let bridge = Bridge::new(Language::JSON, Language::XML, None).unwrap();
+        let view = bridge.to_edit(host).unwrap().text;
+        let at = view.find("<n>1</n>").expect("n") + "<n>".len();
+        let piece = Piece {
+            range: TextRange::new(text_size(at), text_size(at + 1)),
+            inserted: "2".to_string(),
+            source: Inserted::Typed,
+        };
+        let next = format!("{}2{}", &view[..at], &view[at + 1..]);
+        let mut links = Links::fresh(host, &view, Some(bridge.reading()));
+        links.edited(xml, &view, &[piece], &mut Clipboard::default());
+        let untouched = links.untouched(xml, &next);
+        let shown = bridge
+            .to_other_view(&next, Language::JSON, untouched.as_deref())
+            .unwrap()
+            .text;
+        let shown: serde_json::Value = serde_json::from_str(&shown).expect(&shown);
+        let held: serde_json::Value = serde_json::from_str(host).unwrap();
+        let mut expected = Vec::new();
+        leaves(&held["m"], &mut expected);
+        assert_eq!(
+            shown["m"],
+            serde_json::Value::Array(expected),
+            "{host} shown as\n{view}"
+        );
+    }
+}

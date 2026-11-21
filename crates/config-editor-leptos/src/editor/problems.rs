@@ -8,8 +8,8 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::diagnostics::{
-    Diagnostic, Placeholders, capped, follow_diagnostics, host_problems, validate_keyed,
-    with_host_problems,
+    Diagnostic, Placeholders, capped, follow_diagnostics, host_problems, shows_lists_as_items,
+    validate_keyed, with_host_problems,
 };
 use super::edit::Change;
 use super::edit_as::{EditAsProblem, EditAsText};
@@ -178,6 +178,8 @@ impl ProblemsState {
                 problems
                     .iter()
                     .any(|problem| matches!(problem.text, EditAsText::EditCannotShow { .. }))
+            }) || session.with_value(|session| {
+                shows_lists_as_items(&session.host, host_language.behavior(), edit.behavior())
             });
             if !inexact {
                 return None;

@@ -17,7 +17,9 @@ mod fields;
 mod follow;
 mod host_reading;
 pub(super) use follow::follow_diagnostics;
-pub(super) use host_reading::{ProblemKey, host_problems, with_host_problems};
+pub(super) use host_reading::{
+    ProblemKey, host_problems, shows_lists_as_items, with_host_problems,
+};
 #[cfg(feature = "schema-validation")]
 mod schema_problems;
 #[cfg(feature = "schema-validation")]

@@ -260,12 +260,6 @@ impl Bridge {
         };
         let paths = self.reading().paths(previous_host, was).unwrap_or_default();
         let host: Arc<str> = Arc::from(previous_host);
-        let host_value = codec::read(
-            self.host.behavior(),
-            byte_order_mark::split(previous_host).0,
-            self.shape(),
-        )
-        .ok();
         let mut pointers = Vec::new();
         scalars(now, &mut String::new(), &mut pointers);
         Some(
@@ -286,17 +280,7 @@ impl Bridge {
                     } else {
                         lone.filter(|list| was.pointer(list) == value)?.to_string()
                     };
-                    // Only where the host's value is the one shown (a view
-                    // of nested lists shows others in their place).
                     let from = paths.value(&from);
-                    let text = |value: &serde_json::Value| match value {
-                        serde_json::Value::String(text) => text.clone(),
-                        other => other.to_string(),
-                    };
-                    let held = host_value.as_ref().and_then(|held| held.pointer(&from));
-                    if held.map(text) != value.map(text) {
-                        return None;
-                    }
                     Some(links::Untouched {
                         from,
                         host: host.clone(),

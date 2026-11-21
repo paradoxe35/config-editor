@@ -230,6 +230,15 @@ mod schema_meanings;
     feature = "json",
     feature = "toml",
     feature = "hcl",
+    feature = "xml",
+    feature = "schema-validation"
+))]
+mod schema_record;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
     feature = "xml"
 ))]
 mod session;

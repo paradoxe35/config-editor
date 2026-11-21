@@ -37,22 +37,21 @@ impl Entry<'_> {
     pub(crate) fn accepts_near(&self, value: &Value, root: &Value) -> Option<bool> {
         accepted(&self.0, value, root, MAX_DEPTH - NEAR, false)
     }
-
-    /// [`Self::accepts_near`] reading twice as deep: for a value a few
-    /// levels below the options deciding it, through a `$ref` or two.
-    pub(crate) fn accepts_below(&self, value: &Value, root: &Value) -> Option<bool> {
-        accepted(&self.0, value, root, MAX_DEPTH - 2 * NEAR, false)
-    }
 }
+
+/// The depth a check starts reading at that reads twice as deep as
+/// [`Entry::accepts_near`]: for a value a few levels below the options
+/// deciding it, through a `$ref` or two (see `refusing`).
+pub(super) const BELOW: usize = MAX_DEPTH - 2 * NEAR;
 
 /// Levels [`Entry::accepts_near`] reads.
 const NEAR: usize = 6;
 
 /// Levels of schemas and values [`decides`] reads at most.
-const MAX_DEPTH: usize = 32;
+pub(super) const MAX_DEPTH: usize = 32;
 
 /// `in_a_branch`: see [`Entry::accepts_in_a_branch`].
-fn accepted(
+pub(super) fn accepted(
     node: &Node<'_>,
     value: &Value,
     root: &Value,
@@ -167,7 +166,7 @@ fn all(results: impl IntoIterator<Item = Option<bool>>) -> Option<bool> {
     known.then_some(true)
 }
 
-fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<bool> {
+pub(super) fn decide(schema: &Value, value: &Value, root: &Value, depth: usize) -> Option<bool> {
     if depth > MAX_DEPTH {
         return None;
     }

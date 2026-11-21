@@ -7,7 +7,9 @@
 
 use super::DataReading;
 use super::text::{Space, other_reading, text_literal};
-use crate::editor::applies::{Entry, Here, Seen, Types, listed, scalar_text, type_includes};
+use crate::editor::applies::{
+    Entry, Here, Seen, Types, decides, listed, scalar_text, type_includes,
+};
 use crate::editor::completion::describes_array;
 use crate::editor::language::{Repetition, SchemaPathSegment, pointer_key};
 use serde_json::Value;
@@ -470,8 +472,28 @@ fn read_text(value: &mut Value, at: &Entry<'_>, branches: &[&Value], types: Type
     if !empty || allowed(value) {
         return;
     }
+    // The empty text, unless every schema here refuses it and one takes
+    // `null` (an option typing `null`, which the kinds read off the empty
+    // element as an object leave out).
+    let text = Value::String(String::new());
+    let text_fits = || {
+        branches.is_empty()
+            || branches
+                .iter()
+                .any(|branch| decides(branch, &text, root) != Some(false))
+    };
     if types.allows_type("string") {
-        *value = Value::String(String::new());
+        let null_fits = || {
+            allowed(&Value::Null)
+                || Here::walk(at.clone(), root, Seen::default())
+                    .types()
+                    .allows(&Value::Null)
+        };
+        *value = if text_fits() || !null_fits() {
+            text
+        } else {
+            Value::Null
+        };
     } else if allowed(&Value::Null) {
         *value = Value::Null;
     }
@@ -485,12 +507,13 @@ fn spelled_boolean(text: &str, branches: &[&Value], types: Types) -> Option<bool
         return None;
     }
     let spells = |keyword: &str| {
-        branches
-            .iter()
-            .filter_map(|branch| branch.get(keyword).and_then(Value::as_array))
-            .flatten()
-            .filter_map(Value::as_str)
-            .any(|spelling| spelling == text.trim())
+        branches.is_empty()
+            || branches
+                .iter()
+                .filter_map(|branch| branch.get(keyword).and_then(Value::as_array))
+                .flatten()
+                .filter_map(Value::as_str)
+                .any(|spelling| spelling == text.trim())
     };
     if spells("x-true") {
         Some(true)

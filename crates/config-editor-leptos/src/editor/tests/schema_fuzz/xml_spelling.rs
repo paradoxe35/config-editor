@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::reference::{Both, same};
 use crate::editor::Language;
+use crate::editor::applies::scalar_text;
 use crate::editor::bridge::links::HostPaths;
 use crate::editor::bridge::paired;
 use crate::editor::decimal_text::decimal;
@@ -55,6 +56,9 @@ pub(super) struct Sides<'a> {
     /// Which host value the save took each value from (see [`held`]);
     /// `None`: each at its own pointer.
     pub(super) paired: Option<&'a paired::Paired>,
+    /// The document the view's text was written from (what the user
+    /// typed, each scalar as its text); `None`: not known.
+    pub(super) typed: Option<&'a Value>,
 }
 
 /// The class of the save when XML's spelling explains each value it reads
@@ -145,9 +149,13 @@ fn spelling(sides: &Sides<'_>, at: &str, view: &Value, listed: bool) -> Option<&
         {
             Some(RESPELLED)
         }
-        // An item no schema reads keeps the host's type (see `text_scalars`).
+        // An item no schema reads keeps the host's type (see `text_scalars`),
+        // and so does a host scalar the view reads as a list's one item.
         (Some(before), _, _)
-            if from_xml && kind(before) == kind(saved) && same_text(view, saved) =>
+            if from_xml
+                && kind(before) == kind(saved)
+                && same_text(lone_item(view), saved)
+                && saved_as_typed(sides, at, saved) =>
         {
             if listed {
                 Some(KEPT_LIST)
@@ -306,6 +314,33 @@ fn kind(value: &Value) -> &'static str {
     }
 }
 
+/// Whether a string the save kept in the host's type is the text the user
+/// typed (which the view reads as a number or boolean), not another
+/// spelling of it the host held (`"08"` kept for `8` typed): where the
+/// typed document holds a scalar at `at`.
+fn saved_as_typed(sides: &Sides<'_>, at: &str, saved: &Value) -> bool {
+    let (Some(typed), Value::String(text)) = (sides.typed, saved) else {
+        return true;
+    };
+    match typed.pointer(at) {
+        Some(typed) if !typed.is_object() && !typed.is_array() => {
+            scalar_text(typed).trim() == text.trim()
+        }
+        _ => true,
+    }
+}
+
+/// The item of a list of one scalar (the view's reading of a lone element
+/// the schema wants a list of), else `value`.
+fn lone_item(value: &Value) -> &Value {
+    match value {
+        Value::Array(items) if matches!(&items[..], [item] if !item.is_object() && !item.is_array()) => {
+            &items[0]
+        }
+        other => other,
+    }
+}
+
 /// Whether `left` and `right` are scalars of two types XML writes as the
 /// same text (`"8"` and `8`, `"true"` and `true`, `"null"` and `null`).
 fn same_text(left: &Value, right: &Value) -> bool {
@@ -366,6 +401,7 @@ mod tests {
             view: &view,
             saved: &saved,
             paired: Some(&paired),
+            typed: None,
         })
     }
 
@@ -527,6 +563,7 @@ mod tests {
                     view: &view,
                     saved: &saved,
                     paired: None,
+                    typed: None,
                 })
             };
         let hosts = Language::ALL
@@ -627,6 +664,7 @@ mod tests {
             view,
             saved,
             paired: Some(paired),
+            typed: None,
         })
     }
 

@@ -78,6 +78,36 @@ pub(in crate::editor) fn host_problems(
     None
 }
 
+/// Whether a view in `edit` shows a list of one of the host's text `host`
+/// as its item (XML repeats an element, HCL a block, once): where no
+/// schema there reads it back as a list, the view reads the item, while
+/// its saves keep the host's list. The schema may judge the two apart (an
+/// option wanting a list), so the view cannot see the host's problems
+/// with the list: it shows them as those of a host it cannot show exactly.
+pub(in crate::editor) fn shows_lists_as_items(
+    host: &str,
+    host_behavior: &dyn ConfigLanguage,
+    edit: &dyn ConfigLanguage,
+) -> bool {
+    fn holds_list_of_one(value: &serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::Array(items) => {
+                items.len() == 1 || items.iter().any(holds_list_of_one)
+            }
+            serde_json::Value::Object(map) => map.values().any(holds_list_of_one),
+            _ => false,
+        }
+    }
+    if edit.repetition() == crate::editor::language::Repetition::None {
+        return false;
+    }
+    let (host, _) = crate::editor::byte_order_mark::split(host);
+    crate::editor::parse_cache::parsed(host_behavior, host)
+        .as_ref()
+        .as_ref()
+        .is_ok_and(holds_list_of_one)
+}
+
 /// `own` (the view's problems of the text `checked`, its schema problems
 /// named by `keys`) with each of `host`'s it does not have, moved to where
 /// their lines are in `checked`; capped as one list, which says it is

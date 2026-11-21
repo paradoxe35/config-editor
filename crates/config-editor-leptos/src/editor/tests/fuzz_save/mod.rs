@@ -14,10 +14,16 @@
 //! finding are allowed by name in `known.rs` (remove the entry with the
 //! fix).
 //!
-//! The standing test runs [`CASES`] sessions per host and starting view;
+//! The standing test runs 40 sessions per host and starting view;
 //! `FUZZ_CASES=5000 FUZZ_SEED=7 cargo test -p leptos-config-editor
 //! fuzz_save -- --nocapture` runs more (`FUZZ_PAIR=TOML>JSON` one pair
 //! only, `FUZZ_ALL=1` shrinks and prints the allowed failures too).
+//!
+//! A second test runs the sessions of an XML view under a schema typing
+//! each value (`typing`): the view reads its text by the schema, and the
+//! save keeps each value in the host's type or as the view reads it by the
+//! editor's record of the edits; the host then has a problem exactly when
+//! the view shows one.
 
 mod checks;
 mod docs;
@@ -25,6 +31,7 @@ mod known;
 mod ops;
 mod repros;
 mod shrink;
+mod typing;
 
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -34,14 +41,12 @@ use leptos::prelude::*;
 use crate::editor::bridge::Bridge;
 use crate::editor::languages::Language;
 use crate::editor::save_properties::Random;
+use crate::editor::schema::Schema;
 use crate::editor::test_state::TestEditor;
 use checks::{Broken, Failure};
 // `Put` and `Take` are named by the printed regression tests.
 #[allow(unused_imports, reason = "named by the printed regression tests")]
 use ops::{Op, Put, Take};
-
-/// Sessions per host and starting view in the standing test.
-const CASES: usize = 40;
 
 const ALL: [Language; 5] = [
     Language::YAML,
@@ -52,13 +57,29 @@ const ALL: [Language; 5] = [
 ];
 
 /// One session: a host's text, the language it is first shown in, the
-/// steps.
+/// steps, and the seed of the schema typing the text (see `typing`), if
+/// the session has one.
 #[derive(Clone, Debug)]
 struct Case {
     host: Language,
     view: Language,
     text: String,
     ops: Vec<Op>,
+    schema: Option<u64>,
+}
+
+impl Case {
+    /// The schema typing the session's text, compiled; `Err` when it has
+    /// one that does not compile (its text does not read).
+    fn schema(&self) -> Result<Option<Schema>, ()> {
+        let Some(seed) = self.schema else {
+            return Ok(None);
+        };
+        let value = self.host.parse(&self.text).map_err(|_| ())?;
+        Schema::compile(&typing::schema(&value, seed).to_string())
+            .map(Some)
+            .map_err(|_| ())
+    }
 }
 
 /// Where a session broke the promise: the step (its index) and how.
@@ -71,7 +92,11 @@ struct Broke {
 /// Runs `case`; `Ok(false)` when it cannot start (its text does not read,
 /// or no view of it can be shown).
 fn run(case: &Case) -> Result<bool, Broke> {
-    let shown = match Bridge::new(case.host, case.view, None) {
+    let Ok(schema) = case.schema() else {
+        return Ok(false);
+    };
+    let bundle = schema.as_ref().map(|schema| schema.bundle.clone());
+    let shown = match Bridge::new(case.host, case.view, bundle.clone()) {
         Some(bridge) => match bridge.to_edit(&case.text) {
             Ok(conversion) => conversion.text,
             Err(_) => return Ok(false),
@@ -93,6 +118,7 @@ fn run(case: &Case) -> Result<bool, Broke> {
     let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<(), Broke> {
         let held: checks::HostCopy = std::sync::Arc::new(std::sync::Mutex::new(case.text.clone()));
         let mut editor = TestEditor::new(case.host, &case.text);
+        editor.schema = bundle;
         let told = held.clone();
         editor.on_change = Some(Callback::new(move |text: String| {
             *told.lock().unwrap() = text;
@@ -124,6 +150,7 @@ fn run(case: &Case) -> Result<bool, Broke> {
                 let switched_from =
                     matches!(op, Op::Switch { .. }).then_some((language_before, before.as_str()));
                 checks::check(state, &start, &held, switched_from)
+                    .and_then(|()| checks::problems_agree(state, &held, schema.as_ref()))
                     .map_err(|failure| Broke { step, failure })?;
             }
             let language = state.sync().edit_language.get_untracked();
@@ -137,10 +164,12 @@ fn run(case: &Case) -> Result<bool, Broke> {
             }
         }
         ops::pause(state);
-        checks::check(state, &start, &held, None).map_err(|failure| Broke {
-            step: case.ops.len(),
-            failure,
-        })
+        checks::check(state, &start, &held, None)
+            .and_then(|()| checks::problems_agree(state, &held, schema.as_ref()))
+            .map_err(|failure| Broke {
+                step: case.ops.len(),
+                failure,
+            })
     }));
     match outcome {
         Ok(result) => result.map(|()| true),
@@ -180,12 +209,29 @@ fn saved_after(host: Language, view: Language, text: &str, ops: &[Op]) -> String
 /// Runs a printed case (see [`shrink::repro`]) and fails on a broken save.
 #[allow(dead_code, reason = "called by the printed regression tests")]
 fn replay(host: Language, view: Language, text: &str, ops: &[Op]) {
-    let case = Case {
+    replay_case(Case {
         host,
         view,
         text: text.to_string(),
         ops: ops.to_vec(),
-    };
+        schema: None,
+    });
+}
+
+/// [`replay`] under the schema `typing` makes of `text` with `seed`.
+#[allow(dead_code, reason = "called by the printed regression tests")]
+fn replay_typed(host: Language, view: Language, seed: u64, text: &str, ops: &[Op]) {
+    replay_case(Case {
+        host,
+        view,
+        text: text.to_string(),
+        ops: ops.to_vec(),
+        schema: Some(seed),
+    });
+}
+
+#[allow(dead_code, reason = "called by the printed regression tests")]
+fn replay_case(case: Case) {
     if let Err(broke) = run(&case) {
         if setting("FUZZ_TRACE").is_some() {
             println!(
@@ -223,7 +269,22 @@ fn case(seed: u64, host: usize, view: usize, index: usize) -> Case {
         view: ALL[view],
         text,
         ops: ops::session(&mut random, length),
+        schema: None,
     }
+}
+
+/// [`case`] typed by a schema (its seed drawn after the session's).
+fn typed_case(seed: u64, host: usize, view: usize, index: usize) -> Case {
+    let mut case = case(seed, host, view, index);
+    let mut random = Random(seed ^ (index as u64).wrapping_mul(0x2545_F491_4F6C_DD1D));
+    case.schema = Some(random.below(1 << 30) as u64);
+    case
+}
+
+/// The sessions per pair: `FUZZ_CASES`, else the standing test's
+/// `standing`.
+fn cases(standing: usize) -> usize {
+    setting("FUZZ_CASES").map_or(standing, |value| value.parse().unwrap())
 }
 
 /// A class of failures: what broke in which pair, and the finding allowing
@@ -232,7 +293,26 @@ type Class = (String, Option<&'static str>);
 
 #[test]
 fn random_sessions_keep_the_save_promise() {
-    let cases: usize = setting("FUZZ_CASES").map_or(CASES, |value| value.parse().unwrap());
+    let pairs: Vec<(usize, usize)> = (0..ALL.len())
+        .flat_map(|host| (0..ALL.len()).map(move |view| (host, view)))
+        .collect();
+    explore(cases(40), &pairs, case);
+}
+
+#[test]
+fn random_sessions_under_a_schema_keep_the_save_promise() {
+    // An XML view of each other host: the view whose scalars the schema
+    // reads from text.
+    let xml = ALL.len() - 1;
+    let pairs: Vec<(usize, usize)> = (0..xml).map(|host| (host, xml)).collect();
+    explore(cases(40), &pairs, typed_case);
+}
+
+/// Runs `cases` sessions (`FUZZ_CASES`) of each of `pairs` (host and
+/// view, by their index in [`ALL`]) as `make` draws them, and fails on a
+/// broken save no known finding allows, printing each class's first one
+/// shrunk.
+fn explore(cases: usize, pairs: &[(usize, usize)], make: fn(u64, usize, usize, usize) -> Case) {
     let seed: u64 = setting("FUZZ_SEED").map_or(0x5a7e, |value| value.parse().unwrap());
     let only = setting("FUZZ_PAIR");
     let all = setting("FUZZ_ALL").is_some();
@@ -242,26 +322,24 @@ fn random_sessions_keep_the_save_promise() {
     // Failures by class (what broke, host, view, allowance): how many, and
     // the first one shrunk.
     let mut classes: BTreeMap<Class, (usize, Vec<String>)> = BTreeMap::new();
-    for (host, host_language) in ALL.iter().enumerate() {
-        for (view, view_language) in ALL.iter().enumerate() {
-            let pair = format!("{}>{}", host_language.label(), view_language.label());
-            if only.as_ref().is_some_and(|only| *only != pair) {
-                continue;
-            }
-            for index in 0..cases {
-                let case = case(seed, host, view, index);
-                match run(&case) {
-                    Ok(true) => ran += 1,
-                    Ok(false) => skipped += 1,
-                    Err(broke) => {
-                        ran += 1;
-                        let allowed = known::allowed(&case, &broke);
-                        let class = format!("{:?} {pair}", broke.failure.broken);
-                        let entry = classes.entry((class, allowed)).or_default();
-                        entry.0 += 1;
-                        if entry.1.len() < repros && (allowed.is_none() || all) {
-                            entry.1.push(shrink::shrunk_repro(&case, &broke));
-                        }
+    for &(host, view) in pairs {
+        let pair = format!("{}>{}", ALL[host].label(), ALL[view].label());
+        if only.as_ref().is_some_and(|only| *only != pair) {
+            continue;
+        }
+        for index in 0..cases {
+            let case = make(seed, host, view, index);
+            match run(&case) {
+                Ok(true) => ran += 1,
+                Ok(false) => skipped += 1,
+                Err(broke) => {
+                    ran += 1;
+                    let allowed = known::allowed(&case, &broke);
+                    let class = format!("{:?} {pair}", broke.failure.broken);
+                    let entry = classes.entry((class, allowed)).or_default();
+                    entry.0 += 1;
+                    if entry.1.len() < repros && (allowed.is_none() || all) {
+                        entry.1.push(shrink::shrunk_repro(&case, &broke));
                     }
                 }
             }
