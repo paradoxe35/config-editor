@@ -235,6 +235,16 @@ versions move together.
   waiting, in every view; the host heard the placeholder glued to the
   other items' text before.
 
+## 0.1.2 — 2026-11-21
+
+### Fixes
+
+- An edit far from a secret's placeholder that turns the list or map
+  holding it into one string (`=` typed into a YAML item's `- `, or ` |`
+  typed after the parent's key) is now refused, or held with the save
+  waiting. Before, the host got the placeholder glued to the other text,
+  which overwrote the real secret.
+
 ## 0.1.1 — 2026-11-21
 
 - The Rust crate is renamed from `config-editor-leptos` to
