@@ -65,6 +65,8 @@ mod item_trail_switches;
     feature = "xml"
 ))]
 mod key_trail_switches;
+#[cfg(feature = "yaml")]
+mod schema_checks;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

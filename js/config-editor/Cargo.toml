@@ -23,3 +23,8 @@ web-sys = { version = "0.3", features = ["console", "css", "HtmlElement"] }
 [features]
 # Heap statistics for hunting leaks (see src/alloc_stats.rs); never published.
 alloc-stats = []
+# XML Schema as a schema format (`schemaFormat: "xsd"`): opt-in, as in the
+# crate, because it adds more than 60 KB gzip (scripts/wasm-sizes.sh prices
+# it); the published package leaves it out, `npm run build:xsd` builds one
+# with it.
+xsd = ["leptos-config-editor/xsd"]

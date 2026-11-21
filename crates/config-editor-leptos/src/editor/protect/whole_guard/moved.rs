@@ -194,7 +194,7 @@ impl Placeholders<'_> {
                 let trimmed = holder.text.trim();
                 let new = written.contains(trimmed) && !before.contains(trimmed);
                 let kept = earlier.is_some_and(|earlier| {
-                    field_value(earlier, &holder.pointer).and_then(Value::as_str)
+                    field_value(behavior, earlier, &holder.pointer).and_then(Value::as_str)
                         == Some(holder.text)
                 });
                 return (beside && !new && !kept).then(|| holder.pointer.clone());

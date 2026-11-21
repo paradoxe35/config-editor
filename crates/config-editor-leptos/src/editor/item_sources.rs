@@ -10,6 +10,7 @@
     allow(dead_code, reason = "only XML hosts read the sources")
 )]
 
+use serde_json::Value;
 use std::collections::HashMap;
 
 mod pairing;
@@ -81,6 +82,9 @@ impl ItemSources {
 pub struct SaveTold<'a> {
     sources: Option<&'a ItemSources>,
     over_last: bool,
+    /// The schema the value is written under: a language that writes some
+    /// values otherwise by what it says (XML's `xml.attribute`) reads it.
+    schema: Option<&'a Value>,
 }
 
 impl<'a> SaveTold<'a> {
@@ -89,7 +93,19 @@ impl<'a> SaveTold<'a> {
         SaveTold {
             sources,
             over_last: true,
+            schema: None,
         }
+    }
+
+    /// The same, writing under `schema`.
+    #[must_use]
+    pub(crate) fn with_schema(self, schema: Option<&'a Value>) -> Self {
+        SaveTold { schema, ..self }
+    }
+
+    /// The schema the value is written under, if any.
+    pub fn schema(self) -> Option<&'a Value> {
+        self.schema
     }
 
     /// The same save, at a step written over a text an earlier step (or

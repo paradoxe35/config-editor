@@ -190,7 +190,11 @@ impl SecretMatcher {
         let mut add =
             |token: &str, field: Option<String>, whole: Option<String>, items: Vec<u64>, placed| {
                 note(Work::PlaceLookup);
-                let place = (token.to_string(), field.as_deref().map(field_key), placed);
+                let place = (
+                    token.to_string(),
+                    field.as_deref().map(|field| field_key(behavior, field)),
+                    placed,
+                );
                 match by_place.get(&place) {
                     Some(index) => known[*index].count += 1,
                     None => {
@@ -399,20 +403,23 @@ pub(crate) fn written_counts(known: &[Known]) -> std::collections::HashMap<&str,
     counts
 }
 
-/// The value of the host's `field` in `document`, also where the document
-/// reads a lone item of a repeated field as the item (`/l/0` read `/l`).
+/// The value of the host's `field` in `document` (a text in `behavior`
+/// read), also where a language that repeats keys reads a lone item of a
+/// repeated field as the item (`/l/0` read `/l`, see `paths::field_key`).
 pub(crate) fn field_value<'a>(
+    behavior: &dyn ConfigLanguage,
     document: &'a serde_json::Value,
     field: &str,
 ) -> Option<&'a serde_json::Value> {
     document
         .pointer(field)
-        .or_else(|| document.pointer(&field_key(field)))
+        .or_else(|| document.pointer(&field_key(behavior, field)))
 }
 
 /// How many times the parsed `document` holds each known token in the
 /// fields the host gave it in, at most as often as there.
 pub(crate) fn held_in_fields<'a>(
+    behavior: &dyn ConfigLanguage,
     document: &serde_json::Value,
     known: &'a [Known],
 ) -> std::collections::HashMap<&'a str, usize> {
@@ -421,7 +428,7 @@ pub(crate) fn held_in_fields<'a>(
         let Some(field) = &known.field else {
             continue;
         };
-        let count = field_value(document, field)
+        let count = field_value(behavior, document, field)
             .and_then(serde_json::Value::as_str)
             .map_or(0, |value| {
                 value.matches(known.token.as_str()).count().min(known.count)
@@ -531,7 +538,7 @@ impl SecretMatcher {
             for (index, (field, _)) in left.iter().enumerate() {
                 if let Some(field) = field {
                     by_field
-                        .entry(field_key(field))
+                        .entry(field_key(behavior, field))
                         .or_default()
                         .push_back(index);
                 }
@@ -541,7 +548,7 @@ impl SecretMatcher {
                     Some(pointers) => pointers[nth].clone(),
                     None => field_at(behavior, text, text_size(byte)),
                 };
-                let Some(slots) = by_field.get_mut(&field_key(&pointer)) else {
+                let Some(slots) = by_field.get_mut(&field_key(behavior, &pointer)) else {
                     continue;
                 };
                 note(Work::PlaceLookup);
@@ -731,7 +738,10 @@ mod tests {
             1
         );
         use crate::editor::paths::same_field;
-        assert!(same_field("/a/0/b", "/a/b") && !same_field("/a", "/b"));
+        let (xml, json) = (Language::XML.behavior(), Language::JSON.behavior());
+        assert!(same_field(xml, "/a/0/b", "/a/b") && !same_field(xml, "/a", "/b"));
+        // An index is only an index in a language that never repeats a key.
+        assert!(!same_field(json, "/a/0/b", "/a/b"));
     }
 
     #[test]

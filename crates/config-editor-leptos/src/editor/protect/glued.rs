@@ -106,7 +106,7 @@ pub(super) fn holding<'a>(
     // A language that cannot say where a value is written: the field's own
     // value, as the parse reads it there.
     if !places.is_empty() && places.iter().all(|place| place.is_none()) {
-        return match field_value(document, field) {
+        return match field_value(behavior, document, field) {
             Some(Value::String(text)) if known.alone_in(text) => Holding::Alone(text),
             Some(Value::String(text)) if text.contains(&known.token) => Holding::Beside(text),
             _ => Holding::Not,
@@ -138,7 +138,7 @@ pub(super) fn holding<'a>(
             None => {}
         }
     }
-    let container = || field_value(document, field).unwrap_or(&Value::Null);
+    let container = || field_value(behavior, document, field).unwrap_or(&Value::Null);
     let copies = own.len() > 1 || own.iter().any(|(_, indexed)| *indexed);
     if within || (copies && repetition == Repetition::None) {
         return Holding::Within(container());
@@ -151,17 +151,13 @@ pub(super) fn holding<'a>(
         }
         // The field made a list (a second element of its name written
         // beside its own), in any language: the token was its whole value,
-        // so the list's other items are written beside it. Items empty or
-        // holding the token alone are none (a copy of its line with its
-        // mask deleted, on the way back). In a language that repeats only
-        // a key for a list (not any element), every copy is such an item.
+        // so the list's other items are written beside it, an empty one
+        // too (`<password/>`, as YAML's `[«secret», ""]`). Items holding
+        // the token alone are none. In a language that repeats only a key
+        // for a list (not any element), every copy is such an item.
         let other_items = || {
-            matches!(container(), Value::Array(items) if items.iter().any(|item| match item {
-                Value::Null => false,
-                Value::String(text) => !text.is_empty() && !known.alone_in(text),
-                Value::Object(map) => !map.is_empty(),
-                Value::Array(items) => !items.is_empty(),
-                _ => true,
+            matches!(container(), Value::Array(items) if items.iter().any(|item| {
+                !matches!(item, Value::String(text) if known.alone_in(text))
             }))
         };
         if (listed && other_items()) || repetition != Repetition::Elements {
@@ -253,7 +249,7 @@ pub(crate) fn first_glued<'a>(
     known: &'a [Known],
     matcher: &SecretMatcher,
 ) -> Option<&'a Known> {
-    if alone_in_fields(document, known, Form::Any) {
+    if alone_in_fields(behavior, document, known, Form::Any) {
         return None;
     }
     let holders = Holders::read(behavior, text, document, matcher);
@@ -316,6 +312,7 @@ pub(super) enum Form {
 /// an edit leaving every field as it was (typing in a comment) and a check
 /// of a text gluing nothing stay cheap.
 pub(super) fn alone_in_fields<'k>(
+    behavior: &dyn ConfigLanguage,
     document: &Value,
     known: impl IntoIterator<Item = &'k Known>,
     form: Form,
@@ -328,7 +325,7 @@ pub(super) fn alone_in_fields<'k>(
             let Some(field) = known.field.as_deref() else {
                 return true;
             };
-            match field_value(document, field) {
+            match field_value(behavior, document, field) {
                 Some(Value::String(text)) => {
                     known.alone_in(text)
                         && (form == Form::Any || known.whole.as_deref() == Some(text.as_str()))
@@ -375,7 +372,7 @@ pub(crate) fn glued_in_save(
         return None;
     }
     let after = super::super::codec::read(behavior, new, reading).ok()?;
-    if alone_in_fields(&after, known, Form::Any) {
+    if alone_in_fields(behavior, &after, known, Form::Any) {
         return None;
     }
     let before = super::super::codec::read(behavior, old, reading).ok();
@@ -410,7 +407,7 @@ pub(crate) fn glued_placeholders(
     let Some(document) = parsed.as_ref().as_ref().ok() else {
         return Vec::new();
     };
-    if alone_in_fields(document, known, Form::Any) {
+    if alone_in_fields(behavior, document, known, Form::Any) {
         return Vec::new();
     }
     let holders = Holders::read(behavior, text, document, matcher);

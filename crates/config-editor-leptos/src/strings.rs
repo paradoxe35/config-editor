@@ -587,8 +587,45 @@ pub struct EditorStrings {
     pub option_number: String,
     /// A schema that does not compile.
     pub invalid_schema: String,
+    /// A schema its format cannot read (`{format}`: the format's label, such
+    /// as `XSD`).
+    pub invalid_schema_source: String,
     /// A schema whose text is empty, or only spaces and line breaks.
     pub empty_schema: String,
+    /// A schema format's check that could not run (a JavaScript check that
+    /// threw, or gave something else than problems): the format's
+    /// `{format}`, the check's name (`{check}`) and why (`{reason}`).
+    pub schema_check_failed: String,
+    /// An XSD check (cargo feature `xsd`): an attribute, or another
+    /// language's key, named `{name}`, that its element neither declares
+    /// nor allows by a wildcard.
+    pub xsd_not_declared: String,
+    /// An XSD check: child element `{name}` where its element's content
+    /// model allows no more.
+    pub xsd_no_more_elements: String,
+    /// An XSD check: child element `{name}` where its element's content
+    /// model wants another (`{expected}`, worded as `xsd_one_of`).
+    pub xsd_element_not_expected: String,
+    /// An XSD check: the child elements end before their element's content
+    /// model does; it wants `{expected}` (worded as `xsd_one_of`).
+    pub xsd_element_missing: String,
+    /// What an XSD check expects when it is one of several: the others
+    /// (`{names}`, joined by `, `) and the `{last}`; one alone is named
+    /// as it is.
+    pub xsd_one_of: String,
+    /// What an XSD check expects where a wildcard (`xs:any`) allows an
+    /// element of another name.
+    pub xsd_another_element: String,
+    /// An XSD check: an element an `xs:key` (`{name}`) selects has no value
+    /// for its fields (`{fields}`, joined by `, `).
+    pub xsd_key_needs_value: String,
+    /// An XSD check: a value (`{value}`, the fields' values joined by `, `)
+    /// an `xs:key` or `xs:unique` (`{kind}`: `key` or `unique`, named
+    /// `{name}`) has at `{first}` already.
+    pub xsd_value_repeated: String,
+    /// An XSD check: an `xs:keyref` (`{name}`) value (`{value}`) that no
+    /// element of its `xs:key` (`{key}`) has.
+    pub xsd_keyref_unknown: String,
     /// A secret placeholder pattern the editor cannot use (it does not
     /// compile, or matches empty text): no token is taken for a placeholder.
     pub invalid_placeholder: String,
@@ -920,7 +957,24 @@ impl Default for EditorStrings {
             option_problem: text("{option}: {problem}"),
             option_number: text("option {number}"),
             invalid_schema: text("Invalid JSON Schema: {error}"),
+            invalid_schema_source: text("Invalid {format}: {error}"),
             empty_schema: text("Invalid JSON Schema: the schema text is empty"),
+            schema_check_failed: text("{format}'s check \"{check}\" did not run: {reason}"),
+            xsd_not_declared: text("\"{name}\" is neither declared here nor allowed by a wildcard"),
+            xsd_no_more_elements: text(
+                "<{name}> is not expected here: no more elements are allowed",
+            ),
+            xsd_element_not_expected: text("<{name}> is not expected here; expected {expected}"),
+            xsd_element_missing: text("an element is missing at the end: expected {expected}"),
+            xsd_one_of: text("one of {names} or {last}"),
+            xsd_another_element: text("another element"),
+            xsd_key_needs_value: text("the xs:key \"{name}\" needs a value for {fields}"),
+            xsd_value_repeated: text(
+                "\"{value}\" is already the value of the xs:{kind} \"{name}\" at {first}",
+            ),
+            xsd_keyref_unknown: text(
+                "\"{value}\" is no value of the xs:key \"{key}\" (xs:keyref \"{name}\")",
+            ),
             invalid_placeholder: text("secrets.placeholder: {error}"),
             problem_at_path: text("{path}: {message}"),
             host_cannot_keep: text(

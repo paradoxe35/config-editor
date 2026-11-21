@@ -1,12 +1,15 @@
 //! The TOML parser's errors in plain words: what is missing or wrong and
 //! how to write it, without the parser's "expected …" lists.
 
+use crate::editor::language::Said;
+
 /// Something after a whole `key = value` on its line.
 pub(super) const OUT_OF_PLACE: &str = "this does not belong here: write one key = value per line";
 
 /// The parser's `message` at `line` and `column` of `source`, in plain
-/// words.
-pub(super) fn plain(source: &str, line: usize, column: usize, message: &str) -> String {
+/// words. Of the parser's sentences only `duplicate key` names text of
+/// the document (the key), worded here without it.
+pub(super) fn plain(source: &str, line: usize, column: usize, message: &str) -> Said {
     let rest = rest_of_line(source, line, column);
     let text = if message.starts_with("string values must be quoted") {
         if rest.is_empty() {
@@ -51,17 +54,18 @@ pub(super) fn plain(source: &str, line: usize, column: usize, message: &str) -> 
     } else if message.starts_with("integer number overflowed") {
         "this integer has no digits or is too large to read"
     } else if let Some(detail) = message.strip_prefix("invalid date, expected ") {
-        return format!("this date or time is not valid: {detail} is expected");
+        return format!("this date or time is not valid: {detail} is expected").into();
     } else {
-        return unexpected_free(message);
+        return unexpected_free(message).into();
     };
-    text.to_string()
+    text.into()
 }
 
 /// A message not worded above, without the parser's trailing
-/// `, expected …` list.
-fn unexpected_free(message: &str) -> String {
-    message.split(", expected ").next().unwrap_or(message).to_string()
+/// `, expected …` list: one of the parser's fixed sentences (`toml_parser`
+/// writes none with text of the document in it).
+fn unexpected_free(message: &str) -> &str {
+    message.split(", expected ").next().unwrap_or(message)
 }
 
 /// The text of `line` from one-based `column` on, without a comment.

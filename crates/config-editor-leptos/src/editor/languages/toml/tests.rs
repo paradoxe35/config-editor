@@ -728,6 +728,7 @@ fn a_list_written_for_a_quoted_key_takes_the_caret_inside() {
         path: &[],
         array_item: false,
         another_item: false,
+        attributes_marked: false,
     };
     let toml: &dyn ConfigLanguage = &TomlBehavior;
     let (insert, caret) = toml.write_insert("é", &InsertPlan::of(toml, &list, &root), &context).unwrap();

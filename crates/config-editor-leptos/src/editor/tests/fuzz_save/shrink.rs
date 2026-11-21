@@ -154,8 +154,13 @@ pub(super) fn repro(case: &Case, broke: &Broke) -> String {
             }
         })
         .collect();
+    // A session under a schema replays with its seed.
+    let (replay, seed) = match case.schema {
+        Some(seed) => ("replay_typed", format!("\n        {seed},")),
+        None => ("replay", String::new()),
+    };
     format!(
-        "// step {}: {:?} `{}`\n// {}\n// --- {} view:\n// {}\n// --- saved host:\n// {}\n#[test]\nfn fuzz_save_repro() {{\n    replay(\n        Language::{},\n        Language::{},\n        {:?},\n        &[\n            {},\n        ],\n    );\n}}",
+        "// step {}: {:?} `{}`\n// {}\n// --- {} view:\n// {}\n// --- saved host:\n// {}\n#[test]\nfn fuzz_save_repro() {{\n    {replay}(\n        Language::{},\n        Language::{},{seed}\n        {:?},\n        &[{}],\n    );\n}}",
         broke.step,
         broke.failure.broken,
         broke.failure.was,
@@ -166,7 +171,10 @@ pub(super) fn repro(case: &Case, broke: &Broke) -> String {
         case.host.label(),
         case.view.label(),
         case.text,
-        ops.join(",\n            "),
+        ops.iter()
+            .map(|op| format!("\n            {op},"))
+            .collect::<String>()
+            + if ops.is_empty() { "" } else { "\n        " },
     )
 }
 

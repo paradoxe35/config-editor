@@ -2,24 +2,58 @@
 //! how to write it, without the reader's own prefix and place (reported
 //! on their own).
 
-/// `error` with its message in plain words.
-pub(super) fn told(mut error: super::ParseError) -> super::ParseError {
-    error.message = plain(&error.message);
-    error
+use crate::editor::language::Said;
+use crate::editor::text::{TextSize, text_size};
+
+/// `error`, a reading of `source`, with its message in plain words and
+/// what it quotes of `source`; an error that says its quotes already (one
+/// the editor words) is kept.
+pub(super) fn told(source: &str, error: super::ParseError) -> super::ParseError {
+    if error.quotes.is_some() {
+        return error;
+    }
+    let at = error.line.zip(error.column).map(|(line, column)| text_size(byte_at(source, line, column)));
+    worded(&error.message, source, at).at(error.line, error.column)
 }
 
 /// The reader's `message` in plain words.
 pub(in crate::editor::languages) fn plain(message: &str) -> String {
+    worded(message, "", None).text().to_string()
+}
+
+/// The reader's `message` in plain words, each part quoting `source`
+/// with where: `at` is the byte the reader stopped at.
+///
+/// noyalib's own sentences name text of the document only in the ones
+/// worded here (a key, an anchor, an escape, a tag's value) and in those
+/// about a tag's suffix or an escape's code point, hidden whole where a
+/// secret may be (see [`Said::naming`]); its others are fixed.
+fn worded(message: &str, source: &str, at: Option<TextSize>) -> Said {
     let said = without_place(message);
     let said = said.as_str();
+    // The line the reader stopped on: wider than what a sentence quotes
+    // there, never narrower.
+    let line_start = crate::editor::text::slice::up_to(source, at.unwrap_or_default()).rfind('\n').map_or(0, |end| end + 1);
+    let here = || line_start..source[line_start..].find('\n').map_or(source.len(), |end| line_start + end);
     if let Some(payload) = said.strip_prefix("failed to parse number: ") {
-        return tag_words(payload);
+        return tag_words(payload, source);
     }
     if let Some(key) = said.split_once("duplicate key \"").and_then(|(_, rest)| rest.split('"').next()) {
-        return format!("the key \"{key}\" is written twice in the same map: each key may be written only once");
+        return Said::from("the key \"")
+            .quote(key, here())
+            .words("\" is written twice in the same map: each key may be written only once");
     }
     if let Some(name) = said.strip_prefix("unknown anchor: ") {
-        return format!("*{name} names an anchor that is not defined above: write &{name} on the value it should repeat");
+        // A suggestion (`did you mean …`) names an anchor written elsewhere.
+        let of = if name.contains(' ') { 0..source.len() } else { here() };
+        return Said::from("*")
+            .quote(name, of.clone())
+            .words(" names an anchor that is not defined above: write &")
+            .quote(name, of)
+            .words(" on the value it should repeat");
+    }
+    if said.starts_with("tag suffix must not contain") || said.contains("U+") {
+        return Said::naming(source, line_start, said);
     }
     let text = if said == "unterminated double-quoted string" {
         "a string in double quotes is never closed: a closing \" is missing"
@@ -48,13 +82,20 @@ pub(in crate::editor::languages) fn plain(message: &str) -> String {
     } else if said.starts_with("block sequence entries are not allowed") {
         "a list item cannot start here: write the list on the next lines, indented under its key"
     } else if let Some(character) = said.strip_prefix("unknown escape character ") {
-        return format!(
-            "unknown escape in a string: {character} (YAML knows \\n \\t \\r \\0 \\\\ \\\" \\/ and \\x, \\u or \\U with hex digits)"
-        );
+        return Said::from("unknown escape in a string: ")
+            .quote(character, here())
+            .words(" (YAML knows \\n \\t \\r \\0 \\\\ \\\" \\/ and \\x, \\u or \\U with hex digits)");
     } else {
-        return said.to_string();
+        return said.into();
     };
-    text.to_string()
+    text.into()
+}
+
+/// The byte of `source` at one-based `line` and character `column`.
+fn byte_at(source: &str, line: usize, column: usize) -> usize {
+    let start: usize = source.split_inclusive('\n').take(line.saturating_sub(1)).map(str::len).sum();
+    let text = source[start..].split('\n').next().unwrap_or_default();
+    start + text.char_indices().nth(column.saturating_sub(1)).map_or(text.len(), |(at, _)| at)
 }
 
 /// `message` without the reader's `YAML parse error at line L, column C: `
@@ -70,8 +111,10 @@ fn without_place(message: &str) -> String {
     }
 }
 
-/// A value that does not fit its tag (`!!int x`), told plainly.
-fn tag_words(payload: &str) -> String {
+/// A value that does not fit its tag (`!!int x`), told plainly: the tag
+/// is one of the reader's four (`!!int`, `!!float`, `!!bool`, `!!null`),
+/// the value is quoted from `source`, from the tag to its line's end.
+fn tag_words(payload: &str, source: &str) -> Said {
     let (tag, value) = payload.split_once(' ').unwrap_or((payload, ""));
     let wanted = match tag {
         "!!int" => "an integer",
@@ -81,10 +124,16 @@ fn tag_words(payload: &str) -> String {
         _ => "a value of that kind",
     };
     if value.trim().is_empty() {
-        format!("the {tag} tag has no value: write {wanted} after it, or remove the tag")
-    } else {
-        format!("\"{}\" does not fit the {tag} tag: write {wanted}, or remove the tag", value.trim())
+        return format!("the {tag} tag has no value: write {wanted} after it, or remove the tag").into();
     }
+    let of = tag_place(source, &format!("failed to parse number: {payload}"))
+        .map_or(0..source.len(), |(line, column)| {
+            let from = byte_at(source, line, column);
+            from..source[from..].find('\n').map_or(source.len(), |end| from + end)
+        });
+    Said::from("\"")
+        .quote(value.trim(), of)
+        .words(&format!("\" does not fit the {tag} tag: write {wanted}, or remove the tag"))
 }
 
 /// Where in `source` a tag's error is: the `payload`'s tag and value as

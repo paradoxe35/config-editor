@@ -54,9 +54,12 @@ pub(super) fn root(language: Language) -> &'static str {
 }
 
 pub(super) fn check(case: &Case) -> Verdict {
-    let Some(both) = compile(&case.schema) else {
-        return Verdict::Skipped;
-    };
+    compile(&case.schema).map_or(Verdict::Skipped, |both| check_with(&both, case))
+}
+
+/// The check, with the editor's schema from `both` (`case.schema` given
+/// as JSON Schema or through a schema format) and its reference.
+pub(super) fn check_with(both: &Both, case: &Case) -> Verdict {
     if !annotations_fit(&case.schema) {
         return Verdict::Skipped;
     }
@@ -115,7 +118,7 @@ pub(super) fn check(case: &Case) -> Verdict {
                 continue;
             }
             if only_unwritable_left_out(
-                &both,
+                both,
                 language,
                 &option.label,
                 &read,
@@ -124,7 +127,7 @@ pub(super) fn check(case: &Case) -> Verdict {
                 continue;
             }
             let keyword = error.kind().keyword();
-            let unmet = || unmet(&both, language, (&case.schema, &case.doc), &read, &at);
+            let unmet = || unmet(both, language, (&case.schema, &case.doc), &read, &at);
             let class = match keyword {
                 // Each language's insert writes a key's own list empty or
                 // with its one first item, the caret inside to type the

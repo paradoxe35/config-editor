@@ -1,0 +1,9 @@
+<beans xmlns="http://www.springframework.org/schema/beans">
+  <bean id="service" class="org.example.Service">
+    <constructor-arg>
+      <ref bean="other"/>
+      <value>x</value>
+    </constructor-arg>
+  </bean>
+  <bean id="other" class="org.example.Other"/>
+</beans>

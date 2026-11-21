@@ -258,8 +258,8 @@ node scripts/readme-toc.mjs
 Versions are kept in step: `crates/config-editor-leptos/Cargo.toml`,
 `js/config-editor/package.json` and the React, Vue and Svelte packages' (`js/config-editor-*/package.json`, each peer-depending on `^` that version).
 Pushing a tag `vX.Y.Z` runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which checks that the tag matches those versions, runs the tests, and
-publishes the crate to crates.io and the four packages to npm. Each registry
+which checks that the tag matches those versions, runs the tests (unless
+CI already passed on that exact commit), and publishes the crate to crates.io and the four packages to npm. Each registry
 is published to only when its repository secret is set (`CARGO_REGISTRY_TOKEN`
 for crates.io, `NPM_TOKEN` for npm); without it, that job does a dry run and
 says so. A version already on a registry is skipped, so a release that failed

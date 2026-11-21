@@ -204,17 +204,20 @@ impl ConfigLanguage for JsLanguage {
             message: "the language has no parse()".to_string(),
             line: None,
             column: None,
+            quotes: None,
         })?;
         match parse.call1(&self.definition(), &JsValue::from_str(source)) {
             Ok(value) if value.is_undefined() => Err(ParseError {
                 message: "parse() returned nothing".to_string(),
                 line: None,
                 column: None,
+                quotes: None,
             }),
             Ok(value) => json_from_js(&value, 0).map_err(|error| ParseError {
                 message: format!("parse() returned a value that is not JSON: {error}"),
                 line: None,
                 column: None,
+                quotes: None,
             }),
             Err(thrown) => {
                 // A position outside the text is clamped onto it.
@@ -236,6 +239,8 @@ impl ConfigLanguage for JsLanguage {
                         .unwrap_or_else(|| "parse error".to_string()),
                     line,
                     column,
+                    // A host's parse says nothing of what its message quotes.
+                    quotes: None,
                 })
             }
         }

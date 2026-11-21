@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::documents::{Shape, document};
 use super::random::Rng;
-use super::reference::{compile, messages, same, xml_cannot_hold};
+use super::reference::{Both, compile, messages, same, xml_cannot_hold};
 use super::runner::{Case, Property, Verdict, failure, language, run};
 use super::schemas::{Draw, schema};
 use crate::editor::Language;
@@ -37,9 +37,12 @@ pub(super) fn draw(rng: &mut Rng, index: usize) -> Case {
 }
 
 pub(super) fn check(case: &Case) -> Verdict {
-    let Some(both) = compile(&case.schema) else {
-        return Verdict::Skipped;
-    };
+    compile(&case.schema).map_or(Verdict::Skipped, |both| check_with(&both, case))
+}
+
+/// The check, with the editor's schema from `both` (`case.schema` given
+/// as JSON Schema or through a schema format) and its reference.
+pub(super) fn check_with(both: &Both, case: &Case) -> Verdict {
     let language = case.language;
     let Some(text) = both.written(language, &case.doc) else {
         return Verdict::Skipped;

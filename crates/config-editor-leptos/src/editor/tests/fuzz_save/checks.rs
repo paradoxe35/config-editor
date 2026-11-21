@@ -12,7 +12,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::editor::bridge::Bridge;
+use crate::editor::diagnostics::{Diagnostic, Severity};
 use crate::editor::languages::Language;
+use crate::editor::schema::Schema;
 use crate::editor::state::EditorState;
 
 /// What a save broke.
@@ -33,6 +35,9 @@ pub(super) enum Broken {
     NotRestored,
     /// The editor panicked.
     Panic,
+    /// Under a schema, the saved host has a problem where the view shows
+    /// none, or none where it shows one.
+    Problems,
 }
 
 /// A broken save: what broke, and how.
@@ -756,6 +761,58 @@ fn check_save(
     }
     check_forms(start, &saved, &now, (view, &view_text))?;
     check_comments(start, view, &view_text, &saved, &now)
+}
+
+/// P2 under a schema: once a view's edits are saved, the host has a
+/// problem exactly when the view shows one (its own, and the host's it
+/// shows while it cannot show the host exactly).
+pub(super) fn problems_agree(
+    state: EditorState,
+    held: &HostCopy,
+    schema: Option<&Schema>,
+) -> Result<(), Box<Failure>> {
+    let Some(schema) = schema else {
+        return Ok(());
+    };
+    let host = state.config().host_language;
+    let view = state.sync().edit_language.get_untracked();
+    if view == host || !state.sync().in_sync.get_untracked() {
+        return Ok(());
+    }
+    // The view's notes on the switch or the save (a switch refused) are no
+    // schema problems.
+    let strings = crate::strings::default_strings();
+    let notes: Vec<String> = [state.sync().load_problems, state.sync().conversion_problems]
+        .iter()
+        .flat_map(|problems| problems.get_untracked())
+        .map(|problem| problem.worded(strings).message)
+        .collect();
+    let errors = |problems: Vec<Diagnostic>| -> Vec<String> {
+        problems
+            .into_iter()
+            .filter(|problem| {
+                problem.severity == Severity::Error && !notes.contains(&problem.message)
+            })
+            .map(|problem| problem.message)
+            .collect()
+    };
+    let view_text = state.doc().text.get_untracked();
+    state.problems().diagnosed_text.set(view_text.clone());
+    let shown = errors(state.problems().diagnostics.get_untracked());
+    let saved = held.lock().unwrap().clone();
+    let found = errors(schema.validate(host, &saved));
+    if shown.is_empty() == found.is_empty() {
+        return Ok(());
+    }
+    let mut failure = Failure::new(
+        Broken::Problems,
+        "",
+        format!("view problems: {shown:?}\nhost problems: {found:?}"),
+    );
+    failure.view = Some(view);
+    failure.view_text = view_text;
+    failure.saved = saved;
+    Err(failure)
 }
 
 /// Promise 3: every value left alone keeps its written form; a moved or

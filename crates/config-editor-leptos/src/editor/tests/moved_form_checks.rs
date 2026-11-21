@@ -124,7 +124,7 @@ fn a_typed_value_is_saved_without_reading_the_items() {
             );
         });
         assert_eq!(read, 0, "the links read the items");
-        let saved = bridge.to_host_linked(&typed, &host, &host, None, &[]);
+        let saved = bridge.to_host_linked(&typed, &host, &host, None, None);
         assert!(saved.expect("saved").contains("mid = 12"));
         read
     };

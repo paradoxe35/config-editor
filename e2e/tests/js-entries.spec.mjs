@@ -17,9 +17,21 @@ const page = (name) => pathToFileURL(join(js, 'examples', name)).href;
 test.skip(!built, 'js packages not built: run `npm run build` in js/');
 
 const ENTRIES = {
-  main: ['ConfigDocuments', 'ConfigEditor', 'languageForFile', 'languages', 'loadConfigEditor', 'registerLanguage', 'themes'],
+  main: [
+    'ConfigDocuments',
+    'ConfigEditor',
+    'languageForFile',
+    'languages',
+    'loadConfigEditor',
+    'registerLanguage',
+    'registerSchemaFormat',
+    'schemaFormatForFile',
+    'schemaFormats',
+    'themes',
+  ],
   tools: [
     'changeSummary',
+    'compileSchema',
     'convert',
     'loadConfigEditor',
     'parse',
@@ -27,6 +39,7 @@ const ENTRIES = {
     'presetCss',
     'rangeOf',
     'rangesOf',
+    'schemaImports',
     'schemaWarnings',
     'serialize',
     'unifiedDiff',

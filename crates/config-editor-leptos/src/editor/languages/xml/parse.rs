@@ -1,7 +1,8 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
-use crate::editor::text::{text_size, byte_range};
+use crate::editor::language::Said;
+use crate::editor::text::{TextSize, text_size, byte_range};
 
 /// Every error carries a one-based line and character column.
 pub(super) fn xml_parse(source: &str) -> Result<Value, ParseError> {
@@ -13,11 +14,7 @@ pub(super) fn xml_parse(source: &str) -> Result<Value, ParseError> {
     // `<>` and `</>` name no element.
     if let Some(at) = source.find("<>").or_else(|| source.find("</>")) {
         let (line, column) = line_column(source, text_size(at));
-        return Err(ParseError {
-            message: "an element needs a name".to_string(),
-            line: Some(line),
-            column: Some(column),
-        });
+        return Err(ParseError::new("an element needs a name", Some(line), Some(column)));
     }
     build_value(source)
 }
@@ -119,10 +116,11 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
                     return Err(syntax_error(
                         source,
                         open.start,
-                        format!("<{0}> is never closed: its end tag </{0}> is missing, or a tag after it is cut off", open.name),
+                        never_closed(source, open, ", or a tag after it is cut off"),
                     ));
                 }
-                return Err(syntax_error(source, position, error.to_string()));
+                let open = stack.last().map(|open| tag_name(source, text_size(open.start)));
+                return Err(syntax_error(source, position, words::told(&error.to_string(), source, text_size(position), open)));
             }
         };
         match event {
@@ -157,17 +155,20 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
                     return Err(syntax_error(
                         source,
                         start,
-                        format!("unexpected closing tag \"{name}\""),
+                        Said::from("unexpected closing tag \"")
+                            .quote(&name, tag_name(source, text_size(start)))
+                            .words("\""),
                     ));
                 };
                 if open.name != name {
                     return Err(syntax_error(
                         source,
                         start,
-                        format!(
-                            "mismatched closing tag: expected \"{}\", found \"{name}\"",
-                            open.name
-                        ),
+                        Said::from("mismatched closing tag: expected \"")
+                            .quote(&open.name, tag_name(source, text_size(open.start)))
+                            .words("\", found \"")
+                            .quote(&name, tag_name(source, text_size(start)))
+                            .words("\""),
                     ));
                 }
                 push_child(&mut stack, &mut roots, open);
@@ -197,7 +198,7 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
             }
             Event::GeneralRef(reference) => {
                 let name = reference.into_inner().into_owned();
-                if let Some(message) = bad_character_reference(&name) {
+                if let Some(message) = bad_character_reference(source, text_size(event_start), &name) {
                     return Err(syntax_error(source, event_start, message));
                 }
                 let content = resolve_reference(&name).unwrap_or_else(|| format!("&{name};"));
@@ -215,14 +216,41 @@ pub(super) fn build_value(source: &str) -> Result<Value, ParseError> {
         buf.clear();
     }
     if let Some(open) = stack.last() {
-        return Err(syntax_error(
-            source,
-            open.start,
-            format!("<{0}> is never closed: its end tag </{0}> is missing", open.name),
-        ));
+        return Err(syntax_error(source, open.start, never_closed(source, open, "")));
     }
 
     document_value(source, roots)
+}
+
+/// `<name> is never closed: its end tag </name> is missing`, then `more`.
+fn never_closed(source: &str, open: &OpenElement, more: &str) -> Said {
+    let name = tag_name(source, text_size(open.start));
+    Said::from("<")
+        .quote(&open.name, name.clone())
+        .words("> is never closed: its end tag </")
+        .quote(&open.name, name)
+        .words("> is missing")
+        .words(more)
+}
+
+/// The bytes of the name of the tag starting at byte `start` of `source`
+/// (`<name` or `</name`): up to a space, `>` or `/`.
+pub(super) fn tag_name(source: &str, start: TextSize) -> std::ops::Range<usize> {
+    let start = usize::from(start);
+    let rest = source.get(start..).unwrap_or_default();
+    let skip = if rest.starts_with("</") { 2 } else { usize::from(rest.starts_with('<')) };
+    let from = start + skip;
+    let name = &rest[skip..];
+    let end = name.find(|character: char| character.is_whitespace() || matches!(character, '>' | '/')).unwrap_or(name.len());
+    from..from + end
+}
+
+/// The bytes of the tag starting at byte `start` of `source`, to its `>`
+/// (the text's end when none closes it).
+fn whole_tag(source: &str, start: TextSize) -> std::ops::Range<usize> {
+    let start = usize::from(start);
+    let rest = source.get(start..).unwrap_or_default();
+    start..rest.find('>').map_or(source.len(), |end| start + end + 1)
 }
 
 /// Unwraps a config root, which must stand alone; otherwise every top-level
@@ -241,10 +269,11 @@ pub(super) fn document_value(source: &str, roots: Vec<TopLevel>) -> Result<Value
             return Err(syntax_error(
                 source,
                 other.start,
-                format!(
-                    "<{}> is outside the config root <{}>; a {CONFIG_ROOT_ATTRIBUTE} element must be the only top-level element",
-                    other.name, root.name
-                ),
+                Said::from("<")
+                    .quote(&other.name, tag_name(source, text_size(other.start)))
+                    .words("> is outside the config root <")
+                    .quote(&root.name, tag_name(source, text_size(root.start)))
+                    .words(&format!(">; a {CONFIG_ROOT_ATTRIBUTE} element must be the only top-level element")),
             ));
         }
         let root = roots.into_iter().next().expect("the marked root");
@@ -253,7 +282,9 @@ pub(super) fn document_value(source: &str, roots: Vec<TopLevel>) -> Result<Value
             _ => Err(syntax_error(
                 source,
                 root.start,
-                format!("the config root <{}> holds elements, not text", root.name),
+                Said::from("the config root <")
+                    .quote(&root.name, tag_name(source, text_size(root.start)))
+                    .words("> holds elements, not text"),
             )),
         };
     }
@@ -282,7 +313,9 @@ pub(super) fn open_element(
         return Err(syntax_error(
             source,
             start,
-            format!("`{qualified}` is not an XML name, so it cannot name an element"),
+            Said::from("`")
+                .quote(&qualified, tag_name(source, text_size(start)))
+                .words("` is not an XML name, so it cannot name an element"),
         ));
     }
     let mut attrs = Map::new();
@@ -300,27 +333,47 @@ pub(super) fn open_element(
                     | AttrError::Duplicated(at, _) => at,
                 };
             match error {
-                AttrError::Duplicated(..) => {
-                    syntax_error(source, at, format!("duplicate attribute in <{name}>"))
-                }
-                other => syntax_error(source, at, other.to_string()),
+                AttrError::Duplicated(..) => syntax_error(
+                    source,
+                    at,
+                    Said::from("duplicate attribute in <").quote(&name, tag_name(source, text_size(start))).words(">"),
+                ),
+                // A position and the syntax expected: no text of the document.
+                other => syntax_error(source, at, words::told(&other.to_string(), source, text_size(at), None)),
             }
         })?;
         let key = attribute.key.into_inner().to_string();
+        // The tag holds every name an attribute's message quotes.
+        let tag = whole_tag(source, text_size(start));
         if !super::names::is_name(&key) {
             return Err(syntax_error(
                 source,
                 start,
-                format!("`{key}` is not an XML name, so it cannot name an attribute (<{name} {key}=…>)"),
+                Said::from("`")
+                    .quote(&key, tag.clone())
+                    .words("` is not an XML name, so it cannot name an attribute (<")
+                    .quote(&name, tag.clone())
+                    .words(" ")
+                    .quote(&key, tag)
+                    .words("=…>)"),
             ));
         }
         // Not well-formed XML, though the reader would take it.
         if attribute.value.contains('<') {
-            return Err(syntax_error(source, start, format!("\"<\" must be written &lt; in an attribute value (<{name} {key}=…>)")));
+            return Err(syntax_error(
+                source,
+                start,
+                Said::from("\"<\" must be written &lt; in an attribute value (<")
+                    .quote(&name, tag.clone())
+                    .words(" ")
+                    .quote(&key, tag)
+                    .words("=…>)"),
+            ));
         }
         let value = attribute
             .normalized_value(XmlVersion::Implicit1_0)
-            .map_err(|error| syntax_error(source, start, error.to_string()))?;
+            // An escape's message names the entity: hidden with the tag.
+            .map_err(|error| syntax_error(source, start, Said::default().quote(&error.to_string(), tag.clone())))?;
         // A reference to a character XML 1.0 cannot hold (`&#1;`), which
         // the reader resolves (the raw character is refused before).
         if let Some(character) = value.chars().find(|character| !is_xml_char(*character)) {
@@ -368,7 +421,9 @@ fn unbound_prefix(
     // At the name, in the start tag.
     let tag_end = source[start..].find('>').map_or(source.len(), |end| start + end);
     let at = source[start..tag_end].find(qualified.as_str()).map_or(start, |offset| start + offset);
-    Err(syntax_error(source, at, namespaces::unbound(&qualified, &pointer)))
+    // The pointer names the open elements, from the outermost's start tag.
+    let names = stack.first().map_or(start, |outer| outer.start)..tag_end;
+    Err(syntax_error(source, at, namespaces::unbound(&qualified, start..tag_end, &pointer, names)))
 }
 
 /// Collects text inside an element; non-blank text outside any element is an
@@ -480,7 +535,8 @@ pub(super) fn resolve_reference(name: &str) -> Option<String> {
 /// Why the character reference `&{name};` (`#1`, `#xFFFE`) is not well-formed
 /// XML: it names a character XML 1.0 cannot hold, or no character at all.
 /// `None` for one that reads, and for an entity (`amp`, a declared one).
-pub(super) fn bad_character_reference(name: &str) -> Option<String> {
+pub(super) fn bad_character_reference(source: &str, at: TextSize, name: &str) -> Option<Said> {
+    let at = usize::from(at);
     let digits = name.strip_prefix('#')?;
     if numeric_entity(name).is_some() {
         return None;
@@ -489,19 +545,20 @@ pub(super) fn bad_character_reference(name: &str) -> Option<String> {
         Some(hex) => u32::from_str_radix(hex, 16).ok(),
         None => digits.parse::<u32>().ok(),
     };
+    // `&name;`, written at `at`.
+    let written = at..(at + name.len() + 2).min(source.len());
     Some(match code {
-        Some(code) if code <= 0x10_ffff => format!("XML 1.0 cannot hold the character U+{code:04X}, not even escaped"),
-        _ => format!("&{name}; is no character reference"),
+        Some(code) if code <= 0x10_ffff => Said::from("XML 1.0 cannot hold the character ")
+            .quote(&format!("U+{code:04X}"), written)
+            .words(", not even escaped"),
+        _ => Said::from("&").quote(name, written).words("; is no character reference"),
     })
 }
 
-pub(super) fn syntax_error(source: &str, byte: usize, message: impl Into<String>) -> ParseError {
+/// The error `message` at byte `byte` of `source`.
+pub(super) fn syntax_error(source: &str, byte: usize, message: impl Into<Said>) -> ParseError {
     let (line, column) = line_column(source, text_size(byte.min(source.len())));
-    ParseError {
-        message: super::words::plain(&message.into()),
-        line: Some(line),
-        column: Some(column),
-    }
+    message.into().at(Some(line), Some(column))
 }
 
 /// The comment starting at or after byte `from` keeps to XML's rule: no

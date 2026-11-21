@@ -133,9 +133,18 @@ fn repeats_as_elements(
     let Some(written) = written else {
         return true;
     };
-    let items = match written {
-        Value::Array(items) => items.clone(),
-        lone => vec![lone.clone()],
+    // The items as the schema reads them (an XSD boolean written `1` is
+    // `true`), as validation reads them: a list validation takes takes
+    // one more.
+    let read = crate::editor::data_reading::value_under(
+        behavior,
+        written.clone(),
+        &crate::editor::applies::Entry::schema(property),
+        root,
+    );
+    let items = match read {
+        Value::Array(items) => items,
+        lone => vec![lone],
     };
     let most = array.get("maxItems").and_then(Value::as_u64);
     let next = item_schema(array, items.len()).and_then(|item| {
@@ -288,6 +297,12 @@ pub(super) fn property_completions(
     let choices = &object.choices;
     let branches = &object.branches;
     let forbidden = forbidden_keys(&object.certain);
+    // Some property of the object is marked an XML attribute.
+    let attributes_marked = branches
+        .iter()
+        .filter_map(|branch| branch.get("properties").and_then(Value::as_object))
+        .flat_map(|properties| properties.values())
+        .any(|property| super::insert_plan::marks_attribute(&Here::of(property, root)));
     // An object holding its `maxProperties` takes no other key.
     let full = existing.is_some_and(|existing| {
         object
@@ -369,6 +384,7 @@ pub(super) fn property_completions(
                 };
             let another = InsertContext {
                 another_item: present && repeatable,
+                attributes_marked,
                 ..*insert_context
             };
             // Another item of a list written by repeating its key (an XML
@@ -1220,6 +1236,7 @@ fn completions_around(
             path: &context.path,
             array_item: context.is_array_item,
             another_item: false,
+            attributes_marked: false,
         },
         behavior,
         applies.value_at(&context.path),

@@ -48,6 +48,8 @@ mod hover;
 mod input;
 mod item_sources;
 mod kept_focus;
+mod schema_checks;
+mod schema_formats;
 #[cfg(feature = "schema-validation")]
 mod schema_refs;
 mod ui_refs;
@@ -112,7 +114,12 @@ pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
 pub(crate) use protect::DocumentPlaceholders;
+pub(crate) use schema::SchemaKey;
 pub use schema::{Schema, SchemaError, SchemaSource};
+pub use schema_formats::{
+    CheckProblem, CheckedDocument, CompiledSchema, LossEffect, SchemaCheck, SchemaCompiler,
+    SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss, SchemaResources, UnknownSchemaFormat,
+};
 pub use secret_options::SecretOptions;
 pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
 
@@ -350,6 +357,10 @@ pub fn ConfigEditor(
         .as_ref()
         .map_or_else(|| initial_value.clone(), Signal::get_untracked);
     let baseline = baseline.unwrap_or_else(|| Signal::stored(host_text.clone()));
+    // The parses and schema readings are kept from the state's first reads
+    // on: its secrets read the document as the first validation does.
+    parse_cache::hold();
+    on_cleanup(parse_cache::release);
     let (state, initial_pending) = EditorState::new(Init {
         host_language: language,
         edit_language: edit_as.get_untracked().unwrap_or(language),

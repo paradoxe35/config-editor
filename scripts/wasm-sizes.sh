@@ -67,6 +67,10 @@ row "YAML + JSON, every optional feature, no \`schema-validation\`" \
 row "YAML + JSON, every optional feature, with \`schema-validation\`" \
   "$(kb "$(size_of "$(join schema-validation yaml json "${optional[@]}")")")"
 row "Minimal: YAML only, no optional feature, no \`schema-validation\`" "$(kb "$(size_of yaml)")"
+# The XSD schema format (opt-in): on top of everything, and with XML alone.
+row "Added by \`xsd\` (to everything)" "$(signed_kb $(( $(size_of "$all,xsd") - full )))"
+row "XML + \`xsd\`, every optional feature, no \`schema-validation\`" \
+  "$(kb "$(size_of "$(join xml xsd "${optional[@]}")")")"
 for feature in schema-validation "${optional[@]}"; do
   without=$(join $(tr ',' '\n' <<<"$all" | grep -vx "$feature"))
   row "Saved by leaving out \`$feature\` (from everything)" \

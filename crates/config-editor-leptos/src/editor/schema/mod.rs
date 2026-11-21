@@ -8,14 +8,16 @@ mod empty_refs;
 mod false_schema;
 mod subschemas;
 
+use compile::build_formatted;
 pub(crate) use compile::{SchemaBundle, build_schema};
 #[cfg(feature = "schema-validation")]
 pub(crate) use false_schema::{for_validation, message as false_schema_message};
-pub(crate) use subschemas::each_schema;
 #[cfg(any(feature = "schema-validation", feature = "yaml"))]
 pub(crate) use subschemas::{Holds, holds};
+pub(crate) use subschemas::{each_schema, each_schema_mut};
 
 use super::diagnostics::Diagnostic;
+use super::schema_formats::{SchemaFormat, SchemaInput, SchemaLoss, SchemaResources};
 use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 use serde_json::Value;
@@ -27,6 +29,29 @@ pub(crate) fn schema_message(strings: &EditorStrings, error: &str) -> String {
         strings.empty_schema.clone()
     } else {
         fill(&strings.invalid_schema, &[("error", &error)])
+    }
+}
+
+/// Why a schema did not compile, worded where it is shown (the
+/// `invalidSchema` and `invalidSchemaSource` texts).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SchemaFailure {
+    /// Its format's compiler refused the text: the format's label, and why.
+    Source { format: &'static str, error: String },
+    /// The JSON Schema is not valid.
+    JsonSchema(String),
+}
+
+impl SchemaFailure {
+    /// The message, worded by `strings`.
+    pub(crate) fn message(&self, strings: &EditorStrings) -> String {
+        match self {
+            SchemaFailure::Source { format, error } => fill(
+                &strings.invalid_schema_source,
+                &[("format", format), ("error", error)],
+            ),
+            SchemaFailure::JsonSchema(error) => schema_message(strings, error),
+        }
     }
 }
 
@@ -72,8 +97,8 @@ impl std::fmt::Debug for Schema {
 }
 
 /// The `schema` of a [`ConfigEditor`](crate::ConfigEditor): a JSON Schema
-/// document as JSON or YAML text, or a [`Schema`] compiled once and shared
-/// between editors.
+/// document (JSON or YAML text), a schema in another [`SchemaFormat`], or
+/// a [`Schema`] compiled once and shared between editors.
 ///
 /// Converts from `&str`, `String`, and `Schema`, so `schema=SCHEMA_JSON` and
 /// `schema=compiled.clone()` both work.
@@ -84,8 +109,33 @@ pub enum SchemaSource {
     /// `yaml`), compiled when the editor mounts; a compile error is shown
     /// inline.
     Text(String),
+    /// A schema in `format` (with the files it refers to and the format's
+    /// options), compiled when the editor mounts; a compile error is shown
+    /// inline, and what the format loses is a schema warning.
+    Formatted {
+        /// Its format.
+        format: SchemaFormat,
+        /// The schema.
+        text: String,
+        /// The files it refers to, by location.
+        resources: SchemaResources,
+        /// The format's options (an XSD's `"root"`).
+        options: serde_json::Map<String, Value>,
+    },
     /// An already compiled schema.
     Compiled(Schema),
+}
+
+impl SchemaSource {
+    /// `text` in `format`, with no resources or options.
+    pub fn formatted(format: SchemaFormat, text: impl Into<String>) -> Self {
+        SchemaSource::Formatted {
+            format,
+            text: text.into(),
+            resources: SchemaResources::new(),
+            options: serde_json::Map::new(),
+        }
+    }
 }
 
 impl From<&str> for SchemaSource {
@@ -114,10 +164,73 @@ impl Schema {
     }
 }
 
+/// What a schema is compiled from, apart from a compiled one: sources with
+/// the same key compile to the same schema.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct SchemaKey {
+    format: SchemaFormat,
+    text: String,
+    resources: SchemaResources,
+    /// The options as JSON text (a map is not hashable).
+    options: String,
+}
+
+impl SchemaKey {
+    /// The schema it names, compiled.
+    pub(crate) fn compile(&self) -> Result<Schema, SchemaError> {
+        let options = match serde_json::from_str(&self.options) {
+            Ok(Value::Object(options)) => options,
+            _ => serde_json::Map::new(),
+        };
+        let input = SchemaInput::new(&self.text)
+            .resources(&self.resources)
+            .options(&options);
+        Schema::compile_as(self.format, &input)
+    }
+}
+
 impl SchemaSource {
-    pub(crate) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, String> {
+    /// What it compiles from; `None` for a compiled schema.
+    pub(crate) fn key(&self) -> Option<SchemaKey> {
         match self {
-            SchemaSource::Text(text) => build_schema(&text).map(std::sync::Arc::new),
+            SchemaSource::Text(text) => Some(SchemaKey {
+                format: SchemaFormat::JSON_SCHEMA,
+                text: text.clone(),
+                resources: SchemaResources::new(),
+                options: "{}".to_string(),
+            }),
+            SchemaSource::Formatted {
+                format,
+                text,
+                resources,
+                options,
+            } => Some(SchemaKey {
+                format: *format,
+                text: text.clone(),
+                resources: resources.clone(),
+                options: Value::Object(options.clone()).to_string(),
+            }),
+            SchemaSource::Compiled(_) => None,
+        }
+    }
+
+    pub(crate) fn resolve(self) -> Result<std::sync::Arc<SchemaBundle>, SchemaFailure> {
+        match self {
+            SchemaSource::Text(json) => build_schema(&json)
+                .map(std::sync::Arc::new)
+                .map_err(SchemaFailure::JsonSchema),
+            SchemaSource::Formatted {
+                format,
+                text,
+                resources,
+                options,
+            } => build_formatted(
+                format,
+                &SchemaInput::new(&text)
+                    .resources(&resources)
+                    .options(&options),
+            )
+            .map(std::sync::Arc::new),
             SchemaSource::Compiled(schema) => Ok(schema.bundle),
         }
     }
@@ -146,6 +259,33 @@ impl Schema {
                 bundle: std::sync::Arc::new(bundle),
             })
             .map_err(|error| SchemaError(schema_message(default_strings(), &error)))
+    }
+
+    /// Compiles a schema written in `format`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SchemaError`] when the format's compiler refuses the text,
+    /// or what it gives is not a valid JSON Schema.
+    pub fn compile_as(format: SchemaFormat, input: &SchemaInput<'_>) -> Result<Self, SchemaError> {
+        build_formatted(format, input)
+            .map(|bundle| Schema {
+                bundle: std::sync::Arc::new(bundle),
+            })
+            .map_err(|failure| SchemaError(failure.message(default_strings())))
+    }
+
+    /// What the schema's format said that its JSON Schema does not check
+    /// (none for JSON Schema itself). Each is also one of the
+    /// [`warnings`](Self::warnings).
+    pub fn losses(&self) -> &[SchemaLoss] {
+        &self.bundle.losses
+    }
+
+    /// The JSON Schema this schema checks with, as its format's compiler
+    /// gave it: to cache, or to ship instead of the source.
+    pub fn json(&self) -> &Value {
+        self.bundle.emitted.as_ref().unwrap_or(&self.bundle.schema)
     }
 
     /// What the editor cannot use in this schema, one message each, such as

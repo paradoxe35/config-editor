@@ -6,7 +6,7 @@ use jsonschema::error::ValidationError;
 #[cfg(feature = "schema-validation")]
 use serde_json::Value;
 
-use super::schema::{SchemaBundle, schema_message};
+use super::schema::{SchemaBundle, SchemaFailure};
 use crate::EditorStrings;
 use crate::strings::{default_strings, fill};
 
@@ -17,7 +17,9 @@ mod fields;
 mod follow;
 mod host_reading;
 pub(super) use follow::follow_diagnostics;
-pub(super) use host_reading::{ProblemKey, host_problems, with_host_problems};
+pub(super) use host_reading::{
+    ProblemKey, host_problems, shows_lists_as_items, with_host_problems,
+};
 #[cfg(feature = "schema-validation")]
 mod schema_problems;
 #[cfg(feature = "schema-validation")]
@@ -328,7 +330,7 @@ pub(super) fn headless_validate(
 pub(super) fn validate(
     source: &str,
     schema: Option<&SchemaBundle>,
-    schema_error: Option<&str>,
+    schema_error: Option<&SchemaFailure>,
     enabled: bool,
     behavior: &dyn ConfigLanguage,
 ) -> Vec<Diagnostic> {
@@ -351,7 +353,7 @@ pub(super) fn validate(
 pub(super) fn validate_with(
     source: &str,
     schema: Option<&SchemaBundle>,
-    schema_error: Option<&str>,
+    schema_error: Option<&SchemaFailure>,
     enabled: bool,
     behavior: &dyn ConfigLanguage,
     accepted: &[(String, String)],
@@ -377,7 +379,7 @@ pub(super) fn validate_with(
 pub(super) fn validate_keyed(
     source: &str,
     schema: Option<&SchemaBundle>,
-    schema_error: Option<&str>,
+    schema_error: Option<&SchemaFailure>,
     enabled: bool,
     behavior: &dyn ConfigLanguage,
     placeholders: Placeholders<'_>,
@@ -446,7 +448,7 @@ pub(super) fn validate_keyed(
             line: None,
             column: None,
             end_column: None,
-            message: schema_message(strings, error),
+            message: error.message(strings),
             severity: Severity::Error,
             ..Diagnostic::default()
         };
@@ -456,6 +458,13 @@ pub(super) fn validate_keyed(
     let deprecated = schema
         .map(|schema| deprecation_warnings(&reading, schema, source, behavior, strings))
         .unwrap_or_default();
+    // What a format's check message may not quote, found once and only when
+    // a check finds a problem.
+    let secrets = std::cell::OnceCell::new();
+    let hidden = || {
+        secrets
+            .get_or_init(|| secret_texts(source, Some(&*reading), schema, behavior, placeholders))
+    };
     #[cfg(feature = "schema-validation")]
     if let Some(schema) = schema {
         let read = schema_problems::Reading {
@@ -485,6 +494,12 @@ pub(super) fn validate_keyed(
                 diagnostic.message.clone(),
             ))
         });
+        diagnostics.extend(super::schema_checks::problems(
+            schema,
+            (behavior, source, &reading),
+            strings,
+            &|message| hide_secret_texts(message, hidden()),
+        ));
         diagnostics.extend(deprecated);
         // In the order they are written (the validator finds them in the
         // schema's order); one with no place first.
@@ -497,14 +512,33 @@ pub(super) fn validate_keyed(
         };
         return (diagnostics, keys);
     }
-    (deprecated, Vec::new())
+    let mut found = deprecated;
+    if let Some(schema) = schema {
+        found.extend(super::schema_checks::problems(
+            schema,
+            (behavior, source, &reading),
+            strings,
+            &|message| hide_secret_texts(message, hidden()),
+        ));
+    }
+    (capped(found, strings), Vec::new())
 }
 
 /// The message of the syntax `error` of `source`, without the text it
 /// quotes where a secret may be: when the schema marks secrets or the text
-/// holds placeholders (the host's, or any a placeholder pattern finds), see
-/// [`secrets::hide_quoted_text`]. Every message repeating a parse error
-/// words it so.
+/// holds placeholders (the host's, or any a placeholder pattern finds).
+/// Every message repeating a parse error words it so.
+///
+/// Where a secret may be: in a placeholder, and from where the parser
+/// stopped (the error's place) to the end, where no reading tells which
+/// field the text is (a key half typed runs into its value); what the
+/// parser read before it is read as it is written (a name as a name).
+/// Each part of the message
+/// quoting text there is hidden, as the language says its quotes
+/// ([`ParseError::quotes`](super::language::ParseError::quotes)); a
+/// language that does not say (a host's own) has its quotes found by
+/// reading the text again with its letters changed
+/// ([`secrets::hide_quoted_text`]).
 pub(super) fn syntax_message(
     source: &str,
     error: &super::language::ParseError,
@@ -523,11 +557,90 @@ pub(super) fn syntax_message(
     if !secrets {
         return error.message.clone();
     }
-    secrets::hide_quoted_text(&error.message, source, error.line, &tokens, |masked| {
-        super::work_count::note_many(super::work_count::Work::ParsedBytes, masked.len());
-        behavior.parse(masked).err()
+    let Some(quotes) = &error.quotes else {
+        return secrets::hide_quoted_text(&error.message, source, error.line, &tokens, |masked| {
+            super::work_count::note_many(super::work_count::Work::ParsedBytes, masked.len());
+            behavior.parse(masked).err()
+        });
+    };
+    // The host's tokens wherever they are written, as its patterns find
+    // others.
+    let given = placeholders.accepted.iter().flat_map(|(token, _)| {
+        source
+            .match_indices(token.as_str())
+            .filter(|_| !token.is_empty())
+            .map(|(at, found)| at..at + found.len())
+    });
+    let mut unread: Vec<std::ops::Range<usize>> = tokens.into_iter().chain(given).collect();
+    unread.push(stopped_at(source, error)..source.len());
+    hide_quotes(&error.message, quotes, |of| {
+        unread.iter().any(|secret| overlaps(of, secret))
     })
 }
+
+/// The byte of `source` where `error` is placed: its line's start without
+/// a column, the text's start without a line. A language places an error
+/// where the parser stopped or before (at what it is about).
+fn stopped_at(source: &str, error: &super::language::ParseError) -> usize {
+    let line_start = secrets::unread_from(source, error.line);
+    let line = source[line_start..].split('\n').next().unwrap_or_default();
+    line_start
+        + error.column.map_or(0, |column| {
+            line.char_indices()
+                .nth(column.saturating_sub(1))
+                .map_or(line.len(), |(at, _)| at)
+        })
+}
+
+/// Whether the text range `of` (a quote) and `secret` share a byte; an
+/// empty quote, whether it stands inside `secret`.
+fn overlaps(of: &std::ops::Range<usize>, secret: &std::ops::Range<usize>) -> bool {
+    if of.is_empty() {
+        return secret.start <= of.start && of.start < secret.end;
+    }
+    of.start < secret.end && secret.start < of.end
+}
+
+/// `message` with each part of it `quotes` (see
+/// [`ParseError::quotes`](super::language::ParseError::quotes)) says
+/// quotes text `secret` holds may be a secret's shown as `…`; the whole
+/// message as `…` when a quote names no part of it (a language's mistake
+/// never shows what it may quote).
+fn hide_quotes(
+    message: &str,
+    quotes: &[super::language::Quote],
+    secret: impl Fn(&std::ops::Range<usize>) -> bool,
+) -> String {
+    let mut hidden: Vec<std::ops::Range<usize>> = quotes
+        .iter()
+        .filter(|quote| secret(&quote.of))
+        .map(|quote| quote.said.clone())
+        .collect();
+    if hidden
+        .iter()
+        .any(|said| message.get(said.clone()).is_none())
+    {
+        return HIDDEN.to_string();
+    }
+    hidden.sort_by_key(|said| said.start);
+    let mut shown = String::with_capacity(message.len());
+    let mut at = 0;
+    for said in hidden {
+        if said.end <= at {
+            continue;
+        }
+        if said.start >= at {
+            shown.push_str(&message[at..said.start]);
+            shown.push_str(HIDDEN);
+        }
+        at = said.end;
+    }
+    shown.push_str(&message[at..]);
+    shown
+}
+
+/// What a hidden part of a message shows.
+const HIDDEN: &str = "…";
 
 /// The texts of `source` (in `behavior`) no message may quote for this
 /// document's placeholders (the host's tokens, `placeholders.accepted`,
@@ -557,8 +670,20 @@ fn held_texts(
     // Only a string of the document can hold one with text beside it: with
     // none, the holder query (a read of every such string's span) is not
     // asked.
-    let glued =
-        |text: &str| !own.contains(text.trim()) && own.iter().any(|token| text.contains(token));
+    // A string holding none of the characters a token starts with holds no
+    // token: one scan of it, not a search for each token (thousands of
+    // strings, hundreds of tokens).
+    let mut starts: Vec<char> = own
+        .iter()
+        .filter_map(|token| token.chars().next())
+        .collect();
+    starts.sort_unstable();
+    starts.dedup();
+    let glued = |text: &str| {
+        text.contains(starts.as_slice())
+            && !own.contains(text.trim())
+            && own.iter().any(|token| text.contains(token))
+    };
     if !any_string(document, &glued) {
         return Vec::new();
     }
@@ -598,24 +723,43 @@ pub(super) fn save_message(
     behavior: &dyn ConfigLanguage,
     placeholders: Placeholders<'_>,
 ) -> String {
+    hide_secret_texts(
+        message,
+        &secret_texts(source, None, schema, behavior, placeholders),
+    )
+}
+
+/// The texts of `source` (in `behavior`; `reading`: its reading by the
+/// schema, when there is one) no message may quote, as [`save_message`]
+/// hides them: as written and as JSON quotes them, the longest first.
+fn secret_texts(
+    source: &str,
+    reading: Option<&super::data_reading::DataReading>,
+    schema: Option<&SchemaBundle>,
+    behavior: &dyn ConfigLanguage,
+    placeholders: Placeholders<'_>,
+) -> Vec<String> {
     #[cfg(feature = "schema-validation")]
     let marked = schema
         .filter(|schema| schema.has_marks)
         .and_then(|schema| {
-            let data = super::data_reading::read(behavior, source, Some(&schema.schema)).ok()?;
-            let secrets = schema_problems::secrets(
-                schema_problems::Reading {
-                    data: &data,
-                    behavior,
-                },
-                schema,
-            );
+            let read;
+            let data = match reading {
+                Some(data) => data,
+                None => {
+                    read =
+                        super::data_reading::read(behavior, source, Some(&schema.schema)).ok()?;
+                    &read
+                }
+            };
+            let secrets =
+                schema_problems::secrets(schema_problems::Reading { data, behavior }, schema);
             Some(secrets.hidden_texts(data.value()))
         })
         .unwrap_or_default();
     #[cfg(not(feature = "schema-validation"))]
     let marked: Vec<String> = {
-        let _ = schema;
+        let _ = (schema, reading);
         Vec::new()
     };
     let mut texts: Vec<String> = held_texts(source, behavior, placeholders)
@@ -635,6 +779,12 @@ pub(super) fn save_message(
     // The longest first: a secret holding another is hidden whole.
     texts.sort_by_key(|text| std::cmp::Reverse(text.len()));
     texts.dedup();
+    texts
+}
+
+/// `message` with each of `texts` (see [`secret_texts`]) it quotes shown as
+/// `…`.
+fn hide_secret_texts(message: &str, texts: &[String]) -> String {
     texts.iter().fold(message.to_string(), |message, text| {
         hide_quoted(&message, text)
     })
@@ -666,7 +816,11 @@ fn hide_quoted(message: &str, text: &str) -> String {
 /// placeholders; over a token's fields, with one fixed mask in thousands
 /// of fields, the typing pause grew with their square).
 #[cfg(feature = "schema-validation")]
-fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<String> {
+fn accepted_pointers(
+    behavior: &dyn ConfigLanguage,
+    document: &Value,
+    accepted: &[(String, String)],
+) -> Vec<String> {
     if accepted.is_empty() {
         return Vec::new();
     }
@@ -677,7 +831,7 @@ fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<Str
         fields
             .entry(token.as_str())
             .or_default()
-            .insert(super::paths::field_key(field));
+            .insert(super::paths::field_key(behavior, field));
     }
     let mut found = Vec::new();
     let mut stack = vec![(String::new(), document)];
@@ -686,7 +840,7 @@ fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<Str
             Value::String(text)
                 if fields.get(text.as_str()).is_some_and(|fields| {
                     super::work_count::note(super::work_count::Work::PlaceLookup);
-                    fields.contains(&super::paths::field_key(&pointer))
+                    fields.contains(&super::paths::field_key(behavior, &pointer))
                 }) =>
             {
                 found.push(pointer)

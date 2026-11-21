@@ -33,7 +33,7 @@ pub(crate) use lines::{
 #[cfg(any(feature = "yaml", feature = "toml", feature = "hcl", feature = "xml"))]
 pub(crate) use span_memo::batch_cached_as;
 pub(crate) use span_memo::in_batch;
-pub(crate) use span_memo::{KeptSpans, with_spans};
+pub(crate) use span_memo::{KeptSpans, sharing_spans, with_spans};
 pub(crate) use span_memo::{batch_cached, batch_kept};
 pub(crate) use span_memo::{key_span as memo_key_span, value_span as memo_value_span};
 pub use types::{FieldPath, TextPosition, TextRange};
@@ -380,14 +380,18 @@ fn through_shared(
         feature = "xml"
     )
 ))]
-/// Whether two pointers name the same field, in languages that write a
-/// lone list item without its `/0` (XML, HCL blocks) or with it.
-pub(crate) fn same_field(one: &str, other: &str) -> bool {
-    one == other || field_key(one) == field_key(other)
+/// Whether two pointers name the same field of a text in `behavior` (see
+/// [`field_key`]).
+pub(crate) fn same_field(behavior: &dyn ConfigLanguage, one: &str, other: &str) -> bool {
+    one == other || field_key(behavior, one) == field_key(behavior, other)
 }
 
-/// What [`same_field`] compares of `pointer`: equal for the same field,
-/// so fields can be looked up by it.
+/// What [`same_field`] compares of `pointer`, a field of a text in
+/// `behavior`: equal for the same field, so fields can be looked up by it.
+/// A language that writes a list by repeating its key (XML elements, HCL
+/// blocks) writes a value once as that value and as its list's only item
+/// (see `Repeats::lone_item`), so its `/0` steps name no other field
+/// ([`repeated_form`]); in any other language an index is only an index.
 #[cfg_attr(
     not(feature = "protect"),
     allow(
@@ -395,7 +399,24 @@ pub(crate) fn same_field(one: &str, other: &str) -> bool {
         reason = "only the secret placeholders look fields up by it"
     )
 )]
-pub(crate) fn field_key(pointer: &str) -> String {
+pub(crate) fn field_key(behavior: &dyn ConfigLanguage, pointer: &str) -> String {
+    if behavior.repetition() == Repetition::None {
+        pointer.to_string()
+    } else {
+        repeated_form(pointer)
+    }
+}
+
+/// `pointer` as [`field_key`] names it in a language that repeats keys:
+/// without its `/0` steps.
+#[cfg_attr(
+    not(feature = "protect"),
+    allow(
+        dead_code,
+        reason = "only the secret placeholders look fields up by it"
+    )
+)]
+pub(crate) fn repeated_form(pointer: &str) -> String {
     let lone = format!("{pointer}/").replace("/0/", "/");
     lone.trim_end_matches('/').to_string()
 }

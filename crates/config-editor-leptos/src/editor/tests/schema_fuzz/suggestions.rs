@@ -84,9 +84,12 @@ fn errors(both: &Both, value: &Value) -> HashSet<(String, String)> {
 }
 
 pub(super) fn check(case: &Case) -> Verdict {
-    let Some(both) = compile(&case.schema) else {
-        return Verdict::Skipped;
-    };
+    compile(&case.schema).map_or(Verdict::Skipped, |both| check_with(&both, case))
+}
+
+/// The check, with the editor's schema from `both` (`case.schema` given
+/// as JSON Schema or through a schema format) and its reference.
+pub(super) fn check_with(both: &Both, case: &Case) -> Verdict {
     let language = case.language;
     let Some(text) = both.written(language, &case.doc) else {
         return Verdict::Skipped;
@@ -97,7 +100,7 @@ pub(super) fn check(case: &Case) -> Verdict {
     if !both.valid(&read) || !annotations_fit(&case.schema) {
         return Verdict::Skipped;
     }
-    if let Some(failed) = hover_labels(&both, language, &text) {
+    if let Some(failed) = hover_labels(both, language, &text) {
         return Verdict::Fails(failed);
     }
     // Keys at the root.
@@ -113,7 +116,7 @@ pub(super) fn check(case: &Case) -> Verdict {
             continue;
         };
         let key = format!("/{}", pointer_key(offered.label()));
-        for (at, keyword) in errors(&both, &after) {
+        for (at, keyword) in errors(both, &after) {
             let inside = at == key || at.starts_with(&format!("{key}/"));
             if inside && (keyword == "required" || after.pointer(&at).is_none_or(holds_empty)) {
                 continue;
@@ -121,7 +124,7 @@ pub(super) fn check(case: &Case) -> Verdict {
             let own = at == key && after.pointer(&at).is_some_and(super::fill::own_list);
             // A problem at or above an empty list no list there meets is
             // that list's.
-            let unmet = || unmet(&both, language, (&case.schema, &case.other), &after, &at);
+            let unmet = || unmet(both, language, (&case.schema, &case.other), &after, &at);
             let class = if inside && own {
                 // Each language's insert writes a key's own list empty or
                 // with its first item, the caret inside to type the items.
@@ -188,7 +191,7 @@ pub(super) fn check(case: &Case) -> Verdict {
             ));
         };
         let pointer = format!("/{key}");
-        let refused: Vec<(String, String)> = errors(&both, &after)
+        let refused: Vec<(String, String)> = errors(both, &after)
             .into_iter()
             .filter(|(at, _)| *at == pointer || at.starts_with(&format!("{pointer}/")))
             .collect();

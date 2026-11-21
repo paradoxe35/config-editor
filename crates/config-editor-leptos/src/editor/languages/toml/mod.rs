@@ -136,10 +136,10 @@ impl ConfigLanguage for TomlBehavior {
     fn serialize(&self, value: &Value, previous: Option<&str>) -> Result<String, String> {
         use super::super::codec::first_pointer;
         if !value.is_object() {
-            return Err("a TOML document is a table: the top level must be an object".to_string());
+            return Err("a TOML document is a table: make the top level an object to save".to_string());
         }
         if let Some(pointer) = first_pointer(value, &Value::is_null) {
-            return Err(format!("TOML has no null value: give it a value or remove it (at {pointer})"));
+            return Err(format!("TOML has no null value: give it a value or remove it to save (at {pointer})"));
         }
         let too_large = |value: &Value| value.as_u64().is_some_and(|number| i64::try_from(number).is_err());
         if let Some(pointer) = first_pointer(value, &too_large) {

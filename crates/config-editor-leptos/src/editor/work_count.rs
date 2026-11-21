@@ -273,6 +273,8 @@ pub(crate) enum Work {
     /// [`note_many`]): an entry of many lines is read once, not once per
     /// line.
     ClosingLineBytes,
+    /// One of a schema format's extra checks run on a document.
+    SchemaCheck,
 }
 
 impl Work {
@@ -333,6 +335,7 @@ impl Work {
             Self::StickyStep => 51,
             Self::ClosingLineBytes => 52,
             Self::HolderRead => 53,
+            Self::SchemaCheck => 54,
         }
     }
 
@@ -393,12 +396,13 @@ impl Work {
         Self::StickyStep,
         Self::ClosingLineBytes,
         Self::HolderRead,
+        Self::SchemaCheck,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 54;
+const KINDS: usize = 55;
 
 #[cfg(test)]
 thread_local! {

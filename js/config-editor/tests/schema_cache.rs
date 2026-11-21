@@ -3,3 +3,5 @@
 
 #[path = "../src/schema_cache.rs"]
 mod schema_cache;
+#[path = "../src/schema_spec.rs"]
+mod schema_spec;

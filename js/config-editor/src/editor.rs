@@ -6,10 +6,12 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::PoisonError;
 
+use leptos_config_editor::js_support::Timer;
+use leptos_config_editor::{EditorHandle, Language};
+
+use crate::schema_formats::{SOURCE_KEYS, read_spec};
 use js_sys::Function;
 use leptos::prelude::*;
-use leptos_config_editor::js_support::Timer;
-use leptos_config_editor::{EditorHandle, Language, Schema};
 use wasm_bindgen::prelude::*;
 
 use crate::handle_calls;
@@ -177,9 +179,11 @@ impl ConfigEditor {
             .filter(|edit| *edit != language);
         let settings = settings_from(&options)?;
         let schema = match string_option(&options, "schema")? {
-            Some(json) => {
-                Some(Schema::compile(&json).map_err(|error| JsError::new(&error.to_string()))?)
-            }
+            Some(text) => Some(
+                read_spec(&options, &SOURCE_KEYS, "")?
+                    .compile(&text)
+                    .map_err(|error| JsError::new(&error.to_string()))?,
+            ),
             None => None,
         };
         // A text, as `update` takes it: `null` is no document.

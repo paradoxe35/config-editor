@@ -2,6 +2,7 @@
 
 use super::*;
 use super::words;
+use crate::editor::language::Said;
 use crate::editor::text::{text_size};
 
 pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
@@ -9,11 +10,7 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
         Ok(config) => config.duplicate_key_policy(DuplicateKeyPolicy::Error),
         Err(alias) => {
             let (line, column) = crate::editor::paths::line_column(source, text_size(alias));
-            return Err(ParseError {
-                message: super::limits::EXPANSION_REFUSED.to_string(),
-                line: Some(line),
-                column: Some(column),
-            });
+            return Err(ParseError::new(super::limits::EXPANSION_REFUSED, Some(line), Some(column)));
         }
     };
     // A plain number too large for a float (`1e400`) is an infinity, as
@@ -34,18 +31,18 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
                 let (line, column) = crate::editor::paths::line_column(source, text_size(at));
                 (Some(line), Some(column))
             });
-            return ParseError {
-                message: super::super::nesting::too_deep(super::super::nesting::VALUES),
-                line,
-                column,
-            };
+            return ParseError::new(super::super::nesting::too_deep(super::super::nesting::VALUES), line, column);
         }
         let location = error.location();
         let line = location
             .as_ref()
             .map(|location| location.line().min(line_count));
         let column = location.as_ref().map(|location| location.column().max(1));
+        // The reader's own sentence is worded later, with what it quotes
+        // (`words::told`); one written here says its quotes.
+        let mut said: Option<Said> = None;
         let mut message = if super::limits::is_expansion_refused(&error) {
+            said = Some(super::limits::EXPANSION_REFUSED.into());
             super::limits::EXPANSION_REFUSED.to_string()
         } else {
             error.to_string()
@@ -62,7 +59,8 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
         if let (Some(line), Some(at)) = (line, column)
             && let Some((start, plain)) = super::super::wide_integers::out_of_range(source, line, at)
         {
-            message = plain;
+            message = plain.text().to_string();
+            said = Some(plain);
             column = Some(start);
         }
         // A key that is a list or a map (`? [a, b]`, `{[a]: 1}`): said
@@ -73,6 +71,7 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
         {
             let kind = if kind == "sequence" { "list" } else { "map" };
             message = format!("this key is a {kind}: the editor reads only keys that are text, numbers or booleans");
+            said = Some(message.as_str().into());
             if let (Some(line), Some(at)) = (line, column) {
                 let text: Vec<char> = source.split('\n').nth(line - 1).unwrap_or_default().chars().collect();
                 let before: String = text[..(at - 1).min(text.len())].iter().collect();
@@ -88,10 +87,14 @@ pub(super) fn yaml_parse(source: &str) -> Result<Value, ParseError> {
             (None, None, Some((line, column))) => (Some(line), Some(column)),
             (line, column, _) => (line, column),
         };
-        ParseError {
-            message,
-            line,
-            column,
+        match said {
+            Some(said) => said.at(line, column),
+            None => ParseError {
+                message,
+                line,
+                column,
+                quotes: None,
+            },
         }
     })
 }

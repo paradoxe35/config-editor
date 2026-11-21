@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::super::super::language::pointer_key;
+use super::super::merge::array_leaves;
 
 /// How the host holds a view's node.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -97,6 +98,28 @@ impl HostPaths {
                     shown.truncate(shown_length);
                 }
             }
+            // A view that writes nested lists flat (XML repeats elements)
+            // shows the host's leaves in order: each item is the leaf it
+            // shows, not the host item at its index.
+            (Value::Array(held), Value::Array(items))
+                if held.iter().any(Value::is_array) && !items.iter().any(Value::is_array) =>
+            {
+                self.note(shown, at, Holding::AsShown);
+                let mut leaves = Vec::new();
+                array_leaves(held, &mut String::new(), &mut leaves);
+                if leaves.len() != items.len() {
+                    return;
+                }
+                for (index, ((pointer, leaf), item)) in leaves.into_iter().zip(items).enumerate() {
+                    let (length, shown_length) = (at.len(), shown.len());
+                    at.push_str(&pointer);
+                    shown.push('/');
+                    shown.push_str(&index.to_string());
+                    self.walk(leaf, item, at, shown);
+                    at.truncate(length);
+                    shown.truncate(shown_length);
+                }
+            }
             (Value::Array(held), Value::Array(items)) => {
                 self.note(shown, at, Holding::AsShown);
                 for (index, (from_item, item)) in held.iter().zip(items).enumerate() {
@@ -152,6 +175,39 @@ mod tests {
         assert_eq!(paths.item("/b").0, "/b");
         assert_eq!(paths.item("/b/0").0, "/b");
         assert_eq!(paths.item("/b/0/x").0, "/b/x");
+    }
+
+    #[test]
+    fn a_nested_list_shown_flat_names_each_leaf() {
+        for (host, flat, pairs) in [
+            (
+                json!({"m": [[1, 2], [[3], 4], 5]}),
+                json!({"m": [1, 2, 3, 4, 5]}),
+                &[
+                    ("/m/0", "/m/0/0"),
+                    ("/m/1", "/m/0/1"),
+                    ("/m/2", "/m/1/0/0"),
+                    ("/m/3", "/m/1/1"),
+                    ("/m/4", "/m/2"),
+                ][..],
+            ),
+            (
+                json!({"m": [[1, 2]]}),
+                json!({"m": [1, 2]}),
+                &[("/m/0", "/m/0/0"), ("/m/1", "/m/0/1")][..],
+            ),
+            (
+                json!({"m": [1, [{"k": 2}]]}),
+                json!({"m": [1, {"k": 2}]}),
+                &[("/m/0", "/m/0"), ("/m/1/k", "/m/1/0/k")][..],
+            ),
+        ] {
+            let paths = HostPaths::between(&host, &flat);
+            for (view, from) in pairs {
+                assert_eq!(paths.value(view), *from, "{view} of {host}");
+                assert_eq!(host.pointer(from), flat.pointer(view), "{view} of {host}");
+            }
+        }
     }
 
     #[test]

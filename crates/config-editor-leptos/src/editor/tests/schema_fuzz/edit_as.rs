@@ -15,6 +15,7 @@ use super::schemas::{Draw, schema};
 use super::xml_spelling::{self, Sides};
 use crate::editor::Language;
 use crate::editor::bridge::{Bridge, paired};
+use crate::editor::language::Repetition;
 
 pub(super) fn draw(rng: &mut Rng, index: usize) -> Case {
     let draw = Draw {
@@ -63,9 +64,16 @@ pub(super) fn check(case: &Case) -> Verdict {
     };
     let bridge = Bridge::new(host, edit, Some(both.editor.bundle.clone())).unwrap();
     // The view shows the host's problems too while it cannot show the
-    // host exactly.
+    // host exactly: a value it loses, or a list of one it writes as its
+    // item (XML repeats an element once), which its saves keep as a list.
     let inexact = match bridge.to_edit(&host_text) {
-        Ok(shown) => !shown.losses.is_empty(),
+        Ok(shown) => {
+            !shown.losses.is_empty()
+                || (edit.behavior().repetition() != Repetition::None
+                    && host
+                        .parse(&host_text)
+                        .is_ok_and(|held| holds_list_of_one(&held)))
+        }
         Err(_) => return Verdict::Skipped,
     };
     // What XML cannot write is no value to type in an XML view.
@@ -141,6 +149,7 @@ pub(super) fn check(case: &Case) -> Verdict {
                 view: &view_value,
                 saved,
                 paired: paired.as_ref(),
+                typed: Some(&case.other),
             })
         });
         // A documented spelling explains each value the save reads
@@ -178,6 +187,15 @@ fn values_typed_in_an_edit_as_view_save_as_the_view_reads_them() {
         draw,
         check,
     });
+}
+
+/// Whether `value` holds a list of one anywhere.
+fn holds_list_of_one(value: &Value) -> bool {
+    match value {
+        Value::Array(items) => items.len() == 1 || items.iter().any(holds_list_of_one),
+        Value::Object(map) => map.values().any(holds_list_of_one),
+        _ => false,
+    }
 }
 
 /// `view` with each value `typed` (the document the view was typed from)

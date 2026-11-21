@@ -37,7 +37,11 @@ pub(super) fn found(
     strings: &EditorStrings,
 ) -> (Vec<(ProblemKey, Diagnostic)>, bool) {
     let document = reading.data.value();
-    let placeholders = Fields::new(accepted_pointers(document, tokens.accepted));
+    let placeholders = Fields::new(accepted_pointers(
+        reading.behavior,
+        document,
+        tokens.accepted,
+    ));
     // The strings holding a placeholder are hidden as a secret's are.
     let secrets = secrets(reading, schema).hiding(held_texts(source, placing, tokens));
     // Infinities and NaN are numbers to the schema (see `non_finite`).

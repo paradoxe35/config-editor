@@ -9,6 +9,9 @@ export {
   languageForFile,
   languages,
   registerLanguage,
+  registerSchemaFormat,
+  schemaFormatForFile,
+  schemaFormats,
   themes,
 } from "./pkg/config_editor.js";
 export { loadConfigEditor } from "./load.js";

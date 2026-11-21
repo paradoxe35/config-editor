@@ -211,6 +211,8 @@ mod pause_reads;
     feature = "xml"
 ))]
 mod read_back;
+#[cfg(all(feature = "json", feature = "xml"))]
+mod recorded_scalars;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -223,6 +225,15 @@ mod renamed_aliases;
 mod renamed_by_links;
 #[cfg(all(feature = "yaml", feature = "xml"))]
 mod schema_meanings;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "schema-validation"
+))]
+mod schema_record;
 #[cfg(all(
     feature = "yaml",
     feature = "json",
@@ -263,6 +274,14 @@ mod toml_tables;
     feature = "xml"
 ))]
 mod typed;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod typed_by_schema;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

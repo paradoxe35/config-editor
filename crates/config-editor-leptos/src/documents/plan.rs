@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::editor::SchemaKey;
 use crate::{Language, Schema, SchemaSource};
 
 /// What an editor is built with once: changing either mounts a new editor
@@ -26,7 +27,8 @@ impl Setup {
             (Some(SchemaSource::Compiled(left)), Some(SchemaSource::Compiled(right))) => {
                 left.shares(right)
             }
-            (Some(SchemaSource::Text(left)), Some(SchemaSource::Text(right))) => left == right,
+            (Some(SchemaSource::Compiled(_)), _) | (_, Some(SchemaSource::Compiled(_))) => false,
+            (Some(left), Some(right)) => left.key() == right.key(),
             _ => false,
         };
         self.language == other.language && same_schema
@@ -118,19 +120,20 @@ pub(super) fn step(ids: &[String], active: Option<&str>, offset: isize) -> Optio
     ids.get(target).cloned()
 }
 
-/// Compiled schemas by their text, so documents given the same text
-/// share one, compiled once.
+/// Compiled schemas by what they compile from (their text, format,
+/// resources and options), so documents given the same one share one,
+/// compiled once.
 #[derive(Default)]
 pub(super) struct SchemaCache {
-    compiled: HashMap<String, Schema>,
+    compiled: HashMap<SchemaKey, Schema>,
 }
 
 impl SchemaCache {
-    /// Resolves each document's schema: its text to the compiled schema of
-    /// that text (compiled now if no document had it before), a compiled
-    /// schema as it is. Text that does not compile stays text, so the
-    /// editor shows the error. Schemas no document uses any more are
-    /// dropped.
+    /// Resolves each document's schema: a schema to compile to the compiled
+    /// schema of that source (compiled now if no document had it before), a
+    /// compiled schema as it is. A source that does not compile stays as
+    /// it is, so the editor shows the error. Schemas no document uses any
+    /// more are dropped.
     pub(super) fn resolve_all(
         &mut self,
         sources: Vec<Option<SchemaSource>>,
@@ -138,23 +141,22 @@ impl SchemaCache {
         let mut previous = std::mem::take(&mut self.compiled);
         sources
             .into_iter()
-            .map(|source| match source? {
-                SchemaSource::Text(text) => {
-                    let schema = match self.compiled.get(&text) {
-                        Some(schema) => Some(schema.clone()),
-                        None => previous
-                            .remove(&text)
-                            .or_else(|| Schema::compile(&text).ok()),
-                    };
-                    Some(match schema {
-                        Some(schema) => {
-                            self.compiled.insert(text, schema.clone());
-                            SchemaSource::Compiled(schema)
-                        }
-                        None => SchemaSource::Text(text),
-                    })
-                }
-                compiled => Some(compiled),
+            .map(|source| {
+                let source = source?;
+                let Some(key) = source.key() else {
+                    return Some(source);
+                };
+                let schema = match self.compiled.get(&key) {
+                    Some(schema) => Some(schema.clone()),
+                    None => previous.remove(&key).or_else(|| key.compile().ok()),
+                };
+                Some(match schema {
+                    Some(schema) => {
+                        self.compiled.insert(key, schema.clone());
+                        SchemaSource::Compiled(schema)
+                    }
+                    None => source,
+                })
             })
             .collect()
     }
@@ -320,6 +322,52 @@ mod tests {
         assert!(matches!(&again[0], Some(SchemaSource::Compiled(s)) if s.shares(&schema(0))));
         cache.resolve_all(vec![None]);
         assert_eq!(cache.len(), 0);
+    }
+
+    /// A schema in another format is shared like JSON text: by its format,
+    /// text, resources and options; JSON text and the same text formatted as
+    /// JSON Schema are one schema.
+    #[test]
+    fn documents_with_the_same_formatted_schema_share_one_compiled_schema() {
+        use crate::{SchemaFormat, SchemaResources};
+        let json = r#"{"properties":{"listen":{"type":"integer"}}}"#;
+        let formatted = || SchemaSource::formatted(SchemaFormat::JSON_SCHEMA, json);
+        let with_resources = SchemaSource::Formatted {
+            format: SchemaFormat::JSON_SCHEMA,
+            text: json.to_string(),
+            resources: SchemaResources::new().with("other.json", "{}"),
+            options: serde_json::Map::new(),
+        };
+        let mut cache = SchemaCache::default();
+        let resolved = cache.resolve_all(vec![
+            Some(formatted()),
+            Some(json.into()),
+            Some(formatted()),
+            Some(with_resources),
+            Some(SchemaSource::formatted(SchemaFormat::JSON_SCHEMA, "{")),
+        ]);
+        let schema = |index: usize| match &resolved[index] {
+            Some(SchemaSource::Compiled(schema)) => schema.clone(),
+            other => panic!("document {index}: {other:?}"),
+        };
+        assert!(schema(0).shares(&schema(1)) && schema(0).shares(&schema(2)));
+        assert!(!schema(0).shares(&schema(3)), "other resources");
+        assert!(
+            matches!(&resolved[4], Some(SchemaSource::Formatted { text, .. }) if text == "{"),
+            "an invalid schema stays as it is, for the editor to report"
+        );
+        assert_eq!(cache.len(), 2);
+        let language = Language::default();
+        let with = |schema: SchemaSource| Setup {
+            language,
+            schema: Some(schema),
+        };
+        let invalid = || SchemaSource::formatted(SchemaFormat::JSON_SCHEMA, "{");
+        assert!(with(invalid()).same_editor(&with(invalid())));
+        assert!(!with(invalid()).same_editor(&with(SchemaSource::formatted(
+            SchemaFormat::JSON_SCHEMA,
+            "{{"
+        ))));
     }
 
     #[test]

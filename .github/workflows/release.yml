@@ -57,14 +57,46 @@ jobs:
           fi
           echo "version=$crate" >> "$GITHUB_OUTPUT"
 
+  # The release publishes only a tree that passed the whole CI. CI usually
+  # passed on this very commit already (the push to main, or the pull request
+  # whose head it is): then that run is the proof, and CI does not run a
+  # second time. scripts/ci-passed.mjs counts a run only when it tested
+  # exactly this commit's tree (a push run on it; a pull request run whose
+  # tested merge had a base this commit contains), with every CI job (push
+  # and pull_request runs have no `part`), from this commit's own ci.yml.
+  # Any doubt finds no run, and CI runs here as before.
+  ci-passed:
+    name: CI already passed on this commit?
+    needs: versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # the CI runs and their logs
+    outputs:
+      run: ${{ steps.find.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: find
+        name: A successful CI run that tested ${{ github.sha }}
+        run: node scripts/ci-passed.mjs "$GITHUB_SHA"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
   ci:
     name: CI
-    needs: versions
+    needs: ci-passed
+    if: needs.ci-passed.outputs.run == ''
     uses: ./.github/workflows/ci.yml
 
   crate:
     name: Publish leptos-config-editor
-    needs: [versions, ci]
+    needs: [versions, ci-passed, ci]
+    # Either proof: the found run, or this release's own CI passed. (`ci` is
+    # skipped when a run was found, so the default "every need succeeded"
+    # would skip publishing too.)
+    if: >-
+      !cancelled() && needs.versions.result == 'success' && needs.ci-passed.result == 'success' &&
+      (needs.ci.result == 'success' || (needs.ci.result == 'skipped' && needs.ci-passed.outputs.run != ''))
     runs-on: ubuntu-latest
     env:
       # Secrets cannot appear in `if:`; whether one is set can.
@@ -78,7 +110,7 @@ jobs:
         id: published
         run: |
           status=$(curl -s -o /dev/null -w '%{http_code}' -A 'config-editor release (github actions)' \
-            "https://crates.io/api/v1/crates/config-editor-leptos/$VERSION")
+            "https://crates.io/api/v1/crates/leptos-config-editor/$VERSION")
           echo "exists=$([ "$status" = 200 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - name: Publish
         if: github.event_name == 'push' && env.HAS_TOKEN == 'true' && steps.published.outputs.exists != 'true'
@@ -98,7 +130,11 @@ jobs:
 
   npm:
     name: Publish npm packages
-    needs: [versions, ci]
+    needs: [versions, ci-passed, ci]
+    # The same proof as the crate's (see there).
+    if: >-
+      !cancelled() && needs.versions.result == 'success' && needs.ci-passed.result == 'success' &&
+      (needs.ci.result == 'success' || (needs.ci.result == 'skipped' && needs.ci-passed.outputs.run != ''))
     runs-on: ubuntu-latest
     env:
       HAS_TOKEN: ${{ secrets.NPM_TOKEN != '' }}

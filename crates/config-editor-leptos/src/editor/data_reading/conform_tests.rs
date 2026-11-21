@@ -32,6 +32,25 @@ fn text_reads_as_the_kind_all_schemas_allow() {
 }
 
 #[test]
+fn an_empty_element_reads_as_the_empty_value_the_schema_takes() {
+    // Text is allowed only as a listed word, `null` as its type: an empty
+    // element is `null`, not the empty text the list refuses.
+    for schema in [
+        json!({"properties": {"v": {"anyOf": [{"type": "null"}, {"enum": ["auto"]}]}}}),
+        json!({"properties": {"v": {"type": ["null", "string"], "minLength": 1}}}),
+    ] {
+        assert_eq!(
+            read(&schema, json!({"v": {}})),
+            json!({"v": null}),
+            "{schema}"
+        );
+    }
+    // Text the schema takes empty stays the empty text.
+    let text = json!({"properties": {"v": {"type": ["null", "string"]}}});
+    assert_eq!(read(&text, json!({"v": {}})), json!({"v": ""}));
+}
+
+#[test]
 fn a_lone_element_is_a_list_where_all_schemas_want_one() {
     let narrowed = json!({"properties": {"dns": {"type": ["string", "array"]}},
         "allOf": [{"properties": {"dns": {"type": "array", "items": {"type": "string"}}}}]});

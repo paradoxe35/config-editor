@@ -4,15 +4,24 @@
 
 use serde_json::Value;
 
+use super::SchemaFailure;
 use super::subschemas::each_schema;
+use crate::editor::schema_formats::{SchemaCheck, SchemaFormat, SchemaInput, SchemaLoss};
 
 /// A schema compiled once, shared by every editor using it.
 pub(crate) struct SchemaBundle {
     /// The schema completion, hover, reading and locks walk: references by
     /// `$id`/`$anchor` rewritten as pointers (see `ui_refs`).
     pub(crate) schema: Value,
+    /// The JSON Schema as compiled, where the editor rewrote some of its
+    /// references in `schema` (see [`super::Schema::json`]).
+    pub(crate) emitted: Option<Value>,
     /// What the editor cannot use in the schema (see [`super::Schema::warnings`]).
     pub(crate) warnings: Vec<String>,
+    /// What the schema's format said that the JSON Schema does not check.
+    pub(crate) losses: Vec<SchemaLoss>,
+    /// The format's checks of what the JSON Schema cannot hold.
+    pub(crate) checks: Vec<std::sync::Arc<dyn SchemaCheck>>,
     /// Whether the warnings went to the console already: the editors that
     /// share this compiled schema (a documents view's, of one schema text)
     /// say them there once.
@@ -41,19 +50,59 @@ pub(crate) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
     if schema_text.trim().is_empty() {
         return Err(String::new());
     }
-    let mut schema = crate::editor::languages::read_schema_text(schema_text)?;
+    let schema = crate::editor::languages::read_schema_text(schema_text)?;
+    build_compiled(schema, Vec::new(), Vec::new())
+}
+
+/// The bundle of `input` in `format`.
+pub(crate) fn build_formatted(
+    format: SchemaFormat,
+    input: &SchemaInput<'_>,
+) -> Result<SchemaBundle, SchemaFailure> {
+    // A byte order mark is no part of the schema, in any format.
+    let input = &SchemaInput {
+        text: input.text.strip_prefix('\u{feff}').unwrap_or(input.text),
+        ..*input
+    };
+    let compiled = format
+        .compile(input)
+        .map_err(|error| SchemaFailure::Source {
+            format: format.label(),
+            error: error.0,
+        })?;
+    build_compiled(compiled.schema, compiled.losses, compiled.checks)
+        .map_err(SchemaFailure::JsonSchema)
+}
+
+/// The bundle of a compiled JSON Schema and the losses of its format, or why
+/// it is no JSON Schema.
+fn build_compiled(
+    mut schema: Value,
+    losses: Vec<SchemaLoss>,
+    checks: Vec<std::sync::Arc<dyn SchemaCheck>>,
+) -> Result<SchemaBundle, String> {
     super::empty_refs::to_root(&mut schema);
     #[cfg(feature = "schema-validation")]
     let validation = crate::editor::diagnostics::Validation::build(&schema)?;
     // The validator resolves `$id` and `$anchor` references itself;
     // completion and hover read them as pointers.
-    crate::editor::ui_refs::to_pointers(&mut schema);
-    let facts = Facts::of(&schema);
+    // The schema as compiled is kept (`Schema::json`) only where the
+    // references rewritten here make it differ.
+    let rewrites = crate::editor::ui_refs::pointer_rewrites(&schema);
+    let emitted = (!rewrites.is_empty()).then(|| schema.clone());
+    crate::editor::ui_refs::rewrite(&mut schema, rewrites);
+    let mut facts = Facts::of(&schema);
+    facts
+        .warnings
+        .extend(losses.iter().map(SchemaLoss::to_string));
     let has_marks = crate::editor::protect::mentions_marks(&schema);
     let has_secrets = has_marks && crate::editor::protect::mentions_secrets(&schema);
     Ok(SchemaBundle {
         schema,
+        emitted,
         warnings: facts.warnings,
+        losses,
+        checks,
         warned_console: std::sync::atomic::AtomicBool::new(false),
         has_deprecated: facts.has_deprecated,
         has_marks,

@@ -102,3 +102,25 @@ fn the_host_is_checked_once_per_change_and_only_when_the_view_is_inexact() {
     });
     assert_eq!(checks, 2);
 }
+
+/// A host's list of one the XML view writes as its item, which its saves
+/// keep as a list: where an option takes only the list (`b` an array, once
+/// `size` is there), the host's problem with the list shows in the view,
+/// whose own reading takes the item.
+#[test]
+fn a_host_list_of_one_shown_as_its_item_shows_its_host_problem_in_the_view() {
+    let schema = r#"{"properties": {"d": {"oneOf": [
+        {"required": ["size"], "properties": {"b": {"type": "array"}}},
+        {"x_two": {}}]}}}"#;
+    let mut editor = TestEditor::new(Language::JSON, "{\"d\": {\"b\": [false]}}\n");
+    editor.edit_as = Some(Language::XML);
+    editor.schema = Some(Arc::new(build_schema(schema).unwrap()));
+    let (_owner, state) = editor.mount();
+    let shown = state.doc().text.get_untracked();
+    state.problems().diagnosed_text.set(shown);
+    assert_eq!(errors_at(state, "/d"), Vec::new());
+    typed(state, "</b>", "</b>\n  <size>x</size>");
+    let host = state.sync().host_text.get_value();
+    assert!(host.contains('[') && host.contains("size"), "{host}");
+    assert_eq!(errors_at(state, "/d").len(), 1, "{host}");
+}

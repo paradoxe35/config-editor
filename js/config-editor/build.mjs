@@ -29,11 +29,15 @@ function wasmBindgen() {
 // src/alloc_stats.rs), and the function names its allocation sites show
 // (no `strip`, no wasm-opt); never the published package.
 const allocStats = process.argv.includes('--alloc-stats');
+// `--xsd`: with XML Schema as a schema format (the crate's opt-in `xsd`
+// feature), which the published package leaves out.
+const xsd = process.argv.includes('--xsd');
+const features = [...(allocStats ? ['alloc-stats'] : []), ...(xsd ? ['xsd'] : [])];
 execFileSync(
   'cargo',
   [
     'build', '--release', '--target', 'wasm32-unknown-unknown', '-p', 'config-editor-js',
-    ...(allocStats ? ['--features', 'alloc-stats'] : []),
+    ...(features.length > 0 ? ['--features', features.join(',')] : []),
   ],
   {
     cwd: root,

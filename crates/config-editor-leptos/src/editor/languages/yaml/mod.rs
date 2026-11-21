@@ -135,6 +135,7 @@ impl YamlBehavior {
             }
             if error.message.contains("more than one document") {
                 error.message = MULTI_DOCUMENT.to_string();
+                error.quotes = Some(Vec::new());
             }
             error
         })
@@ -180,7 +181,12 @@ impl ConfigLanguage for YamlBehavior {
     }
 
     fn parse(&self, source: &str) -> Result<Value, ParseError> {
-        self.parse_raw(source).map_err(words::told)
+        // The reader's positions are in the text read with LF breaks; its
+        // quotes are placed back in `source`.
+        self.parse_raw(source).map_err(|error| {
+            let read = crate::editor::line_breaks::as_lf(source);
+            words::told(&read, error).quotes_mapped(crate::editor::line_breaks::in_original(source))
+        })
     }
 
     fn key_span(&self, source: &str, path: &FieldPath) -> Option<Span> {

@@ -1,0 +1,5 @@
+<beans xmlns="http://www.springframework.org/schema/beans">
+  <bean id="service" class="org.example.Service" lazy-init="true">
+    <property name="timeout" value="30"/>
+  </bean>
+</beans>

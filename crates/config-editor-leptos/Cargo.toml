@@ -29,6 +29,10 @@ json = []
 toml = ["dep:toml"]
 hcl = ["dep:hcl-rs", "dep:hcl-edit"]
 xml = ["dep:quick-xml"]
+# XML Schema (XSD) as a schema format: `SchemaFormat::XSD`, compiled into
+# JSON Schema in the XML language's mapping. Opt-in: a schema source, not a
+# language.
+xsd = ["dep:quick-xml"]
 # Find and replace (`Ctrl+F`, `Ctrl+H`) and go to line (`Ctrl+G`).
 search = []
 # Read-only fields and secrets: the schema's `readOnly`, `writeOnly` and

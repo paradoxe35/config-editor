@@ -45,6 +45,7 @@ impl ConfigLanguage for Flat {
             let (key, value) = line.split_once(separator).ok_or(ParseError {
                 message: "expected an entry".to_string(),
                 line: None,
+                quotes: None,
                 column: None,
             })?;
             map.insert(key.trim().into(), Value::String(value.trim().into()));

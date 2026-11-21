@@ -187,3 +187,58 @@ fn paths_at_on_the_same_text_walk_it_once_in_every_language() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// Spans of one text asked for again inside a batch for it (a save's steps,
+/// one after the other, each reading its items' spans) are read once, and
+/// a step asking for more reads only those, in every language; each lookup
+/// finds what `field_range` alone finds.
+#[test]
+fn steps_sharing_one_text_read_each_span_once_in_every_language() {
+    let mut failures = Vec::new();
+    for &language in Language::ALL {
+        let behavior = language.behavior();
+        let text = text(language, 60);
+        let few = pointers(5);
+        let more = pointers(10);
+        let alone: Vec<_> = more
+            .iter()
+            .map(|pointer| field_range(behavior, &text, pointer))
+            .collect();
+        let step = |pointers: &[String]| {
+            super::with_spans(behavior, &text, pointers, || {
+                pointers
+                    .iter()
+                    .map(|pointer| field_range(behavior, &text, pointer))
+                    .collect::<Vec<_>>()
+            })
+        };
+        // One step alone: its spans, and the readings of the whole text the
+        // language makes for them.
+        let (_, single) = counted(Work::DocumentRead, || step(&few));
+        let ((first, again, wider), reads) = counted(Work::DocumentRead, || {
+            super::sharing_spans(behavior, &text, || (step(&few), step(&few), step(&more)))
+        });
+        // The first step's reads, and one for the spans the last one adds;
+        // the second reads nothing.
+        if reads > single + 1 {
+            failures.push(format!(
+                "{language}: {reads} document reads for three steps"
+            ));
+        }
+        let first_few: Vec<_> = few
+            .iter()
+            .map(|pointer| field_range(behavior, &text, pointer))
+            .collect();
+        if first != first_few || again != first || wider != alone {
+            failures.push(format!("{language}: the shared spans find other places"));
+        }
+        // Nested in a step of its own, the same.
+        let (_, nested) = counted(Work::DocumentRead, || {
+            super::with_spans(behavior, &text, &few, || step(&few))
+        });
+        if nested > single {
+            failures.push(format!("{language}: {nested} document reads nested"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

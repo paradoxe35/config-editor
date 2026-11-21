@@ -150,6 +150,26 @@ impl Bridge {
         )
     }
 
+    /// `edit_text`, a text of this view with unsaved edits, written in
+    /// `next` (another view's language): each scalar the user left as the
+    /// editor wrote it (`untouched`, see `links::untouched`) as the host
+    /// holds it, which this view may read otherwise (XML reads the host's
+    /// string `"2021"` as the number 2021), the rest as this view reads it.
+    pub(super) fn to_other_view(
+        &self,
+        edit_text: &str,
+        next: Language,
+        untouched: Option<&[links::Untouched]>,
+    ) -> Result<Conversion, ConvertError> {
+        let edit = self.edit.behavior();
+        let value = codec::read(edit, edit_text, self.shape()).map_err(ConvertError::Parse)?;
+        codec::convertible(edit, edit_text)?;
+        let value = self.host_values(value, untouched.unwrap_or_default());
+        let conversion = codec::render(&value, next.behavior(), None, self.shape())?;
+        codec::convertible(next.behavior(), &conversion.text)?;
+        Ok(conversion)
+    }
+
     /// Whether `edit_text` can be a text of this view that stood for the
     /// host's `host_text`: it reads in the edit language with the keys at
     /// the top that the view of `host_text` holds. The same text in
@@ -176,7 +196,8 @@ impl Bridge {
     }
 
     /// `previous_host` is the host's last text, whose framing is kept: a
-    /// save in a session that began on it.
+    /// save in a session that began on it, of `edit_text` typed over the
+    /// view of it (see [`Self::typed_over_view`]).
     #[cfg(test)]
     #[allow(dead_code, reason = "used by the tests of language pairs")]
     pub(super) fn to_host(
@@ -184,7 +205,90 @@ impl Bridge {
         edit_text: &str,
         previous_host: &str,
     ) -> Result<String, SaveError> {
-        self.to_host_since(edit_text, previous_host, previous_host)
+        let untouched = self.typed_over_view(edit_text, previous_host);
+        self.to_host_linked(
+            edit_text,
+            previous_host,
+            previous_host,
+            None,
+            untouched.as_deref(),
+        )
+    }
+
+    /// The record a test's user leaves of typing `edit_text` over the view
+    /// of `previous_host` (the record the editor's links keep, which a
+    /// text given whole has none of): each scalar still written as the
+    /// view wrote it at its place, or as the lone value a list was made of
+    /// (an element copied), left alone, standing for that host value;
+    /// every other scalar typed. `None` when the host shows no view.
+    #[cfg(test)]
+    pub(super) fn typed_over_view(
+        &self,
+        edit_text: &str,
+        previous_host: &str,
+    ) -> Option<Vec<links::Untouched>> {
+        fn scalars(value: &serde_json::Value, at: &mut String, out: &mut Vec<String>) {
+            let length = at.len();
+            match value {
+                serde_json::Value::Object(map) => {
+                    for (key, child) in map {
+                        at.push('/');
+                        at.push_str(&pointer_key(key));
+                        scalars(child, at, out);
+                        at.truncate(length);
+                    }
+                }
+                serde_json::Value::Array(items) => {
+                    for (index, child) in items.iter().enumerate() {
+                        at.push('/');
+                        at.push_str(&index.to_string());
+                        scalars(child, at, out);
+                        at.truncate(length);
+                    }
+                }
+                _ => out.push(at.clone()),
+            }
+        }
+        let shown = self.to_edit(previous_host).ok()?.text;
+        let edit = self.edit.behavior();
+        let (now, was) = (
+            super::parse_cache::parsed(edit, edit_text),
+            super::parse_cache::parsed(edit, &shown),
+        );
+        let (Ok(now), Ok(was)) = (now.as_ref(), was.as_ref()) else {
+            return Some(Vec::new());
+        };
+        let paths = self.reading().paths(previous_host, was).unwrap_or_default();
+        let host: Arc<str> = Arc::from(previous_host);
+        let mut pointers = Vec::new();
+        scalars(now, &mut String::new(), &mut pointers);
+        Some(
+            pointers
+                .into_iter()
+                .filter_map(|pointer| {
+                    let value = now.pointer(&pointer);
+                    let lone = pointer
+                        .rsplit_once('/')
+                        .filter(|(_, index)| index.parse::<usize>().is_ok())
+                        .map(|(list, _)| list)
+                        .filter(|list| {
+                            was.pointer(list)
+                                .is_some_and(|lone| !lone.is_array() && !lone.is_object())
+                        });
+                    let from = if was.pointer(&pointer) == value {
+                        pointer.clone()
+                    } else {
+                        lone.filter(|list| was.pointer(list) == value)?.to_string()
+                    };
+                    let from = paths.value(&from);
+                    Some(links::Untouched {
+                        from,
+                        host: host.clone(),
+                        pointer,
+                    })
+                })
+                .collect(),
+        )
     }
 
     /// [`Self::to_host`] in an edit session that began on the host text
@@ -193,29 +297,39 @@ impl Bridge {
     /// part of the document: the text after it is patched, and it stays.
     /// The host's text is the save only when it reads back as the view
     /// holds the document: a value it reads otherwise is
-    /// [`SaveError::CannotKeep`].
+    /// [`SaveError::CannotKeep`]. The text comes with no record of its
+    /// edits (a text the host gave): where only that record could decide
+    /// the save, it waits and says so.
     pub(super) fn to_host_since(
         &self,
         edit_text: &str,
         previous_host: &str,
         origin: &str,
     ) -> Result<String, SaveError> {
-        self.to_host_linked(edit_text, previous_host, origin, None, &[])
+        self.to_host_linked(edit_text, previous_host, origin, None, None)
     }
 
     /// [`Self::to_host_since`], told which item of the host each of the
-    /// view's is by its links (see `links`).
+    /// view's is by its links (see `links`), and the scalars the user left
+    /// as the editor wrote them (`untouched`, `None` for a text with no
+    /// record of its edits).
     pub(super) fn to_host_linked(
         &self,
         edit_text: &str,
         previous_host: &str,
         origin: &str,
         told: Option<&links::Told>,
-        untouched: &[links::Untouched],
+        untouched: Option<&[links::Untouched]>,
     ) -> Result<String, SaveError> {
         let (previous, _) = byte_order_mark::split(previous_host);
         let (origin, _) = byte_order_mark::split(origin);
-        let conversion = self.to_unmarked_host(edit_text, previous, origin, told, untouched)?;
+        // The steps of the save read the spans of the host's text and the
+        // view's: each once.
+        let conversion = super::paths::sharing_spans(self.host.behavior(), previous, || {
+            super::paths::sharing_spans(self.edit.behavior(), edit_text, || {
+                self.to_unmarked_host(edit_text, previous, origin, told, untouched)
+            })
+        })?;
         // A value the host would read back otherwise waits (a save written
         // whole is checked here, a patched one before it is read back).
         if let Some(pointer) = conversion.losses.first() {
@@ -227,14 +341,14 @@ impl Bridge {
     }
 
     /// `told`: each item's source, by its links; `untouched`: the scalars
-    /// the user left as the editor wrote them.
+    /// the user left as the editor wrote them (`None`: no record).
     fn to_unmarked_host(
         &self,
         edit_text: &str,
         previous_host: &str,
         origin: &str,
         told: Option<&links::Told>,
-        untouched: &[links::Untouched],
+        untouched: Option<&[links::Untouched]>,
     ) -> Result<Conversion, SaveError> {
         // The host text before the last the links name, without its byte
         // order mark.
@@ -271,28 +385,30 @@ impl Bridge {
         // Integers past 64 bits a host holds as written (XML text) are
         // saved as typed, as the view's own language saves them.
         let stood_in;
-        let (edit_text, edited) = match codec::read(self.edit.behavior(), edit_text, self.shape()) {
-            Ok(edited) => (edit_text, edited),
-            Err(error) => {
-                let Some(text) = wide_numbers::as_text(
-                    self.edit.behavior(),
-                    self.host.behavior(),
-                    edit_text,
-                    &error,
-                ) else {
-                    return Err(ConvertError::Parse(error).into());
-                };
-                stood_in = text;
-                let edited = codec::read(self.edit.behavior(), &stood_in, self.shape())
-                    .map_err(ConvertError::Parse)?;
-                (stood_in.as_str(), edited)
-            }
-        };
+        let (edit_text, view_reading) =
+            match super::data_reading::read(self.edit.behavior(), edit_text, self.shape()) {
+                Ok(edited) => (edit_text, edited),
+                Err(error) => {
+                    let Some(text) = wide_numbers::as_text(
+                        self.edit.behavior(),
+                        self.host.behavior(),
+                        edit_text,
+                        &error,
+                    ) else {
+                        return Err(ConvertError::Parse(error).into());
+                    };
+                    stood_in = text;
+                    let edited =
+                        super::data_reading::read(self.edit.behavior(), &stood_in, self.shape())
+                            .map_err(ConvertError::Parse)?;
+                    (stood_in.as_str(), edited)
+                }
+            };
         codec::convertible(self.edit.behavior(), edit_text)?;
         let host = self.host.behavior();
         // A scalar left as the editor wrote it is its host value, whatever
         // the view read it as (see `links::untouched`).
-        let edited = self.host_values(edited, untouched);
+        let edited = self.host_values(view_reading.value().clone(), untouched.unwrap_or_default());
         // The host's reading notes the lists it reads a value written once
         // as (the merge keeps the rest as the host writes them).
         let host_reading = super::data_reading::read(host, previous_host, self.shape()).ok();
@@ -382,13 +498,18 @@ impl Bridge {
         // the edited values keep the host's.
         let value = match &seen {
             Some(seen) if self.edit.behavior().scalars_are_text() => {
-                text_scalars::in_host_types(&old, (seen, &edited), value, (self.shape(), &respelled)).map_err(|pointer| {
-                    ConvertError::Unsupported(format!(
-                        "{} reads an empty element here, and {} holds no empty number or boolean: the edit is saved once it holds a value again (at {pointer})",
-                        self.edit.label(),
-                        self.host.label()
-                    ))
-                })?
+                let record = match untouched {
+                    Some(untouched) => text_scalars::Record::Kept {
+                        untouched: untouched
+                            .iter()
+                            .map(|scalar| scalar.pointer.as_str())
+                            .collect(),
+                        reading: &view_reading,
+                    },
+                    None => text_scalars::Record::None,
+                };
+                text_scalars::in_host_types(&old, (seen, &edited), value, self.shape(), &record)
+                    .map_err(|unsaved| self.unsaved_scalar(&unsaved))?
             }
             _ => value,
         };
@@ -408,7 +529,7 @@ impl Bridge {
         // back normalized), or the reason the save waits.
         let value = host_scalars(host, previous_host, &old, value)?;
         let sources = view_sources;
-        let told = SaveTold::new(sources.as_ref());
+        let told = SaveTold::new(sources.as_ref()).with_schema(self.shape());
         let rendered = codec::render_told(&value, host, Some(previous_host), self.shape(), told)?;
         // The host's text is patched to read back exactly as a full render
         // would (losses included), so its comments and formatting survive: a
@@ -814,6 +935,25 @@ impl Bridge {
             return Err(self.changed_form(&pointer, intended));
         }
         Ok(conversion)
+    }
+
+    /// Why a scalar of a view that writes every scalar as text cannot be
+    /// saved yet (see `text_scalars::Unsaved`).
+    fn unsaved_scalar(&self, unsaved: &text_scalars::Unsaved) -> SaveError {
+        let message = match unsaved {
+            text_scalars::Unsaved::Emptied(pointer) => format!(
+                "{} reads an empty element here, and {} holds no empty number or boolean: the edit is saved once it holds a value again (at {pointer})",
+                self.edit.label(),
+                self.host.label()
+            ),
+            text_scalars::Unsaved::Unrecorded(pointer) => format!(
+                "{} reads this value as another type than {} holds, and this text came with no record of which values were edited, so the editor cannot tell whether to keep the host's type: edit the value in the view, or edit it as {} (at {pointer})",
+                self.edit.label(),
+                self.host.label(),
+                self.host.label()
+            ),
+        };
+        ConvertError::Unsupported(message).into()
     }
 
     /// `edited` (the view's value) with each of `untouched` the value it

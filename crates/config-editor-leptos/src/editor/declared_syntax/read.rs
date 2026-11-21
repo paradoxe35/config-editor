@@ -10,6 +10,7 @@ fn error(message: &str, line: usize) -> ParseError {
         message: message.to_string(),
         line: Some(line),
         column: Some(1),
+        quotes: None,
     }
 }
 

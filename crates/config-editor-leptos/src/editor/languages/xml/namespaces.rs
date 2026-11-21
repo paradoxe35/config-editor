@@ -48,12 +48,24 @@ impl Scopes {
 }
 
 /// Why a document using `qualified`'s prefix unbound is refused, at
-/// `pointer`: the same words in every view.
-pub(super) fn unbound(qualified: &str, pointer: &str) -> String {
+/// `pointer`: the same words in every view. The name is written in the
+/// text's bytes `name`, the names the pointer is made of in `names`.
+pub(super) fn unbound(
+    qualified: &str,
+    name: std::ops::Range<usize>,
+    pointer: &str,
+    names: std::ops::Range<usize>,
+) -> crate::editor::language::Said {
     let prefix = qualified.split(':').next().unwrap_or_default();
-    format!(
-        "the prefix {prefix} of {qualified} is bound to no namespace (no xmlns:{prefix} declares it), which XML readers refuse: declare it, or name it without the prefix (at {pointer})"
-    )
+    crate::editor::language::Said::from("the prefix ")
+        .quote(prefix, name.clone())
+        .words(" of ")
+        .quote(qualified, name.clone())
+        .words(" is bound to no namespace (no xmlns:")
+        .quote(prefix, name)
+        .words(" declares it), which XML readers refuse: declare it, or name it without the prefix (at ")
+        .quote(pointer, names)
+        .words(")")
 }
 
 #[cfg(test)]

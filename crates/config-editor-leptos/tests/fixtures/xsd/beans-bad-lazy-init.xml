@@ -1,0 +1,3 @@
+<beans xmlns="http://www.springframework.org/schema/beans">
+  <bean id="service" class="org.example.Service" lazy-init="sometimes"/>
+</beans>

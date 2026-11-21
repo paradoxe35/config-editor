@@ -20,6 +20,10 @@ pub struct RequiredChild<'a> {
     pub schema: &'a Value,
     /// What is written for it.
     pub fill: Fill<'a>,
+    /// A schema at it marks it an XML attribute (`"xml": {"attribute":
+    /// true}`); other languages ignore it. Such children come first: XML
+    /// writes them in the start tag, before the content.
+    pub attribute: bool,
 }
 
 /// What an inserted block writes for a required child.
@@ -191,7 +195,18 @@ fn written<'a>(
     depth: usize,
 ) -> Vec<RequiredChild<'a>> {
     let mut found = Vec::new();
-    for (key, child, at) in keys {
+    let mut keys: Vec<(bool, RequiredKey<'a>)> = keys
+        .into_iter()
+        .map(|(key, child, at)| {
+            let attribute =
+                super::insert_plan::marks_attribute(&Here::walk(at.clone(), root, Seen::default()));
+            (attribute, (key, child, at))
+        })
+        .collect();
+    // Attributes first (stable): the caret and the Tab stops follow the
+    // written order, and XML writes them before the content.
+    keys.sort_by_key(|(attribute, _)| !*attribute);
+    for (attribute, (key, child, at)) in keys {
         if !writes_key(language, key) {
             continue;
         }
@@ -202,6 +217,7 @@ fn written<'a>(
             key,
             schema: child,
             fill,
+            attribute,
         });
     }
     found

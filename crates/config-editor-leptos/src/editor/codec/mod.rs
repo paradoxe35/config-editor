@@ -183,7 +183,7 @@ pub(super) fn render_told(
     schema: Option<&Value>,
     told: SaveTold<'_>,
 ) -> Result<Conversion, ConvertError> {
-    let text = serialize_told(target, value, previous, told)?;
+    let text = serialize_told(target, value, previous, told.with_schema(schema))?;
     let reread = read(target, &text, schema).map_err(|error| {
         ConvertError::Unsupported(format!(
             "the converted document does not read back: {}",

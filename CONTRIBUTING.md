@@ -323,8 +323,17 @@ the parse. The host's ranges given while a save is held name places in its
 older text: they are mapped through the recorded edits it has not heard yet,
 and when no place holds a range's text it locks nothing and the save waits
 with a reason. A secret never appears in a problem message: schema messages
-are hidden by the schema (`diagnostics/secrets/by_schema.rs`) and syntax
-messages hide what they quote (`diagnostics/secrets/in_syntax.rs`).
+are hidden by the schema (`diagnostics/secrets/by_schema.rs`), and a syntax
+message hides the parts it quotes where a secret may be (a placeholder, or
+the text from where the parser stopped): each language says them in
+`ParseError::quotes`. A built-in language builds every message with
+`language::Said` (words, and each quote with the text range it quotes), so a
+new message cannot forget a quote; a parser's own sentence that names text
+it cannot place is quoted whole (`Said::naming`). Only a custom language that
+gives no quotes (`None`, a host's own) has them found by reading the text
+again with its letters changed (`diagnostics/secrets/in_syntax.rs`), the
+fallback. `languages/syntax_quotes_matrix.rs` checks every built-in
+language's quotes over broken texts.
 
 ### The host stays in sync by revisions
 

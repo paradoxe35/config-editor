@@ -16,6 +16,7 @@ mod data_reading;
 mod documents;
 mod edit_as;
 mod fill;
+mod formats;
 mod known;
 mod list_search;
 mod probe;
@@ -31,3 +32,7 @@ mod suggestions;
 mod validation;
 mod work;
 mod xml_spelling;
+#[cfg(feature = "xsd")]
+mod xsd;
+#[cfg(feature = "xsd")]
+mod xsd_model;

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="configuration">
+    <xs:complexType>
+      <xs:all>
+        <xs:element name="appSettings" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="add" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:attribute name="key" type="xs:string" use="required"/>
+                  <xs:attribute name="value" type="xs:string" use="required"/>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="system.web" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="compilation" minOccurs="0">
+                <xs:complexType>
+                  <xs:attribute name="debug" type="xs:boolean" default="false"/>
+                  <xs:attribute name="targetFramework" type="xs:string"/>
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="httpRuntime" minOccurs="0">
+                <xs:complexType>
+                  <xs:attribute name="targetFramework" type="xs:string"/>
+                  <xs:attribute name="maxRequestLength" type="xs:unsignedInt"/>
+                  <xs:attribute name="executionTimeout" type="xs:duration"/>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        <xs:element name="connectionStrings" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="add" minOccurs="0" maxOccurs="unbounded">
+                <xs:complexType>
+                  <xs:attribute name="name" type="xs:string" use="required"/>
+                  <xs:attribute name="connectionString" type="xs:string" use="required"/>
+                  <xs:attribute name="providerName" type="xs:string"/>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:all>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

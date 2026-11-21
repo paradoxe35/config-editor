@@ -272,13 +272,21 @@ pub(crate) fn read(
     schema: Option<&Value>,
 ) -> Result<Rc<DataReading>, ParseError> {
     let repetition = language.repetition();
-    match schema.filter(|_| repetition != Repetition::None) {
+    let text_scalars = language.scalars_are_text();
+    match schema.filter(|_| reads_by_schema(language)) {
         Some(schema) => super::parse_cache::conformed(language, text, schema, |value| {
-            conform::conform(value, schema, repetition)
+            conform::conform(value, schema, repetition, text_scalars)
         }),
         None => super::parse_cache::parse(language, text)
             .map(|value| Rc::new(DataReading::parsed(value))),
     }
+}
+
+/// Whether a schema changes how `language` reads a text: it repeats keys
+/// for lists, or writes every scalar as text (a custom language with
+/// `scalars: "text"` too).
+fn reads_by_schema(language: &dyn ConfigLanguage) -> bool {
+    language.repetition() != Repetition::None || language.scalars_are_text()
 }
 
 /// The value of [`read`].
@@ -302,8 +310,8 @@ pub(crate) fn read_aside(
     super::work_count::note_many(super::work_count::Work::ParsedBytes, text.len());
     let value = language.parse(text)?;
     let repetition = language.repetition();
-    Ok(match schema.filter(|_| repetition != Repetition::None) {
-        Some(schema) => conform::conform(value, schema, repetition),
+    Ok(match schema.filter(|_| reads_by_schema(language)) {
+        Some(schema) => conform::conform(value, schema, repetition, language.scalars_are_text()),
         None => DataReading::parsed(value),
     })
 }
@@ -316,9 +324,17 @@ pub(crate) fn value_under(
     at: &Entry<'_>,
     root: &Value,
 ) -> Value {
-    match language.repetition() {
-        Repetition::None => value,
-        repetition => conform_at(value, at, root, repetition).into_value(),
+    if reads_by_schema(language) {
+        conform_at(
+            value,
+            at,
+            root,
+            language.repetition(),
+            language.scalars_are_text(),
+        )
+        .into_value()
+    } else {
+        value
     }
 }
 
@@ -326,7 +342,13 @@ pub(crate) fn value_under(
 /// `repetition` (the tests read parsed values so).
 #[cfg(test)]
 pub(crate) fn conform_arrays(value: &mut Value, schema: &Value, repetition: Repetition) {
-    *value = conform::conform(value.take(), schema, repetition).into_value();
+    *value = conform::conform(
+        value.take(),
+        schema,
+        repetition,
+        repetition == Repetition::Elements,
+    )
+    .into_value();
 }
 
 #[cfg(test)]

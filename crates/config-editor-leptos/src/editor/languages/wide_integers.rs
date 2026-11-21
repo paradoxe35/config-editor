@@ -12,30 +12,35 @@
     allow(dead_code, reason = "not every language reads through each helper")
 )]
 
-use super::super::language::ParseError;
+use super::super::language::{ParseError, Said};
 use serde_json::Value;
+use std::ops::Range;
 
 /// The pointer of the first number of `value` read as a float past the
-/// 64-bit integers that `written` (the text at a pointer) shows as an
-/// integer literal, with that text.
+/// 64-bit integers that `written` (the text at a pointer, and the byte it
+/// starts at) shows as an integer literal, with that literal's bytes and
+/// text.
 pub(super) fn first_past_64_bits(
     value: &Value,
-    written: &dyn Fn(&str) -> Option<String>,
-) -> Option<(String, String)> {
+    written: &dyn Fn(&str) -> Option<(usize, String)>,
+) -> Option<(String, Range<usize>, String)> {
     let mut wide = Vec::new();
     floats_past_64_bits(value, String::new(), &mut wide);
     wide.into_iter().find_map(|pointer| {
-        let text = written(&pointer)?;
-        let digits = text.trim().strip_prefix('-').unwrap_or(text.trim());
+        let (start, text) = written(&pointer)?;
+        let literal = text.trim();
+        let digits = literal.strip_prefix('-').unwrap_or(literal);
+        let from = start + (text.len() - text.trim_start().len());
         (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
-            .then(|| (pointer, text.trim().to_string()))
+            .then(|| (pointer, from..from + literal.len(), literal.to_string()))
     })
 }
 
 /// The message of the syntax error, with the bound `written` is past: the
 /// 64-bit integers run from `i64::MIN` to `u64::MAX`, and to `i64::MAX`
-/// where the parser takes no unsigned ones (TOML's).
-pub(super) fn message(written: &str) -> String {
+/// where the parser takes no unsigned ones (TOML's). It quotes the
+/// literal, written at bytes `of`.
+pub(super) fn message(written: &str, of: Range<usize>) -> Said {
     let plain = written.replace('_', "");
     let bound = if plain.starts_with('-') {
         format!("below {}, the smallest 64-bit integer", i64::MIN)
@@ -44,7 +49,9 @@ pub(super) fn message(written: &str) -> String {
     } else {
         format!("above {}, the largest 64-bit integer", u64::MAX)
     };
-    format!("the integer {written} is {bound}")
+    Said::from("the integer ")
+        .quote(written, of)
+        .words(&format!(" is {bound}"))
 }
 
 fn floats_past_64_bits(value: &Value, pointer: String, found: &mut Vec<String>) {
@@ -79,7 +86,7 @@ fn floats_past_64_bits(value: &Value, pointer: String, found: &mut Vec<String>) 
 /// past it) past the 64-bit integers, or past the largest float, with the
 /// column the literal starts at (an error marks it whole, `-1e400`, not
 /// from where the parser stopped). `None` when no such literal is there.
-pub(super) fn out_of_range(source: &str, line: usize, column: usize) -> Option<(usize, String)> {
+pub(super) fn out_of_range(source: &str, line: usize, column: usize) -> Option<(usize, Said)> {
     let (bytes, message) = literal_out_of_range(source, line, column)?;
     let line_start = source[..bytes.start].rfind('\n').map_or(0, |at| at + 1);
     Some((source[line_start..bytes.start].chars().count() + 1, message))
@@ -90,7 +97,7 @@ pub(super) fn out_of_range(source: &str, line: usize, column: usize) -> Option<(
 /// editor holds exactly (see [`out_of_range`], [`message`]).
 fn unheld(source: &str, error: &ParseError) -> Option<std::ops::Range<usize>> {
     let (range, message) = literal_out_of_range(source, error.line?, error.column?)?;
-    (message == error.message).then_some(range)
+    (message.text() == error.message).then_some(range)
 }
 
 /// When `error` (a parse of `source`) is only about a number past what
@@ -117,7 +124,7 @@ pub(super) fn unheld_all(source: &str, error: &ParseError) -> Vec<std::ops::Rang
         }
         let alone = (start == 0 || b" \t\r\n[{(,:=".contains(&bytes[start - 1]))
             && (at == bytes.len() || b" \t\r\n]}),".contains(&bytes[at]));
-        if alone && past_what_is_held(&source[start..at]).is_some() {
+        if alone && past_what_is_held(&source[start..at], start..at).is_some() {
             found.push(start..at);
         }
     }
@@ -135,20 +142,22 @@ fn is_literal_byte(byte: u8) -> bool {
 }
 
 /// The message for `literal` when it is a number past what the editor
-/// holds exactly: an integer past 64 bits, or a float past the largest.
-fn past_what_is_held(literal: &str) -> Option<String> {
+/// holds exactly: an integer past 64 bits, or a float past the largest;
+/// the literal written at bytes `of`.
+fn past_what_is_held(literal: &str, of: Range<usize>) -> Option<Said> {
     let plain = literal.replace('_', "");
     let digits = plain.strip_prefix(['-', '+']).unwrap_or(&plain);
     if !digits.starts_with(|character: char| character.is_ascii_digit()) {
         return None;
     }
     if digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        return plain.parse::<i64>().is_err().then(|| message(literal));
+        return plain.parse::<i64>().is_err().then(|| message(literal, of));
     }
-    plain
-        .parse::<f64>()
-        .is_ok_and(f64::is_infinite)
-        .then(|| format!("the number {literal} is past the largest float"))
+    plain.parse::<f64>().is_ok_and(f64::is_infinite).then(|| {
+        Said::from("the number ")
+            .quote(literal, of)
+            .words(" is past the largest float")
+    })
 }
 
 /// [`out_of_range`], and the literal's byte range.
@@ -156,7 +165,7 @@ fn literal_out_of_range(
     source: &str,
     line: usize,
     column: usize,
-) -> Option<(std::ops::Range<usize>, String)> {
+) -> Option<(std::ops::Range<usize>, Said)> {
     let line_start = source
         .split_inclusive('\n')
         .take(line.checked_sub(1)?)
@@ -190,5 +199,5 @@ fn literal_out_of_range(
         .map(|(_, character)| character)
         .collect();
     let bytes = line_start + text[start].0..line_start + text[end - 1].0 + 1;
-    past_what_is_held(&literal).map(|message| (bytes, message))
+    past_what_is_held(&literal, bytes.clone()).map(|message| (bytes, message))
 }

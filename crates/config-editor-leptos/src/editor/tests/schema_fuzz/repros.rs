@@ -1223,3 +1223,48 @@ fn a_required_child_is_filled_as_an_object_only_where_every_schema_at_it_takes_o
         Value::Null,
     );
 }
+
+/// A reading the schema takes is saved where the document fails elsewhere
+/// whichever is saved: `mode` makes `port` a number, and `d`'s `0` is
+/// what the `oneOf` takes (its host string `"a"` is not).
+#[test]
+fn a_reading_the_schema_takes_is_saved_beside_a_failure_elsewhere() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"dependentSchemas": {"mode": {"properties": {"port": {"type": "number"}}}},
+            "properties": {"port": {"oneOf": [{"properties": {"d": {"type": "integer"}}},
+                {"required": ["n"], "properties": {"d": {}}}]}}}),
+        json!({"port": {"d": "a"}}),
+        json!({"mode": 0, "port": {"d": 0}}),
+    );
+}
+
+/// A host string typed in another spelling the schema reads alike (`8`
+/// over `"08"`, both a list's number) saves as typed.
+#[test]
+fn a_string_respelled_where_the_schema_reads_both_alike_saves_as_typed() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"allOf": [{"properties": {"size": {"type": "array", "items": {"enum": [0]}}}}]}),
+        json!({"size": "08"}),
+        json!({"size": "8"}),
+    );
+}
+
+/// A lone XML element an option reads as a list (`b` under `type:
+/// array`) is that list to the view's problems as to its host's: two
+/// options taking it are a problem in both.
+#[test]
+fn a_lone_element_an_option_reads_as_a_list_is_judged_alike_in_view_and_host() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"properties": {"d": {"oneOf": [
+            {"required": ["size"], "properties": {"b": {"type": "array"}}},
+            {"x_two": {}}]}}}),
+        json!({"d": {"b": [false]}}),
+        json!({"d": {"b": false, "size": "x"}}),
+    );
+}

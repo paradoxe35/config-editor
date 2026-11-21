@@ -5,6 +5,111 @@ All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
+## 0.2.0 — unreleased
+
+### Syntax messages say what they quote
+
+- `ParseError` has a new field, `quotes`: the parts of its message that
+  quote the text (`language::Quote`: a range of the message and the text
+  range it quotes). Where a secret may be written, the editor hides exactly
+  those parts and shows the rest of the message as it is. Every built-in
+  language gives them. A custom language sets `quotes: None` (or uses
+  `ParseError::new` for a message quoting nothing); without quotes the
+  editor finds them by reading the text again with its letters changed, as
+  before.
+
+### Schema formats
+
+- Schemas in other formats than JSON Schema, compiled into JSON Schema by a
+  `SchemaCompiler` wrapped in a `SchemaFormat` (Rust) or a compiler
+  registered with `registerSchemaFormat` (JavaScript); the format is always
+  named, never guessed. Built in: OpenAPI and XSD; `json-schema` takes JSON
+  or YAML text.
+- The files a schema refers to come from the host (`SchemaResources`,
+  `schemaResources`; `schemaImports` lists them): nothing is fetched.
+- A format may check what JSON Schema cannot hold beside it: a
+  `SchemaCheck` (Rust) or a `checks` entry of `compile()`'s result
+  (JavaScript) runs each time the editor validates, its problems placed by
+  JSON pointer in every view with the schema's.
+- What a format checks neither way is a loss (`Schema::losses`,
+  `compileSchema`'s `losses`), reported like a schema warning.
+- `compileSchema` (and `Schema::json`) gives the JSON Schema, to compile at
+  build time and ship plain JSON Schema.
+
+### XML Schema
+
+- XSD 1.0 as a schema format (`SchemaFormat::XSD`, the opt-in cargo
+  feature `xsd`; `schemaFormat: "xsd"` in JavaScript, in a package built
+  with `npm run build:xsd`: the published one leaves it out, as it adds
+  about 71 KB gzip): compiled into JSON Schema in the XML
+  mapping, it validates and completes every view of the document. Options
+  `root`, `configRoot` and `lax`. Content models (element order, choices,
+  substitution groups, occurrences, wildcards' namespaces) and `xs:key`,
+  `xs:keyref` and `xs:unique` are checked beside the JSON Schema, their
+  problems worded by the `xsd_*` texts of `EditorStrings` and hiding the
+  secrets they quote; what is not checked is a reported loss with its
+  line. `xs:include`, `xs:import` and `xs:redefine` read their files from
+  the host's resources.
+- A JSON Schema's `$ref`s to other files are followed when the host passes
+  those files as resources: they are bundled into the schema.
+
+- OpenAPI 3.x and Swagger 2.0 documents as a schema format
+  (`SchemaFormat::OPENAPI`, `schemaFormat: "openapi"`): one named schema is
+  the document's, 3.0 keywords (`nullable`, boolean `exclusive*`) read as
+  2020-12.
+
+### Reading XML by the schema
+
+- The spellings a schema lists for a boolean (`"x-true"`, `"x-false"`, as XSD
+  has `1` and `0`) are read as booleans, and `"x-whitespace"` (replace,
+  collapse) is applied to the value that is checked. Saves keep the text as
+  written.
+- A custom language whose values are all text gets the same reading
+  (`LanguageTraits::scalars_are_text`; `scalars: "text"` in JavaScript).
+- A property the schema marks `"xml": {"attribute": true}` is written as an
+  attribute where the text does not write it yet (a conversion to XML, a key
+  added in another view), and completion offers attributes in a start tag
+  and elements in the content. A required one is filled as an attribute
+  too, before the other required children (`RequiredChild::attribute`,
+  for a custom language's `write_insert`).
+- A list key written by repeating its element is suggested again when the
+  items written read as valid by the schema (an XSD boolean written `1`).
+
+### Fixes
+
+- In XML, a second element of a secret's name (an empty one too) written
+  beside a lone secret's element is taken and held, typed or pasted, as a
+  list made beside a placeholder is in every language; typing it no longer
+  stops at its last `>`.
+- A save waiting because the host cannot hold the top level (a list or a
+  scalar where TOML, HCL or XML need an object) says what to do, and a
+  null TOML has no value for is worded as XML's.
+- An XML Edit-as view's save tells the values the user wrote from the
+  editor's record of the view's edits, not by comparing the values with
+  the ones the view showed. A text the editor has no record of (an opening
+  `value` given in place of the view) waits, saying why, where only that
+  record could decide a value's type. Switching from an XML view with
+  unsaved edits to another view writes each value the user left as the
+  host holds it (a copied `edition = "2021"` stays the string `"2021"`).
+- In an XML view under a schema: a host string typed in another spelling
+  the schema reads alike (`8` over `"08"` where it reads numbers) saves as
+  typed instead of keeping the old text; and a part of the schema the
+  document fails whichever way a value is read no longer hides the part
+  that takes only the view's reading.
+- Switching from an XML view of nested lists with unsaved edits keeps each
+  value left alone: the view's flat list is paired with the host's values
+  in order, not by index (which wrote another value, or none, in its
+  place).
+- An empty XML element reads as `null` where the schema refuses the empty
+  text and an option takes `null` (`anyOf: [{type: null}, {enum:
+[auto]}]`), instead of the empty text it then marks as a problem.
+- An Edit-as view (XML, HCL) shows the host's schema problems where it
+  shows a list of one as its item, which the save keeps as a list: a
+  problem only the list has (an option wanting it) shows in the view too.
+- A secret's field is named by its language's reading of indexes: only
+  XML and HCL, which write a list by repeating a key, read `/l/0` and
+  `/l` as the same field.
+
 ## 0.1.1 — 2026-11-21
 
 - The Rust crate is renamed from `config-editor-leptos` to

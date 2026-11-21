@@ -6,7 +6,7 @@
 use crate::EditorStrings;
 use crate::editor::Language;
 use crate::editor::diagnostics::validate_with;
-use crate::editor::schema::{Schema, build_schema};
+use crate::editor::schema::{Schema, SchemaFailure, build_schema};
 
 const EMPTY: [&str; 6] = ["", " ", "\n", " \t\r\n ", "\u{feff}", "\u{feff}\n  "];
 
@@ -29,7 +29,7 @@ fn shown(error: &str, strings: &EditorStrings) -> Vec<String> {
     validate_with(
         "a: 1\n",
         None,
-        Some(error),
+        Some(&SchemaFailure::JsonSchema(error.to_string())),
         true,
         Language::YAML.behavior(),
         &[],

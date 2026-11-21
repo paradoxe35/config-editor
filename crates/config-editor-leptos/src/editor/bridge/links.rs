@@ -120,6 +120,12 @@ pub(crate) enum Links {
     /// The items' links, by where they start (an outer item before the
     /// ones inside it).
     Kept(Arc<Vec<Link>>),
+    /// A view text the editor neither wrote nor followed from one it wrote
+    /// (an opening text the host gave, unsaved edits of the host's own
+    /// language converted by a switch): nothing tells its items' sources
+    /// or which scalars the user left, and edits of it keep it so until a
+    /// save or a new host text gives it links.
+    Unrecorded,
 }
 
 impl Default for Links {
@@ -153,6 +159,7 @@ impl PartialEq for Links {
             (Links::Kept(links), Links::Kept(theirs)) => {
                 Arc::ptr_eq(links, theirs) || links.is_empty() && theirs.is_empty()
             }
+            (Links::Unrecorded, Links::Unrecorded) => true,
             _ => false,
         }
     }
@@ -191,6 +198,7 @@ impl Links {
                     + if shared { 0 } else { host.len() + base.len() }
             }
             Links::Kept(links) => links.len() * std::mem::size_of::<Link>(),
+            Links::Unrecorded => 0,
         }
     }
 
@@ -205,7 +213,7 @@ impl Links {
         pieces: &[Piece],
         clipboard: &mut Clipboard,
     ) {
-        if pieces.is_empty() {
+        if pieces.is_empty() || *self == Links::Unrecorded {
             return;
         }
         // The links are of the text the edit is made on: every write of
@@ -216,7 +224,7 @@ impl Links {
             "links of another text than the one edited"
         );
         if !self.fits(length) {
-            *self = Links::default();
+            *self = Links::Unrecorded;
         }
         // Typing changes no item's link: kept until the links are read.
         // A line break removed is not kept so: it can join an item onto
@@ -306,6 +314,7 @@ impl Links {
                     == Some(length)
             }
             Links::Kept(links) => links.iter().all(|link| link.range.end() <= length),
+            Links::Unrecorded => true,
         }
     }
 
@@ -329,6 +338,7 @@ impl Links {
     fn read(&mut self, language: &dyn ConfigLanguage) -> Arc<Vec<Link>> {
         let (host, base, pending, reading, loose) = match self {
             Links::Kept(links) => return links.clone(),
+            Links::Unrecorded => return Arc::default(),
             Links::Fresh {
                 host,
                 base,

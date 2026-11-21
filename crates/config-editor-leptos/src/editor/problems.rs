@@ -8,8 +8,8 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::diagnostics::{
-    Diagnostic, Placeholders, capped, follow_diagnostics, host_problems, validate_keyed,
-    with_host_problems,
+    Diagnostic, Placeholders, capped, follow_diagnostics, host_problems, shows_lists_as_items,
+    validate_keyed, with_host_problems,
 };
 use super::edit::Change;
 use super::edit_as::{EditAsProblem, EditAsText};
@@ -66,7 +66,7 @@ pub(super) struct Sources {
     pub(super) text: RwSignal<String>,
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
-    pub(super) schema_error: Option<String>,
+    pub(super) schema_error: Option<super::schema::SchemaFailure>,
     /// The `show_diagnostics` setting.
     pub(super) enabled: Memo<bool>,
     pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
@@ -110,7 +110,7 @@ impl ProblemsState {
                     validate_keyed(
                         text,
                         schema.as_deref(),
-                        schema_error.as_deref(),
+                        schema_error.as_ref(),
                         enabled,
                         behavior,
                         Placeholders {
@@ -178,6 +178,8 @@ impl ProblemsState {
                 problems
                     .iter()
                     .any(|problem| matches!(problem.text, EditAsText::EditCannotShow { .. }))
+            }) || session.with_value(|session| {
+                shows_lists_as_items(&session.host, host_language.behavior(), edit.behavior())
             });
             if !inexact {
                 return None;

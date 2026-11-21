@@ -71,7 +71,12 @@ pub(crate) fn placed_where_written(
     let mut taken: std::collections::HashSet<(String, String)> = known
         .iter()
         .filter(|known| known.placed)
-        .filter_map(|known| Some((known.token.clone(), field_key(known.field.as_deref()?))))
+        .filter_map(|known| {
+            Some((
+                known.token.clone(),
+                field_key(behavior, known.field.as_deref()?),
+            ))
+        })
         .collect();
     let mut out: Vec<Known> = known.iter().filter(|known| known.placed).cloned().collect();
     let mut printed = std::collections::HashMap::new();
@@ -89,12 +94,13 @@ pub(crate) fn placed_where_written(
             let Some(pointer) = path_at(behavior, text, caret).map(|path| path.to_pointer()) else {
                 continue;
             };
-            let Some(value) = field_value(document, &pointer).and_then(serde_json::Value::as_str)
+            let Some(value) =
+                field_value(behavior, document, &pointer).and_then(serde_json::Value::as_str)
             else {
                 continue;
             };
             if !value.contains(&unplaced.token)
-                || !taken.insert((unplaced.token.clone(), field_key(&pointer)))
+                || !taken.insert((unplaced.token.clone(), field_key(behavior, &pointer)))
             {
                 continue;
             }

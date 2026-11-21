@@ -13,6 +13,7 @@ const INSERT_AT_ROOT: InsertContext<'static> = InsertContext {
     path: &[],
     array_item: false,
     another_item: false,
+    attributes_marked: false,
 };
 use super::super::super::highlight::{TokenKind, runs};
 use super::{JsonBehavior, highlight};

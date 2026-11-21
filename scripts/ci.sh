@@ -42,8 +42,11 @@ step_fmt() {
 }
 
 step_clippy() {
-  cargo clippy --all-targets -- -D warnings
+  # The defaults and the opt-in `xsd` schema format.
+  cargo clippy --all-targets --features leptos-config-editor/xsd -- -D warnings
+  # The npm wasm as published (no `xsd`), and as `npm run build:xsd` builds it.
   cargo clippy -p config-editor-js --target wasm32-unknown-unknown -- -D warnings
+  cargo clippy -p config-editor-js --target wasm32-unknown-unknown --features xsd -- -D warnings
   (cd crates/config-editor-leptos &&
     cargo clippy --all-targets --no-default-features --features yaml,json,toml,hcl,xml -- -D warnings)
   # Text offsets stay typed: no file gains a plain `usize` offset.
@@ -51,7 +54,7 @@ step_clippy() {
 }
 
 step_test() {
-  run_tests test -p leptos-config-editor
+  run_tests test -p leptos-config-editor --features xsd
   # The memory tests count this thread's live allocations: other tests
   # running at the same time would move the count, so they run alone.
   run_tests test -p leptos-config-editor --lib keeps_no_memory -- --ignored --test-threads=1
@@ -65,7 +68,7 @@ step_test() {
 # by it.
 step_languages() {
   (cd crates/config-editor-leptos &&
-    for features in yaml json toml hcl xml schema-validation; do
+    for features in yaml json toml hcl xml schema-validation xsd; do
       echo "== --features $features"
       cargo clippy --lib --tests --no-default-features --features "$features" -- -D warnings
       run_tests test --lib --no-default-features --features "$features"
@@ -153,6 +156,18 @@ step_heap() {
   # The example pages bundle the module's JavaScript, which must match it.
   (cd js && npm run examples)
   (cd e2e && MEMORY_HEAP=1 npx playwright test --project=editor --no-deps tests/memory.spec.mjs)
+}
+
+# The schema-formats spec against the npm package built with XSD (`npm run
+# build:xsd`): the published package leaves XSD out, so the e2e machines
+# never run its XSD tests. E2E_XSD makes them fail, not skip, on a build
+# without it. Needs what `heap` needs; leaves js/config-editor/pkg built with
+# XSD (`npm run build` in js/ puts the published build back).
+step_xsd() {
+  (cd js/config-editor && npm run build:xsd)
+  # The example pages bundle the module's JavaScript, which must match it.
+  (cd js && npm run examples)
+  (cd e2e && E2E_XSD=1 npx playwright test --project=editor --no-deps tests/schema-formats.spec.mjs)
 }
 
 # The npm package's wasm loads in browsers without WebAssembly SIMD: one SIMD

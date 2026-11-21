@@ -34,6 +34,7 @@ impl ConfigLanguage for Quoting {
                     message: format!("`{line}` is no `key = value` line"),
                     line: Some(index + 1),
                     column: Some(1),
+                    quotes: None,
                 });
             };
             map.insert(key.to_string(), Value::from(value));
