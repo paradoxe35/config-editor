@@ -261,6 +261,13 @@ pub(crate) enum Work {
         allow(dead_code, reason = "only sticky scroll notes it")
     )]
     StickyStep,
+    /// A holder query: the span of every string holding a placeholder
+    /// read (see `protect::holder`).
+    #[cfg_attr(
+        not(feature = "protect"),
+        allow(dead_code, reason = "only the placeholder checks note it")
+    )]
+    HolderRead,
     /// A byte of an entry's lines read finding the line its containers
     /// close on (`Text::closing_line`; one note per byte, see
     /// [`note_many`]): an entry of many lines is read once, not once per
@@ -325,6 +332,7 @@ impl Work {
             Self::ColumnRecount => 50,
             Self::StickyStep => 51,
             Self::ClosingLineBytes => 52,
+            Self::HolderRead => 53,
         }
     }
 
@@ -384,12 +392,13 @@ impl Work {
         Self::ColumnRecount,
         Self::StickyStep,
         Self::ClosingLineBytes,
+        Self::HolderRead,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 53;
+const KINDS: usize = 54;
 
 #[cfg(test)]
 thread_local! {

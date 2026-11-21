@@ -28,6 +28,14 @@ use crate::editor::text::{TextRange, TextSize, byte_range, slice, text_size};
 /// paste); more (an undo restoring a whole text) are found by text.
 const MAX_WRITTEN_BY_PATH: usize = 8;
 
+/// A parse kept (see [`SecretState::parsed`]): the language's label, the
+/// text, and its parse.
+pub(crate) type LastParse = (
+    &'static str,
+    String,
+    std::rc::Rc<Result<serde_json::Value, super::super::language::ParseError>>,
+);
+
 /// A text and the language it is written in.
 type Written<'a> = (&'static dyn ConfigLanguage, &'a str);
 
@@ -46,6 +54,10 @@ pub(crate) struct SecretState {
     /// The last text an edit's check found to parse, or made of one by an
     /// edit to one scalar (see `whole_guard`).
     pub(crate) parsing: StoredValue<Option<String>>,
+    /// The last text an edit's check parsed, with its parse: the text
+    /// before the next edit, read without parsing it again (the parses
+    /// kept for every reader may have moved on to other texts).
+    pub(crate) parsed: StoredValue<Option<LastParse>, LocalStorage>,
     /// An edit taken while the parse reads a placeholder given whole with
     /// text beside it (see `whole_guard::Held`): what reaches the host
     /// waits until it reads as the host's text again.
@@ -78,6 +90,7 @@ impl SecretState {
             whole: Memo::new(move |_| Arc::new(known.with(|known| WholeIndex::new(known)))),
             tokens: RwSignal::new(tokens),
             parsing: StoredValue::new(None),
+            parsed: StoredValue::new_local(None),
             held: StoredValue::new(None),
         }
     }

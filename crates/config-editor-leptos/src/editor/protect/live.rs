@@ -731,6 +731,16 @@ impl EditorState {
             .protect()
             .protected
             .with_untracked(|p| p.origin.clone());
+        let label = behavior.info().label;
+        let earlier = secrets
+            .parsed
+            .with_value(|parsed| {
+                parsed
+                    .as_ref()
+                    .filter(|(known, text, _)| *known == label && text == before)
+                    .map(|(_, _, parse)| std::rc::Rc::clone(parse))
+            })
+            .or_else(|| parse_cache::kept(behavior, before));
         let verdict = secrets.known.with_untracked(|known| {
             secrets.tokens.with_untracked(|tokens| {
                 secrets.matcher.with_value(|matcher| {
@@ -742,6 +752,7 @@ impl EditorState {
                         matcher,
                         origin: origin.as_deref(),
                         holding: secrets.held.with_value(Option::is_some),
+                        earlier: earlier.as_deref().and_then(|parse| parse.as_ref().ok()),
                     }
                     .check(before, after, before_parses)
                 })
@@ -751,6 +762,11 @@ impl EditorState {
             secrets
                 .parsing
                 .set_value((verdict.parses == Some(true)).then(|| after.to_string()));
+            // The parse the check made, for the next edit's text before.
+            let parse = parse_cache::kept(behavior, after);
+            secrets
+                .parsed
+                .set_value(parse.map(|parse| (label, after.to_string(), parse)));
         }
         // An Edit-as view's text reaches the host converted, checked there
         // (`check_host_save`), not through the hold: refused as before.

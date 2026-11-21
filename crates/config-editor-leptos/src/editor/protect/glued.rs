@@ -253,6 +253,9 @@ pub(crate) fn first_glued<'a>(
     known: &'a [Known],
     matcher: &SecretMatcher,
 ) -> Option<&'a Known> {
+    if alone_in_fields(document, known, Form::Any) {
+        return None;
+    }
     let holders = Holders::read(behavior, text, document, matcher);
     known
         .iter()
@@ -289,6 +292,50 @@ fn walk_strings(value: &Value, visit: &mut dyn FnMut(&str)) {
         Value::Object(map) => map.values().for_each(|item| walk_strings(item, visit)),
         _ => {}
     }
+}
+
+/// How a token given whole stands alone in its field, for
+/// [`alone_in_fields`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Form {
+    /// As the host wrote it, or bare.
+    Any,
+    /// As the host wrote it.
+    Host,
+}
+
+/// Whether each token given whole among `known` (with a field) is the
+/// string `document` holds at its field, alone (in `form`). Then
+/// [`holding`] reads it as alone in that string or as not held, never as
+/// glued, so the holder query (a read of the span of every string holding
+/// a placeholder) is not needed to tell that nothing is glued. A string at
+/// the field's own pointer has no value under it, and no other string of
+/// the document relates to the field (a copy or an item of it would make
+/// the field, or a parent, a list), so it is the only holder [`holding`]
+/// can find for the field. One lookup for each token, no read of the text:
+/// an edit leaving every field as it was (typing in a comment) and a check
+/// of a text gluing nothing stay cheap.
+pub(super) fn alone_in_fields<'k>(
+    document: &Value,
+    known: impl IntoIterator<Item = &'k Known>,
+    form: Form,
+) -> bool {
+    known
+        .into_iter()
+        .filter(|known| known.whole.is_some())
+        .all(|known| {
+            note(Work::TokenScan);
+            let Some(field) = known.field.as_deref() else {
+                return true;
+            };
+            match field_value(document, field) {
+                Some(Value::String(text)) => {
+                    known.alone_in(text)
+                        && (form == Form::Any || known.whole.as_deref() == Some(text.as_str()))
+                }
+                _ => false,
+            }
+        })
 }
 
 /// Whether `known` (a token given whole) has something beside it in its
@@ -328,6 +375,9 @@ pub(crate) fn glued_in_save(
         return None;
     }
     let after = super::super::codec::read(behavior, new, reading).ok()?;
+    if alone_in_fields(&after, known, Form::Any) {
+        return None;
+    }
     let before = super::super::codec::read(behavior, old, reading).ok();
     let holders_after = Holders::read(behavior, new, &after, matcher);
     let holders_before = before
@@ -360,6 +410,9 @@ pub(crate) fn glued_placeholders(
     let Some(document) = parsed.as_ref().as_ref().ok() else {
         return Vec::new();
     };
+    if alone_in_fields(document, known, Form::Any) {
+        return Vec::new();
+    }
     let holders = Holders::read(behavior, text, document, matcher);
     known
         .iter()

@@ -23,7 +23,7 @@ use super::super::super::text_change::utf16_len;
 use super::super::glued::{Relation, relation};
 use super::super::holder::Holders;
 use super::super::tokens::field_value;
-use super::Placeholders;
+use super::{Placeholders, Read};
 
 /// Non-blank lines each way from an edit read for tokens: a multi-line
 /// form's header or closing line, the lines a value runs over.
@@ -148,8 +148,8 @@ impl Placeholders<'_> {
     }
 
     /// The pointer, where it is written now, of a token given whole near
-    /// the edit from `before` to `after` (which parses as `document`, its
-    /// placeholders held by `holders`) that is in none of its token's
+    /// the edit from `before` to the text `read` reads (its holder query
+    /// made only when a token is near) that is in none of its token's
     /// fields, and whose holder (see `holder`) the edit gave text beside it
     /// or made a list or map: a holder that already had text beside it is
     /// the user's (a mask pasted into a note), and so is one the edit wrote
@@ -158,15 +158,16 @@ impl Placeholders<'_> {
     pub(super) fn glued_where_moved(
         &self,
         before: &str,
-        after: &str,
-        holders: &Holders<'_>,
+        read: Read<'_, '_>,
         (start, old_end, new_end): (usize, usize, usize),
     ) -> Option<String> {
+        let after = read.text;
         let near = self.written_near(after, start, new_end);
         if near.is_empty() {
             return None;
         }
         let behavior = self.behavior;
+        let holders = read.holders(self.matcher, behavior);
         let parsed_before = parse_cache::parsed(behavior, before);
         let earlier = parsed_before.as_ref().as_ref().ok();
         let holders_before = OnceCell::new();

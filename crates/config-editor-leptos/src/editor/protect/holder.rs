@@ -81,6 +81,7 @@ impl<'d> Holders<'d> {
             return holders;
         }
         note(Work::TokenScan);
+        note(Work::HolderRead);
         let tokens: Vec<&str> = found
             .iter()
             .map(|range| text.get(range.clone()).unwrap_or_default())

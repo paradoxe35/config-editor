@@ -118,3 +118,65 @@ fn one_mask_in_many_fields_costs_a_key_work_linear_in_them() {
     super::super::parse_cache::release();
     assert!(costly.is_empty(), "{costly:#?}");
 }
+
+/// The holder queries (`Work::HolderRead`, a read of the span of every
+/// string holding a placeholder) a letter typed at the end of the middle
+/// service's comment makes, and those of the problems of the text after
+/// it: `None` in a language with no comment there.
+fn holder_reads_typing_in_a_comment(language: Language, blocks: usize) -> Option<(usize, usize)> {
+    let text = masked_services(language, blocks, false);
+    let comment = format!("service {}", blocks / 2);
+    let at = text
+        .match_indices(&comment)
+        .map(|(at, _)| at + comment.len())
+        .find(|end| !text[*end..].starts_with(|c: char| c.is_ascii_digit()))?;
+    let mut editor = TestEditor::new(language, &text);
+    editor.secrets = Some(SecretOptions::default().with_placeholder("«secret [0-9a-f]{8}»"));
+    editor.schema = Some(std::sync::Arc::new(
+        super::super::schema::build_schema(r#"{"type": "object"}"#).expect("the schema"),
+    ));
+    let (_owner, state) = editor.mount();
+    let (((), typed), parsed) = counted(Work::ParsedBytes, || {
+        counted(Work::HolderRead, || insert(state, at, 'x'))
+    });
+    let shown = state.doc().text.get_untracked();
+    // One parse, of the text after: the one before was the last key's.
+    assert!(
+        parsed <= shown.len(),
+        "{language}: {parsed} bytes parsed for a key in a text of {}",
+        shown.len()
+    );
+    assert!(
+        shown.contains(&format!("{comment}x")),
+        "{language}: the letter is typed in the comment"
+    );
+    let ((), checked) = counted(Work::HolderRead, || {
+        state.problems().diagnosed_text.set(shown);
+        state.problems().diagnostics.with_untracked(Vec::len);
+    });
+    Some((typed, checked))
+}
+
+/// A key typed in a comment, which leaves every field holding its mask as
+/// it was, makes no holder query, and nor do the problems of a text where
+/// no mask has text beside it: a field lookup for each mask tells that
+/// none is glued (typing in a TOML comment beside 600 masks took 93 ms a
+/// key at 6,800 lines, 39 without the query), at every size.
+#[test]
+fn a_key_typed_in_a_comment_reads_no_holder_of_a_placeholder() {
+    super::super::parse_cache::hold();
+    let mut costly = Vec::new();
+    for language in Language::ALL.iter().copied() {
+        for blocks in [50, 200, 800] {
+            if let Some(reads) = holder_reads_typing_in_a_comment(language, blocks)
+                && reads != (0, 0)
+            {
+                costly.push(format!(
+                    "{language}, {blocks} masks: (key, problems) made {reads:?} holder queries"
+                ));
+            }
+        }
+    }
+    super::super::parse_cache::release();
+    assert!(costly.is_empty(), "{costly:#?}");
+}

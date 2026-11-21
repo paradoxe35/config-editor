@@ -554,14 +554,32 @@ fn held_texts(
     let Ok(document) = parsed.as_ref() else {
         return Vec::new();
     };
+    // Only a string of the document can hold one with text beside it: with
+    // none, the holder query (a read of every such string's span) is not
+    // asked.
+    let glued =
+        |text: &str| !own.contains(text.trim()) && own.iter().any(|token| text.contains(token));
+    if !any_string(document, &glued) {
+        return Vec::new();
+    }
     placeholders
         .patterns
         .iter()
         .flat_map(|pattern| {
             super::protect::placeholder_holders(behavior, source, document, &**pattern)
         })
-        .filter(|text| !own.contains(text.trim()) && own.iter().any(|token| text.contains(token)))
+        .filter(|text| glued(text))
         .collect()
+}
+
+/// Whether one of the strings of `value` (keys left out) is one `wanted`.
+fn any_string(value: &serde_json::Value, wanted: &dyn Fn(&str) -> bool) -> bool {
+    match value {
+        serde_json::Value::String(text) => wanted(text),
+        serde_json::Value::Array(items) => items.iter().any(|item| any_string(item, wanted)),
+        serde_json::Value::Object(map) => map.values().any(|item| any_string(item, wanted)),
+        _ => false,
+    }
 }
 
 /// `message`, the reason a save of `source` (in `behavior`) waits, with

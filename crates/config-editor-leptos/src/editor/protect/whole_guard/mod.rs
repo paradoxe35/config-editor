@@ -6,6 +6,8 @@
 //!   path is none of their fields, nor inside or holding one, in a text that
 //!   parses, leaves each value as it was: kept without reading the document
 //!   (`reach`), so a placeholder costs a keystroke away from it nothing;
+//! - an edit of a text that parses leaving its parse as it was (typing in a
+//!   comment) changes no value: kept for the cost of the parse;
 //! - else, when the edited text parses, each field holding its placeholder
 //!   holds the value it held: a line moved into a block scalar or heredoc,
 //!   or a closing line deleted, gives it more, a `|` block's last line
@@ -52,7 +54,7 @@ use super::super::paths::written_value_span;
 use super::super::text_change::changed_bytes;
 use std::cell::OnceCell;
 
-use super::glued::{Holding, holding, only_taken_from};
+use super::glued::{Form, Holding, alone_in_fields, holding, only_taken_from};
 use super::holder::Holders;
 use super::reach::reaches_none_by;
 use super::tokens::{Known, SecretMatcher, field_value};
@@ -75,6 +77,27 @@ pub(crate) struct Placeholders<'a> {
     /// [`Held`]) since the host's text: a repair of a text broken since
     /// is judged as an edit of a text that parses.
     pub(crate) holding: bool,
+    /// The parse of the text before, when it is at hand (the last edit's
+    /// check made it): an edit leaving it as it was is told without
+    /// parsing that text again.
+    pub(crate) earlier: Option<&'a Value>,
+}
+
+/// The edited text as the check reads it: its parse, and its holder query
+/// (see `holder`), made the first time it is asked for.
+#[derive(Clone, Copy)]
+struct Read<'r, 'd> {
+    text: &'r str,
+    document: &'d Value,
+    holders: &'r OnceCell<Holders<'d>>,
+}
+
+impl<'d> Read<'_, 'd> {
+    /// The holder query of the text.
+    fn holders(&self, matcher: &SecretMatcher, behavior: &dyn ConfigLanguage) -> &Holders<'d> {
+        self.holders
+            .get_or_init(|| Holders::read(behavior, self.text, self.document, matcher))
+    }
 }
 
 /// What the check found: the field of a placeholder the edit writes text
@@ -162,13 +185,27 @@ impl Placeholders<'_> {
                         parses: Some(true),
                     };
                 }
-                let holders = Holders::read(self.behavior, after, document, self.matcher);
-                let (read, way_back) = match self.glued_in_parsed(before, document, &holders) {
+                // An edit leaving the data as it was (typing in a comment,
+                // spacing) glues nothing: what reaches the host reads the
+                // same, and each placeholder is held as before.
+                if self.earlier.is_some_and(|earlier| earlier == document) {
+                    return Verdict {
+                        glued: None,
+                        held: None,
+                        parses: Some(true),
+                    };
+                }
+                // The holder query, made only when a field lookup cannot
+                // tell (see `glued::alone_in_fields`) or a token is near.
+                let holders = OnceCell::new();
+                let after_read = Read {
+                    text: after,
+                    document,
+                    holders: &holders,
+                };
+                let (read, way_back) = match self.glued_in_parsed(before, after_read) {
                     Some((field, way_back)) => (Some(field), way_back),
-                    None => (
-                        self.glued_where_moved(before, after, &holders, changed),
-                        false,
-                    ),
+                    None => (self.glued_where_moved(before, after_read, changed), false),
                 };
                 // Refused when the edit writes at a placeholder's edges (or
                 // over it), or repairs the text (nothing before says what
@@ -403,18 +440,17 @@ impl Placeholders<'_> {
     /// not parse) it holds the token alone. With the field, whether the
     /// edit only took a copy of the token away (see below): taken and held
     /// whatever it touches.
-    fn glued_in_parsed(
-        &self,
-        before: &str,
-        document: &Value,
-        holders: &Holders<'_>,
-    ) -> Option<(String, bool)> {
+    fn glued_in_parsed(&self, before: &str, read: Read<'_, '_>) -> Option<(String, bool)> {
+        let document = read.document;
+        let given = || self.index.all().map(|at| &self.known[at]);
+        // Each held as the host wrote it, alone in its field: none changed.
+        if alone_in_fields(document, given(), Form::Host) {
+            return None;
+        }
         // Read the text before only for a value not as the host wrote it.
         let behavior = self.behavior;
-        let mut changed = self
-            .index
-            .all()
-            .map(|at| &self.known[at])
+        let holders = read.holders(self.matcher, behavior);
+        let mut changed = given()
             .filter(|known| match holding(behavior, document, holders, known) {
                 Holding::Not => false,
                 Holding::Alone(now) => known.whole.as_deref() != Some(now),
