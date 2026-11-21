@@ -11,6 +11,23 @@ use crate::editor::keys::lines::{Command, run_units as run};
 use crate::editor::languages::Language;
 use crate::editor::test_state::TestEditor;
 
+/// A JSON host edited as HCL, indented, then shown as another language,
+/// keeps no memory when the sequence repeats.
+#[test]
+#[ignore = "measures this thread's memory: run alone (scripts/ci.sh test runs keeps_no_memory with --ignored --test-threads=1)"]
+fn a_json_host_indented_as_hcl_then_switched_keeps_no_memory() {
+    super::leaks::replay(super::leaks::LeakCase {
+        host: Language::JSON,
+        view: Some(Language::HCL),
+        text: "{\n  \"self\": {\n  },\n  \"clients\": {\n    \"acme\": {\n      \"secret\": \"s1\",\n      \"max_connections\": 2\n    },\n    \"beta\": {\n      \"secret\": \"s2\"\n    }\n  },\n  \"limits\": {\n    \"max_pending\": 5\n  }\n}\n".into(),
+        actions: vec![
+            Switch { to: 1 },
+            Indent { at: 7603253, to: 16680408, outdent: false },
+            Switch { to: 3 },
+        ],
+    });
+}
+
 /// Ctrl+/ on a line holding overlapping comment markers does not panic.
 #[test]
 fn toggling_an_xml_line_of_overlapping_comment_markers_does_not_panic() {

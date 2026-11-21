@@ -139,6 +139,22 @@ fn cycle(state: EditorState, case: &LeakCase, opened: &(String, Language)) -> bo
     for action in &case.actions {
         apply(state, action, &mut context);
     }
+    pause(state);
+    // The host's own text put back in its language: a view of the same
+    // values saves nothing, so an edit of the host's layout alone (an
+    // indent made while editing as the host's language) stays in the host
+    // otherwise, and the document grows each cycle.
+    if state.sync().host_text.get_value() != case.text {
+        let now = state.sync().edit_language.get_untracked();
+        if now != case.host {
+            if let Ok(conversion) = case.host.convert(&case.text, now) {
+                put(state, &conversion.text);
+            }
+            switch_to(state, case.host);
+        }
+        put(state, &case.text);
+        pause(state);
+    }
     let (text, language) = opened;
     let now = state.sync().edit_language.get_untracked();
     if now != *language {
@@ -155,7 +171,9 @@ fn cycle(state: EditorState, case: &LeakCase, opened: &(String, Language)) -> bo
     state.search().open.set(false);
     // The stages the edits passed, which only tests record.
     take_trace();
-    shown(state) == *text && state.sync().edit_language.get_untracked() == *language
+    shown(state) == *text
+        && state.sync().edit_language.get_untracked() == *language
+        && state.sync().host_text.get_value() == case.text
 }
 
 /// What two measured runs of `count` cycles each kept, after a warm-up;
