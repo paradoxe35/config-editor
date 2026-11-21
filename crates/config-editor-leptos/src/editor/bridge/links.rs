@@ -41,10 +41,15 @@ const MOST_PENDING: usize = 64;
 
 /// A host item: the host text (as a save wrote it, or as the host gave
 /// it) and its pointer there.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Source {
     pub(crate) host: Arc<str>,
     pub(crate) pointer: String,
+    /// A copy of the item, not the item: the edit that wrote it (a paste,
+    /// a line copied) left the item it copies where it was, or wrote it
+    /// twice. The original keeps the host item's place; a copy is new
+    /// where it lands (see `untouched`).
+    pub(crate) copied: bool,
     /// How the host holds the item, recorded where the view was written
     /// from it (see `holding`): a list of one the view writes as its item
     /// holds what the view writes inside it under its `/0`.
@@ -56,7 +61,7 @@ pub(crate) struct Source {
 }
 
 /// A view text the editor wrote, and an item's pointer in it.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Shown {
     pub(crate) text: Arc<str>,
     pub(crate) pointer: String,
@@ -166,6 +171,13 @@ impl PartialEq for Links {
 }
 
 impl Eq for Links {}
+
+impl Source {
+    /// The host item it names: its host text, by address, and its pointer.
+    fn item(&self) -> (*const u8, String) {
+        (Arc::as_ptr(&self.host).cast::<u8>(), self.pointer.clone())
+    }
+}
 
 impl Links {
     /// The view's text `text`, shown for the host's text `host` (read as
@@ -281,6 +293,25 @@ impl Links {
             })
             .collect();
         let (mut kept, removed) = shifted(&links, pieces, Some(&inserted));
+        // The links inserted come last: each one whose item is still
+        // linked elsewhere (left in place, or inserted before it) is a
+        // copy of it.
+        let written: usize = inserted.iter().map(Vec::len).sum();
+        let survivors = kept.len() - written;
+        let mut linked: std::collections::HashSet<(*const u8, String)> =
+            std::collections::HashSet::new();
+        if written > 0 {
+            linked.extend(kept[..survivors].iter().map(|link| link.source.item()));
+        }
+        for link in kept.iter_mut().skip(survivors) {
+            let twice = !linked.insert(link.source.item());
+            if twice && !link.source.copied {
+                link.source = Arc::new(Source {
+                    copied: true,
+                    ..(*link.source).clone()
+                });
+            }
+        }
         for (piece, links) in pieces.iter().zip(removed) {
             if !links.is_empty()
                 && let Some(removed) = slice::slice(before, piece.range)
@@ -362,6 +393,7 @@ impl Links {
                         Some(Link {
                             range,
                             source: Arc::new(Source {
+                                copied: false,
                                 host: host.clone(),
                                 shown: Some(Shown {
                                     text: base.clone(),

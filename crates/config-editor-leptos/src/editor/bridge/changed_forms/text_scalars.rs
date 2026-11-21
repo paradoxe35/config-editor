@@ -88,6 +88,9 @@ pub(in crate::editor::bridge) enum Record<'a> {
     /// `/0`); the user wrote every other scalar.
     Kept {
         untouched: HashSet<&'a str>,
+        /// Those of a copy of their item (a paste, a line copied) that
+        /// left the item in its place: new where they are.
+        copies: HashSet<&'a str>,
         reading: &'a DataReading,
     },
     /// A text no view of the editor's was made into (a save asked for a
@@ -101,7 +104,10 @@ impl Record<'_> {
     /// reads it, a list the merge made of a lone value named through its
     /// `/0`) as the editor wrote it; `None` without a record.
     fn left(&self, at: &str) -> Option<bool> {
-        let Record::Kept { untouched, reading } = self else {
+        let Record::Kept {
+            untouched, reading, ..
+        } = self
+        else {
             return None;
         };
         let written = reading.written(at);
@@ -131,9 +137,24 @@ impl Record<'_> {
         (text != *held).then_some(Value::String(text))
     }
 
+    /// Whether the scalar at `at` (named as in [`Self::left`]) is of a copy
+    /// of its item.
+    fn copied(&self, at: &str) -> bool {
+        let Record::Kept {
+            copies, reading, ..
+        } = self
+        else {
+            return false;
+        };
+        let written = reading.written(at);
+        let written = written.as_deref().unwrap_or(at);
+        let lone = written.strip_suffix("/0");
+        copies.contains(written) || lone.is_some_and(|lone| copies.contains(lone))
+    }
+
     /// Each scalar of `value` (at `at`) the view reads otherwise, with the
-    /// view's reading.
-    fn readings_in(&self, value: &Value, at: &mut String, out: &mut Retyped) {
+    /// view's reading (`copies`: only those of a copy of their item).
+    fn readings_in(&self, value: &Value, at: &mut String, copies: bool, out: &mut Retyped) {
         let Record::Kept { reading, .. } = self else {
             return;
         };
@@ -143,7 +164,7 @@ impl Record<'_> {
                 for (key, child) in map {
                     at.push('/');
                     at.push_str(&pointer_key(key));
-                    self.readings_in(child, at, out);
+                    self.readings_in(child, at, copies, out);
                     at.truncate(length);
                 }
             }
@@ -151,12 +172,13 @@ impl Record<'_> {
                 for (index, child) in items.iter().enumerate() {
                     at.push('/');
                     at.push_str(&index.to_string());
-                    self.readings_in(child, at, out);
+                    self.readings_in(child, at, copies, out);
                     at.truncate(length);
                 }
             }
             scalar => {
-                if let Some(read) = reading.value().pointer(at)
+                if (!copies || self.copied(at))
+                    && let Some(read) = reading.value().pointer(at)
                     && !read.is_object()
                     && !read.is_array()
                     && read != scalar
@@ -296,14 +318,21 @@ fn in_host_types_at(
         }
         // A list grown or shrunk, or a scalar the view repeated into one (an
         // element copied): what each item is, the record tells.
-        (Value::Array(old), Value::Array(items)) => items_in_host_types(old, items, at, record),
+        // A copy the list grew by is new there, though written as its
+        // source: the schema judges the view's reading of it as it judges
+        // a value typed (the item copied keeps the host's).
+        (Value::Array(old), Value::Array(items)) => {
+            let items = items_in_host_types(old, items, at, record)?;
+            record.readings_in(&items, &mut at.to_string(), true, retyped);
+            Ok(items)
+        }
         (old, Value::Array(items)) if !old.is_object() && !old.is_null() => {
             let items = items_in_host_types(std::slice::from_ref(old), items, at, record)?;
             // Several items make a list the host never had: each is new
             // there, a copy of the host's scalar included, so the schema
             // judges the view's reading of it as it judges a value typed.
             if items.as_array().is_some_and(|items| items.len() > 1) {
-                record.readings_in(&items, &mut at.to_string(), retyped);
+                record.readings_in(&items, &mut at.to_string(), false, retyped);
             }
             Ok(items)
         }

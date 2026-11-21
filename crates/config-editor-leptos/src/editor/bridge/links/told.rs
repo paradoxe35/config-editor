@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// pointer in the view's value, and the host text before the last that
 /// the [`ItemSource::Origin`] ones are in.
 pub(crate) struct Told {
-    pub(crate) items: HashMap<String, ItemSource>,
+    items: Items,
     /// The host text the [`ItemSource::Previous`] ones are in, when it is
     /// not the host's last text (no item comes from that): the save is
     /// an edit of it (an undo back past a save, a host emptied by a cut
@@ -31,6 +31,69 @@ pub(crate) struct Told {
 
 /// Items of a view by their pointers, each with its link's source.
 type Paired = Vec<(String, Arc<Source>)>;
+
+/// The sources a save is told.
+enum Items {
+    /// Each item's source, by its pointer in the view's value.
+    Listed(HashMap<String, ItemSource>),
+    /// Every item is the host's last text's at its own pointer: typing
+    /// since the save or host text the links were made from, which kept
+    /// every key and line, over a host whose paths are the view's. The
+    /// list is read off the links only when a step asks for it (each
+    /// item's pairing is the work of the whole document).
+    InPlace {
+        links: Links,
+        language: &'static dyn ConfigLanguage,
+        text: Arc<str>,
+        listed: std::cell::OnceCell<HashMap<String, ItemSource>>,
+    },
+}
+
+impl Told {
+    /// A save told `items`, the rest as [`Told`]'s fields say.
+    pub(crate) fn listed(
+        items: HashMap<String, ItemSource>,
+        base: Option<String>,
+        earlier: Option<String>,
+        loose: Vec<Link>,
+    ) -> Self {
+        Told {
+            items: Items::Listed(items),
+            base,
+            earlier,
+            loose,
+        }
+    }
+
+    /// Whether every item is the host's at its own pointer (see
+    /// [`Items::InPlace`]).
+    pub(crate) fn in_place(&self) -> bool {
+        matches!(self.items, Items::InPlace { .. })
+    }
+
+    /// Each item's source, by its pointer in the view's value.
+    pub(crate) fn items(&self) -> &HashMap<String, ItemSource> {
+        match &self.items {
+            Items::Listed(items) => items,
+            Items::InPlace {
+                links,
+                language,
+                text,
+                listed,
+            } => listed.get_or_init(|| {
+                links
+                    .clone()
+                    .paired(*language, text)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(pointer, source)| {
+                        (pointer, ItemSource::Previous(source.pointer.clone()))
+                    })
+                    .collect()
+            }),
+        }
+    }
+}
 
 /// Whether `before` and `after` (in `language`) read as values with the
 /// same keys in the same order and lists of the same lengths, all the
@@ -109,7 +172,7 @@ impl Links {
     /// false).
     pub(crate) fn told(
         &mut self,
-        language: &dyn ConfigLanguage,
+        language: &'static dyn ConfigLanguage,
         text: &str,
         previous: &str,
         identity: bool,
@@ -127,7 +190,23 @@ impl Links {
         {
             return None;
         }
+        // So with a host whose items hold more than the view shows, which
+        // a save pairs with the view's by place: told so, not item by item.
+        if identity && self.in_place(language, text, previous) {
+            return Some(Told {
+                items: Items::InPlace {
+                    links: self.clone(),
+                    language,
+                    text: Arc::from(text),
+                    listed: std::cell::OnceCell::new(),
+                },
+                base: None,
+                earlier: None,
+                loose: Vec::new(),
+            });
+        }
         let (paired, loose) = self.paired_and_loose(language, text)?;
+        note_many(Work::SaveItemJudged, paired.len());
         let mut last = LastHost::new(previous);
         // The host texts before the last the items come from, by how many
         // name each, most first.
@@ -169,11 +248,47 @@ impl Links {
                 Some((pointer, told))
             })
             .collect();
-        Some(Told {
+        Some(Told::listed(
             items,
-            base: base.map(|host| host.to_string()),
-            earlier: earlier.map(|host| host.to_string()),
-            loose: of_one_host(loose),
+            base.map(|host| host.to_string()),
+            earlier.map(|host| host.to_string()),
+            of_one_host(loose),
+        ))
+    }
+
+    /// Whether every item of `text` (in `language`) is the host's last
+    /// text's (`previous`) at its own pointer, as the links say: they are
+    /// those the editor wrote from it, typing since kept every key and
+    /// list where it was and wrote no line break (each item on its line),
+    /// no link was kept apart from its item, and the host's paths are
+    /// the view's (no list of one shown alone).
+    fn in_place(&self, language: &dyn ConfigLanguage, text: &str, previous: &str) -> bool {
+        let Links::Fresh {
+            host,
+            base,
+            reading,
+            loose,
+            ..
+        } = self
+        else {
+            return false;
+        };
+        if **host != *previous
+            || !loose.is_empty()
+            || !self.fits(TextSize::of(text))
+            || base.matches('\n').count() != text.matches('\n').count()
+            || !same_keys(language, base, text)
+        {
+            return false;
+        }
+        let parsed = parse_cache::parsed(language, base);
+        let Ok(value) = parsed.as_ref() else {
+            return false;
+        };
+        reading.as_ref().is_none_or(|reading| {
+            reading
+                .paths(host, value)
+                .is_some_and(|paths| paths.is_empty())
         })
     }
 
@@ -440,6 +555,7 @@ impl Links {
                     .or_else(|| sources.get(&paths.item(&item.pointer).0))?;
                 let range = content(text, item.lines)?;
                 let source = Arc::new(Source {
+                    copied: source.copied,
                     host: source.host.clone(),
                     pointer: source.pointer.clone(),
                     // A list of one the view before wrote as its item, which

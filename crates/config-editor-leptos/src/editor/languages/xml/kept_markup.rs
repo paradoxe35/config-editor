@@ -149,6 +149,42 @@ impl HostElements {
     }
 }
 
+/// Whether `patched` is `previous` with only the text inside one element's
+/// content changed, a content that is not empty in either: every tag is
+/// written as it was, so no element's markup, name or form changed, and
+/// none was filled or emptied (which keeps or drops its `xsi:nil`).
+fn only_text_changed(previous: &str, patched: &str) -> bool {
+    if previous == patched {
+        return true;
+    }
+    let (start, end, patched_end) = crate::editor::text_change::changed_bytes(previous, patched);
+    // Tags are told by their ASCII delimiters, so the bytes are searched.
+    let tag = |byte: &u8| matches!(byte, b'<' | b'>');
+    let (previous, patched) = (previous.as_bytes(), patched.as_bytes());
+    let markup = |text: &[u8], range: std::ops::Range<usize>| text.get(range).is_none_or(|text| text.iter().any(tag));
+    if markup(previous, start..end) || markup(patched, start..patched_end) {
+        return false;
+    }
+    // The content holding the change, from the end of the tag before it
+    // to the start of the tag after it, in each text.
+    let content = |text: &[u8], from: usize, to: usize| {
+        let opened = text.get(..from).and_then(|before| before.iter().rposition(tag)).filter(|at| text[*at] == b'>');
+        let closed = text.get(to..).and_then(|after| after.iter().position(tag)).filter(|at| text[to + at] == b'<');
+        opened.zip(closed).is_some_and(|(opened, closed)| to + closed > opened + 1)
+    };
+    content(previous, start, end) && content(patched, start, patched_end)
+}
+
+/// Whether the save says every item is the host's own at its pointer (no
+/// item moved or pasted back), so elements pair with the host's by place.
+fn told_in_place(told: SaveTold<'_>) -> bool {
+    told.over_last().is_some_and(|sources| {
+        sources.in_place
+            || !sources.items.is_empty()
+            && sources.items.iter().all(|(to, source)| matches!(source, crate::editor::item_sources::ItemSource::Previous(from) if from == to))
+    })
+}
+
 /// Whether an element of `text` holds markup, a prefixed name or an
 /// attribute: what no view shows.
 pub(super) fn holds_markup(text: &str) -> bool {
@@ -163,6 +199,9 @@ pub(super) fn holds_markup(text: &str) -> bool {
 /// (`item_sources`) and the saved text, not from what the writer chose:
 /// a writer pairing items otherwise is caught.
 pub(super) fn changed_markup(language: &XmlBehavior, previous: &str, patched: &str, told: SaveTold<'_>) -> Option<String> {
+    if only_text_changed(previous, patched) && told_in_place(told) {
+        return None;
+    }
     let host = HostElements::of(previous);
     // A view writes no markup (`declarations::first_markup_key`), no
     // prefix and no attribute, but what a save pastes back from the

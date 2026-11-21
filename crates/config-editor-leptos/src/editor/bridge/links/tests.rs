@@ -77,7 +77,8 @@ impl View {
             .links
             .told(Language::YAML.behavior(), &self.text, HOST, true)
             .expect("told");
-        told.items
+        told.items()
+            .clone()
             .into_iter()
             .map(|(pointer, source)| match source {
                 ItemSource::Previous(from) => (pointer, from),
@@ -152,7 +153,9 @@ fn a_value_typed_over_keeps_the_items_link() {
     view.replace(at, at, "5");
     view.replace(at + 1, at + 1, "0");
     assert_eq!(source(&mut view, "/a/x").as_deref(), Some("/a/x"));
-    assert!(matches!(view.links, Links::Kept(_)));
+    // Typing that kept every key and line tells each item in place: no
+    // item is read for it.
+    assert!(matches!(view.links, Links::Fresh { .. }));
 }
 
 #[test]

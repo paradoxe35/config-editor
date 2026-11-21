@@ -275,6 +275,11 @@ pub(crate) enum Work {
     ClosingLineBytes,
     /// One of a schema format's extra checks run on a document.
     SchemaCheck,
+    /// An item or scalar of an Edit-as save judged on its own (paired with
+    /// its link, compared with its source, its text read where the editor
+    /// wrote it): a save of typing judges what the typing changed, not
+    /// every item of the document.
+    SaveItemJudged,
 }
 
 impl Work {
@@ -336,6 +341,7 @@ impl Work {
             Self::ClosingLineBytes => 52,
             Self::HolderRead => 53,
             Self::SchemaCheck => 54,
+            Self::SaveItemJudged => 55,
         }
     }
 
@@ -397,12 +403,13 @@ impl Work {
         Self::ClosingLineBytes,
         Self::HolderRead,
         Self::SchemaCheck,
+        Self::SaveItemJudged,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 55;
+const KINDS: usize = 56;
 
 #[cfg(test)]
 thread_local! {

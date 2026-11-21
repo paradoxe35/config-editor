@@ -164,7 +164,7 @@ impl Bridge {
         let edit = self.edit.behavior();
         let value = codec::read(edit, edit_text, self.shape()).map_err(ConvertError::Parse)?;
         codec::convertible(edit, edit_text)?;
-        let value = self.host_values(value, untouched.unwrap_or_default());
+        let value = self.host_values(value, untouched.unwrap_or_default(), None);
         let conversion = codec::render(&value, next.behavior(), None, self.shape())?;
         codec::convertible(next.behavior(), &conversion.text)?;
         Ok(conversion)
@@ -285,6 +285,7 @@ impl Bridge {
                         from,
                         host: host.clone(),
                         pointer,
+                        copied: false,
                     })
                 })
                 .collect(),
@@ -324,10 +325,12 @@ impl Bridge {
         let (previous, _) = byte_order_mark::split(previous_host);
         let (origin, _) = byte_order_mark::split(origin);
         // The steps of the save read the spans of the host's text and the
-        // view's: each once.
+        // view's: each once; and ask once whether the host writes a value.
         let conversion = super::paths::sharing_spans(self.host.behavior(), previous, || {
             super::paths::sharing_spans(self.edit.behavior(), edit_text, || {
-                self.to_unmarked_host(edit_text, previous, origin, told, untouched)
+                codec::sharing_writes(|| {
+                    self.to_unmarked_host(edit_text, previous, origin, told, untouched)
+                })
             })
         })?;
         // A value the host would read back otherwise waits (a save written
@@ -363,16 +366,12 @@ impl Bridge {
         if let Some(told) = told
             && let Some(base) = told.base.as_deref()
         {
-            let told = links::Told {
-                items: told.items.clone(),
-                base: None,
-                earlier: told.earlier.clone(),
-                loose: Vec::new(),
-            };
+            let told =
+                links::Told::listed(told.items().clone(), None, told.earlier.clone(), Vec::new());
             let base = byte_order_mark::split(base).0;
             return self.to_unmarked_host(edit_text, base, origin, Some(&told), untouched);
         }
-        let items = told.map(|told| &told.items).zip(earlier.as_deref());
+        let items = told.zip(earlier.as_deref());
         // The host's last text as it was given, whose comments the save
         // keeps (the patches below may start from a respelled copy).
         let host_previous = previous_host;
@@ -408,10 +407,16 @@ impl Bridge {
         let host = self.host.behavior();
         // A scalar left as the editor wrote it is its host value, whatever
         // the view read it as (see `links::untouched`).
-        let edited = self.host_values(view_reading.value().clone(), untouched.unwrap_or_default());
         // The host's reading notes the lists it reads a value written once
         // as (the merge keeps the rest as the host writes them).
         let host_reading = super::data_reading::read(host, previous_host, self.shape()).ok();
+        let edited = self.host_values(
+            view_reading.value().clone(),
+            untouched.unwrap_or_default(),
+            host_reading
+                .as_ref()
+                .map(|reading| (previous_host, reading.value())),
+        );
         let Some(old) = host_reading.as_ref().map(|reading| reading.value().clone()) else {
             return Ok(codec::render(
                 &edited,
@@ -464,10 +469,15 @@ impl Bridge {
                 .is_some_and(|seen| read_back::reorders(seen, &edited));
         // Which host item each item is, as the edit made it, told to the
         // merge, the writes and the checks that follow.
-        let view_sources = items.map(|(items, earlier)| ItemSources {
+        let view_sources = items.map(|(told, earlier)| ItemSources {
             previous: previous_host.to_string(),
             origin: earlier.to_string(),
-            items: items.clone(),
+            items: if told.in_place() {
+                HashMap::new()
+            } else {
+                told.items().clone()
+            },
+            in_place: told.in_place(),
         });
         let value = match &seen {
             // An edit where the view could not show the host's value (an
@@ -504,6 +514,11 @@ impl Bridge {
                             .iter()
                             .map(|scalar| scalar.pointer.as_str())
                             .collect(),
+                        copies: untouched
+                            .iter()
+                            .filter(|scalar| scalar.copied)
+                            .map(|scalar| scalar.pointer.as_str())
+                            .collect(),
                         reading: &view_reading,
                     },
                     None => text_scalars::Record::None,
@@ -530,25 +545,14 @@ impl Bridge {
         let value = host_scalars(host, previous_host, &old, value)?;
         let sources = view_sources;
         let told = SaveTold::new(sources.as_ref()).with_schema(self.shape());
-        let rendered = codec::render_told(&value, host, Some(previous_host), self.shape(), told)?;
         // The host's text is patched to read back exactly as a full render
         // would (losses included), so its comments and formatting survive: a
         // value edit rewrites just those values, a structural one just those
-        // lines.
-        // Keys the host reads two ways are spelled as the edit spells them
-        // (an XML attribute `@a` whose child `a` is gone stays `@a`).
-        let Ok(target) = codec::read(host, &rendered.text, self.shape())
-            .map(|target| host.spelled_like(&rendered.text, target, &value))
-        else {
-            if let Some(error) =
-                written_anew::refused(self.host, (previous_host, &rendered.text), (&old, &value))
-            {
-                return Err(error);
-            }
-            #[cfg(test)]
-            WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
-            return Ok(rendered);
-        };
+        // lines. The render's text read back is that target, its keys the
+        // host reads two ways spelled as the edit spells them (an XML
+        // attribute `@a` whose child `a` is gone stays `@a`).
+        let (rendered, target) =
+            codec::render_told(&value, host, Some(previous_host), self.shape(), told)?;
         // A null the host would read back as something else (XML writes it
         // as empty text) is refused, as TOML refuses it: the save waits.
         if let Some(pointer) = codec::first_pointer(&value, &serde_json::Value::is_null)
@@ -815,8 +819,19 @@ impl Bridge {
         let intended = moved_to.as_ref().unwrap_or(&target);
         // A key or item the edit moved is written as where it was cut
         // from (see `moved_forms`), else the save waits.
-        let conversion = match items {
-            Some((items, earlier)) => {
+        // Every item in place, and the save rewrote only a scalar the edit
+        // changed: each is written as it was (see `moved_forms`).
+        let listed = items.filter(|(told, _)| {
+            !(told.in_place()
+                && moved_forms::only_changed_scalar_rewritten(
+                    host,
+                    (previous_host, &conversion.text),
+                    (&old, intended),
+                ))
+        });
+        let conversion = match listed {
+            Some((told, earlier)) => {
+                let items = told.items();
                 // The view's pointers as the save spells them: a view that
                 // writes a list of one as its item (XML) names `/l/x` for
                 // the save's `/l/0/x`. The sources name the host's paths
@@ -881,7 +896,13 @@ impl Bridge {
             host,
             (host_previous, &conversion.text),
             (&old, intended),
-            items.map(|(items, _)| items),
+            items.map(|(told, _)| {
+                if told.in_place() {
+                    kept_comments::Owners::InPlace
+                } else {
+                    kept_comments::Owners::Told(told.items())
+                }
+            }),
             &deleted,
         ) {
             return Err(ConvertError::Unsupported(format!(
@@ -957,13 +978,16 @@ impl Bridge {
     }
 
     /// `edited` (the view's value) with each of `untouched` the value it
-    /// stands for in its host text.
+    /// stands for in its host text (`known`: a host text read already, and
+    /// its value, which is not read again).
     fn host_values(
         &self,
         mut edited: serde_json::Value,
         untouched: &[links::Untouched],
+        known: Option<(&str, &serde_json::Value)>,
     ) -> serde_json::Value {
-        let mut read: Vec<(&Arc<str>, Option<serde_json::Value>)> = Vec::new();
+        let mut read: Vec<(&Arc<str>, Option<std::borrow::Cow<'_, serde_json::Value>>)> =
+            Vec::new();
         for scalar in untouched {
             let at = match read
                 .iter()
@@ -972,16 +996,21 @@ impl Bridge {
                 Some(at) => at,
                 None => {
                     let (text, _) = byte_order_mark::split(&scalar.host);
-                    read.push((
-                        &scalar.host,
-                        codec::read(self.host.behavior(), text, self.shape()).ok(),
-                    ));
+                    let value = match known {
+                        Some((known, value)) if known == text => {
+                            Some(std::borrow::Cow::Borrowed(value))
+                        }
+                        _ => codec::read(self.host.behavior(), text, self.shape())
+                            .ok()
+                            .map(std::borrow::Cow::Owned),
+                    };
+                    read.push((&scalar.host, value));
                     read.len() - 1
                 }
             };
             let held = read[at]
                 .1
-                .as_ref()
+                .as_deref()
                 .and_then(|value| value.pointer(&scalar.from))
                 .filter(|value| !value.is_object() && !value.is_array());
             if let (Some(held), Some(slot)) = (held, edited.pointer_mut(&scalar.pointer)) {

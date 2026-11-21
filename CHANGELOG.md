@@ -133,6 +133,17 @@ versions move together.
 
 ### Fixes
 
+- An Edit-as save after typing does the work of what was typed, not of
+  every item of the document: an XML host with attributes no longer pairs
+  each item with its link or checks each item and element's markup again
+  when only a value's text changed (a 10 000-line XML host edited as JSON
+  saves a typed value natively in about 1.1 s under its schema, from
+  2.2 s, and in 0.6 s without one, from 1.5 s).
+- In an XML view under a schema, a copy of a list item pasted into the
+  list the host already holds is a new item: it saves as the view reads
+  it where the schema takes only that reading (a `<d>0</d>` copied where
+  the schema wants a string saves `"0"`), and keeps its source's type
+  elsewhere. The item it was copied from keeps the host's.
 - With `echoes`, a reset to the text the document already holds
   (`replaceValue` or `setValue` with the same text, which reports nothing)
   no longer makes the editor take the host for holding it: a host left on

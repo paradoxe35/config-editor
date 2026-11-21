@@ -216,6 +216,39 @@ fn assert_fixed(finding: &str) {
     );
 }
 
+/// P5 for a save: a digit typed and saved costs the save the work of its
+/// change. The items and scalars the save judges one by one
+/// ([`Work::SaveItemJudged`]: paired with their links, compared with
+/// their sources, read where the editor wrote them) are as many in a
+/// document twice as large, in every host and view and shape.
+#[test]
+fn a_typed_save_judges_what_the_typing_changed() {
+    crate::editor::parse_cache::hold();
+    let schema = shapes::schema();
+    let judged = Work::ALL
+        .iter()
+        .position(|work| *work == Work::SaveItemJudged)
+        .expect("counted");
+    let failures: Vec<String> = cases(EditKind::Type)
+        .iter()
+        .filter_map(|case| {
+            let [small, large] = SIZES.map(|size| work(case, size, &schema)[judged]);
+            (large > small + 2).then(|| {
+                format!(
+                    "{case}: {small} judged at size {} then {large} at {}",
+                    SIZES[0], SIZES[1]
+                )
+            })
+        })
+        .collect();
+    crate::editor::parse_cache::release();
+    assert!(
+        failures.is_empty(),
+        "a save judging more than its change:\n{}",
+        failures.join("\n")
+    );
+}
+
 // The open findings' cases, whole: each mark goes with the finding's
 // entry in `known.rs` once its fix is in.
 

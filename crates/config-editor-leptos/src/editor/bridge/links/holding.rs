@@ -41,6 +41,12 @@ impl HostPaths {
         paths
     }
 
+    /// Whether every node of the view is written from the node at its own
+    /// pointer, held as shown.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.by_view.is_empty()
+    }
+
     /// The node `view` (a pointer of the view) is written from, and how it
     /// holds it: at the same pointer as shown where nothing is recorded.
     pub(crate) fn item(&self, view: &str) -> (String, Holding) {

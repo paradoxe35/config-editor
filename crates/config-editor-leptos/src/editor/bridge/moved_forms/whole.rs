@@ -13,6 +13,7 @@ use super::super::super::item_sources::SaveTold;
 use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::paths;
 use super::super::super::text::{TextRange, TextSize, slice, text_size};
+use super::super::super::work_count::{Work, note_many};
 use super::{Moved, indent_of, line_indent, reindented};
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
@@ -356,6 +357,7 @@ pub(super) fn kept(
     shape: Option<&Value>,
     told: SaveTold<'_>,
 ) -> String {
+    note_many(Work::SaveItemJudged, moved.len());
     // Each source text split in lines once.
     let mut sources: Vec<Lines<'_>> = Vec::new();
     for item in moved {

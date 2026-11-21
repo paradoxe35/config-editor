@@ -43,6 +43,11 @@ pub(crate) struct ItemSources {
     /// the host text it is in, as that text writes it. Items not listed
     /// are not told by the edit.
     pub(crate) items: HashMap<String, ItemSource>,
+    /// Every item of the view is the host's last text's at its own
+    /// pointer (typing that kept every key and line, over a host whose
+    /// paths are the view's): `items` is empty, and no item is moved,
+    /// copied or pasted back.
+    pub(crate) in_place: bool,
 }
 
 impl ItemSource {
@@ -101,6 +106,19 @@ impl<'a> SaveTold<'a> {
     #[must_use]
     pub(crate) fn with_schema(self, schema: Option<&'a Value>) -> Self {
         SaveTold { schema, ..self }
+    }
+
+    /// What tells this save's told apart from another's: the sources and
+    /// the schema by address, and whether it writes over the host's last
+    /// text (two told alike tell a write the same).
+    pub(crate) fn identity(self) -> (usize, bool, usize) {
+        (
+            self.sources
+                .map_or(0, |sources| std::ptr::from_ref(sources) as usize),
+            self.over_last,
+            self.schema
+                .map_or(0, |schema| std::ptr::from_ref(schema) as usize),
+        )
     }
 
     /// The schema the value is written under, if any.

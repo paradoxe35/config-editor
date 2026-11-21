@@ -12,7 +12,8 @@
 use super::super::codec::{self, span_text_range, written_text_range};
 use super::super::item_sources::{ItemSource, SaveTold};
 use super::super::language::{ConfigLanguage, Span, pointer_key};
-use super::super::text::{TextRange, TextSize, slice};
+use super::super::paths;
+use super::super::text::{TextRange, TextSize, slice, text_size};
 use super::super::work_count::{Work, note};
 use super::ItemMap;
 use crate::editor::paths::FieldPath;
@@ -307,7 +308,11 @@ pub(super) fn kept(
     // anew all the same (a list item's first entry removed: the next one
     // written onto the item's first line): written back as it was, where
     // that reads the same. Not one inside an item moved, which is that
-    // item's.
+    // item's. A save that rewrote only the text of a scalar the edit
+    // changed wrote every item left alone as it was.
+    if only_changed_scalar_rewritten(host, (previous.text, &saved), (previous.value, intended)) {
+        return Ok(saved);
+    }
     let moved = moved(items, previous, origin);
     let inside = |inner: &str| {
         moved.iter().any(|item| {
@@ -349,6 +354,61 @@ pub(super) fn kept(
         shape,
         told,
     ))
+}
+
+/// Whether `saved` is `previous` (which reads `old`) with nothing but the
+/// text of one scalar the save changed (by `intended`) rewritten: every
+/// byte before and after that scalar's written text is the same. Each
+/// item that holds what it held is then written as it was (an item's
+/// text holding the scalar holds it, and changed with it), with its
+/// comments: there is nothing to write back. The work is that of the
+/// change, not of the document's items.
+pub(super) fn only_changed_scalar_rewritten(
+    host: &dyn ConfigLanguage,
+    (previous, saved): (&str, &str),
+    (old, intended): (&Value, &Value),
+) -> bool {
+    if previous == saved {
+        return true;
+    }
+    let (start, end, _) = super::super::text_change::changed_bytes(previous, saved);
+    let changed = TextRange::new(text_size(start), text_size(end));
+    let mut scalars = Vec::new();
+    changed_scalars(old, intended, &mut String::new(), &mut scalars);
+    scalars.iter().any(|pointer| {
+        paths::memo_value_span(host, previous, pointer)
+            .and_then(|span| written_text_range(host, previous, span))
+            .is_some_and(|written| written.contains_range(changed))
+    })
+}
+
+/// The pointers of the scalars `old` and `now` both hold that differ, where
+/// the two hold maps and lists alike above them.
+fn changed_scalars(old: &Value, now: &Value, at: &mut String, out: &mut Vec<String>) {
+    let length = at.len();
+    match (old, now) {
+        (Value::Object(old), Value::Object(now)) => {
+            for (key, child) in now {
+                if let Some(was) = old.get(key) {
+                    at.push('/');
+                    at.push_str(&pointer_key(key));
+                    changed_scalars(was, child, at, out);
+                    at.truncate(length);
+                }
+            }
+        }
+        (Value::Array(old), Value::Array(now)) => {
+            for (index, (was, child)) in old.iter().zip(now).enumerate() {
+                at.push('/');
+                at.push_str(&index.to_string());
+                changed_scalars(was, child, at, out);
+                at.truncate(length);
+            }
+        }
+        (Value::Object(_) | Value::Array(_), _) | (_, Value::Object(_) | Value::Array(_)) => {}
+        (was, value) if was != value => out.push(at.clone()),
+        _ => {}
+    }
 }
 
 /// The scalars left where they were, holding what they held, in the maps

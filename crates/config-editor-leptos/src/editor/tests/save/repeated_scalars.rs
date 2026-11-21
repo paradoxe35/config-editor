@@ -24,7 +24,7 @@ fn saved_with_copies(
     schema: Option<&Value>,
     count: usize,
     source: &Inserted,
-) -> String {
+) -> Result<String, String> {
     let xml = Language::XML.behavior();
     let bundle =
         schema.map(|schema| Arc::new(build_schema(&schema.to_string()).expect("a schema")));
@@ -59,7 +59,7 @@ fn saved_with_copies(
     let untouched = links.untouched(xml, &next);
     bridge
         .to_host_linked(&next, host, host, told.as_ref(), untouched.as_deref())
-        .unwrap_or_else(|error| panic!("{error:?}: {next}"))
+        .map_err(|error| format!("{error:?}: {next}"))
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn a_host_scalar_written_as_several_elements_saves_as_the_view_reads_it() {
         for count in 1..=3 {
             for schema in [None, Some(&strings)] {
                 for source in [Inserted::Typed, Inserted::Pasted] {
-                    let saved = saved_with_copies(language, host, schema, count, &source);
+                    let saved = saved_with_copies(language, host, schema, count, &source).unwrap();
                     let read = language.parse(&saved).expect(&saved);
                     let expected = match (count, schema) {
                         // Unchanged: nothing is saved.
@@ -98,6 +98,51 @@ fn a_host_scalar_written_as_several_elements_saves_as_the_view_reads_it() {
                         ));
                     }
                 }
+            }
+        }
+    }
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
+}
+
+/// P3 with a schema: a host list grown by a copy of one of its items
+/// (pasted in an XML view) holds the copy as new, the item copied as the
+/// host holds it. The copy keeps its source's type where the schema
+/// takes it, and saves as the view reads it where the schema takes only
+/// that (the record tells the copy from the item in its place).
+#[test]
+fn a_copy_a_host_list_grows_by_saves_as_the_schema_reads_it() {
+    // A number first, then a string: the copy lands where only text is
+    // taken.
+    let strings = json!({"properties": {"r": {"properties": {"d": {
+        "prefixItems": [{"type": "integer"}, {"type": "string"}]
+    }}}}});
+    let hosts = [
+        (Language::JSON, "{\"r\": {\"d\": [0, \"a\"]}}\n"),
+        (Language::YAML, "r:\n  d:\n    - 0\n    - a\n"),
+        (Language::TOML, "[r]\nd = [0, \"a\"]\n"),
+        (Language::HCL, "r {\n  d = [0, \"a\"]\n}\n"),
+    ];
+    let mut failed = Vec::new();
+    for (language, host) in hosts {
+        for schema in [None, Some(&strings)] {
+            let read = saved_with_copies(language, host, schema, 2, &Inserted::Pasted)
+                .map(|saved| language.parse(&saved).expect(&saved));
+            let Ok(read) = read else {
+                failed.push(format!("{language}: {read:?}"));
+                continue;
+            };
+            let expected = match schema {
+                Some(_) => json!([0, "0", "a"]),
+                None => json!([0, 0, "a"]),
+            };
+            let read = read.pointer("/r/d").cloned().unwrap_or_default();
+            if read != expected {
+                let schema = if schema.is_some() {
+                    "schema"
+                } else {
+                    "no schema"
+                };
+                failed.push(format!("{language} {schema}: {read} (want {expected})"));
             }
         }
     }

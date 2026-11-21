@@ -148,11 +148,7 @@ fn owner_line(
 /// the host's last value `old`: where it was, or where the edit moved it
 /// or one holding it (`moved`, by source pointer), a scalar holding what
 /// it held, a map or list still one.
-fn kept(
-    pointer: &str,
-    (old, intended): (&Value, &Value),
-    moved: Option<&HashMap<&str, &str>>,
-) -> bool {
+fn kept(pointer: &str, (old, intended): (&Value, &Value), moved: Option<&Moves<'_>>) -> bool {
     let Some(was) = old.pointer(pointer) else {
         return false;
     };
@@ -174,8 +170,8 @@ fn kept(
         else {
             return false;
         };
-        match moved.and_then(|moved| moved.get(prefix)) {
-            Some(to) => now = (*to).to_string(),
+        match moved.and_then(|moved| moved.of(prefix)) {
+            Some(to) => now = to.to_string(),
             None => {
                 now.push_str(step);
                 let in_list = old.pointer(parent).is_some_and(Value::is_array);
@@ -195,6 +191,32 @@ fn kept(
     }
 }
 
+/// What a save tells of its items' sources (see `links::Told`).
+#[derive(Clone, Copy)]
+pub(super) enum Owners<'a> {
+    /// Each item's source, by its pointer in the save.
+    Told(&'a ItemMap),
+    /// Every item is the host's at its own pointer.
+    InPlace,
+}
+
+/// Where each host item the save keeps is in the save, by its pointer in
+/// the host's text.
+enum Moves<'a> {
+    Told(HashMap<&'a str, &'a str>),
+    InPlace,
+}
+
+impl Moves<'_> {
+    /// Where the host item at `pointer` is in the save, when told.
+    fn of<'p>(&'p self, pointer: &'p str) -> Option<&'p str> {
+        match self {
+            Moves::Told(moved) => moved.get(pointer).copied(),
+            Moves::InPlace => Some(pointer),
+        }
+    }
+}
+
 /// The first comment of the host's last text `previous` (reading `old`)
 /// that belongs to a line the save leaves alone (see the module's rule)
 /// and that `saved` (reading `intended`) no longer writes, unless the
@@ -204,7 +226,7 @@ pub(super) fn first_lost(
     host: &dyn ConfigLanguage,
     (previous, saved): (&str, &str),
     (old, intended): (&Value, &Value),
-    items: Option<&ItemMap>,
+    items: Option<Owners<'_>>,
     deleted: &dyn Fn(&str) -> bool,
 ) -> Option<(String, String)> {
     let mut left = counted(host, saved);
@@ -272,14 +294,17 @@ pub(super) fn first_lost(
         starts.push(at);
         at += TextSize::of(*line) + TextSize::from(1);
     }
-    let moved: Option<HashMap<&str, &str>> = items.map(|items| {
-        items
-            .iter()
-            .filter_map(|(to, source)| match source {
-                ItemSource::Previous(from) => Some((from.as_str(), to.as_str())),
-                ItemSource::Origin(_) => None,
-            })
-            .collect()
+    let moved: Option<Moves<'_>> = items.map(|items| match items {
+        Owners::Told(items) => Moves::Told(
+            items
+                .iter()
+                .filter_map(|(to, source)| match source {
+                    ItemSource::Previous(from) => Some((from.as_str(), to.as_str())),
+                    ItemSource::Origin(_) => None,
+                })
+                .collect(),
+        ),
+        Owners::InPlace => Moves::InPlace,
     });
     missing.into_iter().find_map(|(range, words)| {
         let line = owner_line((&lines, &starts), &on_line, range)?;

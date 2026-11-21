@@ -12,7 +12,9 @@ use super::super::super::codec::{self, written_text_range};
 use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::parse_cache;
 use super::super::super::paths;
-use super::super::super::text::slice;
+use super::super::super::text::{TextRange, slice, text_size};
+use super::super::super::text_change::changed_bytes;
+use super::super::super::work_count::{Work, note_many};
 use super::told::same_keys;
 use super::{Links, Source};
 use serde_json::Value;
@@ -27,6 +29,9 @@ pub(crate) struct Untouched {
     /// The host text it stands for, and its pointer there.
     pub(crate) host: Arc<str>,
     pub(crate) from: String,
+    /// Of a copy of its item (see `Source::copied`): new where it is,
+    /// though written as its source.
+    pub(crate) copied: bool,
 }
 
 /// A scalar of the view and where to find what the editor wrote for it.
@@ -34,6 +39,7 @@ struct Candidate {
     pointer: String,
     host: Arc<str>,
     from: String,
+    copied: bool,
     /// The view text the editor wrote, and the scalar's pointer there.
     shown: Arc<str>,
     at: String,
@@ -64,13 +70,13 @@ fn scalars(value: &Value, pointer: &mut String, out: &mut Vec<String>) {
     }
 }
 
-/// The text `language` writes the value at each of `pointers` with in
-/// `text` (`None` where it finds none).
-fn written<'t>(
+/// Where in `text` `language` writes the value at each of `pointers`
+/// (`None` where it finds none).
+fn written(
     language: &dyn ConfigLanguage,
-    text: &'t str,
+    text: &str,
     pointers: &[String],
-) -> Vec<Option<&'t str>> {
+) -> Vec<Option<TextRange>> {
     // Every span from one read of the text.
     paths::with_spans(language, text, pointers, || {
         pointers
@@ -78,7 +84,8 @@ fn written<'t>(
             .map(|pointer| {
                 let span = paths::memo_value_span(language, text, pointer)
                     .or_else(|| codec::inline_location(language, text, pointer, false))?;
-                slice::slice(text, written_text_range(language, text, span)?)
+                written_text_range(language, text, span)
+                    .filter(|range| slice::slice(text, *range).is_some())
             })
             .collect()
     })
@@ -106,6 +113,9 @@ impl Links {
             return Some(Vec::new());
         }
         let label = language.info().label;
+        // The bytes typing changed since the text the editor wrote, when
+        // every scalar stands where it did there (see below).
+        let mut typed = None;
         let candidates: Vec<Candidate> = match self {
             // The text since the last save or switch, its keys where they
             // were: each scalar is the host's at its own pointer.
@@ -121,9 +131,12 @@ impl Links {
                     .as_ref()
                     .and_then(|reading| reading.paths(host, value))
                     .unwrap_or_default();
+                let (start, _, end) = changed_bytes(base, text);
+                typed = Some((base.clone(), start, end));
                 pointers
                     .into_iter()
                     .map(|pointer| Candidate {
+                        copied: false,
                         host: host.clone(),
                         from: paths.value(&pointer),
                         shown: base.clone(),
@@ -169,6 +182,7 @@ impl Links {
                             ),
                         };
                         Some(Candidate {
+                            copied: source.copied,
                             host,
                             from,
                             shown: shown.text.clone(),
@@ -184,17 +198,54 @@ impl Links {
             .iter()
             .map(|candidate| candidate.pointer.clone())
             .collect();
-        let now = written(language, text, &now);
+        let places = written(language, text, &now);
+        let now: Vec<Option<&str>> = places
+            .iter()
+            .map(|place| place.and_then(|place| slice::slice(text, place)))
+            .collect();
         let mut was = vec![None; candidates.len()];
+        // Typing since the text the editor wrote, which kept every key and
+        // list: a scalar written wholly before or after the bytes it
+        // changed is written as the editor wrote it, where it reads the
+        // same (text joining it changes what it reads); one inside them
+        // that reads otherwise was typed. Only the rest is read in the
+        // text the editor wrote.
+        let mut asked = vec![true; candidates.len()];
+        let base_read = typed
+            .as_ref()
+            .map(|(base, _, _)| parse_cache::parsed(language, base));
+        if let (Some((_, start, end)), Some(Ok(held))) =
+            (&typed, base_read.as_ref().map(|read| read.as_ref()))
+        {
+            let changed_end = text_size(*end);
+            for (index, (candidate, place)) in candidates.iter().zip(&places).enumerate() {
+                let same = held.pointer(&candidate.at) == value.pointer(&candidate.pointer);
+                let Some(place) = place else {
+                    asked[index] = false;
+                    continue;
+                };
+                let apart = place.end() <= text_size(*start) || place.start() >= changed_end;
+                if !same || apart {
+                    asked[index] = false;
+                    if same {
+                        was[index] = now[index].map(str::to_string);
+                    }
+                }
+            }
+        }
+        note_many(
+            Work::SaveItemJudged,
+            asked.iter().filter(|asked| **asked).count(),
+        );
         let mut texts: Vec<&Arc<str>> = Vec::new();
-        for candidate in &candidates {
+        for (candidate, _) in candidates.iter().zip(&asked).filter(|(_, asked)| **asked) {
             if !texts.iter().any(|text| Arc::ptr_eq(text, &candidate.shown)) {
                 texts.push(&candidate.shown);
             }
         }
         for shown in texts {
             let at: Vec<usize> = (0..candidates.len())
-                .filter(|at| Arc::ptr_eq(&candidates[*at].shown, shown))
+                .filter(|at| asked[*at] && Arc::ptr_eq(&candidates[*at].shown, shown))
                 .collect();
             let pointers: Vec<String> = at.iter().map(|at| candidates[*at].at.clone()).collect();
             // The text and what it reads as both: a scalar's span can
@@ -202,7 +253,8 @@ impl Links {
             // YAML scalar running on).
             let read = parse_cache::parsed(language, shown);
             let held = read.as_ref().as_ref().ok();
-            for (index, spelled) in at.into_iter().zip(written(language, shown, &pointers)) {
+            for (index, place) in at.into_iter().zip(written(language, shown, &pointers)) {
+                let spelled = place.and_then(|place| slice::slice(shown, place));
                 let candidate = &candidates[index];
                 let same = held.and_then(|held| held.pointer(&candidate.at))
                     == value.pointer(&candidate.pointer);
@@ -217,6 +269,7 @@ impl Links {
                 pointer: candidate.pointer,
                 host: candidate.host,
                 from: candidate.from,
+                copied: candidate.copied,
             })
             .collect::<Vec<_>>()
             .into()

@@ -106,9 +106,9 @@ fn a_replace_all_adding_lines_keeps_the_links_of_the_items_between() {
         .expect("the links tell");
     for pointer in ["/b", "/b/y"] {
         assert!(
-            told.items.contains_key(pointer),
+            told.items().contains_key(pointer),
             "{pointer} lost its link: {:?}\n{text}",
-            told.items.keys().collect::<Vec<_>>()
+            told.items().keys().collect::<Vec<_>>()
         );
     }
 }

@@ -29,6 +29,7 @@ mod removed_items;
 mod renames;
 mod reorder;
 mod steps;
+mod written;
 
 use super::language::pointer_key;
 use crate::editor::paths::FieldPath;
@@ -48,6 +49,7 @@ pub(super) use renames::{
 pub(super) use reorder::{patch_reorder, unmoved_comments, with_comma_of};
 use std::borrow::Cow;
 pub(super) use steps::steps;
+pub(super) use written::sharing as sharing_writes;
 
 use super::data_reading;
 use super::flow_syntax::Flow;
@@ -173,16 +175,19 @@ pub(super) fn render(
     schema: Option<&Value>,
 ) -> Result<Conversion, ConvertError> {
     render_told(value, target, previous, schema, SaveTold::default())
+        .map(|(conversion, _)| conversion)
 }
 
-/// [`render`] for a save, told which host item each item is.
+/// [`render`] for a save, told which host item each item is, with the
+/// value the text reads back as (keys read two ways spelled as `value`
+/// spells them).
 pub(super) fn render_told(
     value: &Value,
     target: &dyn ConfigLanguage,
     previous: Option<&str>,
     schema: Option<&Value>,
     told: SaveTold<'_>,
-) -> Result<Conversion, ConvertError> {
+) -> Result<(Conversion, Value), ConvertError> {
     let text = serialize_told(target, value, previous, told.with_schema(schema))?;
     let reread = read(target, &text, schema).map_err(|error| {
         ConvertError::Unsupported(format!(
@@ -195,7 +200,7 @@ pub(super) fn render_told(
     let reread = target.spelled_like(&text, reread, value);
     let mut losses = Vec::new();
     differences(value, &reread, String::new(), &mut losses);
-    Ok(Conversion { text, losses })
+    Ok((Conversion { text, losses }, reread))
 }
 
 /// Serializes through `language`, ending with exactly one newline.
@@ -217,9 +222,9 @@ pub(super) fn serialize_told(
     let value = emptied_items::without_emptied(language, previous, Cow::Borrowed(value));
     // Through the writer door: a language without infinities is given them
     // as text, which reads back as a string, a loss the caller reports.
-    let mut text = language
-        .write_document_over(&value, previous, told)
-        .map_err(ConvertError::Unsupported)?;
+    let written = language.write_document_over(&value, previous, told);
+    written::note(language, &value, previous, told, written.is_ok());
+    let mut text = written.map_err(ConvertError::Unsupported)?;
     text.truncate(text.trim_end_matches('\n').len());
     text.push('\n');
     Ok(text)
@@ -327,9 +332,9 @@ pub(super) fn patch_scalars(
 ) -> Option<String> {
     // Whatever the language cannot express must still be refused, even when
     // a patch would read back equal.
-    language
-        .write_document_over(new, Some(previous), told)
-        .ok()?;
+    if !written::writes(language, new, Some(previous), told) {
+        return None;
+    }
     let mut changes = Vec::new();
     scalar_changes(old, new, String::new(), &mut changes)?;
     if changes.is_empty() {

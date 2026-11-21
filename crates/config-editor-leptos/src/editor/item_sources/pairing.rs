@@ -153,7 +153,17 @@ impl<'a> Pairing<'a> {
             .is_some_and(|value| !value.is_array());
         (0..count)
             .map(|index| {
-                let source = if lone {
+                // Every item at its own pointer: the host's item there.
+                let own = sources.in_place.then(|| {
+                    ItemSource::Previous(if lone {
+                        new_at.to_string()
+                    } else {
+                        format!("{new_at}/{index}")
+                    })
+                });
+                let source = if own.is_some() {
+                    own.as_ref()
+                } else if lone {
                     sources.of(new_at, true)
                 } else {
                     sources.items.get(&format!("{new_at}/{index}"))

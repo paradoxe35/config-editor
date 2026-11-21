@@ -941,18 +941,22 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 // Which host item each item is, as the edits kept it; a
                 // host whose items hold what no view shows (XML markup)
                 // reads it even when only typed.
-                let (told, untouched) = if on_screen {
-                    state.told(&bridge, language, &text, &previous)
-                } else {
-                    Default::default()
-                };
-                let saved = bridge.to_host_linked(
-                    &text,
-                    &previous,
-                    &origin,
-                    told.as_ref(),
-                    untouched.as_deref(),
-                );
+                // The links and the save read the view's spans once.
+                let (told, saved) = super::paths::sharing_spans(language.behavior(), &text, || {
+                    let (told, untouched) = if on_screen {
+                        state.told(&bridge, language, &text, &previous)
+                    } else {
+                        Default::default()
+                    };
+                    let saved = bridge.to_host_linked(
+                        &text,
+                        &previous,
+                        &origin,
+                        told.as_ref(),
+                        untouched.as_deref(),
+                    );
+                    (told, saved)
+                });
                 loose = told.map(|told| told.loose);
                 saved
             }
