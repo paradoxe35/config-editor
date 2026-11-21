@@ -30,7 +30,7 @@ versions move together.
 - XSD 1.0 as a schema format (`SchemaFormat::XSD`, the opt-in cargo
   feature `xsd`; `schemaFormat: "xsd"` in JavaScript, in a package built
   with `npm run build:xsd`: the published one leaves it out, as it adds
-  about 72 KB gzip): compiled into JSON Schema in the XML
+  about 71 KB gzip): compiled into JSON Schema in the XML
   mapping, it validates and completes every view of the document. Options
   `root`, `configRoot` and `lax`. Content models (element order, choices,
   substitution groups, occurrences, wildcards' namespaces) and `xs:key`,

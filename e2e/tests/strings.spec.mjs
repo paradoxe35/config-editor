@@ -88,7 +88,8 @@ const ELSEWHERE = {
   xsdKeyrefUnknown: "as xsdNotDeclared",
   oneOf:
     "needs an object oneOf before any option matches (a schema problem, whose hover takes its place): choices_matrix",
-  saveHeld: "a hold that cannot tell its cause: protect hold_cause_tests",
+  saveHeld:
+    "a hold that cannot tell its cause: protect hold_cause_tests",
   saveHeldDuplicate:
     "a locked key or block written twice: protect hold_cause_tests, held_tests",
   saveHeldRenamed: "a key on a locked field's path renamed: hold_cause_tests",
@@ -132,8 +133,7 @@ const ELSEWHERE = {
   walkNoProblems: "F8 with no problems: the a11y-announcements spec",
   noChanges: "Alt+F5 with no changes: the a11y-announcements spec",
   reverted: "reverting a change: the a11y-announcements spec",
-  reloaded:
-    "Reload in the changed-baseline notice: the a11y-announcements spec",
+  reloaded: "Reload in the changed-baseline notice: the a11y-announcements spec",
   foldedLines:
     "fold commands: the folding-commands spec and folding change_tests",
   unfoldedLines: "as foldedLines",
@@ -142,8 +142,7 @@ const ELSEWHERE = {
   nothingToFold:
     "a fold key with nothing to fold: the folding-commands spec and editor/tests/nothing_to_fold.rs",
   nothingToUnfold: "as nothingToFold",
-  readOnlyEditor:
-    "typing in a read-only editor: the a11y-read-only-editor spec",
+  readOnlyEditor: "typing in a read-only editor: the a11y-read-only-editor spec",
   readOnlyEditorReason:
     "typing in a read-only editor with a `readOnlyReason`: the documents-screen spec, framework-cases and a11y tests",
   readOnlyTabTitle:
@@ -174,8 +173,7 @@ const ELSEWHERE = {
   secretInside:
     "a schema message quoting a list or map holding a secret: tests/secret_inside_messages.rs",
   unknownPlaceholder: "protect tests",
-  movedPlaceholder:
-    "protect tests (moved_token_tests) and the locks-read-only spec",
+  movedPlaceholder: "protect tests (moved_token_tests) and the locks-read-only spec",
   foreignPlaceholder:
     "another document's placeholder pasted: protect tests (foreign) and the browser fuzz on the documents pages",
   extraPlaceholder: "a secret line copied: protect tests (many_copies_tests)",

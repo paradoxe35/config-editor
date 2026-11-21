@@ -1007,7 +1007,7 @@ new ConfigEditor(element, {
 });
 ```
 
-XSD is opt-in: it adds about 72 KB (gzip) to the WebAssembly module, so
+XSD is opt-in: it adds about 71 KB (gzip) to the WebAssembly module, so
 the published package leaves it out, and `schemaFormat: "xsd"` throws
 saying so. To have it, build the package from the
 [repository](https://github.com/paradoxe35/config-editor) with
