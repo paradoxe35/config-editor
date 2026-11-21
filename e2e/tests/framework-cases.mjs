@@ -457,6 +457,40 @@ export function frameworkCases(name) {
       await expect(saved(browserPage)).toHaveText(before, { timeout: 5000 });
     });
 
+    // P1 through the readOnlyPaths prop: a path named after the user
+    // changed its field (the change already in the parent's state) locks
+    // nothing and holds the save, saying why, until the field reads as the
+    // parent's text again; then it locks.
+    test('a path the parent names after the user changed its field holds the save until it reads as before, then locks', async ({ page: browserPage }) => {
+      await open(browserPage, name);
+      const before = await input(browserPage).inputValue();
+      await input(browserPage).evaluate((element) => {
+        const at = element.value.indexOf('example.com') + 'example.com'.length;
+        element.focus();
+        element.setSelectionRange(at, at);
+      });
+      await browserPage.keyboard.type('X');
+      await expect(saved(browserPage)).toContainText('example.comX');
+      await browserPage.evaluate(() => window.setExtraProps({ readOnlyPaths: ['/public_address'] }));
+      const held = () =>
+        browserPage.evaluate(() =>
+          [...document.querySelectorAll('.config-editor__diagnostic-marker')]
+            .map((marker) => marker.getAttribute('data-message') ?? '')
+            .filter((message) => message.startsWith('Not saved')),
+        );
+      await expect.poll(held).toEqual([
+        'Not saved: /public_address was changed before the host made it read-only; put it back as the host gave it to save',
+      ]);
+      await expect(browserPage.locator('.config-editor__locked')).toHaveCount(0);
+      await browserPage.keyboard.press('Backspace');
+      await expect.poll(held).toEqual([]);
+      await expect(saved(browserPage)).toHaveText(before);
+      await expect(browserPage.locator('.config-editor__locked').first()).toBeVisible();
+      // Locked now: typing in it changes nothing.
+      await browserPage.keyboard.type('Y');
+      await expect(input(browserPage)).toHaveValue(before);
+    });
+
     test('setValue resets to a text the user just passed through', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?late');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });

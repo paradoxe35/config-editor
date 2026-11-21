@@ -67,6 +67,15 @@ function pathLock(state) {
   return text ? { range: state.range, text, path: '/public_address' } : null;
 }
 
+// The value text of `public_address` in the host's `text` (the corpus
+// writes it on one line): null when it has none, undefined when the text
+// is not known.
+function fieldText(text) {
+  if (typeof text !== 'string') return undefined;
+  const found = /^public_address:[ \t]*([^\n]*)$/m.exec(text);
+  return found ? found[1].trim() : null;
+}
+
 // The lock a path names in a text that does not parse: `rangeOf` reads the
 // field off its lines through the character breaking it, while the editor
 // locks the field as the text reads with that character blanked, leaving
@@ -382,11 +391,15 @@ export async function perform(run, action) {
     case 'editAs':
       await host(page, 'editAs', action.language);
       run.editedAs = true;
+      run.hostText = undefined;
       return;
     case 'hostValue': {
       run.hostReplaced = true;
       await settle(page);
       if (run.kind === 'single') {
+        // A value equal to the editor's may give it nothing new.
+        const before = await page.evaluate(() => window.__fz.editor()?.value);
+        run.hostText = before === action.text ? undefined : action.text;
         const ranges = run.keepLocks(null, action.text);
         run.give(null, action.text);
         return host(page, 'singleValue', { ...action, ranges });
@@ -422,6 +435,17 @@ export async function perform(run, action) {
       });
       const lock = action.on && state.range && state.value === state.text ? pathLock(state) : null;
       const given = await host(page, 'singleProps', { readOnlyPaths: action.on ? ['/public_address'] : [] });
+      run.pendingPath = null;
+      // A field the user changed since the host's text locks nothing: the
+      // save waits, saying why, until it reads as the host's text again
+      // (then it locks). Judged on the field's text, so a field the run
+      // cannot read in the host's text may go either way.
+      const hostField = fieldText(run.hostText);
+      if (lock && hostField !== lock.text) {
+        run.setLock(null, 'path', null);
+        run.pendingPath = { text: lock.text, host: hostField ?? null };
+        return given;
+      }
       run.setLock(null, 'path', lock && state.errored ? await markedLock(page, state, lock) : lock);
       return given;
     }
