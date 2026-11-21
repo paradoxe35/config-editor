@@ -27,6 +27,7 @@ use super::locate::LineIndex;
 use super::locks::{HoldCause, Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
+use super::since_host::SinceHost;
 use super::texts::{Reason, save_held, save_held_placeholder, save_waits};
 use super::whole_guard::Placeholders;
 use crate::EditorStrings;
@@ -66,18 +67,6 @@ pub(crate) struct Marks {
     /// What the edits since the host's last text made of it (see
     /// [`SinceHost`]).
     since_host: Option<SinceHost>,
-}
-
-/// The change the edits on screen made of the host's last text (`from`)
-/// to give the text on screen (`to`), recorded edit by edit while the host
-/// has not heard them (a save held): the host's ranges name places in its
-/// text, and are mapped through it to the text on screen, never guessed
-/// from the two texts.
-#[derive(Clone)]
-struct SinceHost {
-    from: Arc<str>,
-    to: Arc<str>,
-    change: Change,
 }
 
 /// An edit the locks follow: the text it was made on and the text it made,
@@ -863,24 +852,15 @@ impl EditorState {
         if self.config().host_language != self.sync().edit_language.get_untracked() {
             return None;
         }
-        let change = edit.mapping();
-        if self.sync().host_text.with_value(|host| *host == **before) {
-            return Some(SinceHost {
-                from: before.clone(),
-                to: after.clone(),
-                change,
-            });
-        }
-        let since = self
-            .protect()
-            .marks
-            .with_value(|marks| marks.since_host.clone())
-            .filter(|since| *since.to == **before)?;
-        let composed = since.change.compose(&change)?.narrowed(&since.from)?;
-        Some(SinceHost {
-            from: since.from,
-            to: after.clone(),
-            change: composed,
+        let host_is_before = self.sync().host_text.with_value(|host| *host == **before);
+        self.protect().marks.with_value(|marks| {
+            SinceHost::with(
+                marks.since_host.as_ref(),
+                host_is_before,
+                edit,
+                before,
+                after,
+            )
         })
     }
 

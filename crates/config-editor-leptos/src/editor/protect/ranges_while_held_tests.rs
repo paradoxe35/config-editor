@@ -314,3 +314,95 @@ fn a_range_the_held_edits_changed_before_the_lock_holds_the_save_in_every_langua
         );
     }
 }
+
+/// A drag moving a piece of a comment to the end of the text while a save
+/// is held: a range the host then gives inside that piece locks it where
+/// the drag put it, unchanged.
+#[test]
+fn a_range_inside_text_a_held_drag_moved_locks_it_where_it_went() {
+    let _owner = Owner::new();
+    _owner.set();
+    let text = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
+    let host = Host {
+        ranges: RwSignal::new(Vec::new()),
+        heard: RwSignal::new(Vec::new()),
+    };
+    let state = mount(Language::YAML, text, &host);
+    let port = text.find("sten: 78").expect("the port");
+    give(state, &host, text, port..port + "sten: 78".len());
+    for (at, typed) in ["l", "i", "s", "t", "e", "n"].into_iter().enumerate() {
+        assert!(input(state, at..at, typed, "insertText"), "{typed} typed");
+    }
+    assert!(state.changes_held(), "held");
+    let heard = host
+        .heard
+        .get_untracked()
+        .last()
+        .cloned()
+        .unwrap_or(text.to_string());
+    let shown = state.doc().text.get_untracked();
+    let start = shown.find("l server").expect("the piece");
+    let end = start + "l server confi".len();
+    let moved = shown[start..end].to_string();
+    assert!(
+        input(state, start..end, "", "deleteByDrag"),
+        "the drag's delete"
+    );
+    let end = state.doc().text.get_untracked().len();
+    assert!(input(state, end..end, &moved, "insertFromDrop"), "the drop");
+    let piece = heard.find("er co").expect("in the host's text");
+    give(state, &host, &heard, piece..piece + "er co".len());
+    assert_eq!(
+        locked(state),
+        ["er co"],
+        "heard {heard:?}, shown {:?}",
+        state.doc().text.get_untracked()
+    );
+}
+
+/// A drag moving the end of a value to the end of the text while a save is
+/// held, then a space typed at the start: a range the host then gives
+/// inside the moved text locks it where the drag put it, in every language.
+#[test]
+fn a_range_inside_text_dragged_while_held_locks_it_where_it_went_in_every_language() {
+    for (language, text) in TEXTS {
+        let _owner = Owner::new();
+        _owner.set();
+        let host = Host {
+            ranges: RwSignal::new(Vec::new()),
+            heard: RwSignal::new(Vec::new()),
+        };
+        let state = mount(language, text, &host);
+        hold(language, state, &host, text);
+        let heard = host
+            .heard
+            .get_untracked()
+            .last()
+            .cloned()
+            .unwrap_or(text.to_string());
+        let shown = state.doc().text.get_untracked();
+        let start = shown.find("example.com").expect("the value's end");
+        let end = start + "example.com".len();
+        assert!(
+            input(state, start..end, "", "deleteByDrag"),
+            "{language:?}: the drag's delete"
+        );
+        let end = state.doc().text.get_untracked().len();
+        assert!(
+            input(state, end..end, "example.com", "insertFromDrop"),
+            "{language:?}: the drop"
+        );
+        assert!(
+            input(state, 0..0, " ", "insertText"),
+            "{language:?}: typed after"
+        );
+        let piece = heard.find("ample").expect("in the host's text");
+        give(state, &host, &heard, piece..piece + "ample".len());
+        assert_eq!(
+            locked(state),
+            ["ample"],
+            "{language:?}: in {:?}",
+            state.doc().text.get_untracked()
+        );
+    }
+}
