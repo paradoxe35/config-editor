@@ -43,6 +43,47 @@ fn every_text_sent_is_rebuilt_from_the_document() {
     assert_eq!(&**log.document(), "# top\nport: 3\n");
 }
 
+/// A save held keeps the host on the text it heard last; a host its echoes
+/// left on an older text hears that text again. That copy is a version of
+/// the same text, the held edits still after it: the edits since it stay
+/// exact (a host change is rebased over them, a lock follows them), at any
+/// number of copies and edits between them.
+#[test]
+fn the_host_text_sent_again_keeps_the_edits_since_it() {
+    for copies in 1..4u32 {
+        let mut log = HostLog::new(Arc::from("a: 1\nkey: v\n"), issue(), true);
+        let heard = issue();
+        log.sent(heard, &log.document().clone(), None);
+        let held: Arc<str> = log.document().clone();
+        let mut again = heard;
+        for copy in 0..copies {
+            // Held edits: a line above the lock, and a word inside the key.
+            edit(&mut log, r(0, 0), "# held\n");
+            let at = log.document().find("ey: v").expect("the key") as u32;
+            edit(&mut log, r(at, at), "x");
+            again = issue();
+            log.sent(again, &held, None);
+            assert_eq!(log.text_at(again).as_deref(), Some(&*held), "copy {copy}");
+            assert_eq!(log.text_at(heard).as_deref(), Some(&*held), "copy {copy}");
+        }
+        assert_eq!(log.host_revision(), again);
+        let since = log.change_since(again).expect("the held edits, exactly");
+        assert_eq!(since.apply(&held).as_deref(), Some(&**log.document()));
+        // `key` of the text the host holds, on the same characters.
+        let mapped = log.map(again, &[r(5, 8)], &no_rewrite).expect("kept");
+        let document = log.document().clone();
+        let [range] = mapped[..] else {
+            panic!("one range: {mapped:?}")
+        };
+        let locked = &document[usize::from(range.start())..usize::from(range.end())];
+        assert_eq!(
+            locked.replace('x', ""),
+            "key",
+            "{copies} copies: {document:?}"
+        );
+    }
+}
+
 #[test]
 fn positions_of_an_older_text_land_on_the_same_characters() {
     let mut log = HostLog::new(Arc::from("a: 1\nb: 2\n"), issue(), true);
@@ -244,10 +285,21 @@ fn step(rng: &mut Rng, log: &mut HostLog, model: &mut Model) {
             model.document.splice(start..end, inserted);
             edit(log, range, &insert);
         }
-        12..=16 => {
+        12..=15 => {
             let revision = issue();
             log.sent(revision, &string(&model.document), None);
             model.versions.push((revision, model.document.clone()));
+        }
+        16 => {
+            // The host's text now sent again, the edits since held.
+            let mut newest = model.versions.last().expect("never empty").1.clone();
+            if string(&newest) == string(&model.document) {
+                // The same text as the document: a send of it.
+                newest = model.document.clone();
+            }
+            let revision = issue();
+            log.sent(revision, &string(&newest), None);
+            model.versions.push((revision, newest));
         }
         17..=18 => {
             let at = rng.below(model.versions.len());

@@ -310,6 +310,10 @@ impl HostLog {
     pub(crate) fn sent(&mut self, revision: u64, text: &str, print: Option<Print>) {
         self.unheard = None;
         if *self.document != *text {
+            if self.is_newest(text) {
+                self.sent_again(revision, print);
+                return;
+            }
             self.rewritten(&Arc::from(text));
         }
         self.versions.push_back(Version {
@@ -319,6 +323,32 @@ impl HostLog {
         });
         self.steps.push_back(Vec::new());
         self.dragged = None;
+        self.bound();
+    }
+
+    /// Whether `text` is the newest version's: the host's text now, the
+    /// edits since (a save held) not part of it.
+    fn is_newest(&mut self, text: &str) -> bool {
+        let Some(newest) = self.versions.back().map(|version| version.revision) else {
+            return false;
+        };
+        self.text_at(newest).is_some_and(|newest| *newest == *text)
+    }
+
+    /// The newest version's text sent again at `revision` (a held save's
+    /// host, left on an older text by its echoes, hears it again): a
+    /// version of that same text, the edits since still after it. Taken
+    /// for a text no edit made, it would cut the record of those edits,
+    /// and a host change or a lock would no longer follow them.
+    fn sent_again(&mut self, revision: u64, print: Option<Print>) {
+        let open = self.steps.pop_back().unwrap_or_default();
+        self.steps.push_back(Vec::new());
+        self.versions.push_back(Version {
+            revision,
+            print,
+            told: true,
+        });
+        self.steps.push_back(open);
         self.bound();
     }
 

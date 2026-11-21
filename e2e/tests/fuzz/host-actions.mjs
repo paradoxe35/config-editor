@@ -65,13 +65,31 @@ export async function hostChange(run, action) {
 }
 
 // The framework page's parent unmounts the component and mounts it again
-// (`setShown`), `wait` ms apart, late echoes on their way or not.
+// (`setShown`), `wait` ms apart, late echoes on their way or not. The new
+// editor knows only what the parent renders (the README's "Hidden and
+// shown again"): a revisions host names the text its range was worked
+// out on (`rangesFor`); one naming none works its range out again on the
+// value it shows, in the task that shows it.
 export async function hideShow(run, { wait }) {
   const { page } = run;
   if (!(await page.evaluate(() => typeof window.setShown === 'function' && !window.editor))) return null;
   await page.evaluate(() => window.setShown(false));
   if (wait) await page.waitForTimeout(wait);
-  await page.evaluate(() => window.setShown(true));
+  // The range lock's text (as `keepLocks` finds it again).
+  const locked = run.revisions ? null : (run.locksOf(null).find((lock) => lock.range)?.text ?? null);
+  const shownWith = await page.evaluate((locked) => {
+    const fz = window.__fz;
+    const text = window.parentState().text;
+    if (locked !== null) {
+      const start = text.indexOf(locked);
+      const readOnlyRanges = start < 0 ? [] : [{ start, end: start + locked.length }];
+      fz.extra = { ...fz.extra, readOnlyRanges };
+      window.setExtraProps({ ...fz.extra });
+    }
+    window.setShown(true);
+    return text;
+  }, locked);
+  if (locked !== null) run.keepLocks(null, shownWith);
   await page.waitForFunction(() => !!window.__fz.editor() && !!window.__fz.root(), null, { timeout: 5000 });
   run.reached('hide and show');
   run.hostReplaced = true;
