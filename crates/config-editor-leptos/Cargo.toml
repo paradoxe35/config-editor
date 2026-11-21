@@ -53,6 +53,9 @@ jsonschema = { version = "0.61.2", default-features = false, optional = true }
 # validating, else the small one (an unused engine is not linked).
 regex = { version = "1", optional = true }
 regex-lite = "0.1"
+# Finding the host's many secret placeholders in a text in one pass (as
+# `regex` finds many literals; already built with `schema-validation`).
+aho-corasick = "1"
 # Byte offsets as newtypes (`TextSize`, `TextRange`), see `editor/text`.
 text-size = "1.1.1"
 # Where a character as the user sees it starts (UAX #29 grapheme clusters):

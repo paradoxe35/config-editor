@@ -280,6 +280,9 @@ pub(crate) enum Work {
     /// wrote it): a save of typing judges what the typing changed, not
     /// every item of the document.
     SaveItemJudged,
+    /// A whole text searched for the host's secret placeholders written in
+    /// it: one pass finds them all, not one pass for each of them.
+    TokenSearch,
 }
 
 impl Work {
@@ -342,6 +345,7 @@ impl Work {
             Self::HolderRead => 53,
             Self::SchemaCheck => 54,
             Self::SaveItemJudged => 55,
+            Self::TokenSearch => 56,
         }
     }
 
@@ -404,12 +408,13 @@ impl Work {
         Self::HolderRead,
         Self::SchemaCheck,
         Self::SaveItemJudged,
+        Self::TokenSearch,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 56;
+const KINDS: usize = 57;
 
 #[cfg(test)]
 thread_local! {

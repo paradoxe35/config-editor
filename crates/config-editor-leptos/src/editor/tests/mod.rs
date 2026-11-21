@@ -431,6 +431,14 @@ mod suggestion_scale;
 ))]
 mod switch_caret;
 #[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod switch_work;
+#[cfg(all(
     feature = "schema-validation",
     feature = "yaml",
     feature = "json",

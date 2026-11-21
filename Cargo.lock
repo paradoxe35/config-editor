@@ -1010,6 +1010,7 @@ dependencies = [
 name = "leptos-config-editor"
 version = "0.1.1"
 dependencies = [
+ "aho-corasick",
  "hcl-edit",
  "hcl-rs",
  "jsonschema",

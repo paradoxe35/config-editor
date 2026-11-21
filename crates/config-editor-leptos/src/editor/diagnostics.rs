@@ -39,6 +39,7 @@ use specific::{Explanations, own_errors, specific_errors, text_for_typed_option,
 mod unevaluated;
 #[cfg(feature = "schema-validation")]
 mod wording;
+mod written_tokens;
 
 /// The most problems of one kind (the schema's, the secret placeholders')
 /// shown and underlined; past it, a note says more follow.
@@ -565,12 +566,12 @@ pub(super) fn syntax_message(
     };
     // The host's tokens wherever they are written, as its patterns find
     // others.
-    let given = placeholders.accepted.iter().flat_map(|(token, _)| {
-        source
-            .match_indices(token.as_str())
-            .filter(|_| !token.is_empty())
-            .map(|(at, found)| at..at + found.len())
-    });
+    let accepted: Vec<&str> = placeholders
+        .accepted
+        .iter()
+        .map(|(token, _)| token.as_str())
+        .collect();
+    let given = written_tokens::places(source, &accepted);
     let mut unread: Vec<std::ops::Range<usize>> = tokens.into_iter().chain(given).collect();
     unread.push(stopped_at(source, error)..source.len());
     hide_quotes(&error.message, quotes, |of| {
@@ -654,11 +655,13 @@ fn held_texts(
     behavior: &dyn ConfigLanguage,
     placeholders: Placeholders<'_>,
 ) -> Vec<String> {
-    let own: std::collections::HashSet<&str> = placeholders
+    let accepted: Vec<&str> = placeholders
         .accepted
         .iter()
         .map(|(token, _)| token.as_str())
-        .filter(|token| source.contains(*token))
+        .collect();
+    let own: std::collections::HashSet<&str> = written_tokens::written(source, &accepted)
+        .into_iter()
         .collect();
     if own.is_empty() {
         return Vec::new();

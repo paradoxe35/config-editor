@@ -62,6 +62,12 @@ versions move together.
   cannot tell), until you give ranges again (the same list rendered again
   with numbers past the new text's end is no news); while editing as
   another language too (they no longer stay at their numbers).
+- An Edit-as switch, and the switch back, are faster on large files: on
+  10,000-line files they take 14–24% less time than in 0.1.1 in every
+  language (switch 379–404 ms against 439–510 ms, back 289–397 ms against
+  345–468 ms, the demo's release build). The switch no longer parses the
+  host's text again, and each check of a text finds the secret
+  placeholders written in it in one pass, not one pass for each.
 
 ### Syntax messages say what they quote
 

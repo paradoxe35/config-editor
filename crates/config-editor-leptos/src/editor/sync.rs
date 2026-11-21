@@ -1415,11 +1415,12 @@ fn without_secret_quotes(
 }
 
 /// Why `language` cannot write documents, when it cannot (a language
-/// registered with `parse` alone).
+/// registered with `parse` alone). Only its writer is asked: reading the
+/// written text back would go through the shared parses (`parse_cache`),
+/// pushing out the host's and the view's, which the switch reads next.
 pub(super) fn cannot_write(language: Language) -> Option<codec::ConvertError> {
-    language
-        .serialize(&serde_json::Value::Object(serde_json::Map::new()))
-        .err()
+    let empty = serde_json::Value::Object(serde_json::Map::new());
+    codec::serialize(language.behavior(), &empty, None).err()
 }
 
 /// Where the field the caret is on in `before` (in its language) is written
