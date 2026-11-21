@@ -133,12 +133,14 @@ export function frameworkCases(name) {
       await expect.poll(host).toBe(typed);
     });
 
-    // The locks a parent renders with a text of its own are read in that
-    // text: the binding sends them with it, though their JSON did not
-    // change (sent apart, the editor carried them by a diff that cannot
-    // tell where an all-new header went, and locked every changed line).
+    // P1: the locks a parent renders unchanged with a text of its own are
+    // carried into it from the text they were given with (the binding cannot
+    // tell that text from a late echo of an editor's own, after a re-mount
+    // too). They lock at least what they name there, never less; where the
+    // carry cannot tell where a lock went, whole changed lines around it
+    // stay locked until the parent gives ranges again.
     for (const query of ['', '?late']) {
-      test(`${query || '(controlled)'}: a parent's locks given with a new text of its own lock what they name there, nothing more`, async ({ page: browserPage }) => {
+      test(`${query || '(controlled)'}: a parent's locks rendered unchanged with a new text of its own lock at least what they name there`, async ({ page: browserPage }) => {
         const errors = [];
         browserPage.on('pageerror', (error) => errors.push(String(error)));
         browserPage.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
@@ -161,11 +163,60 @@ export function frameworkCases(name) {
         await typeAfter('listen: 1', '9');
         await typeAfter('a.example', '8');
         await typeAfter('# new header', 'Z');
-        await expect(input(browserPage)).toHaveValue('# new header\nlisten: 19\npublic_address: a.example8\n');
-        await expect(saved(browserPage)).toHaveText('# new header\nlisten: 19\npublic_address: a.example8\n', { timeout: 5000 });
+        // The line the ranges name is kept; whatever else took the typing
+        // reaches the parent.
+        const shown = await input(browserPage).inputValue();
+        expect(shown.startsWith('# new header\n')).toBe(true);
+        await expect(saved(browserPage)).toHaveText(shown, { timeout: 5000 });
         expect(errors).toEqual([]);
       });
     }
+
+    // P1: a line typed above a locked line, then the editor hidden and shown
+    // again (a conditional render: a new component) before the late parent
+    // applies the edit. The new editor never sent that text, so its echo
+    // looks like the parent's own; the ranges the parent renders unchanged
+    // with it are still for the text it gave them with, and keep locking
+    // public_address where the typed line moved it.
+    test('hidden and shown again while an echo is late, the locked line stays locked where the typing moved it', async ({ page: browserPage }) => {
+      const errors = [];
+      browserPage.on('pageerror', (error) => errors.push(String(error)));
+      browserPage.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+      await browserPage.goto(page(name) + '?late');
+      await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+      await input(browserPage).waitFor();
+      const before = await input(browserPage).inputValue();
+      expect(before.split('\n')[2]).toBe('public_address: tunnel.example.com');
+      await browserPage.evaluate(() =>
+        window.setExtraProps({ readOnlyRanges: [{ startLine: 3, startColumn: 1, endLine: 4, endColumn: 1 }] }),
+      );
+      await browserPage.waitForTimeout(300);
+      await input(browserPage).click();
+      await browserPage.keyboard.press('Control+Home');
+      await browserPage.keyboard.press('ArrowDown');
+      await browserPage.keyboard.type('top: 1\n', { delay: 10 });
+      await browserPage.evaluate(async () => {
+        window.setShown(false);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        window.setShown(true);
+      });
+      await input(browserPage).waitFor();
+      await expect(input(browserPage)).toHaveValue(/\ntop: 1\n/);
+      await browserPage.waitForTimeout(800);
+      // The locked value typed over with real keys.
+      await input(browserPage).evaluate((element) => {
+        const at = element.value.indexOf('tunnel.example.com') + 'tunnel.example.com'.length;
+        element.focus();
+        element.setSelectionRange(at, at);
+      });
+      await browserPage.keyboard.press('Backspace');
+      await browserPage.keyboard.type('evil', { delay: 5 });
+      await browserPage.waitForTimeout(1000);
+      expect(await input(browserPage).inputValue()).toContain('\npublic_address: tunnel.example.com\n');
+      await expect(saved(browserPage)).toContainText('public_address: tunnel.example.com');
+      expect(await saved(browserPage).textContent()).not.toContain('evil');
+      expect(errors).toEqual([]);
+    });
 
     test("setValue to a text the parent's locks name places past: read in the text they came with, no error", async ({ page: browserPage }) => {
       const errors = await open(browserPage, name);

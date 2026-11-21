@@ -177,6 +177,13 @@ do more. Here they are in one place.
   whose text was changed before it was locked locks nothing, and the save
   waits until that text is back; so does a field named in `readOnlyPaths`
   after it was changed.
+- `readOnlyRanges` name places in the text they come with. When your app
+  sends a new text of its own with the same ranges, the editor keeps the
+  locks where the edits moved them, and may lock the whole changed lines
+  around them until you send new ranges. Work the ranges out again for a new
+  text, or use `readOnlyPaths`, which do not depend on places in the text.
+  Hiding and showing the editor (an unmount) keeps the locks only through
+  the ranges your app gives for its current text.
 - In a custom language that gives no positions (`spans`), a locked field is
   checked by value, not by place. While the text does not parse, edits go
   through and the save waits until it parses again.

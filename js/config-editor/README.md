@@ -524,12 +524,13 @@ editor.update({ hostDiagnostics: problems, onSave: null });
   file switched to, a discard, a reset); a `value` that is the document
   already changes nothing. The caret stays on the same text when possible.
   `readOnlyRanges` and host `range`s given with it are in the new document,
-  and lock exactly what they name there (give the ranges with each text of
-  your own, changed or not, as the framework components do). Without
-  `readOnlyRanges`, the ones you gave last are carried into the new text by
-  a diff, as after `replaceValue`: where the diff cannot tell where a lock
-  went, the whole changed lines around it stay locked until you give ranges
-  again.
+  and lock exactly what they name there: give ranges with a `value` only
+  when you worked them out for that text (the framework components give a
+  list only when it changed). Without `readOnlyRanges`, the ones you gave
+  last are carried into the new text by a diff, as after `replaceValue`:
+  where the diff cannot tell where a lock went, the whole changed lines
+  around it stay locked until you give ranges again. `readOnlyPaths` do not
+  depend on places in the text.
   The text `onChange` gave last, given while the editor still held a newer
   edit (one edited as another language, waiting out the typing pause, that
   the update first sends to `onChange`), is older than what was typed: it

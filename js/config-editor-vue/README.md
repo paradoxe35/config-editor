@@ -468,7 +468,7 @@ With revisions there is no pause: `@update:model-value` gives each text a revisi
 />
 ```
 
-`readOnlyRanges` go to the editor with each new `modelValue`, changed or not, and are read in that text: a parent that renders the same ranges with a text of its own (a file loaded, a reset in its state) locks exactly what they name there. Ranges past that text's end that fit the text the last ones came with (the ranges a parent keeps rendering after `setValue`) are read in that one and moved. Until the ranges come with a `modelValue` again (between `setValue` and the next render), the locks are carried into the new text by a diff: where it cannot tell where a lock went, the whole changed lines stay locked.
+`readOnlyRanges` name places in the text they come with: a new list goes to the editor with the `modelValue` you render it with. When you render a new text of your own with the same ranges, the editor keeps the locks where the edits moved them and carries them into the new text; where it cannot tell where a lock went, it locks the whole changed lines around it until you render new ranges. So work the ranges out again for each new text, or use `readOnlyPaths`, which do not depend on places in the text. Hiding and showing the editor (an unmount) starts a new editor: it keeps the locks only through the ranges you render for your current text.
 
 </details>
 
