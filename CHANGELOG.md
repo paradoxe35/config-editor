@@ -5,7 +5,7 @@ All notable changes to the crate `config-editor-leptos` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-11-21
 
 The first release: a fast, VS Code–style editor for
 configuration files that runs in the browser, written in Rust and compiled to
