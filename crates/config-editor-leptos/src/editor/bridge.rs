@@ -215,7 +215,13 @@ impl Bridge {
     ) -> Result<String, SaveError> {
         let (previous, _) = byte_order_mark::split(previous_host);
         let (origin, _) = byte_order_mark::split(origin);
-        let conversion = self.to_unmarked_host(edit_text, previous, origin, told, untouched)?;
+        // The steps of the save read the spans of the host's text and the
+        // view's: each once.
+        let conversion = super::paths::sharing_spans(self.host.behavior(), previous, || {
+            super::paths::sharing_spans(self.edit.behavior(), edit_text, || {
+                self.to_unmarked_host(edit_text, previous, origin, told, untouched)
+            })
+        })?;
         // A value the host would read back otherwise waits (a save written
         // whole is checked here, a patched one before it is read back).
         if let Some(pointer) = conversion.losses.first() {

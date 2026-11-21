@@ -394,7 +394,10 @@ fn a_wait_on_a_list_item_is_marked_on_the_item() {
 
 /// A save that waits because the host's language has no form for a value
 /// (no null, no infinity, no empty list, no such integer or name) says what
-/// to do, like every other waiting reason, not only what is missing.
+/// to do, like every other waiting reason, not only what is missing; a
+/// top level the host cannot hold (a list or a scalar where a TOML table,
+/// an HCL body or XML elements must be) too. Hosts without a null word it
+/// alike.
 #[test]
 fn a_reason_a_value_cannot_be_written_says_what_to_do() {
     use serde_json::json;
@@ -433,6 +436,12 @@ fn a_reason_a_value_cannot_be_written_says_what_to_do() {
         (Language::XML, json!({"r": {"": 1}})),
         (Language::XML, json!({"r": {"a b": 1}})),
         (Language::XML, json!({"r": {"a": "\u{1}"}})),
+        (Language::TOML, json!([1])),
+        (Language::TOML, json!(1)),
+        (Language::HCL, json!([1])),
+        (Language::HCL, json!("x")),
+        (Language::XML, json!([1])),
+        (Language::XML, json!("x")),
     ] {
         match language.serialize(&value) {
             Ok(text) => reasons.push(format!("{language} writes {value}: {text}")),
@@ -446,6 +455,7 @@ fn a_reason_a_value_cannot_be_written_says_what_to_do() {
         "change it",
         "rename it",
         "edit it as",
+        "make the top level",
     ];
     let silent: Vec<&String> = reasons
         .iter()
@@ -457,4 +467,15 @@ fn a_reason_a_value_cannot_be_written_says_what_to_do() {
         })
         .collect();
     assert!(silent.is_empty(), "reasons without what to do: {silent:#?}");
+    let nulls: Vec<&String> = reasons
+        .iter()
+        .filter(|reason| reason.contains("no null"))
+        .collect();
+    assert_eq!(nulls.len(), 2, "{reasons:#?}");
+    for reason in nulls {
+        assert!(
+            reason.ends_with("or remove it to save (at /a)"),
+            "a null reason worded apart: {reason}"
+        );
+    }
 }

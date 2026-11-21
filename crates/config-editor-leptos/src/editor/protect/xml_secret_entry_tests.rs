@@ -8,8 +8,10 @@
 //! element of its name would make the field a list with other text beside
 //! the placeholder: refused where it writes at the placeholder, as YAML
 //! refuses `password: [«secret», x]`, else taken and held (flagged, the
-//! change event and the save waiting). Text glued to a placeholder is
-//! still refused.
+//! change event and the save waiting), an empty element as well; typed a
+//! key at a time it ends as pasted does (its last `>` repairs the text
+//! around a placeholder still alone in its string). Text glued to a
+//! placeholder is still refused.
 
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
@@ -129,7 +131,14 @@ fn cases() -> Vec<Case> {
             schema: wrap(&format!(
                 r#"{{"db": {{"type": "object", "properties": {{"user": {{"type": "string"}}, "password": {password}}}}}}}"#
             )),
-            entries: &["<password>x</password>", r#"<password a="1">x</password>"#],
+            // Empty too: a list with an empty item beside the placeholder,
+            // as YAML's `[«secret», ""]`.
+            entries: &[
+                "<password>x</password>",
+                r#"<password a="1">x</password>"#,
+                "<password></password>",
+                "<password/>",
+            ],
             list: false,
         });
     }
@@ -178,6 +187,8 @@ fn a_new_element_is_taken_beside_xml_secrets_in_a_list_and_held_beside_a_lone_on
         let schema: serde_json::Value = serde_json::from_str(&case.schema).unwrap();
         for entry in case.entries {
             for end in line_ends(&case.text) {
+                // Beside a lone secret, how each way of writing it ended.
+                let mut endings = Vec::new();
                 for how in [
                     How::Typed { pairs: false },
                     How::Typed { pairs: true },
@@ -197,7 +208,8 @@ fn a_new_element_is_taken_beside_xml_secrets_in_a_list_and_held_beside_a_lone_on
                     let now = shown(state);
                     // Beside a lone secret: refused, or taken and held.
                     if !case.list {
-                        if now == expected {
+                        let taken = now == expected;
+                        if taken {
                             state.recheck_tokens();
                             let found = problems(state, Language::XML, Some(&schema));
                             if found.is_empty() || state.save() || !untrack(|| state.changes_held())
@@ -207,6 +219,7 @@ fn a_new_element_is_taken_beside_xml_secrets_in_a_list_and_held_beside_a_lone_on
                                 ));
                             }
                         }
+                        endings.push((how, taken));
                         continue;
                     }
                     if now != expected {
@@ -222,6 +235,12 @@ fn a_new_element_is_taken_beside_xml_secrets_in_a_list_and_held_beside_a_lone_on
                             "{label}: a new item flagged {found:?} (saved: {saved})"
                         ));
                     }
+                }
+                if endings.iter().any(|(_, taken)| *taken != endings[0].1) {
+                    failures.push(format!(
+                        "{}: {entry} after byte {end}: typed and pasted end apart (taken: {endings:?})",
+                        case.name
+                    ));
                 }
             }
         }

@@ -60,6 +60,16 @@ versions move together.
   added in another view), and completion offers attributes in a start tag
   and elements in the content.
 
+### Fixes
+
+- In XML, a second element of a secret's name (an empty one too) written
+  beside a lone secret's element is taken and held, typed or pasted, as a
+  list made beside a placeholder is in every language; typing it no longer
+  stops at its last `>`.
+- A save waiting because the host cannot hold the top level (a list or a
+  scalar where TOML, HCL or XML need an object) says what to do, and a
+  null TOML has no value for is worded as XML's.
+
 ## 0.1.1 — 2026-11-21
 
 - The Rust crate is renamed from `config-editor-leptos` to

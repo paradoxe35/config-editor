@@ -356,8 +356,13 @@ impl EditorState {
     ) -> (Option<bridge::links::Told>, Vec<bridge::links::Untouched>) {
         let identity = bridge.host.behavior().items_hold_unshown(previous);
         let mut links = self.sync().links.get_value();
-        let told = links.told(language.behavior(), text, previous, identity);
-        let untouched = links.untouched(language.behavior(), text);
+        // Both read the spans of the view's items: once.
+        let (told, untouched) = super::paths::sharing_spans(language.behavior(), text, || {
+            (
+                links.told(language.behavior(), text, previous, identity),
+                links.untouched(language.behavior(), text),
+            )
+        });
         self.sync().links.set_value(links);
         (told, untouched)
     }

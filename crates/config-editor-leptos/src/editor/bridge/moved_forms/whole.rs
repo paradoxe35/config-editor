@@ -421,22 +421,21 @@ pub(super) fn kept(
     // The comments of the items not written back whole (their values
     // changed since), as their sources write them, where the text then
     // reads the same.
-    let with_comments = |text: String| -> String {
-        let lines = Lines::of(&text);
-        let mut edits: Vec<(TextRange, String)> = batched(&text, &|| {
-            moved
-                .iter()
-                .map(|item| {
-                    let source = sources
-                        .iter()
-                        .find(|source| std::ptr::eq(source.text, item.source.text))?;
-                    comments(host, &lines, source, item)
-                })
-                .collect()
-        })
-        .into_iter()
-        .flatten()
-        .collect();
+    // Their writes in `text`, inside a batch of its spans.
+    let comment_edits = |text: &str| -> Vec<Option<(TextRange, String)>> {
+        let lines = Lines::of(text);
+        moved
+            .iter()
+            .map(|item| {
+                let source = sources
+                    .iter()
+                    .find(|source| std::ptr::eq(source.text, item.source.text))?;
+                comments(host, &lines, source, item)
+            })
+            .collect()
+    };
+    let with_edits = |text: String, edits: Vec<Option<(TextRange, String)>>| -> String {
+        let mut edits: Vec<(TextRange, String)> = edits.into_iter().flatten().collect();
         edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start()));
         edits.dedup_by(|left, right| left.0 == right.0);
         let apart = edits
@@ -450,8 +449,16 @@ pub(super) fn kept(
             _ => text,
         }
     };
+    let with_comments = |text: String| -> String {
+        let edits = batched(&text, &|| comment_edits(&text));
+        with_edits(text, edits)
+    };
+    // The writes of `saved`, and its comments' for a save left as it is,
+    // from one read of its spans.
+    let saved_comments = std::cell::RefCell::new(Vec::new());
     let all_writes = batched(&saved, &|| {
         let lines = Lines::of(&saved);
+        saved_comments.replace(comment_edits(&saved));
         moved.iter().map(|item| write(&lines, item)).collect()
     });
     // The outermost items with a write, all at once (`moved` is in
@@ -490,9 +497,10 @@ pub(super) fn kept(
         .map(|(item, _)| item)
         .collect();
     if differing.len() > MOST_TRIED {
-        return with_comments(saved);
+        return with_edits(saved, saved_comments.take());
     }
     let mut text = saved;
+    let mut rewritten = false;
     let mut written: Vec<&str> = Vec::new();
     let mut tried: Vec<&Moved<'_>> = differing;
     tried.reverse();
@@ -509,6 +517,7 @@ pub(super) fn kept(
             .filter(|next| reads(next));
         if let Some(next) = whole {
             text = next;
+            rewritten = true;
             written.push(&item.to);
             continue;
         }
@@ -521,6 +530,7 @@ pub(super) fn kept(
             && reads(&next)
         {
             text = next;
+            rewritten = true;
             let inner: Vec<&Moved<'_>> = moved
                 .iter()
                 .filter(|inner| {
@@ -531,7 +541,11 @@ pub(super) fn kept(
             tried.extend(inner.into_iter().rev());
         }
     }
-    with_comments(text)
+    if rewritten {
+        with_comments(text)
+    } else {
+        with_edits(text, saved_comments.take())
+    }
 }
 
 /// Whether `patched` (its source `text` patched so the item at `from`

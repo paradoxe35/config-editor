@@ -617,7 +617,7 @@ impl XmlBehavior {
             }
         }
         let Value::Object(map) = &with_attributes(value, old.as_ref(), &attributes, &mut Vec::new()) else {
-            return Err("the XML document model is an object of elements".to_string());
+            return Err("an XML document is a tree of elements: make the top level an object to save".to_string());
         };
         let mut out = String::new();
         if let Some(declaration) = &framing.declaration {

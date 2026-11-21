@@ -1281,10 +1281,11 @@ view! { <ConfigEditor value=text schema=SCHEMA secrets=secrets /> }
   whole secret, so nothing is written beside it: typing or pasting next to
   it in its field (`«secret 3f2a»Z`) is refused with a tip, in the host's
   language and in every Edit-as view. So is making the field a list
-  (`[«secret 3f2a», x]`, or in XML a second element of its name, unless
-  the schema makes the field a list): refused where the edit writes at the
+  (`[«secret 3f2a», x]`): refused where the edit writes at the
   placeholder, else taken and held (flagged; `on_change` and the save
-  wait). A token alone in a string written
+  wait). In XML a second element of its name (an empty one too), unless
+  the schema makes the field a list, is taken and held the same way,
+  typed or pasted. A token alone in a string written
   over lines (a YAML block scalar of any chomping, folding or indentation
   indicator, a TOML `"""` string, an HCL heredoc, XML text on its own line)
   is its field's whole value too: the line breaks and indentation the form

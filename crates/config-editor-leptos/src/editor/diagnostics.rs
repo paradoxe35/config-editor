@@ -579,8 +579,20 @@ fn held_texts(
     // Only a string of the document can hold one with text beside it: with
     // none, the holder query (a read of every such string's span) is not
     // asked.
-    let glued =
-        |text: &str| !own.contains(text.trim()) && own.iter().any(|token| text.contains(token));
+    // A string holding none of the characters a token starts with holds no
+    // token: one scan of it, not a search for each token (thousands of
+    // strings, hundreds of tokens).
+    let mut starts: Vec<char> = own
+        .iter()
+        .filter_map(|token| token.chars().next())
+        .collect();
+    starts.sort_unstable();
+    starts.dedup();
+    let glued = |text: &str| {
+        text.contains(starts.as_slice())
+            && !own.contains(text.trim())
+            && own.iter().any(|token| text.contains(token))
+    };
     if !any_string(document, &glued) {
         return Vec::new();
     }

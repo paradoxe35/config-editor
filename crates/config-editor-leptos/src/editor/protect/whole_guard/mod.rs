@@ -19,7 +19,9 @@
 //!   beside it may only lose some. After a repair (the text before did not
 //!   parse) the token must stand alone: text that got beside it while the
 //!   text was broken (not touching it: on a line below, in a block scalar)
-//!   is taken out first;
+//!   is taken out first. In XML, a second element of the field's name
+//!   beside its own, the token alone in its item, is taken and held however
+//!   it is written (typed to its last `>`, or pasted);
 //! - else (the edited text does not parse) each token written near the
 //!   edit is a span: typing inside it or gluing text onto its edges is
 //!   refused, taking it away whole is free (`broken`). Nothing is read off
@@ -58,6 +60,7 @@ use super::glued::{Form, Holding, alone_in_fields, holding, only_taken_from};
 use super::holder::Holders;
 use super::reach::reaches_none_by;
 use super::tokens::{Known, SecretMatcher, field_value};
+use crate::editor::language::Repetition;
 
 /// The host's placeholders in the text before an edit.
 pub(crate) struct Placeholders<'a> {
@@ -81,6 +84,25 @@ pub(crate) struct Placeholders<'a> {
     /// check made it): an edit leaving it as it was is told without
     /// parsing that text again.
     pub(crate) earlier: Option<&'a Value>,
+}
+
+/// How the check judges an edit after which a field given a placeholder
+/// whole reads it otherwise (see `glued_in_parsed`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Judged {
+    /// At the edit's place: refused where it writes at a placeholder, else
+    /// taken and held, when the text before parsed (or a hold is on);
+    /// refused after any other repair, as text may have got beside the
+    /// token while the text was broken.
+    AtEdit,
+    /// The token's own text kept whole, whatever the edit touches: taken
+    /// and held. Only a copy of the token taken away (the way back), or,
+    /// in a language that repeats an element for a list, a second element
+    /// of the field's name written beside its own, the token alone in its
+    /// item (`<password/>` above it, typed or pasted): what reaches the
+    /// host waits, as for `[«secret», x]` in YAML, and nothing on screen is
+    /// glued to the token.
+    Kept,
 }
 
 /// The edited text as the check reads it: its parse, and its holder query
@@ -203,16 +225,19 @@ impl Placeholders<'_> {
                     document,
                     holders: &holders,
                 };
-                let (read, way_back) = match self.glued_in_parsed(before, after_read) {
-                    Some((field, way_back)) => (Some(field), way_back),
-                    None => (self.glued_where_moved(before, after_read, changed), false),
+                let (read, judged) = match self.glued_in_parsed(before, after_read) {
+                    Some((field, judged)) => (Some(field), judged),
+                    None => (
+                        self.glued_where_moved(before, after_read, changed),
+                        Judged::AtEdit,
+                    ),
                 };
                 // Refused when the edit writes at a placeholder's edges (or
                 // over it), or repairs the text (nothing before says what
                 // its value held) but one held already; else the parse's
                 // reading is held.
                 let tokens = match &read {
-                    Some(field) if way_back => Some(self.tokens_of(field)),
+                    Some(field) if judged == Judged::Kept => Some(self.tokens_of(field)),
                     Some(field) if before_parses || self.holding => {
                         self.untouched(before, after, changed, field)
                     }
@@ -437,10 +462,9 @@ impl Placeholders<'_> {
     /// a line uncommented or moved back into its block). A value that
     /// already had text beside it may only lose some, and one already
     /// made a list or map stays as it was; after a repair (`before` does
-    /// not parse) it holds the token alone. With the field, whether the
-    /// edit only took a copy of the token away (see below): taken and held
-    /// whatever it touches.
-    fn glued_in_parsed(&self, before: &str, read: Read<'_, '_>) -> Option<(String, bool)> {
+    /// not parse) it holds the token alone. With the field, how the edit
+    /// is judged ([`Judged`]).
+    fn glued_in_parsed(&self, before: &str, read: Read<'_, '_>) -> Option<(String, Judged)> {
         let document = read.document;
         let given = || self.index.all().map(|at| &self.known[at]);
         // Each held as the host wrote it, alone in its field: none changed.
@@ -462,7 +486,15 @@ impl Placeholders<'_> {
         let earlier = earlier.as_ref().as_ref().ok();
         let holders_before =
             earlier.map(|earlier| Holders::read(behavior, before, earlier, self.matcher));
-        let mut way_back = false;
+        let mut judged = Judged::AtEdit;
+        // Whether each string holding the token holds it alone.
+        let alone_where_held = |known: &Known| {
+            holders.of(&known.token).all(|place| {
+                place
+                    .as_ref()
+                    .is_some_and(|holder| known.alone_in(holder.text))
+            })
+        };
         changed
             .find(|known| {
                 let was = earlier
@@ -479,7 +511,17 @@ impl Placeholders<'_> {
                 };
                 match (was, holding(behavior, document, holders, known)) {
                     (Some(Holding::Not), Holding::Within(Value::Array(_))) if fewer_copies() => {
-                        way_back = true;
+                        judged = Judged::Kept;
+                        true
+                    }
+                    // A second element of its name beside its own, the
+                    // token alone in its item.
+                    (was, Holding::Within(Value::Array(_)))
+                        if behavior.repetition() == Repetition::Elements
+                            && !matches!(was, Some(Holding::Within(_)))
+                            && alone_where_held(known) =>
+                    {
+                        judged = Judged::Kept;
                         true
                     }
                     // Bare where the host wrote whitespace around it (a
@@ -520,6 +562,6 @@ impl Placeholders<'_> {
                 }
             })
             .and_then(|known| known.field.clone())
-            .map(|field| (field, way_back))
+            .map(|field| (field, judged))
     }
 }

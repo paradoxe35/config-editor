@@ -33,7 +33,7 @@ pub(crate) use lines::{
 #[cfg(any(feature = "yaml", feature = "toml", feature = "hcl", feature = "xml"))]
 pub(crate) use span_memo::batch_cached_as;
 pub(crate) use span_memo::in_batch;
-pub(crate) use span_memo::{KeptSpans, with_spans};
+pub(crate) use span_memo::{KeptSpans, sharing_spans, with_spans};
 pub(crate) use span_memo::{batch_cached, batch_kept};
 pub(crate) use span_memo::{key_span as memo_key_span, value_span as memo_value_span};
 pub use types::{FieldPath, TextPosition, TextRange};

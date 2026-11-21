@@ -124,19 +124,52 @@ fn wanted(pointers: &[String], repeats: bool) -> Vec<String> {
 /// Runs `work` with the key and value spans of `pointers` (each one's
 /// ancestors and spellings too) in `source` read at once; [`key_span`] and
 /// [`value_span`] calls for that text inside it answer from them instead
-/// of reading the document again.
+/// of reading the document again. Inside [`sharing_spans`] for the text
+/// (or another `with_spans` for it), only the spans not read yet are
+/// read, into that batch: steps of one save asking for the same text's
+/// spans read them once.
 pub(crate) fn with_spans<T>(
     behavior: &dyn ConfigLanguage,
     source: &str,
     pointers: &[String],
     work: impl FnOnce() -> T,
 ) -> T {
+    if running_for(behavior, source) {
+        read(behavior, source, pointers);
+        return work();
+    }
     let batch = empty(behavior, source);
     running(batch, || {
         read(behavior, source, pointers);
         work()
     })
     .0
+}
+
+/// Runs `work` with one batch for `source` (written in `behavior`)
+/// running: the spans [`with_spans`] reads inside it, and the readings of
+/// the whole text ([`batch_cached`]), are read once for all of `work`.
+/// Nothing is kept after.
+pub(crate) fn sharing_spans<T>(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    work: impl FnOnce() -> T,
+) -> T {
+    if running_for(behavior, source) {
+        return work();
+    }
+    running(empty(behavior, source), work).0
+}
+
+/// Whether a batch for `source`, read in `behavior`, is running.
+fn running_for(behavior: &dyn ConfigLanguage, source: &str) -> bool {
+    let (label, text) = (behavior.info().label, text_key(source));
+    BATCHES.with(|batches| {
+        batches
+            .borrow()
+            .iter()
+            .any(|batch| batch.label == label && batch.text == text)
+    })
 }
 
 /// A batch for `source` holding nothing yet.
@@ -151,10 +184,24 @@ fn empty(behavior: &dyn ConfigLanguage, source: &str) -> Batch {
 }
 
 /// Reads the spans of `pointers` (each one's ancestors and spellings too)
-/// in `source` at once into the running batch for it: the readings the
-/// language makes of the whole text are shared by both lookups.
+/// in `source` that the running batch for it holds none of yet, at once,
+/// into it: the readings the language makes of the whole text are shared
+/// by both lookups.
 fn read(behavior: &dyn ConfigLanguage, source: &str, pointers: &[String]) {
-    let wanted = wanted(pointers, behavior.repetition() != Repetition::None);
+    let (label, text) = (behavior.info().label, text_key(source));
+    let mut wanted = wanted(pointers, behavior.repetition() != Repetition::None);
+    BATCHES.with(|batches| {
+        if let Some(batch) = batches
+            .borrow()
+            .iter()
+            .rev()
+            .find(|batch| batch.label == label && batch.text == text)
+        {
+            wanted.retain(|pointer| {
+                !(batch.values.contains_key(pointer) && batch.keys.contains_key(pointer))
+            });
+        }
+    });
     if wanted.is_empty() {
         return;
     }
@@ -163,7 +210,12 @@ fn read(behavior: &dyn ConfigLanguage, source: &str, pointers: &[String]) {
     let values = behavior.value_spans(source, &paths);
     let keys = behavior.key_spans(source, &paths);
     BATCHES.with(|batches| {
-        if let Some(batch) = batches.borrow_mut().last_mut() {
+        if let Some(batch) = batches
+            .borrow_mut()
+            .iter_mut()
+            .rev()
+            .find(|batch| batch.label == label && batch.text == text)
+        {
             batch.values.extend(wanted.iter().cloned().zip(values));
             batch.keys.extend(wanted.into_iter().zip(keys));
         }

@@ -516,7 +516,7 @@ impl HclBehavior {
     /// `value` is by an Edit-as save (see `SaveTold`).
     fn written(&self, value: &Value, previous: Option<&str>, told: SaveTold<'_>) -> Result<String, String> {
         let Value::Object(map) = value else {
-            return Err("an HCL document is a body: the top level must be an object".to_string());
+            return Err("an HCL document is a body: make the top level an object to save".to_string());
         };
         // Maps are written in the host's forms again: labelled blocks,
         // attributes, blocks on one line.

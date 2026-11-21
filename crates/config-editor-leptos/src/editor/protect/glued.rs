@@ -151,17 +151,13 @@ pub(super) fn holding<'a>(
         }
         // The field made a list (a second element of its name written
         // beside its own), in any language: the token was its whole value,
-        // so the list's other items are written beside it. Items empty or
-        // holding the token alone are none (a copy of its line with its
-        // mask deleted, on the way back). In a language that repeats only
-        // a key for a list (not any element), every copy is such an item.
+        // so the list's other items are written beside it, an empty one
+        // too (`<password/>`, as YAML's `[«secret», ""]`). Items holding
+        // the token alone are none. In a language that repeats only a key
+        // for a list (not any element), every copy is such an item.
         let other_items = || {
-            matches!(container(), Value::Array(items) if items.iter().any(|item| match item {
-                Value::Null => false,
-                Value::String(text) => !text.is_empty() && !known.alone_in(text),
-                Value::Object(map) => !map.is_empty(),
-                Value::Array(items) => !items.is_empty(),
-                _ => true,
+            matches!(container(), Value::Array(items) if items.iter().any(|item| {
+                !matches!(item, Value::String(text) if known.alone_in(text))
             }))
         };
         if (listed && other_items()) || repetition != Repetition::Elements {
