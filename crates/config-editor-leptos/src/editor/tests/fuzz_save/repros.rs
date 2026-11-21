@@ -2888,3 +2888,29 @@ fn entries_moved_under_a_copied_block_header_keep_the_forms_of_their_lines() {
         "alpha:\n  k1:\n    k1:\n      base: &bk1 5\n      copy: *bk1\n    k2: 1.50 # note 2\n    base: &bk3 5\n    copy: *bk3\nbeta:\n  k4: 0x1F # note 5\n  k5: ~ # note 6\n  k6: {x: 1, y: two}\n"
     );
 }
+
+/// P2: a TOML inline list whose hex item the user typed over (saved as
+/// `"2x"`) and typed back (`2`) is the user's on its line: the save writes
+/// `2` there, as they typed it, and keeps every value it left alone.
+#[test]
+fn an_inline_list_holding_an_item_typed_over_and_back_is_the_users_line() {
+    replay(
+        Language::TOML,
+        Language::YAML,
+        "[alpha]\nk1 = 1979-05-27T07:32:00 # note 1\nk2 = 1979-05-27T07:32:00Z # note 2\nk3 = \"\"\"\nmulti\nline\"\"\"\nk4 = [1, 0x2, 3]\n[beta]\nk5 = 1_000 # note 3\nk6 = 'C:\\dir' # note 4\n",
+        &[
+            Op::Type {
+                line: 21,
+                column: 1000,
+                text: "x",
+            },
+            Op::Pause,
+            Op::DeleteLine { line: 12 },
+            Op::Backspace {
+                line: 56,
+                column: 11,
+                count: 1,
+            },
+        ],
+    );
+}

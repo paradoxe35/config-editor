@@ -918,7 +918,17 @@ fn check_forms(
             .written(form, &pointer, false, new_parent));
         }
         if left_in_place && start.value.pointer(&pointer) == Some(value) {
-            if changed_before.contains(&pointer) {
+            // A map or list's form is its first line, which holds the
+            // values written inline on it: one the user changed in an
+            // earlier save and typed back is theirs there too (judged on
+            // its own), so the line is no form the session left alone.
+            let holds_changed = || {
+                (value.is_object() || value.is_array())
+                    && changed_before
+                        .iter()
+                        .any(|changed| changed.starts_with(&format!("{pointer}/")))
+            };
+            if changed_before.contains(&pointer) || holds_changed() {
                 continue;
             }
             let Some(was) = before.get(&pointer) else {
