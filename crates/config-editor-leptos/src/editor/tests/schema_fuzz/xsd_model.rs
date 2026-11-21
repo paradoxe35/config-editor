@@ -652,7 +652,7 @@ pub(super) fn mutate(document: &Value, pick: usize) -> Value {
                 *value = json!(WRONG[(pick / 64) % WRONG.len()]);
             }
         }
-        2 | 3 | 4 => {
+        2..=4 => {
             if let Some(Value::Array(children)) = node.get_mut("c")
                 && !children.is_empty()
             {

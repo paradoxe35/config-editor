@@ -118,7 +118,7 @@ pub(super) fn check_with(both: &Both, case: &Case) -> Verdict {
                 continue;
             }
             if only_unwritable_left_out(
-                &both,
+                both,
                 language,
                 &option.label,
                 &read,
@@ -127,7 +127,7 @@ pub(super) fn check_with(both: &Both, case: &Case) -> Verdict {
                 continue;
             }
             let keyword = error.kind().keyword();
-            let unmet = || unmet(&both, language, (&case.schema, &case.doc), &read, &at);
+            let unmet = || unmet(both, language, (&case.schema, &case.doc), &read, &at);
             let class = match keyword {
                 // Each language's insert writes a key's own list empty or
                 // with its one first item, the caret inside to type the
