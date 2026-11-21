@@ -54,6 +54,10 @@ pub struct EditorHandle {
     /// The document's record of its host the editor mounting next takes
     /// over (a binding's, or a documents view's), taken when it mounts.
     channel: StoredValue<Option<super::sync::HostChannel>, LocalStorage>,
+    /// The echo record of the editor that showed this document before (a
+    /// documents view's document listed again with its id), taken when the
+    /// editor mounts.
+    handed: StoredValue<Option<super::sync::Handoff>>,
 }
 
 impl Default for EditorHandle {
@@ -81,6 +85,7 @@ impl EditorHandle {
             foreign: StoredValue::new(None),
             clipboard: StoredValue::new(None),
             channel: StoredValue::new_local(None),
+            handed: StoredValue::new(None),
         }
     }
 
@@ -134,6 +139,25 @@ impl EditorHandle {
     /// The record to take over, once.
     pub(super) fn take_channel(self) -> Option<super::sync::HostChannel> {
         self.channel.try_update_value(std::mem::take).flatten()
+    }
+
+    /// The editor mounting next with this handle takes over `handed`, the
+    /// echo record of the editor that showed its document before (see
+    /// [`HostChannel::handoff`](super::sync::HostChannel::handoff)).
+    pub(crate) fn hand_on(self, handed: super::sync::Handoff) {
+        let _ = self.handed.try_set_value(Some(handed));
+    }
+
+    /// The echo record to take over, once.
+    pub(super) fn take_handed(self) -> Option<super::sync::Handoff> {
+        self.handed.try_update_value(std::mem::take).flatten()
+    }
+
+    /// The texts the mounted editor sent that its host has not handed back
+    /// yet, for the editor made next for its document; `None` when none is
+    /// on its way or no editor is mounted.
+    pub(crate) fn handoff(self) -> Option<super::sync::Handoff> {
+        self.editor()?.sync().channel.try_get_value()?.handoff()
     }
 
     /// Takes `update` from the host through the editor's one entry (see

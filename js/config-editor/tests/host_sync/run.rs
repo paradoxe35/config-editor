@@ -146,7 +146,8 @@ fn act(rng: &mut Rng, view: View) -> Act {
         },
         85..=86 => Act::Remount { doc },
         87 => Act::FreshMount { doc },
-        88..=94 => Act::Settle,
+        88 => Act::Hide { doc },
+        89..=94 => Act::Settle,
         _ if view == View::Documents => Act::Select { doc },
         _ => Act::Settle,
     }

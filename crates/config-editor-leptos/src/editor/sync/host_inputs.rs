@@ -303,10 +303,20 @@ impl Link {
     /// The host hands every `on_change` text back (`echoes`), the document
     /// being `text`: from now on texts sent are recorded (a record that
     /// does already stays).
-    pub(crate) fn echoing(&mut self, text: &str) {
+    ///
+    /// `handed`: the record of the editor that showed this document before
+    /// (at `revision`, the host's `value_revision`, when it gave one), see
+    /// [`Echoes::handed`].
+    pub(crate) fn echoing(&mut self, text: &str, handed: Option<Handoff>, revision: Option<u64>) {
         if !self.echoes.is_on() {
-            self.echoes = Echoes::new(true);
-            self.echoes.given(text);
+            self.echoes = match handed {
+                Some(handed) => Echoes::handed(handed, text, revision),
+                None => {
+                    let mut echoes = Echoes::new(true);
+                    echoes.given(text);
+                    echoes
+                }
+            };
             self.log.set_confirms(true);
         }
     }
@@ -913,6 +923,22 @@ impl HostChannel {
         self.with(|link| link.echoes.handoff())
     }
 
+    /// Keeps the texts on their way (see [`HostChannel::handoff`]) page-wide
+    /// under the host's name for the slot, `key` (an editor destroyed where
+    /// a conditional render shows it again), for the next editor made with
+    /// that name: [`HostChannel::left`]. One record per name, the newest;
+    /// none when nothing is on its way.
+    pub fn leave(&self, key: &str) {
+        super::kept_echoes::leave(key, &self.0, self.handoff());
+    }
+
+    /// Takes the record an editor destroyed with the name `key` left (see
+    /// [`HostChannel::leave`]), for the editor made with it now; the name
+    /// keeps none after.
+    pub fn left(key: &str) -> Option<Handoff> {
+        super::kept_echoes::take(key)
+    }
+
     /// Runs `apply` on the record.
     pub(crate) fn with<T>(&self, apply: impl FnOnce(&mut Link) -> T) -> T {
         apply(&mut self.0.borrow_mut())
@@ -972,6 +998,8 @@ impl HostChannel {
     /// (see [`Link::remounted`]).
     pub fn remount(&self, value: &str) {
         let value = crate::editor::state::normalize_newlines(value.to_string());
+        // Its texts come back here: a record it left is no one else's.
+        super::kept_echoes::going_on(&self.0);
         self.with(|link| link.remounted(&value, &diff_rewrite));
     }
 

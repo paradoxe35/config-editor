@@ -50,6 +50,18 @@ pub(crate) struct DocSim {
     /// lost after the hide and show (the record the binding handed on
     /// tells those texts apart), whatever text replaces it.
     gone_text_seen: bool,
+    /// Hidden by a conditional render (see `Act::Hide`): no editor shows
+    /// the document until it is shown again under `key`.
+    hidden: bool,
+    /// The host's name for the document's slot (`echoKey`), unique to it.
+    key: String,
+}
+
+/// A name no other document of any run has.
+fn new_key() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!("doc-{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
 impl DocSim {
@@ -67,6 +79,8 @@ impl DocSim {
             typed_since_fresh: true,
             brought_back: false,
             gone_text_seen: false,
+            hidden: false,
+            key: new_key(),
         };
         let given = Given {
             anchor: None,
@@ -399,9 +413,51 @@ impl DocSim {
     /// the new one.
     fn fresh_mount(&mut self) -> Outcome {
         self.host.fresh_mount();
+        let handed = self.core.channel.handoff();
+        self.made_again(handed)
+    }
+
+    /// A conditional render with an `echoKey` hides the component: the
+    /// editor is destroyed, its texts on their way kept under the name
+    /// (as `destroy` does), its pause gone with it.
+    fn hide(&mut self) {
+        if self.hidden {
+            return;
+        }
+        self.core.channel.leave(&self.key);
+        self.host.fresh_mount();
+        self.settle_armed = false;
+        self.hidden = true;
+    }
+
+    /// Shows the hidden document again: a new component with the same
+    /// name, on the host's store, takes the record kept under it (as the
+    /// constructor does).
+    fn show(&mut self) -> Outcome {
+        if !std::mem::take(&mut self.hidden) {
+            return Ok(());
+        }
+        self.made_again(HostChannel::left(&self.key))
+    }
+
+    /// A text handed back while the document is hidden: the host stores
+    /// it, no editor hears it.
+    fn deliver_hidden(&mut self, pick: u16) {
+        let Some(queued) = self.host.take(pick) else {
+            return;
+        };
+        if self.host.hold(&queued.text, queued.revision) {
+            queued.text.clone_into(&mut self.host.last_listed);
+            self.gone_text_seen |= queued.before_fresh;
+        }
+    }
+
+    /// A fresh editor on the host's store (with its revision), its list
+    /// worked out on that text, over `handed`, the record of the editor
+    /// that is gone.
+    fn made_again(&mut self, handed: Option<leptos_config_editor::js_support::Handoff>) -> Outcome {
         let store = self.host.store.clone();
         let revision = self.host.store_revision.filter(|_| self.host.revisions);
-        let handed = self.core.channel.handoff();
         self.core = Core {
             text: store.clone(),
             channel: HostChannel::new(true, &store, revision, handed),
@@ -488,6 +544,23 @@ impl Sim {
     }
 
     pub(crate) fn step(&mut self, act: &Act) -> Outcome {
+        // A hidden document is shown again by the next step that needs its
+        // editor: the user typing in it, the host's own text, a reset.
+        let target = match act {
+            Act::Type { .. } | Act::Delete { .. } | Act::Enter { .. } | Act::MoveLine { .. } => {
+                Some(self.active)
+            }
+            Act::Deliver { .. } | Act::Drop { .. } | Act::Hide { .. } | Act::Settle => None,
+            Act::Select { doc } => Some(*doc as usize % self.docs.len()),
+            Act::Reset { doc, .. }
+            | Act::Own { doc, .. }
+            | Act::Ranges { doc, .. }
+            | Act::Remount { doc }
+            | Act::FreshMount { doc } => Some(*doc as usize % self.docs.len()),
+        };
+        if let Some(at) = target {
+            self.docs[at].show()?;
+        }
         match act {
             Act::Type { .. } | Act::Delete { .. } | Act::Enter { .. } | Act::MoveLine { .. } => {
                 let doc = &mut self.docs[self.active];
@@ -506,7 +579,14 @@ impl Sim {
                 ranges,
                 anchor,
                 ..
-            } => self.doc(*doc).deliver(*pick, *dup, *ranges, *anchor)?,
+            } => {
+                let doc = self.doc(*doc);
+                if doc.hidden {
+                    doc.deliver_hidden(*pick);
+                } else {
+                    doc.deliver(*pick, *dup, *ranges, *anchor)?;
+                }
+            }
             Act::Drop { doc, pick } => self.doc(*doc).host.retry(*pick),
             Act::Reset { doc, kind, via, .. } => self.doc(*doc).reset(*kind, *via)?,
             Act::Own {
@@ -526,6 +606,7 @@ impl Sim {
             Act::Select { doc } => self.active = *doc as usize % self.docs.len(),
             Act::Remount { doc } => self.doc(*doc).remount()?,
             Act::FreshMount { doc } => self.doc(*doc).fresh_mount()?,
+            Act::Hide { doc } => self.doc(*doc).hide(),
         }
         for (at, doc) in self.docs.iter().enumerate() {
             doc.check(
@@ -540,6 +621,7 @@ impl Sim {
     /// host and the editor agree, and the lock is the host's exactly.
     pub(crate) fn drain(&mut self) -> Outcome {
         for doc in &mut self.docs {
+            doc.show()?;
             doc.drain()?;
         }
         Ok(())

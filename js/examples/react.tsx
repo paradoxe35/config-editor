@@ -46,6 +46,9 @@ const revisions = new URLSearchParams(location.search).has("revisions");
 // component: its effects unmount and mount again) instead of a conditional
 // render (a new component).
 const activity = new URLSearchParams(location.search).has("activity");
+// `?echo-key` names the editor's place (`echoKey`): the new component a
+// conditional render makes takes over the echoes of the one that is gone.
+const echoKey = new URLSearchParams(location.search).has("echo-key") ? "tunnel" : undefined;
 const hideable = (shown: boolean, editor: ReactNode) =>
   activity ? <Activity mode={shown ? "visible" : "hidden"}>{editor}</Activity> : shown && editor;
 // `?reset-early` calls `ref.setValue` from an effect, before the editor has
@@ -218,6 +221,7 @@ function App({ schema }: { schema: string }) {
         language="yaml"
         schema={schema}
         {...(uncontrolled ? { defaultValue: initialText } : { value })}
+        echoKey={echoKey}
         onChange={(next, sent) => {
           const apply = () => {
             if (revisions) {

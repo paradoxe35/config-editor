@@ -16,7 +16,9 @@
 //! records). Half the runs have a host keeping revisions and naming the
 //! texts its lists were worked out on (`rangesFor`), the other half a
 //! v0.1.0 host. The main property: a lock never moves to text it was not
-//! given for, in any order of echoes, re-mounts, hide/shows and resets. Runs are seeded:
+//! given for, in any order of echoes, re-mounts, hide/shows (in the same
+//! element, and by a conditional render with an `echoKey`, the host's store
+//! taking echoes while no editor shows the document) and resets. Runs are seeded:
 //! `HOST_SYNC_CASES` (runs per view), `HOST_SYNC_STEPS` (actions per run)
 //! and `HOST_SYNC_SEED` (the first seed) run more locally. Each class of
 //! failure prints its smallest run as a test to paste below; classes an
@@ -1090,6 +1092,75 @@ mod repros {
                     anchor: Anchor::None,
                 },
                 Act::FreshMount { doc: 0 },
+            ],
+        );
+    }
+
+    /// P4, a v0.1.0 host: a conditional render with an `echoKey` hides the
+    /// editor and shows a new one (another element) on the host's older
+    /// text; typing there, then the gone editor's late echo. The record
+    /// kept under the name is the new editor's: the echo keeps the typing
+    /// (without it, the echo was the host's own text and replaced it).
+    #[test]
+    fn a_keyed_hide_and_show_keeps_the_typing_from_a_late_echo() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 3,
+                other: 0,
+                form: Lines,
+                revisions: false,
+            },
+            &[
+                Act::Type { at: 38237, ch: ':' },
+                Act::Hide { doc: 1 },
+                Act::Type { at: 19170, ch: 'x' },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::Revision,
+                },
+            ],
+        );
+    }
+
+    /// The same with an echo the host's store took while the document was
+    /// hidden (no editor heard it), and one coming in the same task as
+    /// the typing after the show.
+    #[test]
+    fn a_keyed_hide_and_show_keeps_the_typing_after_an_echo_taken_while_hidden() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 0,
+                other: 1,
+                form: Lines,
+                revisions: false,
+            },
+            &[
+                Act::Type { at: 42516, ch: ' ' },
+                Act::Delete { at: 25390, len: 1 },
+                Act::Hide { doc: 0 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+                Act::Delete { at: 22413, len: 0 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: true,
+                    anchor: Anchor::Text,
+                },
             ],
         );
     }

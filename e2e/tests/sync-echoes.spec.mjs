@@ -1317,15 +1317,27 @@ test.describe(() => {
 // takes over the texts the gone one sent: their late answers keep what is
 // typed in it, and with nothing typed there they bring the gone editor's
 // typing back. Before, an answer still to come was the host's own text for
-// the new editor and replaced the typing.
+// the new editor and replaced the typing. A conditional render makes the
+// new editor in a new element: with the same `echoKey` it takes the texts
+// over just the same (`keyed editor`); with none (`editor elsewhere`) an
+// answer still to come is the host's own text, as before.
 test.describe('shown again where the editor was, with answers still to come', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');
-  for (const host of ['editor', 'documents']) {
+  for (const host of ['editor', 'keyed editor', 'editor elsewhere', 'documents']) {
     for (const typed of [true, false]) {
-      test(`${host}: ${typed ? 'the typing in the new editor is kept' : "the gone editor's typing comes back"}`, async ({ page }) => {
+      // Known: nothing tells the new editor the answers are the gone one's.
+      const asBefore = host === 'editor elsewhere';
+      const title = asBefore
+        ? typed
+          ? 'a late answer replaces the typing in the new editor'
+          : "the gone editor's typing comes back"
+        : typed
+          ? 'the typing in the new editor is kept'
+          : "the gone editor's typing comes back";
+      test(`${host}: ${title}`, async ({ page }) => {
         await open(page);
         await page.evaluate((host) => {
-          const element = window.mountPoint();
+          let element = window.mountPoint();
           window.held = [];
           window.store = { a: 'name: x\n', b: 'other: 1\n' };
           const list = (ids) => ids.map((id) => ({ id, fileName: `${id}.yaml`, value: window.store[id] }));
@@ -1342,11 +1354,19 @@ test.describe('shown again where the editor was, with answers still to come', ()
             }
             return seen;
           };
-          if (host === 'editor') {
+          if (host !== 'documents') {
+            // A conditional render makes a new element for each editor.
+            const where = () => {
+              if (host === 'editor') return element;
+              element.remove();
+              element = window.mountPoint();
+              return element;
+            };
             const make = () =>
-              new window.module.ConfigEditor(element, {
+              new window.module.ConfigEditor(where(), {
                 value: window.store.a,
                 echoes: true,
+                echoKey: host === 'keyed editor' ? 'main' : undefined,
                 onChange: (text) =>
                   answer(() => {
                     window.store.a = text;
@@ -1396,6 +1416,12 @@ test.describe('shown again where the editor was, with answers still to come', ()
         if (typed) await typeAtEnd('c');
         const seen = await page.evaluate(() => window.answerAll());
         const expected = typed ? 'name: x\nc' : 'name: x\nab';
+        if (asBefore && typed) {
+          // The first answer, the gone editor's, is the host's own text.
+          expect(seen[0]).toBe('name: x\na');
+          expect(page.errors).toEqual([]);
+          return;
+        }
         // Typed in the new editor, no answer ever replaces it, not even for a while.
         if (typed) expect(seen.filter((text) => text !== expected)).toEqual([]);
         expect(await page.evaluate(() => [window.textOf(), window.store.a])).toEqual([expected, expected]);

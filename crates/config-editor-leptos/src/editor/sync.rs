@@ -27,6 +27,7 @@ mod gate;
 mod host_changes;
 mod host_inputs;
 mod host_log;
+mod kept_echoes;
 mod session;
 
 pub use echoes::{Echo, Echoes, Handoff, SETTLE_MS, clock as echo_clock};
@@ -73,6 +74,13 @@ pub(super) struct Host {
     /// The host hands every `on_change` text back as `value` (see
     /// `echoes`).
     pub(super) echoes: bool,
+    /// The host's name for the slot the editor shows its document in (see
+    /// `echo_key`): the record a destroyed editor left under it is taken
+    /// over, and this one leaves its own there when it goes.
+    pub(super) echo_key: Option<String>,
+    /// The record of the editor that showed this document before, when the
+    /// view that makes this one knows it (a documents view's id).
+    pub(super) handed: Option<Handoff>,
     /// The host's read-only ranges and diagnostics.
     pub(super) lists: Lists,
 }
@@ -496,15 +504,18 @@ impl EditorState {
     }
 }
 
-pub(super) fn connect(state: EditorState, host: Host) {
+pub(super) fn connect(state: EditorState, mut host: Host) {
     state
         .sync()
         .on_edit_as_change
         .set_value(host.on_edit_as_change);
-    if host.echoes {
-        let host_text = state.sync().host_text.get_value();
-        state.sync().link(|link| link.echoing(&host_text));
-    }
+    record_echoes(
+        state,
+        host.echoes,
+        host.echo_key.as_deref(),
+        host.handed.take(),
+        host.value_revision.get_untracked(),
+    );
     follow_lists(state, host.lists);
     if let Some(value) = host.value {
         follow_value(state, value, host.value_revision, host.lists);
@@ -514,8 +525,30 @@ pub(super) fn connect(state: EditorState, host: Host) {
     if let Some(callback) = host.on_sync_change {
         report_sync(state, callback);
     }
-    save_on_unmount(state);
+    save_on_unmount(state, host.echo_key.take());
     switch_languages(state, host);
+}
+
+/// With `echoes`, records the texts sent from now on: over the record of
+/// the editor that showed this document before, `handed` (a documents
+/// view's), else the one kept under the editor's name, `echo_key`, the host
+/// giving its text at `revision`. A record kept under the name is taken
+/// either way: the name keeps none once an editor with it starts.
+fn record_echoes(
+    state: EditorState,
+    echoes: bool,
+    echo_key: Option<&str>,
+    handed: Option<Handoff>,
+    revision: Option<u64>,
+) {
+    let kept = echo_key.and_then(HostChannel::left);
+    if echoes {
+        let host_text = state.sync().host_text.get_value();
+        let handed = handed.or(kept);
+        state
+            .sync()
+            .link(|link| link.echoing(&host_text, handed, revision));
+    }
 }
 
 /// Tells the host whether the text on screen is written back to its text:
@@ -983,11 +1016,18 @@ fn note_conversion_problems(state: EditorState, problems: Vec<EditAsProblem>) {
 
 /// An edit still waiting out the typing pause is saved when the editor goes
 /// away, so unmounting right after typing loses nothing; then the last parse
-/// goes too (see `parse_cache`).
-fn save_on_unmount(state: EditorState) {
+/// goes too (see `parse_cache`). With a name for its slot (`echo_key`), the
+/// texts still on their way, that one included, are left under it for the
+/// next editor made with that name.
+fn save_on_unmount(state: EditorState, echo_key: Option<String>) {
     super::parse_cache::hold();
     on_cleanup(move || {
         save_pending(state);
+        if let Some(key) = &echo_key
+            && let Some(channel) = state.sync().channel.try_get_value()
+        {
+            channel.leave(key);
+        }
         super::parse_cache::release();
     });
 }
@@ -1417,3 +1457,6 @@ mod gate_tests;
 
 #[cfg(all(test, feature = "yaml"))]
 mod value_tests;
+
+#[cfg(all(test, feature = "yaml"))]
+pub(crate) mod echo_record_tests;

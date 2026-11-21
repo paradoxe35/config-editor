@@ -56,6 +56,8 @@ mod ui_refs;
 pub(crate) use bridge::links::Clipboard;
 pub use input::flush_pending_input;
 pub(crate) use line_endings::same_document;
+#[cfg(all(test, feature = "yaml"))]
+pub(crate) use sync::echo_record_tests::EchoingEditor;
 pub use sync::flush_pending_edits;
 pub use sync::{
     AnchorError, ChangeError, Echo, Echoes, Handoff, HostChange, HostChannel, HostEdits,
@@ -199,6 +201,18 @@ pub fn ConfigEditor(
     /// is the host's own and replaces the document. Read at mount.
     #[prop(optional)]
     echoes: bool,
+    /// A name for the place the host shows this document in, unique on the
+    /// page, for a host that hides the editor and shows a new one for the
+    /// same document (`<Show>`, a conditional render): with `echoes`, the
+    /// texts this editor sent that have not come back yet are kept under
+    /// it when it unmounts (their prints only, never the text), and the
+    /// next editor made with that name takes them over, so a late echo of
+    /// this one never replaces what is typed there. One record per name,
+    /// the newest. Without it, a late echo of an editor that is gone is the
+    /// host's own text for the new one (pass `value_revision` instead).
+    /// Read at mount.
+    #[prop(optional, into)]
+    echo_key: Option<String>,
     /// Text to diff against, in `language`: the version the host last saved
     /// or loaded. Set it to the saved text after saving to clear the diff.
     /// Unset, it is the document at mount (`value`, else `initial_value`).
@@ -422,6 +436,8 @@ pub fn ConfigEditor(
             initial_pending,
             on_sync_change,
             echoes,
+            echo_key,
+            handed: handle.and_then(EditorHandle::take_handed),
             lists: sync::Lists {
                 read_only_ranges,
                 read_only_ranges_for,

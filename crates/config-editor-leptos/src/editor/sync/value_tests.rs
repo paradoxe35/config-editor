@@ -46,7 +46,7 @@ fn mounted(
     }
     .mount();
     let text = value.get_untracked();
-    state.sync().link(|link| link.echoing(&text));
+    state.sync().link(|link| link.echoing(&text, None, None));
     follow_value(
         state,
         value.into(),

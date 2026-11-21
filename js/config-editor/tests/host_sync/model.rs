@@ -137,6 +137,14 @@ pub(crate) enum Act {
     /// state, no channel; the binding hands it the gone editor's texts on
     /// their way (`HostChannel::handoff`).
     FreshMount { doc: u8 },
+    /// A conditional render with an `echoKey` hides the component (a
+    /// documents view leaves the document out of its list): the editor is
+    /// destroyed, its texts on their way kept under the name (the id), and
+    /// the host's store goes on taking them back meanwhile. The next step
+    /// for the document (or the end of the run) shows a new component with
+    /// the same name on the store, which takes the record over
+    /// (`HostChannel::leave`, `HostChannel::left`).
+    Hide { doc: u8 },
 }
 
 impl Act {

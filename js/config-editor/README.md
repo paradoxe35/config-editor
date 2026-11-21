@@ -134,6 +134,7 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `fileName`           | `string`                                    | `untitled.<ext>` | Shown in the toolbar.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `className`          | `string`                                    | —                | Extra class on the editor root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `echoes`             | `boolean`                                   | `false`          | Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order; see [Hosts that echo](#hosts-that-echo). Fixed for the editor's life.                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `echoKey`            | `string`                                    | —                | With `echoes`: a name for the place you show the document in, one per place on the page, for an editor a conditional render makes new for the same document; see [Hosts that echo](#hosts-that-echo). Fixed for the editor's life.                                                                                                                                                                                                                                                                                                                                                                             |
 | `channel`            | `HostChannel`                               | —                | The `channel` of an editor this one replaces (a framework re-creating its editor): its echoes still on their way are this editor's too, and with no `readOnlyRanges` given it holds that editor's ranges where they are now. The framework components pass it themselves.                                                                                                                                                                                                                                                                                                                                      |
 | `onChange`           | `(value: string) => void`                   | —                | Called with the document after every edit (after each typing pause while editing as another language).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `onEditAsChange`     | `(language: string) => void`                | —                | Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (a switch is an undo step). A switch waits while the document cannot convert yet (TOML has no `null`): until then the host's language stays on screen, edited and sent to `onChange` as it is, with the reason on the value in the way. Label the language shown from this, not from `editAs`.                                                                                                                                                                      |
@@ -665,12 +666,22 @@ id after a list left it out. A late answer for one of those texts then
 keeps what is typed in the new editor; one newer than the `value` it was
 made with, coming before anything is typed there, brings the gone editor's
 typing back. An editor made anywhere else (another element, a component a
-conditional render made new, `{shown && <ConfigEditor />}`) knows only the
-texts it sent itself: without revisions, an answer still to come for a text
-the editor that is gone sent is your own text for the new one, and replaces
-what was typed since. Drop those answers when you show the editor again, or
-keep revisions (below): an answer older than a text the new editor sent
-then keeps the typing.
+conditional render made new, `{shown && <ConfigEditor />}`) does not know
+it shows the same document: name the place you show it in with the
+`echoKey` option (any text, one per place on the page, such as the file's
+path). `destroy()` then keeps the texts still on their way under that name
+(a short print of each, never the text), and the next editor made with the
+same `echoKey` takes them over, as above. One record is kept per name, the
+newest; it goes when an editor with that name is made (and takes it), or
+when the editor's `channel` goes on in a new one. A name you never use
+again keeps its record (a few numbers) until the page closes: nothing
+tells the editor that its texts can no longer come back. The framework
+components take `echoKey` as a prop. Without `echoKey`, an editor made
+elsewhere knows only the texts it sent itself: without revisions, an answer
+still to come for a text the editor that is gone sent is your own text for
+the new one, and replaces what was typed since. Drop those answers when you
+show the editor again, or keep revisions (below): an answer older than a
+text the new editor sent then keeps the typing.
 
 With revisions there is no pause. `onChange(text, revision)` gives each text
 a revision; store it beside the text, keep only the newest revision you were

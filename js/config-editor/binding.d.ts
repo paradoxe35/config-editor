@@ -42,6 +42,8 @@ export interface EditorBindingProps extends EditorSettings {
   /** The `revision` `onChange` gave `value` with, when the parent stores it beside the value and never goes back to an older one: its echo is matched exactly (no pause). */
   valueRevision?: number;
   onChange?: (value: string, revision: number) => void;
+  /** A name for the place the component shows its document in, unique on the page: a component made new for the same document (a conditional render) takes over the texts on their way of the one that is gone. Changing it re-mounts. */
+  echoKey?: string;
   language?: LanguageName;
   editAs?: LanguageName | null;
   onEditAsChange?: (language: LanguageName) => void;

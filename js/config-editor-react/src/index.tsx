@@ -61,6 +61,8 @@ export interface ConfigEditorProps extends EditorSettings {
   onChange?: (value: string, revision: number) => void;
   /** The `revision` `onChange` gave `value` with (see `onChange`): with it, a late echo is matched exactly, with no pause. Keep the newest revision you were given and never go back to an older one. Leave it out for a value of your own. */
   valueRevision?: number;
+  /** A name for the place this component shows its document in, unique on the page, for a parent that hides it and shows a new one for the same document (a conditional render): the texts the editor sent that have not come back yet are kept under it when it unmounts, and the next component made with the same name takes them over, so a late value for one of them never replaces what is typed there. Changing it re-mounts. Without it (and without `valueRevision`), a late value for a text the editor that is gone sent replaces the typing. */
+  echoKey?: string;
   /** Language of the document. Default `"yaml"`. Changing it re-mounts. */
   language?: LanguageName;
   /** Edit in another language; switches live. */

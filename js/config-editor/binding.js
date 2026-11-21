@@ -217,7 +217,7 @@ export class EditorBinding extends Binding {
   }
 
   mountKey() {
-    const { language, schema, schemaFormat, schemaResources, schemaOptions, fileName, editorClassName, secrets } =
+    const { language, schema, schemaFormat, schemaResources, schemaOptions, fileName, editorClassName, secrets, echoKey } =
       this.props;
     // The secrets options that re-mount (the check function does not).
     const patterns = secrets
@@ -232,6 +232,7 @@ export class EditorBinding extends Binding {
       fileName ?? null,
       editorClassName ?? null,
       patterns,
+      echoKey ?? null,
     ]);
   }
 
@@ -267,6 +268,9 @@ export class EditorBinding extends Binding {
       // back as the value, maybe late and in any order.
       echoes: true,
       channel: this.#channel ?? undefined,
+      // A component made new for the same document (a conditional render)
+      // takes over the texts on their way of the one that is gone.
+      echoKey: props.echoKey,
       language: props.language,
       editAs: props.editAs ?? undefined,
       schema: props.schema,

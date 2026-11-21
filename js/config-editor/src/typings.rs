@@ -51,6 +51,8 @@ export interface EditorOptions extends EditorSettings {
   className?: string;
   /** Set it when you hand every `onChange` text back through `update({ value })`, possibly late and in any order (a store that re-renders after a delay, a fetch per edit): a `value` that `onChange` gave and that has not come back yet is then its echo and keeps the document, so nothing typed is lost. A text it never gave applies; go back to one it gave with `replaceValue`. Without it (the default) every `value` applies. Fixed for the editor's life. */
   echoes?: boolean;
+  /** With `echoes`, for a host that destroys the editor and makes a new one for the same document somewhere else (a conditional render, a new element): a name for that place, unique on the page. `destroy` keeps the texts this editor sent that have not come back yet under it (their prints only, never the text), and the next editor made with the same name takes them over, so a late answer for one of them never replaces what is typed there. One record per name, the newest; it goes when an editor with the name is made. Without it, the record is kept in the element, for the next editor made in it. Fixed for the editor's life. */
+  echoKey?: string;
   /** Called with the document, in `language`, after every edit, and the text's `revision`: pass it back as `valueRevision` with the value for an exact echo match (no pause, see `valueRevision`). */
   onChange?: (value: string, revision: number) => void;
   /** Called with the language on screen: once on mount, then each time an `editAs` switch completes and when undo or redo steps back across one (it waits while the document cannot convert yet, the host's language staying on screen). */
@@ -203,6 +205,8 @@ export interface EditorUpdate extends SettingsUpdate {
   secrets?: never;
   /** The editor is built from it: create a new one to change it. */
   echoes?: never;
+  /** The editor is built from it: create a new one to change it. */
+  echoKey?: never;
   /** The editor is built from it: create a new one to change it. */
   channel?: never;
 }

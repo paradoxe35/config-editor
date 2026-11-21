@@ -58,6 +58,7 @@ const PROPS = {
   value: { option: 'value', update: 'value' },
   value_revision: { option: 'valueRevision', update: 'valueRevision' },
   echoes: { exempt: 'the JS `echoes` option (see OPTIONS_JS_ONLY): a component\'s binding always sets it' },
+  echo_key: { option: 'echoKey', fixed: 'the name a destroyed editor keeps its echo record under, read when the editor is made and when it goes' },
   baseline: { option: 'baseline', update: 'baseline' },
   // A `SchemaSource::Formatted` carries the format, resources and options:
   // in JS they are options of their own beside `schema` (`also`).

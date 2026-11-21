@@ -29,6 +29,9 @@
   // heard wins (a late, older one is ignored), passed back as
   // `valueRevision`; the locks of the first line name the file as loaded.
   // `?props={...}`: extra props (`setExtraProps` changes them later).
+  // `?echo-key` names the editor's place (`echoKey`): the new component an
+  // `{#if}` makes takes over the echoes of the one that is gone.
+  const echoKey = query.has("echo-key") ? "tunnel" : undefined;
   const uncontrolled = query.has("uncontrolled");
   const late = query.has("late");
   const slow = query.has("slow");
@@ -209,6 +212,7 @@
   <ConfigEditor
     bind:this={editor}
     language="yaml"
+    {echoKey}
     {schema}
     {editAs}
     onEditAsChange={(language) => (editing = language)}
@@ -251,6 +255,7 @@
     bind:value
     onChange={record}
     language="yaml"
+    {echoKey}
     {schema}
     {editAs}
     onEditAsChange={(language) => (editing = language)}

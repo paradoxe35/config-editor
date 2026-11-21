@@ -10,7 +10,7 @@ use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use super::tab_names::TabNames;
 use crate::EditorStrings;
-use crate::editor::{Clipboard, DocumentPlaceholders, HostChannel, same_document};
+use crate::editor::{Clipboard, DocumentPlaceholders, Handoff, HostChannel, same_document};
 use crate::reactive::{Relay, detached_owner, later};
 use crate::{
     Diagnostic, EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, RangesFor,
@@ -343,6 +343,13 @@ pub(super) struct Documents {
     /// `ConfigDocuments`): their editors take it over, and the binding
     /// hands each update to them (no `value` or list props).
     channels: StoredValue<std::collections::HashMap<String, HostChannel>, LocalStorage>,
+    /// The echo records of the documents no longer listed, by id (their
+    /// editors' texts still on their way, prints only): a document listed
+    /// again with its id takes its record over, so the late echoes of the
+    /// editor that is gone are told apart in its new one. They go with
+    /// the view. A binding that keeps a document's record (`channels`)
+    /// hands it on itself.
+    handed: StoredValue<std::collections::HashMap<String, Handoff>>,
 }
 
 thread_local! {
@@ -390,6 +397,7 @@ impl Documents {
             said: RwSignal::new(String::new()),
             clipboards: StoredValue::new(Vec::new()),
             channels: StoredValue::new_local(std::collections::HashMap::new()),
+            handed: StoredValue::new(std::collections::HashMap::new()),
             callbacks,
             follows: Follows {
                 active: Relay::new(move || active.get()),
@@ -448,6 +456,16 @@ impl Documents {
         self.channels.update_value(|channels| {
             channels.insert(id.to_string(), channel);
         });
+    }
+
+    /// The texts `entry`'s editor sent that its host has not handed back
+    /// yet, for the editor made next for its document; none for a document
+    /// whose record a binding keeps (it hands that on itself).
+    fn handoff(&self, entry: &Entry) -> Option<Handoff> {
+        if self.bound_channel(&entry.id).is_some() {
+            return None;
+        }
+        entry.handle.handoff()
     }
 
     /// The record of the document `id`'s host, when a binding keeps it.
@@ -575,12 +593,24 @@ impl Documents {
                     }
                     let entry = Entry::create(&document, setup, self.serial());
                     entry.show_with(*self);
+                    if let Some(handed) = self.handoff(old) {
+                        entry.handle.hand_on(handed);
+                    }
                     entry.dirty.set(old.dirty.get_untracked());
                     entries.push(entry);
                 }
                 Fate::Add => {
                     let entry = Entry::create(document, setup, self.serial());
                     entry.show_with(*self);
+                    // A document listed again: its editor takes over the
+                    // record of the one that showed it before.
+                    if let Some(handed) = self
+                        .handed
+                        .try_update_value(|handed| handed.remove(&document.id))
+                        .flatten()
+                    {
+                        entry.handle.hand_on(handed);
+                    }
                     added.push(entry.clone());
                     entries.push(entry);
                 }
@@ -599,6 +629,14 @@ impl Documents {
         self.repeated.set_value(repeated);
         for index in removed {
             let closed = &existing[index];
+            match self.handoff(closed) {
+                Some(handed) => self.handed.update_value(|kept| {
+                    kept.insert(closed.id.clone(), handed);
+                }),
+                None => self.handed.update_value(|kept| {
+                    kept.remove(&closed.id);
+                }),
+            }
             closed.dispose_later(*self);
             // Its host's record goes with it: a document listed again is a
             // new one, with a new record.

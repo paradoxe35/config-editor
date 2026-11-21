@@ -43,6 +43,9 @@ const resetEarly = query.has("reset-early");
 // `?keep-alive` hides the editor inside `<KeepAlive>` (the component kept,
 // not unmounted) instead of a plain `v-if` (a new component).
 const keepAlive = query.has("keep-alive");
+// `?echo-key` names the editor's place (`echo-key`): the new component a
+// `v-if` makes takes over the echoes of the one that is gone.
+const echoKey = query.has("echo-key") ? "tunnel" : undefined;
 const initialExtra = JSON.parse(query.get("props") ?? "{}") as Record<string, unknown>;
 const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
@@ -160,7 +163,7 @@ const App = defineComponent({
 
     return {
       value, revision, revisions, baseline, dirty, saves, conflicts, fileName, editAs, theme, readOnly, editing, changes, path,
-      hostProblems, lockAddress, lockFirstLine, themeNames, shown, editor, extra, uncontrolled, initialText, keepAlive,
+      hostProblems, lockAddress, lockFirstLine, themeNames, shown, editor, extra, uncontrolled, initialText, keepAlive, echoKey,
       onModel, setPort, own, discard, toggleHostProblems, onSave, onChangeSummary, onPathChange,
       revert: () => own(previous),
       secrets: { hint: "Keeps the stored secret" },
@@ -210,6 +213,7 @@ const App = defineComponent({
       :default-value="uncontrolled ? initialText : undefined"
       :value-revision="revisions ? revision : undefined"
       :ranges-for="revisions ? initialText : undefined"
+      :echo-key="echoKey"
       @update:model-value="onModel"
       :edit-as="editAs"
       @edit-as-change="editing = $event"

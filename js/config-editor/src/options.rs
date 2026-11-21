@@ -21,6 +21,7 @@ pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "readOnly",
     "readOnlyReason",
     "echoes",
+    "echoKey",
     "className",
     "onChange",
     "onEditAsChange",
@@ -64,6 +65,7 @@ pub(crate) const EDITOR_REMOUNT_OPTIONS: &[&str] = &[
     "className",
     "secrets",
     "echoes",
+    "echoKey",
     "channel",
 ];
 

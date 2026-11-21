@@ -30,6 +30,17 @@ versions move together.
   and `Document::value_revision` in Leptos.
 - A framework's `setValue` reports the reset with its revision, and its
   handle's `applyChanges` the result, through `onChange`.
+- `echoKey` (JavaScript `ConfigEditor`, every framework component; Leptos
+  `ConfigEditor`'s `echo_key`): a name for the place you show a document
+  in. Hidden and shown again by a conditional render (`{shown && …}`,
+  `v-if`, `{#if}`, `<Show>`), the new editor with the same name takes over
+  the texts the one that is gone sent and you have not handed back yet, so
+  a late answer for one of them keeps what is typed in it, without
+  `valueRevision`. The editor keeps one record per name (a print of each
+  text, never the text) from `destroy` until an editor with the name is
+  made. The Leptos `ConfigDocuments` hands a document's record on by its
+  id, as the JavaScript one does: listed again after a list left it out,
+  or re-mounted for a new language or schema.
 
 ### Changed
 
@@ -145,7 +156,7 @@ versions move together.
   over the texts still on their way; such an answer taking the place of
   the same text the new editor sent made the new one's own answer read as
   your text. An editor made anywhere else (a component a conditional
-  render made new) still needs `valueRevision`.
+  render made new) needs `echoKey` or `valueRevision`.
 - In XML, a second element of a secret's name (an empty one too) written
   beside a lone secret's element is taken and held, typed or pasted, as a
   list made beside a placeholder is in every language; typing it no longer

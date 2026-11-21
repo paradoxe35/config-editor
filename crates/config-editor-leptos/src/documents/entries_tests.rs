@@ -367,3 +367,50 @@ fn a_document_not_shown_is_dirty_by_the_editors_rule() {
         assert_eq!(entry.dirty.get_untracked(), dirty, "{id}");
     }
 }
+
+/// P4, a v0.1.0 host listing every edit back late: a document left out of
+/// the list and listed again with its id (hidden and shown), and one
+/// re-mounted (another language), take over the texts their gone editor
+/// sent, so a late echo of one keeps what is typed in the new editor.
+#[cfg(feature = "yaml")]
+#[test]
+fn a_document_shown_again_with_its_id_takes_its_gone_editors_echoes() {
+    use crate::editor::EchoingEditor;
+    let owner = Owner::new();
+    owner.set();
+    let main = |text: &str| Document::new("main", "burrow.yaml", text);
+    let json = |text: &str| main(text).language(crate::Language::JSON);
+    let tls = Document::new("tls", "conf.d/tls.yaml", "cert: a.pem\n");
+    let (documents, _) = view(&[main("a: 1\n"), tls.clone()], true, false);
+    let mount = || {
+        let entry = documents.entry("main").expect("listed");
+        EchoingEditor::mount(entry.value, Some(entry.handle), None)
+    };
+    let list = |listed: &[Document]| {
+        hold(|| {
+            documents.sync(listed);
+            run_held();
+        });
+    };
+    // Hidden and shown again under its id.
+    let gone = mount();
+    gone.type_at_line_end("x");
+    list(std::slice::from_ref(&tls));
+    gone.unmount();
+    list(&[main("a: 1\n"), tls.clone()]);
+    let shown = mount();
+    shown.type_at_line_end("y");
+    list(&[main("a: 1x\n"), tls.clone()]);
+    assert_eq!(shown.text(), "a: 1y\n");
+    list(&[main("a: 1y\n"), tls.clone()]);
+    assert_eq!(shown.text(), "a: 1y\n");
+    // Re-mounted for another language.
+    shown.type_at_line_end("z");
+    list(&[json("a: 1y\n"), tls.clone()]);
+    shown.unmount();
+    let remounted = mount();
+    remounted.type_at_line_end("w");
+    list(&[json("a: 1yz\n"), tls.clone()]);
+    assert_eq!(remounted.text(), "a: 1yw\n");
+    remounted.unmount();
+}

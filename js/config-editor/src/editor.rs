@@ -65,6 +65,11 @@ pub struct ConfigEditor {
     /// the mounted view, and kept after `destroy` for an editor that takes
     /// it over (`channel`).
     channel: Shared,
+    /// The host's name for the slot this editor shows its document in
+    /// (`echoKey`): `destroy` keeps the texts still on their way under it,
+    /// page-wide, for the next editor made with it (see the core's
+    /// `HostChannel::leave`); without it, in the element.
+    echo_key: Option<String>,
 }
 
 /// A channel shared by the editor, its mounted view and an editor that
@@ -227,6 +232,7 @@ impl ConfigEditor {
         let read_only = bool_option(&options, "readOnly")?.unwrap_or(false);
         let read_only_reason = string_option(&options, "readOnlyReason")?;
         let echoes = bool_option(&options, "echoes")?.unwrap_or(false);
+        let echo_key = string_option(&options, "echoKey")?;
         let on_change = function_option(&options, "onChange")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_sync_change = function_option(&options, "onSyncChange")?;
@@ -254,19 +260,28 @@ impl ConfigEditor {
         let secrets = owner.with(|| secrets_from(&field(&options, "secrets"), "secrets"))?;
         // The channel: taken over (its echoes, host log and lists go on;
         // the lists the binding renders again are no news), or new, with
-        // the texts still on their way of the editor destroyed in this
-        // element (see `handoff`). The lists are read in the texts they
-        // name before the editor mounts; one naming a revision this channel
+        // the texts still on their way of the editor destroyed with the
+        // same `echoKey`, else in this element (see `handoff`). A record
+        // kept under the name or in the element is taken either way: it is
+        // no one else's then. The lists are read in the texts they name
+        // before the editor mounts; one naming a revision this channel
         // never sent throws.
-        let left = crate::handoff::take(&element);
+        let in_element = crate::handoff::take(&element);
         let taken = taken_channel(&options)?;
         let fresh = taken.is_none();
         let channel = match taken {
             Some(EditorChannel(channel)) => {
+                // A record this channel left goes with it (see `remount`).
                 channel.remount(&value);
                 channel
             }
-            None => HostChannel::new(echoes, &value, value_revision, left),
+            None => {
+                let left = match &echo_key {
+                    Some(key) => HostChannel::left(key),
+                    None => in_element,
+                };
+                HostChannel::new(echoes, &value, value_revision, left)
+            }
         };
         let head = HostUpdate {
             value: fresh.then(|| value.clone()),
@@ -339,6 +354,7 @@ impl ConfigEditor {
             reentry: crate::reentry::Reentry::default(),
             built_from: crate::update::BuiltFrom::of(&options, editor_fixed(language)),
             channel,
+            echo_key,
         })
     }
 
@@ -818,14 +834,19 @@ impl ConfigEditor {
         };
         // The document is kept once, in `final_value`: `latest` lets go of
         // its copy once the view (which writes it) is gone. The texts still
-        // on their way (an edit sent as it unmounts included) are left in
-        // its element, for the next editor made there.
+        // on their way (an edit sent as it unmounts included) are left
+        // under its `echoKey`, else in its element, for the next editor
+        // made with that name or there.
         let latest = self.latest.clone();
         let channel = self.channel.clone();
+        let echo_key = self.echo_key.clone();
         let unmount = move || {
             drop(mounted);
             owner.cleanup();
-            crate::handoff::leave(&element, channel.handoff());
+            match &echo_key {
+                Some(key) => channel.leave(key),
+                None => crate::handoff::leave(&element, channel.handoff()),
+            }
             take_text(&latest)
         };
         if IN_CALLBACK.with(|depth| depth.get()) > 0 {

@@ -156,6 +156,46 @@ export function hostTextCases(name) {
       expect(errors).toEqual([]);
     });
 
+    // Hidden and shown again by a conditional render (`{shown && …}`,
+    // `v-if`, `{#if}`): a new component, on the parent's state, a v0.1.0
+    // parent (no `valueRevision`) handing each edit back late. With an
+    // `echoKey` (`?echo-key`), the new component takes over the texts the
+    // one that is gone sent: the late answers keep what is typed in it.
+    // Without one, the first late answer is the parent's own text for it
+    // and replaces the typing, as before (the README says to use
+    // `valueRevision` or `echoKey`).
+    for (const named of [true, false]) {
+      const title = named
+        ? 'with an echoKey, hidden and shown by a conditional render while echoes are late, a v0.1.0 parent keeps the typing'
+        : 'without an echoKey, hidden and shown by a conditional render while echoes are late, the first late answer replaces the typing';
+      test(title, async ({ page }) => {
+        const { errors } = await open(page, name, `?manual${named ? '&echo-key' : ''}`);
+        await typeAtTop(page, 'a: 1\n');
+        await typeAtTop(page, 'c: 3\n');
+        await page.evaluate(() => window.setShown(false));
+        await expect(input(page)).toHaveCount(0);
+        await page.evaluate(() => window.setShown(true));
+        await input(page).waitFor();
+        // A new component: the parent's state, its answers still to come.
+        await expect(input(page)).toHaveValue(initialText);
+        await typeAtTop(page, 'b: 2\n');
+        await page.evaluate(() => window.releaseEchoes([0]));
+        await page.waitForTimeout(100);
+        if (!named) {
+          await expect(input(page)).toHaveValue(`a: 1\n${initialText}`);
+          expect(errors).toEqual([]);
+          return;
+        }
+        await expect(input(page)).toHaveValue(`b: 2\n${initialText}`);
+        const held = await releaseFrom(page, 1);
+        await page.waitForTimeout(400);
+        await releaseFrom(page, held);
+        await expect(saved(page)).toHaveText(`b: 2\n${initialText}`);
+        await expect(input(page)).toHaveValue(`b: 2\n${initialText}`);
+        expect(errors).toEqual([]);
+      });
+    }
+
     test('setValue and the parent\'s own text, with revisions and late echoes: the next typing is kept', async ({ page }) => {
       const { errors } = await open(page, name, '?manual&revisions');
       await page.evaluate(() => window.editorHandle.current.setValue('x: 1\n'));
