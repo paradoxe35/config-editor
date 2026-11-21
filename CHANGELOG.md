@@ -96,6 +96,10 @@ versions move together.
   typed instead of keeping the old text; and a part of the schema the
   document fails whichever way a value is read no longer hides the part
   that takes only the view's reading.
+- In an XML view under a schema, a host scalar written as several elements
+  (its element typed again or pasted) saves each item as the view reads
+  it where the schema takes only that reading (two `<d>0</d>` over the
+  host's `d: 0` where it wants strings save `["0", "0"]`, not `[0, 0]`).
 - Switching from an XML view of nested lists with unsaved edits keeps each
   value left alone: the view's flat list is paired with the host's values
   in order, not by index (which wrote another value, or none, in its

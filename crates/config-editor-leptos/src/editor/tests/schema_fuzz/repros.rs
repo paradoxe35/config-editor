@@ -1268,3 +1268,18 @@ fn a_lone_element_an_option_reads_as_a_list_is_judged_alike_in_view_and_host() {
         json!({"d": {"b": false, "size": "x"}}),
     );
 }
+
+/// A host scalar written as two elements (`0` typed twice in an XML view)
+/// is a list the host never had: under a schema taking only strings as
+/// its items, each saves as the view reads it.
+#[test]
+fn a_host_scalar_typed_as_two_elements_saves_as_the_schema_reads_them() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"$defs": {"d0": {"anyOf": [{"items": {"type": "string"}}]}},
+            "properties": {"d": {"$ref": "#/$defs/d0"}}}),
+        json!({"d": 0}),
+        json!({"d": [0, "0"]}),
+    );
+}

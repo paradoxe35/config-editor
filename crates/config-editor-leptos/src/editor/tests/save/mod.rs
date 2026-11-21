@@ -223,6 +223,15 @@ mod recorded_scalars;
 mod renamed_aliases;
 #[cfg(all(feature = "yaml", feature = "json"))]
 mod renamed_by_links;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml",
+    feature = "schema-validation"
+))]
+mod repeated_scalars;
 #[cfg(all(feature = "yaml", feature = "xml"))]
 mod schema_meanings;
 #[cfg(all(

@@ -34,6 +34,11 @@ use std::collections::HashSet;
 /// host's `"8"`, which the view showed as 8), a host scalar the view reads
 /// as a list's one item whose item the user wrote (`8` typed over the
 /// host's `"08"` where the schema wants a list of numbers).
+///
+/// And so is each item of a list of several the view made of a host
+/// scalar (its element typed again or pasted), a copy left as written
+/// included: the host never held that list, so no item of it is untouched
+/// (two `<d>0</d>` over the host's `0` where the schema wants strings).
 pub(in crate::editor::bridge) fn in_host_types(
     old: &Value,
     (seen, edited): (&Value, &Value),
@@ -124,6 +129,42 @@ impl Record<'_> {
         }
         let text = scalar_text(parsed);
         (text != *held).then_some(Value::String(text))
+    }
+
+    /// Each scalar of `value` (at `at`) the view reads otherwise, with the
+    /// view's reading.
+    fn readings_in(&self, value: &Value, at: &mut String, out: &mut Retyped) {
+        let Record::Kept { reading, .. } = self else {
+            return;
+        };
+        let length = at.len();
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    at.push('/');
+                    at.push_str(&pointer_key(key));
+                    self.readings_in(child, at, out);
+                    at.truncate(length);
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    at.push('/');
+                    at.push_str(&index.to_string());
+                    self.readings_in(child, at, out);
+                    at.truncate(length);
+                }
+            }
+            scalar => {
+                if let Some(read) = reading.value().pointer(at)
+                    && !read.is_object()
+                    && !read.is_array()
+                    && read != scalar
+                {
+                    out.push((at.clone(), read.clone()));
+                }
+            }
+        }
     }
 
     /// Whether the user wrote the scalar at `at`, or why that is not known.
@@ -257,7 +298,14 @@ fn in_host_types_at(
         // element copied): what each item is, the record tells.
         (Value::Array(old), Value::Array(items)) => items_in_host_types(old, items, at, record),
         (old, Value::Array(items)) if !old.is_object() && !old.is_null() => {
-            items_in_host_types(std::slice::from_ref(old), items, at, record)
+            let items = items_in_host_types(std::slice::from_ref(old), items, at, record)?;
+            // Several items make a list the host never had: each is new
+            // there, a copy of the host's scalar included, so the schema
+            // judges the view's reading of it as it judges a value typed.
+            if items.as_array().is_some_and(|items| items.len() > 1) {
+                record.readings_in(&items, &mut at.to_string(), retyped);
+            }
+            Ok(items)
         }
         (Value::Object(_) | Value::Array(_) | Value::Null, value) => Ok(value),
         (old, value) if *old == value => Ok(value),
