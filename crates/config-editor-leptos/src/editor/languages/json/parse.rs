@@ -1,6 +1,7 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
+use crate::editor::language::Said;
 use crate::editor::text::{text_size, byte_range};
 
 /// Parses with `serde_json` for syntax, then rejects duplicate keys in the same
@@ -34,35 +35,29 @@ pub(super) fn json_parse(source: &str) -> Result<Value, ParseError> {
         {
             (line, column) = line_column(source, text_size(comma));
         }
-        let (column, message) = super::super::wide_integers::out_of_range(source, line, column).unwrap_or((column, message));
-        ParseError {
-            message,
-            line: Some(line),
-            column: Some(column),
-        }
+        // serde's own sentences quote nothing of the text.
+        let (column, message) = super::super::wide_integers::out_of_range(source, line, column)
+            .unwrap_or((column, Said::from(message)));
+        message.at(Some(line), Some(column))
     })?;
     let written = |pointer: &str| {
         let (start, end) = *scanned(source).values.get(&pointer_segments(pointer))?;
-        source.get(start..end).map(str::to_string)
+        source.get(start..end).map(|text| (start, text.to_string()))
     };
-    if let Some((pointer, text)) = super::super::wide_integers::first_past_64_bits(&document, &written) {
-        let start = scanned(source).values.get(&pointer_segments(&pointer)).map(|(start, _)| *start);
-        let (line, column) = start.map(|start| line_column(source, text_size(start))).unzip();
-        return Err(ParseError {
-            message: super::super::wide_integers::message(&text),
-            line,
-            column,
-        });
+    if let Some((_, bytes, text)) = super::super::wide_integers::first_past_64_bits(&document, &written) {
+        let (line, column) = line_column(source, text_size(bytes.start));
+        return Err(super::super::wide_integers::message(&text, bytes).at(Some(line), Some(column)));
     }
     let mut seen = HashSet::new();
     for (owner, key, start) in analyze_caret(source, 0).keys {
         if !seen.insert((owner, key.clone())) {
             let (line, column) = line_column(source, text_size(start));
-            return Err(ParseError {
-                message: format!("duplicate key \"{key}\""),
-                line: Some(line),
-                column: Some(column),
-            });
+            // The key as written, its quotes and escapes too.
+            let written = start..crate::editor::languages::inline::skip_quoted(source, start);
+            return Err(Said::from("duplicate key \"")
+                .quote(&key, written)
+                .words("\"")
+                .at(Some(line), Some(column)));
         }
     }
     Ok(document)

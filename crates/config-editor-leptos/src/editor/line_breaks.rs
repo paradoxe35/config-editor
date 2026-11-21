@@ -22,6 +22,18 @@ pub(super) fn as_lf(text: &str) -> Cow<'_, str> {
     }
 }
 
+/// The byte of `original` for each byte of [`as_lf`]`(original)`: one on
+/// for each CRLF read as one LF before it (a lone CR keeps its length).
+pub(super) fn in_original(original: &str) -> impl Fn(usize) -> usize {
+    // Where in the LF text each CRLF's LF stands.
+    let joined: Vec<usize> = original
+        .match_indices("\r\n")
+        .enumerate()
+        .map(|(before, (at, _))| at - before)
+        .collect();
+    move |at| at + joined.partition_point(|joint| *joint < at)
+}
+
 /// The UTF-16 offset in `text` of one-based `line` and `column`, its lines
 /// ended by LF, CRLF or a lone CR: a column past the line's end is the
 /// line's end (before its break), a line past the text the text's end.
@@ -58,11 +70,14 @@ pub(super) fn rejected_lone_cr(
     let error = behavior.parse(&original.replace("\r\n", "\n")).err()?;
     behavior.parse(&as_lf(original)).ok()?;
     let position = TextPosition::from_offset(original, original[..at].encode_utf16().count());
-    Some(ParseError {
-        message: error.message,
-        line: Some(position.line),
-        column: Some(position.column),
-    })
+    Some(
+        ParseError {
+            line: Some(position.line),
+            column: Some(position.column),
+            ..error
+        }
+        .quotes_mapped(in_original(original)),
+    )
 }
 
 /// [`rejected_lone_cr`] as a diagnostic.

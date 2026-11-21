@@ -7,6 +7,17 @@ versions move together.
 
 ## 0.2.0 — unreleased
 
+### Syntax messages say what they quote
+
+- `ParseError` has a new field, `quotes`: the parts of its message that
+  quote the text (`language::Quote`: a range of the message and the text
+  range it quotes). Where a secret may be written, the editor hides exactly
+  those parts and shows the rest of the message as it is. Every built-in
+  language gives them. A custom language sets `quotes: None` (or uses
+  `ParseError::new` for a message quoting nothing); without quotes the
+  editor finds them by reading the text again with its letters changed, as
+  before.
+
 ### Schema formats
 
 - Schemas in other formats than JSON Schema, compiled into JSON Schema by a

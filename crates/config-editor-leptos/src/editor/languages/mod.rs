@@ -593,17 +593,24 @@ impl Language {
     fn parse_document(self, source: &str) -> Result<Value, ParseError> {
         let value = self.parse_syntax(source)?;
         match self.0.merged_keys(&line_breaks::as_lf(source)) {
-            Some(message) => Err(ParseError {
-                message,
-                line: None,
-                column: None,
-            }),
+            // It names the elements it is about, written anywhere.
+            Some(message) => Err(super::language::Said::naming(source, 0, &message).at(None, None)),
             None => Ok(value),
         }
     }
 
     /// [`parse`](Self::parse) as far as syntax goes.
     fn parse_syntax(self, source: &str) -> Result<Value, ParseError> {
+        // An error's quotes, found in the text with LF breaks, are placed
+        // in the text given (a lone CR read as LF keeps its length).
+        let given = source;
+        self.parse_lf(source)
+            .map_err(|error| error.quotes_mapped(line_breaks::in_original(given)))
+    }
+
+    /// [`parse_syntax`](Self::parse_syntax) with its error placed in the
+    /// text with CRLF read as LF.
+    fn parse_lf(self, source: &str) -> Result<Value, ParseError> {
         // CRLF line endings read as LF, inside multi-line strings and block
         // scalars too: what the editor reads (it holds LF text), and what
         // TOML and YAML readers do with a file's own line breaks. A lone
@@ -948,3 +955,12 @@ mod tests {
         assert!(Language::ALL.contains(&Language::default()));
     }
 }
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod syntax_quotes_matrix;

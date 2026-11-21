@@ -13,11 +13,10 @@ pub(super) fn first_wide_negative(source: &str, value: &Value) -> Option<ParseEr
         let at = plain_at(source, text)?;
         let line = source[..at].matches('\n').count() + 1;
         let line_start = source[..at].rfind('\n').map_or(0, |index| index + 1);
-        Some(ParseError {
-            message: super::super::wide_integers::message(text),
-            line: Some(line),
-            column: Some(source[line_start..at].chars().count() + 1),
-        })
+        Some(
+            super::super::wide_integers::message(text, at..at + text.len())
+                .at(Some(line), Some(source[line_start..at].chars().count() + 1)),
+        )
     })
 }
 

@@ -1129,6 +1129,9 @@ fn without_secret_quotes(
                     },
                 )
             });
+            // The quotes pointed into the message just replaced; `None`
+            // ("not known") keeps any later hiding on the safe re-read.
+            parse.quotes = None;
             SaveError::Convert(codec::ConvertError::Parse(parse))
         }
         SaveError::Convert(codec::ConvertError::Unsupported(message)) => {

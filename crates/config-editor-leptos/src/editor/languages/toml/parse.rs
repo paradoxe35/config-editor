@@ -10,11 +10,7 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
         let line_count = source.split('\n').count().max(1);
         if let Some(extra) = error.span().and_then(|span| extra_word(source, span)) {
             let (line, column) = line_column(source, text_size(extra));
-            return ParseError {
-                message: super::words::OUT_OF_PLACE.to_string(),
-                line: Some(line),
-                column: Some(column),
-            };
+            return ParseError::new(super::words::OUT_OF_PLACE, Some(line), Some(column));
         }
         let (line, column) = error
             .span()
@@ -28,17 +24,13 @@ pub(super) fn toml_parse(source: &str) -> Result<Value, ParseError> {
             let message = if message.starts_with("cannot recurse further")
                 || message.starts_with("recursion limit")
             {
-                super::super::nesting::too_deep(super::super::nesting::VALUES)
+                super::super::nesting::too_deep(super::super::nesting::VALUES).into()
             } else {
                 super::words::plain(source, line, column, message)
             };
             (column, message)
         });
-        ParseError {
-            message,
-            line: Some(line),
-            column: Some(column),
-        }
+        message.at(Some(line), Some(column))
     })?;
     Ok(Value::Object(
         document

@@ -27,10 +27,9 @@
 //!             if line.trim().is_empty() {
 //!                 continue;
 //!             }
-//!             let (key, value) = line.split_once('=').ok_or_else(|| ParseError {
-//!                 message: "expected KEY=value".to_string(),
-//!                 line: Some(index + 1),
-//!                 column: Some(1),
+//!             let (key, value) = line.split_once('=').ok_or_else(|| {
+//!                 // The message quotes nothing of the text.
+//!                 ParseError::new("expected KEY=value", Some(index + 1), Some(1))
 //!             })?;
 //!             map.insert(key.trim().to_string(), Value::String(value.trim().to_string()));
 //!         }
@@ -80,10 +79,12 @@ pub use item_start::bracket_item_start;
 pub(crate) use item_start::cursor_at;
 
 mod item_start;
+mod said;
 mod writer_door;
 use super::comment_toggle::comment_target;
 use super::parse_cache::string_bodies;
 use super::paths::FieldPath;
+pub(crate) use said::Said;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -97,6 +98,42 @@ pub struct ParseError {
     pub line: Option<usize>,
     /// One-based character column.
     pub column: Option<usize>,
+    /// Each part of `message` that quotes the text, with the text it
+    /// quotes: where a secret may be written, the editor shows those parts
+    /// as `…` and every other word of the message as it is. `Some(vec![])`
+    /// for a message quoting nothing. `None` when the language does not
+    /// say: the editor then reads the text again with its letters and
+    /// digits changed and hides what changes with them in the message (a
+    /// parse per try, and it may hide a word too many). Every built-in
+    /// language gives its quotes.
+    pub quotes: Option<Vec<Quote>>,
+}
+
+/// A part of a syntax message that quotes the text parsed (a key, a
+/// name, a number as written), so the editor can hide exactly that part
+/// where it may show a secret.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Quote {
+    /// Where the message says it: a byte range of [`ParseError::message`].
+    pub said: std::ops::Range<usize>,
+    /// What it quotes: a byte range of the text given to
+    /// [`ConfigLanguage::parse`]. A range the language cannot narrow (a
+    /// parser's own sentence naming text where it stopped) may be wider
+    /// than the text quoted, never narrower.
+    pub of: std::ops::Range<usize>,
+}
+
+impl ParseError {
+    /// The error `message` at `line` and `column`, quoting nothing of the
+    /// text.
+    pub fn new(message: impl Into<String>, line: Option<usize>, column: Option<usize>) -> Self {
+        ParseError {
+            message: message.into(),
+            line,
+            column,
+            quotes: Some(Vec::new()),
+        }
+    }
 }
 
 impl std::fmt::Display for ParseError {
@@ -929,6 +966,13 @@ pub trait ConfigLanguage: Send + Sync + 'static {
     /// Strings are built with [`string_value`](crate::string_value), and
     /// infinities and NaN with [`float_value`](crate::float_value), so the
     /// two never read as each other.
+    ///
+    /// The error's [`quotes`](ParseError::quotes) say which parts of its
+    /// message quote the text: the editor hides each one that may show a
+    /// secret (a placeholder, or text where the schema marks a secret).
+    /// Without them (`None`) it finds them by reading the text again with
+    /// its letters changed, which costs a parse per try and may hide a
+    /// word of the message too.
     fn parse(&self, source: &str) -> Result<Value, ParseError>;
 
     /// The document for `value`, keeping the framing of `previous` (this

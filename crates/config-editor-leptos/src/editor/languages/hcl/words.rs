@@ -4,13 +4,15 @@
 //! named and pointed at where it was opened.
 
 use super::unclosed::{Open, first_open};
-use crate::editor::text::{text_size};
+use crate::editor::language::Said;
+use crate::editor::text::{TextSize, text_size};
 
 /// A parse error as shown: its line and column (one-based) and message.
-pub(super) type Placed = (usize, usize, String);
+pub(super) type Placed = (usize, usize, Said);
 
 /// The parser's `raw` message at `line` and `column` of `source`, in plain
-/// words, at the place the words are about.
+/// words, at the place the words are about. The parser's own sentences
+/// (`hcl-edit`'s) name no text of the document.
 pub(super) fn plain(source: &str, line: usize, column: usize, raw: &str) -> Placed {
     let readable = raw_fallback(raw);
     let sentence = readable.as_str();
@@ -25,40 +27,47 @@ pub(super) fn plain(source: &str, line: usize, column: usize, raw: &str) -> Plac
         let (open_line, open_column) = super::line_column(source, text_size(offset));
         // A mistake on an earlier line is the first thing to fix.
         if open_line <= line {
-            return (open_line, open_column, unclosed_words(&open));
+            return (open_line, open_column, unclosed_words(source, text_size(offset), &open));
         }
     }
     let at = char_at(source, line, column);
     let message = worded(sentence, at, source, line).unwrap_or_else(|| readable.clone());
-    (line, column, message)
+    (line, column, message.into())
 }
 
 /// A quoted string a line break ends, which the reader takes on over the
 /// lines below though HCL keeps a string on one line: where it opens, and
 /// what is told.
-pub(super) fn string_over_lines(source: &str) -> Option<(usize, String)> {
+pub(super) fn string_over_lines(source: &str) -> Option<(usize, Said)> {
     match first_open(source)? {
-        (offset, open @ Open::String) => Some((offset, unclosed_words(&open))),
+        (offset, open @ Open::String) => Some((offset, unclosed_words(source, text_size(offset), &open))),
         _ => None,
     }
 }
 
-/// What a construct left open is told.
-fn unclosed_words(open: &Open) -> String {
+/// What a construct left open at byte `offset` of `source` is told.
+fn unclosed_words(source: &str, offset: TextSize, open: &Open) -> Said {
+    let offset = usize::from(offset);
     match open {
-        Open::String => "a string is never closed: a closing \" is missing (a string stays on one line)".to_string(),
+        Open::String => "a string is never closed: a closing \" is missing (a string stays on one line)".into(),
         Open::Heredoc(word) => {
-            format!("the heredoc <<{word} is never closed: a line holding only {word} must end it")
+            // The word is on the heredoc's first line.
+            let header = offset..source[offset..].find('\n').map_or(source.len(), |end| offset + end);
+            Said::from("the heredoc <<")
+                .quote(word, header.clone())
+                .words(" is never closed: a line holding only ")
+                .quote(word, header)
+                .words(" must end it")
         }
-        Open::Comment => "a /* comment is never closed: a */ is missing".to_string(),
-        Open::Interpolation => "this ${ is never closed: a } is missing".to_string(),
+        Open::Comment => "a /* comment is never closed: a */ is missing".into(),
+        Open::Interpolation => "this ${ is never closed: a } is missing".into(),
         Open::Bracket(bracket) => {
             let (closing, what) = match bracket {
                 '{' => ('}', "map or block"),
                 '[' => (']', "list"),
                 _ => (')', "function call or group"),
             };
-            format!("this {bracket} is never closed: a {closing} is missing to end the {what}")
+            format!("this {bracket} is never closed: a {closing} is missing to end the {what}").into()
         }
     }
 }

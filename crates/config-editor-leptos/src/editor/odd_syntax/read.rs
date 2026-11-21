@@ -64,6 +64,7 @@ fn error(message: impl Into<String>, line: usize, column: usize) -> ParseError {
         message: message.into(),
         line: Some(line),
         column: Some(column),
+        quotes: None,
     }
 }
 
@@ -283,6 +284,7 @@ impl Inline<'_> {
             message: message.to_string(),
             line: None,
             column: Some(columns(self.text, self.at)),
+            quotes: None,
         }
     }
 

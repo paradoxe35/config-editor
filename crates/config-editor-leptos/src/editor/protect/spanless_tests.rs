@@ -49,6 +49,7 @@ impl ConfigLanguage for Env {
                     message: "expected KEY=value".to_string(),
                     line: Some(index + 1),
                     column: Some(1),
+                    quotes: None,
                 });
             };
             let value = value.trim();

@@ -119,10 +119,8 @@ impl Placed for TextRange {
 
 impl Placed for ParseError {
     fn placed(self) -> Self {
-        ParseError {
-            column: column_on(self.line, self.column),
-            ..self
-        }
+        let column = column_on(self.line, self.column);
+        ParseError { column, ..self }.quotes_mapped(|at| at + MARK.len_utf8())
     }
 }
 

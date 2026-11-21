@@ -29,11 +29,11 @@ pub(super) fn tab_indentation(source: &str) -> Option<ParseError> {
             continue;
         }
         if let Some(tab) = line[..indent].find('\t') {
-            return Some(ParseError {
-                message: "tabs are not allowed in YAML indentation; use spaces".to_string(),
-                line: Some(index + 1),
-                column: Some(tab + 1),
-            });
+            return Some(ParseError::new(
+                "tabs are not allowed in YAML indentation; use spaces",
+                Some(index + 1),
+                Some(tab + 1),
+            ));
         }
         let code = code_before_comment(content);
         let value = code.rsplit_once(": ").map_or(code.trim_start_matches("- "), |(_, value)| value);

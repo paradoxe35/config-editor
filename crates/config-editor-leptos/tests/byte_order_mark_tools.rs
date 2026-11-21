@@ -96,8 +96,19 @@ fn shifted_range(range: TextRange) -> TextRange {
 }
 
 fn shifted_error(error: ParseError) -> ParseError {
+    // A quote's bytes are one mark (3 bytes) on.
+    let quotes = error.quotes.clone().map(|quotes| {
+        quotes
+            .into_iter()
+            .map(|quote| leptos_config_editor::language::Quote {
+                of: quote.of.start + 3..quote.of.end + 3,
+                ..quote
+            })
+            .collect()
+    });
     ParseError {
         column: on(error.line, error.column),
+        quotes,
         ..error
     }
 }

@@ -1,5 +1,8 @@
 //! A syntax message of a text that may hold secrets, without what it
-//! quotes of them.
+//! quotes of them, for a language that does not say what its messages
+//! quote (a host's own: `ParseError::quotes` is `None`). Every built-in
+//! language says it, and its quotes are hidden exactly
+//! (`diagnostics::syntax_message`); this re-reading is the fallback.
 //!
 //! The parser stops on a line no reading can tell is a secret field's or
 //! not (a key half typed runs into its value: `<passwo"rd>s3cr3t</password>`
@@ -39,9 +42,7 @@ pub(in crate::editor::diagnostics) fn hide_quoted_text(
     tokens: &[Range<usize>],
     reread: impl Fn(&str) -> Option<ParseError>,
 ) -> String {
-    let from = error_line
-        .and_then(|line| line_start(source, line))
-        .unwrap_or(0);
+    let from = unread_from(source, error_line);
     let spans: Vec<Range<usize>> = std::iter::once(from..source.len())
         .chain(tokens.iter().cloned())
         .collect();
@@ -65,6 +66,17 @@ pub(in crate::editor::diagnostics) fn hide_quoted_text(
         // the message copies of the line is hidden.
         .unwrap_or_else(|| copied(&message, line_text(source, from)));
     shown(&message, &widened(&message, &changed))
+}
+
+/// Where the text no reading tells the fields of starts, for a syntax
+/// error on `error_line` (one-based; `None`: anywhere): that line's start.
+pub(in crate::editor::diagnostics) fn unread_from(
+    source: &str,
+    error_line: Option<usize>,
+) -> usize {
+    error_line
+        .and_then(|line| line_start(source, line))
+        .unwrap_or(0)
 }
 
 /// Whether each character of `message` changed in every reading of

@@ -1,6 +1,7 @@
 //! Parsing to a JSON value, and the source spans of keys and values.
 
 use super::*;
+use crate::editor::language::Said;
 use crate::editor::text::{byte_range, slice, text_size};
 
 /// References, interpolations, and function calls arrive as their
@@ -21,30 +22,29 @@ pub(super) fn hcl_parse(source: &str) -> Result<Value, ParseError> {
             None => {
                 let raw = error.to_string();
                 if raw.contains("invalid nesting depth") {
-                    (line, column, readable_error(&raw))
+                    (line, column, readable_error(&raw).into())
                 } else {
                     super::words::plain(source, line, column, &raw)
                 }
             }
         };
-        ParseError {
-            message,
-            line: Some(line),
-            column: Some(column),
-        }
+        message.at(Some(line), Some(column))
     })?;
     if let Some((offset, message)) = super::words::string_over_lines(source).or_else(|| shadowed_name(source)) {
         let (line, column) = line_column(source, text_size(offset));
-        return Err(ParseError { message, line: Some(line), column: Some(column) });
+        return Err(message.at(Some(line), Some(column)));
     }
-    let written = |pointer: &str| written_at(source, hcl_value_span(source, pointer)?);
-    if let Some((pointer, text)) = super::super::wide_integers::first_past_64_bits(&value, &written) {
+    let written = |pointer: &str| {
+        let span = hcl_value_span(source, pointer)?;
+        let line_start: usize = source.split_inclusive('\n').take(span.0.checked_sub(1)?).map(str::len).sum();
+        let line = source[line_start..].split('\n').next().unwrap_or_default();
+        let start = line_start + usize::from(crate::editor::paths::byte_at_column(line, span.1.saturating_sub(1)));
+        Some((start, written_at(source, span)?))
+    };
+    if let Some((pointer, bytes, text)) = super::super::wide_integers::first_past_64_bits(&value, &written) {
         let span = hcl_value_span(source, &pointer);
-        return Err(ParseError {
-            message: super::super::wide_integers::message(&text),
-            line: span.map(|span| span.0),
-            column: span.map(|span| span.1),
-        });
+        return Err(super::super::wide_integers::message(&text, bytes)
+            .at(span.map(|span| span.0), span.map(|span| span.1)));
     }
     Ok(value)
 }
@@ -77,12 +77,12 @@ pub(super) fn written_at(source: &str, (line, start, end): (usize, usize, usize)
 /// labels begin with all of another's: `r "t"` and `r "t" "n"`): it keeps
 /// one and drops the other silently, so the second one is reported
 /// instead.
-pub(super) fn shadowed_name(source: &str) -> Option<(usize, String)> {
+pub(super) fn shadowed_name(source: &str) -> Option<(usize, Said)> {
     let scan = analyze(source, 0);
-    let labels = shadowed_labels(&scan);
+    let labels = shadowed_labels(source, &scan);
     // Each name a body writes: (body, name) -> (first form, its offset).
     let mut seen: HashMap<(usize, String), (&'static str, usize)> = HashMap::new();
-    let mut found: Option<(usize, String)> = None;
+    let mut found: Option<(usize, Said)> = None;
     let mut forms: Vec<(usize, usize, String, &'static str)> = scan
         .attributes
         .iter()
@@ -99,7 +99,9 @@ pub(super) fn shadowed_name(source: &str) -> Option<(usize, String)> {
             Some((first, _)) if *first != form => {
                 found = Some((
                     offset,
-                    format!("`{name}` is written both as {first} and as {form}; only one of them would be read. Use one form."),
+                    Said::from("`")
+                        .quote(&name, offset..offset + name.len())
+                        .words(&format!("` is written both as {first} and as {form}; only one of them would be read. Use one form.")),
                 ));
                 break;
             }
@@ -118,7 +120,7 @@ pub(super) fn shadowed_name(source: &str) -> Option<(usize, String)> {
 /// The first block whose labels begin with all of an earlier block's of
 /// its type and body, or that an earlier one's begin with (`r "t" "n"`
 /// after `r "t"`): the two cannot both be read.
-fn shadowed_labels(scan: &Scan) -> Option<(usize, String)> {
+fn shadowed_labels(source: &str, scan: &Scan) -> Option<(usize, Said)> {
     // Each (body, type, labels) written, and each proper start of them.
     type Key<'a> = (usize, &'a str, &'a [String]);
     let mut whole: HashMap<Key<'_>, &HeaderInfo> = HashMap::new();
@@ -132,17 +134,22 @@ fn shadowed_labels(scan: &Scan) -> Option<(usize, String)> {
             .get(&key(labels))
             .or_else(|| (1..labels.len()).find_map(|count| whole.get(&key(&labels[..count]))));
         if let Some(earlier) = earlier {
-            let written = |header: &HeaderInfo| {
-                let labels: Vec<String> = header.labels.iter().map(|label| format!("\"{label}\"")).collect();
-                format!("{} {}", header.block_type, labels.join(" "))
+            // A header's type and labels (`r "t" "n"`), each quoting its
+            // line.
+            let written = |said: Said, header: &HeaderInfo| {
+                let start = header.type_span.0;
+                let line = start..source[start..].find('\n').map_or(source.len(), |end| start + end);
+                let said = said.quote(&header.block_type, line.clone()).words(" ");
+                header.labels.iter().enumerate().fold(said, |said, (index, label)| {
+                    let said = if index > 0 { said.words(" ") } else { said };
+                    said.words("\"").quote(label, line.clone()).words("\"")
+                })
             };
+            let said = written(Said::from("`"), earlier).words("` and `");
             return Some((
                 header.type_span.0,
-                format!(
-                    "`{}` and `{}` are blocks of one type with different numbers of labels; only one of them would be read. Give them the same number of labels.",
-                    written(earlier),
-                    written(header)
-                ),
+                written(said, header)
+                    .words("` are blocks of one type with different numbers of labels; only one of them would be read. Give them the same number of labels."),
             ));
         }
         whole.entry(key(labels)).or_insert(header);
