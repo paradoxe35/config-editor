@@ -168,6 +168,11 @@ do more. Here they are in one place.
 - After `replaceValue`, a host text equal to the one the host gave before the
   reset is read as a stale render and ignored. To go back to it, call
   `replaceValue` again.
+- Reset a framework component one way at a time: with its `setValue`, or by
+  setting your state, not both. `setValue` reports the text through
+  `onChange`, so with both your state lists it twice, and without
+  `valueRevision` the late echo of that report can undo the next typing.
+  With `valueRevision` the editor tells them apart exactly.
 - Without `valueRevision`, when your store still holds an older text after an
   echo, the editor waits 250 ms and then sends the document again. With
   `valueRevision` there is no pause, but a store that loses a text (a failed

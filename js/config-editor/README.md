@@ -638,7 +638,11 @@ are still told apart. Your store then takes that text, late if it likes:
 given back after what is typed next, it is the reset's echo and keeps the
 typing, also for a reset to the text you gave last (a discard to the file
 as loaded). A reset to the document as it is changes nothing (a second
-Discard): your store holds that text once. The `readOnlyRanges` you gave go
+Discard): your store holds that text once. `replaceValue` does not report the text, so set it in your store
+yourself. A framework component's `setValue` reports it through `onChange`
+instead: there, reset with `setValue` or by setting your state, not both at
+once (without `valueRevision`, the late echo of the report can undo what is
+typed next). The `readOnlyRanges` you gave go
 with the text they cover into the reset's text, carried afresh from the text
 you gave them for by a line and character diff: a lock whose text is kept
 stays on it, and one whose text changed in place grows over what replaced

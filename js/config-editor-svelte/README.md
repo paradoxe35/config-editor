@@ -442,7 +442,10 @@ A parent that applies only some values (a debounce keeping
 the latest) leaves the others counted as echoes: to reset to a text the
 user may have passed through, call `setValue(text)` on the instance, which
 always applies (also before the editor has mounted) and is reported through
-`value` and `onChange`.
+`value` and `onChange`. Reset one way, not both at once: with `setValue`, or by setting your state.
+With both and no `valueRevision`, your state lists the text twice (your own
+set, then the late echo of the report), and that late echo can undo what is
+typed next. With `valueRevision` the editor tells them apart exactly.
 
 ```svelte
 <ConfigEditor value={$config} onChange={(next) => config.saveDebounced(next)} />

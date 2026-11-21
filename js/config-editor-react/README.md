@@ -445,7 +445,10 @@ the latest) leaves the others counted as echoes: to reset to a text the
 user may have passed through, call `ref.current.setValue(text)`, which
 always applies (also before the editor has mounted, from an effect: it is
 applied when the editor mounts) and is reported through `onChange` so the
-parent's state follows.
+parent's state follows. Reset one way, not both at once: with `setValue`, or by setting your state.
+With both and no `valueRevision`, your state lists the text twice (your own
+set, then the late echo of the report), and that late echo can undo what is
+typed next. With `valueRevision` the editor tells them apart exactly.
 
 With revisions there is no pause: `onChange(text, revision)` gives each text a revision. Store it beside the text and pass it back as the `valueRevision` prop (keep only the newest revision you were given, never go back to an older one; leave it out for a text of your own). The echo is then matched exactly, and the editor never sends a text again by itself: a parent that loses one (a save that failed) passes the newest text `onChange` gave again, with its revision. See [Hosts that echo](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#hosts-that-echo).
 
