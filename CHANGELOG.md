@@ -102,7 +102,7 @@ versions move together.
   place).
 - An empty XML element reads as `null` where the schema refuses the empty
   text and an option takes `null` (`anyOf: [{type: null}, {enum:
-  [auto]}]`), instead of the empty text it then marks as a problem.
+[auto]}]`), instead of the empty text it then marks as a problem.
 - An Edit-as view (XML, HCL) shows the host's schema problems where it
   shows a list of one as its item, which the save keeps as a list: a
   problem only the list has (an option wanting it) shows in the view too.
