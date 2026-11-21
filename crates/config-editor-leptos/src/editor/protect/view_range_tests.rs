@@ -489,3 +489,60 @@ fn a_range_holding_a_line_break_keeps_its_text_through_an_edit_as_view() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// P1: a host range from a comment into the fields under it keeps its text
+/// through each conversion back of an Edit-as view: a field added above
+/// the fields, then changed, is never written between the comment and
+/// them (in the host, the range's text reads whole after each save).
+#[test]
+fn a_range_from_a_comment_into_fields_keeps_its_text_through_each_conversion_back() {
+    let text = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\ninsecure_plaintext: false\n";
+    let locked = "ration\nlisten: 7835\npublic_add";
+    let range = TextRange::new(TextPosition::new(1, 24), TextPosition::new(3, 11));
+    // Each view's first key written, then changed.
+    let edits: [(Language, &str, &str, &str); 3] = [
+        (
+            Language::XML,
+            "",
+            "<heartbeat></heartbeat>",
+            "<heartbeat><interval_secs>10</interval_secs></heartbeat>",
+        ),
+        (
+            Language::JSON,
+            "{\n",
+            "  \"extra\": {},\n",
+            "  \"extra\": {\"a\": 1},\n",
+        ),
+        (Language::TOML, "", "extra = 1\n", "extra = 2\n"),
+    ];
+    let mut failures = Vec::new();
+    for (view, after, first, second) in edits {
+        let (_owner, state) = TestEditor {
+            edit_as: Some(view),
+            read_only_ranges: vec![range],
+            ..TestEditor::new(Language::YAML, text)
+        }
+        .mount();
+        // The line break before the last field taken first, where the view
+        // allows it.
+        if view == Language::XML {
+            let at = shown(state).find("\n<insecure").expect("the last line");
+            input(state, at..at + 1, "", "deleteContentBackward");
+            pause(state);
+        }
+        let at = shown(state).find(after).expect("the first key's place") + after.len();
+        input(state, at..at, first, "insertFromPaste");
+        pause(state);
+        let host_now = host(state);
+        if !host_now.contains(locked) {
+            failures.push(format!("{view} first: {host_now:?}"));
+        }
+        input(state, at..at + first.len(), second, "insertFromPaste");
+        pause(state);
+        let host_now = host(state);
+        if !host_now.contains(locked) {
+            failures.push(format!("{view} second: {host_now:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
