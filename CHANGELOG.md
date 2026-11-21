@@ -58,7 +58,11 @@ versions move together.
 - A property the schema marks `"xml": {"attribute": true}` is written as an
   attribute where the text does not write it yet (a conversion to XML, a key
   added in another view), and completion offers attributes in a start tag
-  and elements in the content.
+  and elements in the content. A required one is filled as an attribute
+  too, before the other required children (`RequiredChild::attribute`,
+  for a custom language's `write_insert`).
+- A list key written by repeating its element is suggested again when the
+  items written read as valid by the schema (an XSD boolean written `1`).
 
 ### Fixes
 

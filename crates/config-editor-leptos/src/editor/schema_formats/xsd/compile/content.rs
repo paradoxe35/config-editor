@@ -281,13 +281,22 @@ impl<'a> Compiler<'a> {
         (min, max): (u64, Option<u64>),
         model: &mut Model,
     ) -> Result<(), SchemaError> {
+        let particles: Vec<&'a Node> = node
+            .xsd_children()
+            .filter(|child| {
+                matches!(
+                    child.name.as_str(),
+                    "element" | "sequence" | "choice" | "all" | "group" | "any"
+                )
+            })
+            .collect();
+        // A choice of one option is that option, its keys required as the
+        // option requires them.
+        if let [only] = particles.as_slice() {
+            return self.particle(only, (min, max), model, false);
+        }
         let mut options = Vec::new();
-        for option in node.xsd_children().filter(|child| {
-            matches!(
-                child.name.as_str(),
-                "element" | "sequence" | "choice" | "all" | "group" | "any"
-            )
-        }) {
+        for option in particles {
             let mut inner = Model::default();
             self.particle(option, (1, Some(1)), &mut inner, false)?;
             let required: Vec<String> = inner

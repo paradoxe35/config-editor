@@ -27,7 +27,8 @@ ROOT=$PWD
 
 # The properties. Columns: name, group (the CI job it runs in, so small ones
 # share a runner), binary (lib: the leptos-config-editor lib tests;
-# host_sync: config-editor-js's host_sync test), the cases and seed env
+# host_sync: config-editor-js's host_sync test; the lib is built with the
+# opt-in `xsd` format, whose suites need it), the cases and seed env
 # variables, the CI case count (the test's own default), the test path (its
 # last segments), and `ignored` for a test that runs only on request.
 # Groups are sized to a few minutes each on a CI runner at scale 20.
@@ -61,6 +62,12 @@ schema-suggestions     schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  2
 schema-validation      schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  400  validation::random_documents_get_problems_exactly_when_the_reference_finds_them_invalid
 schema-work            schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  12   work::work_on_random_recursive_schemas_grows_with_the_document
 schema-data-reading    schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  300  data_reading::every_feature_reads_xml_and_hcl_as_the_one_data_reading
+formats-validation     formats  lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  300  formats::a_schema_through_openapi_or_files_validates_as_the_plain_schema
+formats-suggestions    formats  lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  150  formats::a_schema_through_openapi_or_files_suggests_as_the_plain_schema
+formats-fill           formats  lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  150  formats::a_schema_through_openapi_or_files_fills_as_the_plain_schema
+xsd-validation         formats  lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  300  xsd::random_documents_get_problems_exactly_when_the_xsd_finds_them_invalid
+xsd-compile            formats  lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  300  xsd::a_broken_xsd_compiles_or_says_why_and_never_panics
+xsd-assist             formats  lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  200  xsd::suggested_children_follow_the_xsd_and_fill_what_it_requires
 host-sync-editor       schema   host_sync HOST_SYNC_CASES    HOST_SYNC_SEED    300  random_host_sync_keeps_a_configeditors_locks
 host-sync-documents    schema   host_sync HOST_SYNC_CASES    HOST_SYNC_SEED    300  random_host_sync_keeps_a_documents_views_locks
 protect                protect  lib       PROTECT_FUZZ_CASES PROTECT_FUZZ_SEED 400  protect_fuzz::random_edits_keep_every_protection_and_take_ordinary_edits
@@ -165,7 +172,7 @@ cmd_build() {
   local dir=${1:-target/sweep}
   mkdir -p "$dir"
   local spec bin
-  for spec in "lib:-p leptos-config-editor --lib" "host_sync:-p config-editor-js --test host_sync"; do
+  for spec in "lib:-p leptos-config-editor --lib --features xsd" "host_sync:-p config-editor-js --test host_sync"; do
     bin=${spec%%:*}
     local path
     # shellcheck disable=SC2086 # the cargo arguments, split on spaces

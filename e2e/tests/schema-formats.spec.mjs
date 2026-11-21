@@ -220,6 +220,9 @@ test.describe('schema formats in the tools', () => {
 test.describe('XML Schema', () => {
   test.beforeEach(async ({ page }) => {
     await open(page);
+    // CI's XSD job (`scripts/ci.sh xsd`) sets E2E_XSD: there a build without
+    // XSD fails these tests instead of skipping them.
+    if (process.env.E2E_XSD) expect(await hasXsd(page), 'E2E_XSD is set: the package must be built with `npm run build:xsd`').toBe(true);
     test.skip(!(await hasXsd(page)), 'built without XSD: run `npm run build:xsd` in js/config-editor');
   });
 

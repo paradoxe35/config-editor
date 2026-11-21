@@ -133,9 +133,18 @@ fn repeats_as_elements(
     let Some(written) = written else {
         return true;
     };
-    let items = match written {
-        Value::Array(items) => items.clone(),
-        lone => vec![lone.clone()],
+    // The items as the schema reads them (an XSD boolean written `1` is
+    // `true`), as validation reads them: a list validation takes takes
+    // one more.
+    let read = crate::editor::data_reading::value_under(
+        behavior,
+        written.clone(),
+        &crate::editor::applies::Entry::schema(property),
+        root,
+    );
+    let items = match read {
+        Value::Array(items) => items,
+        lone => vec![lone],
     };
     let most = array.get("maxItems").and_then(Value::as_u64);
     let next = item_schema(array, items.len()).and_then(|item| {

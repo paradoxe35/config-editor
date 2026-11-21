@@ -84,9 +84,12 @@ fn errors(both: &Both, value: &Value) -> HashSet<(String, String)> {
 }
 
 pub(super) fn check(case: &Case) -> Verdict {
-    let Some(both) = compile(&case.schema) else {
-        return Verdict::Skipped;
-    };
+    compile(&case.schema).map_or(Verdict::Skipped, |both| check_with(&both, case))
+}
+
+/// The check, with the editor's schema from `both` (`case.schema` given
+/// as JSON Schema or through a schema format) and its reference.
+pub(super) fn check_with(both: &Both, case: &Case) -> Verdict {
     let language = case.language;
     let Some(text) = both.written(language, &case.doc) else {
         return Verdict::Skipped;

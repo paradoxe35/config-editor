@@ -515,8 +515,35 @@ fn write_children(
     caret: &mut Option<usize>,
 ) {
     let child_indent = format!("{base_indent}{unit}");
+    // The attributes in the start tag just written (before its `>`).
+    let (attributes, elements): (Vec<&RequiredChild<'_>>, Vec<&RequiredChild<'_>>) =
+        children.iter().partition(|child| child.attribute);
+    if !attributes.is_empty() && insert.ends_with('>') {
+        insert.pop();
+        for child in attributes {
+            insert.push_str(&format!(" {}=\"", child.key));
+            match &child.fill {
+                Fill::Caret { .. } => *caret = Some(insert.len()),
+                Fill::CaretAt(value) => {
+                    *caret = Some(insert.len());
+                    insert.push_str(&escape_attribute(&xml_text(value)));
+                }
+                Fill::Value(value) | Fill::Empty(Some(value))
+                    if !value.is_object() && !value.is_array() =>
+                {
+                    insert.push_str(&escape_attribute(&xml_text(value)));
+                }
+                _ => {}
+            }
+            insert.push('"');
+        }
+        insert.push('>');
+        if elements.is_empty() {
+            return;
+        }
+    }
     insert.push('\n');
-    for child in children {
+    for child in elements {
         let name = child.key;
         insert.push_str(&child_indent);
         let value = match &child.fill {

@@ -158,6 +158,18 @@ step_heap() {
   (cd e2e && MEMORY_HEAP=1 npx playwright test --project=editor --no-deps tests/memory.spec.mjs)
 }
 
+# The schema-formats spec against the npm package built with XSD (`npm run
+# build:xsd`): the published package leaves XSD out, so the e2e machines
+# never run its XSD tests. E2E_XSD makes them fail, not skip, on a build
+# without it. Needs what `heap` needs; leaves js/config-editor/pkg built with
+# XSD (`npm run build` in js/ puts the published build back).
+step_xsd() {
+  (cd js/config-editor && npm run build:xsd)
+  # The example pages bundle the module's JavaScript, which must match it.
+  (cd js && npm run examples)
+  (cd e2e && E2E_XSD=1 npx playwright test --project=editor --no-deps tests/schema-formats.spec.mjs)
+}
+
 # The npm package's wasm loads in browsers without WebAssembly SIMD: one SIMD
 # instruction anywhere in a module makes such a browser reject all of it (a
 # dependency's SIMD path compiled in, or wasm-opt allowed to use SIMD). Run

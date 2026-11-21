@@ -540,3 +540,142 @@ fn each_named_type_is_read_once() {
     compiler.finish(&root).unwrap();
     assert_eq!(compiler.models_read, 21, "base once, each t once");
 }
+
+/// An element that may repeat is suggested again where it is written
+/// already, as long as its maximum leaves room: the written items are
+/// read as the schema reads them (as validation does), so an XSD boolean
+/// spelled `1` counts as a valid item.
+#[cfg(feature = "xml")]
+#[test]
+fn a_repeated_element_written_once_is_suggested_again() {
+    for (max, offered_again) in [("unbounded", true), ("2", true), ("1", false)] {
+        let body = format!(
+            r#"<xs:element name="config"><xs:complexType><xs:sequence><xs:element name="host" type="xs:string"/><xs:element name="mode" maxOccurs="{max}" type="xs:boolean"/></xs:sequence></xs:complexType></xs:element>"#
+        );
+        let schema = compile(&xsd(&body));
+        // `1` is an XSD boolean: the list written so far is valid.
+        let text = "<config>\n  <host>x</host>\n  <mode>1</mode>\n  <\n</config>\n";
+        let caret = text.find("  <\n").unwrap() + 3;
+        let labels: Vec<String> = schema
+            .suggestions(crate::editor::Language::XML, text, caret)
+            .iter()
+            .map(|option| option.label().to_string())
+            .collect();
+        assert_eq!(
+            labels.iter().any(|label| label == "mode"),
+            offered_again,
+            "maxOccurs {max}: {labels:?}"
+        );
+    }
+}
+
+/// A fill writes a required attribute as an attribute, beside required
+/// children or alone, at the root or deeper, with a named type or not.
+#[cfg(feature = "xml")]
+#[test]
+fn a_fill_writes_a_required_attribute_as_an_attribute() {
+    let attribute = r#"<xs:attribute name="on" type="xs:int" use="required"/>"#;
+    let children = r#"<xs:sequence><xs:element name="item" type="xs:string"/></xs:sequence>"#;
+    let mut failures = Vec::new();
+    for with_children in [false, true] {
+        let content = if with_children { children } else { "" };
+        for named in [false, true] {
+            let (inline, globals) = if named {
+                (
+                    r#" type="t""#.to_string(),
+                    format!(r#"<xs:complexType name="t">{content}{attribute}</xs:complexType>"#),
+                )
+            } else {
+                (String::new(), String::new())
+            };
+            let mode = if named {
+                format!(r#"<xs:element name="mode"{inline}/>"#)
+            } else {
+                format!(
+                    r#"<xs:element name="mode"><xs:complexType>{content}{attribute}</xs:complexType></xs:element>"#
+                )
+            };
+            for deep in [false, true] {
+                let body = if deep {
+                    format!(
+                        r#"<xs:element name="config"><xs:complexType><xs:sequence>{}</xs:sequence></xs:complexType></xs:element>{globals}"#,
+                        mode.replace(
+                            "<xs:element name=\"mode\"",
+                            "<xs:element name=\"mode\" minOccurs=\"0\""
+                        )
+                    )
+                } else {
+                    format!("{mode}{globals}")
+                };
+                let schema = compile(&xsd(&body));
+                let (text, caret) = if deep {
+                    ("<config>\n  <\n</config>\n", 12)
+                } else {
+                    ("<", 1)
+                };
+                let offered = schema.suggestions(crate::editor::Language::XML, text, caret);
+                let Some(option) = offered.iter().find(|option| option.label() == "mode") else {
+                    failures.push(format!(
+                        "children {with_children} named {named} deep {deep}: mode not offered"
+                    ));
+                    continue;
+                };
+                let (accepted, _) = option.accept(text);
+                if !accepted.contains("<mode on=") || accepted.contains("<on>") {
+                    failures.push(format!(
+                        "children {with_children} named {named} deep {deep}:\n{accepted}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// A repeated element that must occur asks for its first item: a list with
+/// none is refused in every language, and a fill writes one item.
+#[cfg(feature = "yaml")]
+#[test]
+fn a_required_repeated_element_asks_for_an_item() {
+    let schema = compile(&xsd(
+        r#"<xs:element name="h"><xs:complexType><xs:sequence><xs:element name="u" maxOccurs="unbounded" type="xs:boolean"/></xs:sequence></xs:complexType></xs:element>"#,
+    ));
+    let errors = schema
+        .validate(crate::editor::Language::YAML, "h:\n  u: []\n")
+        .into_iter()
+        .filter(|problem| problem.severity == crate::editor::diagnostics::Severity::Error)
+        .count();
+    assert!(errors > 0, "{}", schema.json());
+    let offered = schema.suggestions(crate::editor::Language::XML, "<", 1);
+    let option = offered
+        .iter()
+        .find(|option| option.label() == "h")
+        .expect("h offered");
+    let (accepted, _) = option.accept("<");
+    assert!(accepted.contains("<u>"), "{accepted}");
+}
+
+/// A choice of one option is that option: what the option requires is
+/// required, so a fill writes it (and an optional choice requires nothing).
+#[cfg(feature = "xml")]
+#[test]
+fn a_choice_of_one_option_requires_what_the_option_requires() {
+    for (occurs, required) in [("", true), (r#" minOccurs="0""#, false)] {
+        let body = format!(
+            r#"<xs:element name="auth"><xs:complexType><xs:choice{occurs}><xs:element name="token" type="xs:string"/></xs:choice></xs:complexType></xs:element>"#
+        );
+        let schema = compile(&xsd(&body));
+        let offered = schema.suggestions(crate::editor::Language::XML, "<", 1);
+        let option = offered
+            .iter()
+            .find(|option| option.label() == "auth")
+            .unwrap_or_else(|| panic!("{occurs}: auth offered"));
+        let (accepted, _) = option.accept("<");
+        assert_eq!(
+            accepted.contains("<token>"),
+            required,
+            "{occurs}: {accepted}\n{}",
+            schema.json()
+        );
+    }
+}

@@ -28,7 +28,9 @@ impl Compiler<'_> {
             let repeated = prop.max.is_none_or(|max| max > 1);
             let schema = if repeated {
                 let mut array = json!({"type": "array", "items": prop.schema});
-                if prop.min > 1 {
+                // An element that must occur once asks for one item too:
+                // `required` alone takes an empty list.
+                if prop.min > 0 {
                     array["minItems"] = Value::from(prop.min);
                 }
                 if let Some(max) = prop.max {

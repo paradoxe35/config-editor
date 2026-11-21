@@ -147,6 +147,41 @@ const RULES: &[Rule] = &[
             ("<r><v>1</v><v>2</v><v>1</v></r>", false),
         ],
     },
+    // A repeated element is a list in the value: each element is checked
+    // against its content model, never the list as one element (a choice
+    // of one option has no `required` the JSON Schema checks first).
+    Rule {
+        name: "a repeated element's content, a choice of one option",
+        body: r#"<xs:element name="r"><xs:complexType><xs:sequence><xs:element name="m" maxOccurs="unbounded"><xs:complexType><xs:choice><xs:element name="u" type="xs:int"/></xs:choice></xs:complexType></xs:element></xs:sequence></xs:complexType></xs:element>"#,
+        documents: &[
+            ("<r><m><u>1</u></m></r>", true),
+            ("<r><m><u>1</u></m><m><u>2</u></m></r>", true),
+            ("<r><m><u>1</u></m><m/></r>", false),
+            ("<r><m><u>1</u><u>2</u></m></r>", false),
+        ],
+    },
+    Rule {
+        name: "a repeated element's content, a sequence of optional children",
+        body: r#"<xs:element name="r"><xs:complexType><xs:sequence><xs:element name="m" maxOccurs="2"><xs:complexType><xs:sequence><xs:element name="a" type="xs:int" minOccurs="0"/><xs:element name="b" type="xs:int" minOccurs="0"/></xs:sequence></xs:complexType></xs:element></xs:sequence></xs:complexType></xs:element>"#,
+        documents: &[
+            ("<r><m><a>1</a></m></r>", true),
+            ("<r><m><a>1</a><b>2</b></m><m><b>2</b></m></r>", true),
+            ("<r><m><b>2</b><a>1</a></m></r>", false),
+        ],
+    },
+    Rule {
+        name: "xs:unique in a repeated element",
+        body: r#"<xs:element name="r"><xs:complexType><xs:sequence><xs:element name="m" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+<xs:element name="v" type="xs:string" maxOccurs="unbounded"/>
+</xs:sequence></xs:complexType>
+<xs:unique name="once"><xs:selector xpath="v"/><xs:field xpath="."/></xs:unique>
+</xs:element></xs:sequence></xs:complexType></xs:element>"#,
+        documents: &[
+            ("<r><m><v>1</v><v>2</v></m></r>", true),
+            ("<r><m><v>1</v></m><m><v>1</v></m></r>", true),
+            ("<r><m><v>1</v><v>1</v></m></r>", false),
+        ],
+    },
 ];
 
 #[test]

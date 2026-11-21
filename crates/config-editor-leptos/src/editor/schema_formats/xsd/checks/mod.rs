@@ -504,6 +504,13 @@ fn walk<'v, 's>(
             let Some(value) = document.pointer(at.pointer) else {
                 return Next::Past;
             };
+            // A repeated element's list: the walk gives a key naming a list
+            // its items' schemas too (a lone item is written as the item),
+            // but here each item is an element of its own, visited at its
+            // index; the list is none.
+            if value.is_array() {
+                return Next::Into;
+            }
             let branches = at.here.branches();
             visit(
                 value,

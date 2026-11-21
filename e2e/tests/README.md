@@ -34,7 +34,9 @@ Timed specs (latency budgets) are listed in `TIMED` in
 - `schema-assist`, `schema-help`, `schema-warnings`, `yaml-schema`.
 - `schema-formats`: schemas in other formats (`registerSchemaFormat`,
   OpenAPI, XSD on a package built with `npm run build:xsd`) in the tools,
-  an editor and a documents view.
+  an editor and a documents view. CI's XSD job (`scripts/ci.sh xsd`) runs it
+  on such a build with `E2E_XSD=1`, which fails the XSD tests instead of
+  skipping them when the build has no XSD.
 
 ## Problems, hover and popups
 

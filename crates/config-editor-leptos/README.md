@@ -1411,7 +1411,9 @@ placeholder (the first `enum` value; an object with its own required
 children filled the same way; an empty list, which XML writes as an empty
 element), alike in every language. `Tab` then
 walks the block like a snippet, selecting each written value (typing
-replaces it) and stopping at each empty one.
+replaces it) and stopping at each empty one. A required choice of several
+options (a `oneOf` of `required` lists, an XSD `xs:choice`) asks for none
+of its children in particular: which one is yours to type.
 
 A schema value is written only as text the language reads back as that
 value: an object or list default in XML is written as elements (a list's
