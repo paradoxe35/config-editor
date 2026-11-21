@@ -295,7 +295,7 @@ pub fn ConfigEditor(
     host_diagnostics: Option<Signal<Vec<HostDiagnostic>>>,
     /// The text `host_diagnostics` name places in: the revision
     /// [`EditorHandle::sent_revision`] gave the text they were worked out
-    /// on (a server's check of an older text), or that text itself. Unset:
+    /// on (a check outside the editor of an older text), or that text itself. Unset:
     /// `read_only_ranges_for`, else the `value` they come with, else the
     /// host's text now. Set it before `host_diagnostics`.
     #[prop(optional, into)]
