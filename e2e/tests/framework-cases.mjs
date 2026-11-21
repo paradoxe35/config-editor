@@ -176,8 +176,9 @@ export function frameworkCases(name) {
     // again (a conditional render: a new component) before the late parent
     // applies the edit. The new editor never sent that text, so its echo
     // looks like the parent's own; the ranges the parent renders unchanged
-    // with it are still for the text it gave them with, and keep locking
-    // public_address where the typed line moved it.
+    // with it name the text it worked them out on (`rangesFor`, as the
+    // READMEs show: a fresh editor cannot know it otherwise), and keep
+    // locking public_address where the typed line moved it.
     test('hidden and shown again while an echo is late, the locked line stays locked where the typing moved it', async ({ page: browserPage }) => {
       const errors = [];
       browserPage.on('pageerror', (error) => errors.push(String(error)));
@@ -187,8 +188,9 @@ export function frameworkCases(name) {
       await input(browserPage).waitFor();
       const before = await input(browserPage).inputValue();
       expect(before.split('\n')[2]).toBe('public_address: tunnel.example.com');
-      await browserPage.evaluate(() =>
-        window.setExtraProps({ readOnlyRanges: [{ startLine: 3, startColumn: 1, endLine: 4, endColumn: 1 }] }),
+      await browserPage.evaluate(
+        (before) => window.setExtraProps({ readOnlyRanges: [{ startLine: 3, startColumn: 1, endLine: 4, endColumn: 1 }], rangesFor: before }),
+        before,
       );
       await browserPage.waitForTimeout(300);
       await input(browserPage).click();

@@ -28,6 +28,9 @@
       const schema = await (await fetch("../../schema.json")).text();
       const log = (line) => (document.getElementById("log").textContent += `${line}\n`);
 
+      // `?revisions`: each file keeps the revision `onChange` gave its value
+      // (`valueRevision`), as the README shows.
+      const revisions = new URLSearchParams(location.search).has("revisions");
       // The host owns the list: edits, saves and closes come back as calls.
       let files = [
         { id: "main", fileName: "tunnel.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema, closable: false },
@@ -48,9 +51,9 @@
       };
       const view = new ConfigDocuments(document.getElementById("files"), {
         documents: files,
-        onChange: (id, value) => {
+        onChange: (id, value, revision) => {
           log(`change ${id}`);
-          update(id, { value });
+          update(id, revisions ? { value, valueRevision: revision } : { value });
         },
         onSave: (id, value, language) => {
           log(`save ${id} ${language}`);

@@ -7,7 +7,7 @@ use leptos_config_editor::{
     ChangeSummary, Diagnostic, DiagnosticOrigin, FieldPath, TextPosition, TextRange,
 };
 
-use crate::text_lines::TextLines;
+use leptos_config_editor::js_support::TextLines;
 use serde::Serialize;
 use serde_json::Value;
 use wasm_bindgen::prelude::*;

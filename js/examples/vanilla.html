@@ -24,6 +24,7 @@
       <label>Theme <select id="theme"></select></label>
       <label><input id="read-only" type="checkbox" /> Read-only</label>
       <button id="replace" type="button">Replace value</button>
+      <button id="set-port" type="button">Set port</button>
       <button id="destroy" type="button">Destroy</button>
       <button id="reveal" type="button">Go to insecure_plaintext</button>
       <label><input id="lock-address" type="checkbox" /> Lock public_address</label>
@@ -107,7 +108,12 @@
         fileName: "tunnel.yaml",
         showToolbar: true,
         showFooter: true,
-        onChange: (text) => (saved.textContent = text),
+        // The host keeps the revision `onChange` gave its text, for an echo
+        // to name it (`valueRevision`).
+        onChange: (text, revision) => {
+          saved.textContent = text;
+          window.savedRevision = revision;
+        },
         // The select follows the language on screen, also when undo steps
         // back across a switch (the host's own language is "Same").
         onEditAsChange: (language) => {
@@ -143,6 +149,12 @@
       };
       document.getElementById("read-only").onchange = (event) => editor.update({ readOnly: event.target.checked });
       document.getElementById("replace").onclick = () => editor.update({ value: "listen: 9000\n" });
+      // The host's own change, sent as a change (no whole text).
+      document.getElementById("set-port").onclick = () => {
+        const text = editor.text;
+        const at = text.indexOf("listen: ") + "listen: ".length;
+        if (at >= "listen: ".length) editor.applyChanges([{ from: at, to: text.indexOf("\n", at), insert: "8080" }]);
+      };
       document.getElementById("destroy").onclick = () => editor.destroy();
       // Another client saved: the host's version moves on.
       let baseline = initial;

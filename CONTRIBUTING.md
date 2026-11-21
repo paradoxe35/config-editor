@@ -157,7 +157,11 @@ and the stretches it moved whole. The code making the edit says its change;
 only a text from outside (a host value, a reload) is read off two texts.
 Undo (`invert`), the followers that move locks and folds (`map_pos`,
 `compose`) and the mapping of the host's ranges all read this one record,
-so none of them guesses what changed.
+so none of them guesses what changed. The host log
+(`src/editor/sync/host_log.rs`) keeps it per text the host knows (each text
+sent, each text of its own): a list the host worked out on any of them is
+mapped to the document through the edits since, and the host's own change
+(`applyChanges`) is rebased over them.
 
 ### Text positions are typed
 
@@ -322,7 +326,10 @@ ranges), never key names; `src/editor/protect/locks/` places the locks from
 the parse. The host's ranges given while a save is held name places in its
 older text: they are mapped through the recorded edits it has not heard yet,
 and when no place holds a range's text it locks nothing and the save waits
-with a reason. A secret never appears in a problem message: schema messages
+with a reason. Every list names its text (`rangesFor`, else the value it
+comes with, else the host's text now; `src/editor/sync/host_inputs.rs`), and
+one record per document keeps the lists as given: what the screen locks is
+derived from them, never read again in a text they were not given for. A secret never appears in a problem message: schema messages
 are hidden by the schema (`diagnostics/secrets/by_schema.rs`), and a syntax
 message hides the parts it quotes where a secret may be (a placeholder, or
 the text from where the parser stopped): each language says them in
@@ -341,7 +348,11 @@ language's quotes over broken texts.
 passes it back as `valueRevision` (as `prosemirror-collab` numbers its
 steps), so an echo is known exactly (`src/editor/sync/echoes.rs`). Only a
 host that gives no revisions falls back to matching texts and a named pause
-(`SETTLE_MS`); that pause is the one place time enters.
+(`SETTLE_MS`); that pause is the one place time enters. Lists name their
+text by the same revisions (`rangesFor`): a revision no editor on the page
+sent is refused, one the editor does not keep (it can no longer name it, or
+an editor a hide and show replaced sent it; the page's editors share one
+clock) is out of date, and neither moves a lock.
 
 ### Random tests guard the promises
 

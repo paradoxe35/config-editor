@@ -7,7 +7,8 @@ feature where it can. Each spec says what it covers in its first comment.
 
 Shared code: `helpers.mjs` (the demo editor driver `editor(page)`,
 `setupEditor`, pointer helpers, the framework example pages),
-`framework-cases.mjs` (the cases every framework component runs) and
+`framework-cases.mjs` and `framework-host-text-cases.mjs` (the cases every
+framework component runs) and
 `custom-languages.mjs` (languages written in JavaScript).
 
 Timed specs (latency budgets) are listed in `TIMED` in
@@ -56,6 +57,9 @@ Timed specs (latency budgets) are listed in `TIMED` in
 - `locks-read-only`: read-only fields and blocks while editing.
 - `locks-host-ranges`, `locks-host-ranges-echoes`, `locks-host-ranges-resets`:
   locks the host gives as ranges, across mounts, echoes and resets.
+- `locks-host-ranges-anchors`: locks named by their text (`rangesFor`) and
+  `applyChanges` on an older revision, on `ConfigEditor` and
+  `ConfigDocuments`.
 - `locks-typed-entries`, `read-only-fields`, `locks-cleared`, `locks-timing`
   (timed), `edit-as-range-lock`.
 - `secrets-placeholders`, `secrets`, `secret-guarantees`.
@@ -64,6 +68,9 @@ Timed specs (latency budgets) are listed in `TIMED` in
 
 - `sync-echoes`: hosts that echo late, in any order, or not at all.
 - `sync-resets`: setValue and replaceValue with echoes on their way.
+- `framework-host-text`: lists naming their text (`rangesFor`,
+  `diagnosticsFor`), `applyChanges` and revisions through late echoes,
+  hide and show and re-mounts, on every framework page.
 - `echoes-waiting`, `host-call-order`, `host-editing`, `js-update`,
   `destroy-pending`, `unmount`, `binding-errors`, `keystroke-work`.
 

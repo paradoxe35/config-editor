@@ -81,6 +81,8 @@ const PROPS = {
   on_baseline_conflict: { option: 'onBaselineConflict', update: 'onBaselineConflict' },
   read_only_paths: { option: 'readOnlyPaths', update: 'readOnlyPaths' },
   read_only_ranges: { option: 'readOnlyRanges', update: 'readOnlyRanges' },
+  read_only_ranges_for: { option: 'rangesFor', update: 'rangesFor' },
+  host_diagnostics_for: { option: 'diagnosticsFor', update: 'diagnosticsFor' },
   secrets: { option: 'secrets', fixed: 'the placeholder patterns build the editor (`isPlaceholder` is called live)' },
 };
 
@@ -96,7 +98,8 @@ const HANDLE = {
   is_mounted: { exempt: 'an instance is mounted from its constructor until `destroy()` (a component: its `editor`)' },
   text: { member: 'text' },
   value: { member: 'value' },
-  sent_revision: { exempt: 'JS hands the revision to `onChange` as its second argument' },
+  sent_revision: { exempt: 'JS hands the revision to `onChange` as its second argument (and a `ConfigEditor` has `sentRevision`)' },
+  apply_changes: { member: 'applyChanges' },
   unified_diff: { member: 'unifiedDiff' },
   range_of: { member: 'rangeOf' },
   path_at: { member: 'pathAt' },
@@ -328,6 +331,7 @@ const DOCUMENTS_HANDLE = {
   save_all: { member: 'saveAll' },
   edit_as: { member: 'editAs' },
   focus: { member: 'focus' },
+  sent_revision: { exempt: 'a component\'s `onChange` gets the revision as its third argument (and a `ConfigDocuments` has `sentRevision(id)`)' },
 };
 
 // `Document`'s builder methods are the fields of a `DocumentSpec`.
@@ -345,6 +349,9 @@ const DOCUMENT = {
   host_diagnostics: { type: 'DocumentSpec' },
   read_only_paths: { type: 'DocumentSpec' },
   read_only_ranges: { type: 'DocumentSpec' },
+  read_only_ranges_for: { type: 'DocumentSpec' },
+  host_diagnostics_for: { type: 'DocumentSpec' },
+  value_revision: { type: 'DocumentSpec' },
   secrets: { type: 'DocumentSpec' },
   resolved_language: { main: 'languageForFile' },
 };
@@ -371,6 +378,8 @@ const CRATE_EXPORTS = {
   EditorTheme: { type: 'ThemeName' },
   FieldPath: { type: 'FieldPath' },
   HostDiagnostic: { type: 'HostDiagnostic' },
+  HostChange: { type: 'TextChange' },
+  RangesFor: { exempt: 'a revision (a number) or a text (a string) in JS: `rangesFor`, `diagnosticsFor`' },
   HoverDocs: { exempt: 'what `Schema::hover` returns, a Rust-only check' },
   Language: { type: 'LanguageName' },
   PRESET_CSS: { tool: 'presetCss' },
@@ -414,8 +423,7 @@ const CRATE_EXPORTS = {
 // Options of `ConfigEditor` / `ConfigDocuments` that no Rust prop maps to
 // and no component has, and why.
 const OPTIONS_JS_ONLY = {
-  valueRevision: 'passed back with the value through `update`, never to the constructor (a text at construction has no revision yet): the binding hands it to `update({ value, valueRevision })`; the Rust `value_revision` prop',
-  rangesFor: 'says which text the ranges were given for (a text the document has moved past): in Rust the ranges props are signals the host sets for the document; a component\'s binding passes its bound value',
+  valueRevision: 'the revision `onChange` gave the value with (also to the constructor, for an editor shown again on a parent\'s state); the Rust `value_revision` prop',
   echoes: 'a host handing every `onChange` text back through `update`: the Rust `echoes` prop, which a component\'s binding always sets (its parent passes every edit back as its value)',
   channel: 'an editor taking over the channel of the one it replaces (its echoes on their way): a component\'s binding passes it when it re-creates its editor; a Rust component is never re-created by a binding',
 };
@@ -432,12 +440,14 @@ const EDITOR_JS_ONLY = {
   update: 'the props: a component applies each change itself',
   replaceValue: 'a component\'s parent sets `value`, and the editor tells its late echoes apart (`echoes`) (its `setValue` replaces the value through it)',
   channel: 'a component re-creating its editor hands it to the new one itself (its binding does)',
+  sentRevision: 'a component\'s `onChange` gets every revision, and its `setValue` reports the reset with its own',
   destroy: 'the component unmounts the editor itself',
   settings: 'the setting props',
 };
 const DOCUMENTS_JS_ONLY = {
   update: 'the props: a component applies each change itself',
   replaceValue: 'a component\'s parent lists `documents`, and its handle\'s `setValue(id, text)` replaces a document\'s text through it',
+  sentRevision: 'a component\'s `onChange` gets every revision, and its `setValue(id, text)` reports the reset with its own',
   destroy: 'the component unmounts the view itself',
   settings: 'the setting props',
 };
@@ -450,6 +460,7 @@ const EDITOR_MEMBERS_JS_ONLY = {
   editAs: 'a component\'s `editAs` prop asked for again (a prop that did not change is not sent): the `edit_as` prop in Rust, a signal set again',
 };
 const DOCUMENTS_MEMBERS_JS_ONLY = {
+  applyChanges: 'the host\'s change of one document: `DocumentsHandle::editor(id)` and its `apply_changes` in Rust',
   setValue: 'a component\'s parent lists `documents`: the `documents` prop in Rust, which a signal sets',
   instance: 'a component\'s way to the `ConfigDocuments` instance it mounted (Rust: the `handle` prop is that instance)',
 };
@@ -1297,8 +1308,9 @@ test.describe('API parity between the Rust crate and the JS packages', () => {
       if (!js.members.has(name)) problems.push(`ConfigEditor has no \`${name}\` (EditorView)`);
       if (!js.documentEditorMembers.has(name)) problems.push(`DocumentEditorView has no \`${name}\` (EditorView)`);
     }
-    // A document's value, like its options, comes from the view's list.
-    for (const name of js.members) if (!js.viewMembers.has(name) && !['update', 'destroy', 'replaceValue', 'channel'].includes(name)) problems.push(`ConfigEditor member \`${name}\` is not in EditorView`);
+    // A document's value, like its options, comes from the view's list (and
+    // its revisions from the view's `onChange`).
+    for (const name of js.members) if (!js.viewMembers.has(name) && !['update', 'destroy', 'replaceValue', 'channel', 'sentRevision'].includes(name)) problems.push(`ConfigEditor member \`${name}\` is not in EditorView`);
     for (const name of js.documentEditorMembers) if (!js.viewMembers.has(name)) problems.push(`DocumentEditorView member \`${name}\` is not in EditorView`);
     expect(problems).toEqual([]);
   });

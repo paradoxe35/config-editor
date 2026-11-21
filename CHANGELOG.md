@@ -7,6 +7,51 @@ versions move together.
 
 ## 0.2.0 — unreleased
 
+### Host lists name their text
+
+- Read-only ranges and host diagnostics name the text their numbers are
+  in: `rangesFor` and `diagnosticsFor` (JavaScript, every framework
+  component, each `ConfigDocuments` entry) and `read_only_ranges_for`,
+  `host_diagnostics_for` (Leptos `ConfigEditor` and `Document`) take a
+  revision `onChange` gave (a server check of an older text) or a text
+  (the file as loaded). Left out: the `value` they come with, else your
+  text now. The editor keeps one record of how each text it sent became
+  the document and maps the lists through it exactly; a list given again
+  as it is in force is no news.
+- `applyChanges(changes, { revision })` (JavaScript, `ConfigDocuments`,
+  every framework handle) and `EditorHandle::apply_changes` (Leptos): send
+  your change instead of a whole text. Made on the text it names, rebased
+  over what the user typed since; locks, folds and the caret follow it
+  exactly, and Undo does not undo it.
+- `editor.sentRevision` (JavaScript); the constructor takes
+  `valueRevision`; `ConfigDocuments` entries take `valueRevision`, and its
+  `onChange` gets `(id, value, revision)` and `view.sentRevision(id)` gives
+  a document's last one. `DocumentsHandle::sent_revision`
+  and `Document::value_revision` in Leptos.
+- A framework's `setValue` reports the reset with its revision, and its
+  handle's `applyChanges` the result, through `onChange`.
+
+### Changed
+
+- **Breaking (Rust):** `Document::read_only_ranges_version` is removed:
+  give `read_only_ranges_for` (`RangesFor::Text(current)` or the
+  document's `value_revision`) instead.
+- A list naming a revision the editor never sent is refused: `update`
+  throws (a framework component reports it to `onError`), nothing changes.
+  One naming a revision the editor can no longer name (it keeps the 64
+  newest texts it sent, none from before a text of your own, and none an
+  editor a hide and show replaced sent) is out of date:
+  a console warning, the locks stay.
+- Ranges that do not fit the text they name throw (they were read in the
+  text the last ones came with before): give `rangesFor`.
+- A text of your own with the same ranges (no `rangesFor`) reads them in
+  that text, exactly: no whole-line locks around them any more.
+- A text of your own with no ranges (`replaceValue`, `update({ value })`)
+  carries the locks into it by the safe diff (whole changed lines where it
+  cannot tell), until you give ranges again (the same list rendered again
+  with numbers past the new text's end is no news); while editing as
+  another language too (they no longer stay at their numbers).
+
 ### Syntax messages say what they quote
 
 - `ParseError` has a new field, `quotes`: the parts of its message that

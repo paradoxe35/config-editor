@@ -27,6 +27,10 @@ use crate::{EditorHandle, Language};
 #[derive(Clone, Copy)]
 pub struct DocumentsHandle {
     documents: RwSignal<Option<Documents>, LocalStorage>,
+    /// The documents' host records a binding made before the view mounted
+    /// (see [`DocumentsHandle::bind_channel`]), handed to it as it does.
+    channels:
+        StoredValue<std::collections::HashMap<String, crate::editor::HostChannel>, LocalStorage>,
 }
 
 impl Default for DocumentsHandle {
@@ -49,11 +53,19 @@ impl DocumentsHandle {
     pub fn new() -> Self {
         Self {
             documents: RwSignal::new_local(None),
+            channels: StoredValue::new_local(std::collections::HashMap::new()),
         }
     }
 
     /// Attaches the view that mounted with this handle, until it unmounts.
     pub(super) fn attach(self, documents: Documents) {
+        let channels = self
+            .channels
+            .try_update_value(std::mem::take)
+            .unwrap_or_default();
+        for (id, channel) in channels {
+            documents.bind_channel(&id, channel);
+        }
         self.documents.set(Some(documents));
         on_cleanup(move || {
             let _ = self.documents.try_set(None);
@@ -123,6 +135,28 @@ impl DocumentsHandle {
     /// [`edit_as_text`](crate::Document::edit_as_text).
     pub fn editor(&self, id: &str) -> Option<EditorHandle> {
         Some(self.mounted_view()?.entry(id)?.handle)
+    }
+
+    /// The revision of the text `on_change` sent last for the document
+    /// `id`, while the host has not handed it back (with `echoes`): pass it
+    /// back as the document's `value_revision` with that text, as
+    /// [`EditorHandle::sent_revision`] says.
+    pub fn sent_revision(&self, id: &str) -> Option<u64> {
+        self.editor(id)?.sent_revision()
+    }
+
+    /// The document `id`'s host keeps its record in `channel` (the
+    /// JavaScript `ConfigDocuments`): its editor takes it over when it
+    /// mounts, and the binding hands it every update.
+    pub(crate) fn bind_channel(&self, id: &str, channel: crate::editor::HostChannel) {
+        match self.view() {
+            Some(documents) => documents.bind_channel(id, channel),
+            None => {
+                let _ = self.channels.try_update_value(|channels| {
+                    channels.insert(id.to_string(), channel);
+                });
+            }
+        }
     }
 
     /// The active document's editor.

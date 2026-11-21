@@ -44,6 +44,8 @@ export {
   type SettingsUpdate,
   type Severity,
   type TextRangeInput,
+  type TextChange,
+  type ApplyChangesOptions,
   type ThemeColorMap,
   type ThemeColorToken,
   type ThemeInfo,

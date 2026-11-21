@@ -3,7 +3,7 @@
 //! whose line moved further down was dropped; the host-sync random test: a
 //! lock sharing its line with other text lost its place, and the nearest
 //! copy of its text was the wrong one of two equal values).
-use leptos_config_editor::{TextPosition, TextRange};
+use crate::editor::paths::{TextPosition, TextRange};
 
 use super::super::{carried, moved_between};
 use super::{Carried, DIFFED, Exact};

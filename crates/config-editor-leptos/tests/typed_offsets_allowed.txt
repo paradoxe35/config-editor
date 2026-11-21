@@ -61,5 +61,8 @@ editor/popups/lock.rs 3 popups are placed by UTF-16 offsets of the mirror text (
 editor/problem_walk.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
 editor/protect/whole_guard/moved.rs 6 str `usize` bytes of `changed_bytes` and the pattern's matches (a crate edge) around an edit; to type with `changed_bytes`
 editor/sync.rs 1 still counts in UTF-16 or str `usize` bytes; to type with its area
+editor/sync/host_inputs/carry.rs 1 the safe diff moved from the JavaScript bindings: it counts the line bytes it diffs in `usize`; to type with the host-input area
+editor/sync/host_inputs/carry/exact.rs 5 the safe diff moved from the JavaScript bindings: it counts the line bytes it diffs in `usize`; to type with the host-input area
+editor/text/lines.rs 2 JavaScript string indices (UTF-16) read in the host's text for the bindings (crate edge)
 editor/text_change_tests.rs 1 the UTF-16 reference the byte reading is compared with (the browser's units by design)
 lib.rs 1 still plain; to type with its area

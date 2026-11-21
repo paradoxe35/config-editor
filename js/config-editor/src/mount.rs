@@ -3,15 +3,14 @@
 
 use js_sys::Function;
 use leptos::prelude::*;
+use leptos_config_editor::js_support::HostChannel;
 use leptos_config_editor::{
     BaselineConflict, ChangeSummary, ConfigEditor as Editor, Diagnostic, EditorHandle,
-    EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest, Schema, SchemaSource,
-    SecretOptions, TextRange,
+    EditorSettings, FieldPath, Language, SaveRequest, Schema, SchemaSource, SecretOptions,
 };
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;
-use crate::host_channel::HostChannel;
 use crate::told::Told;
 use crate::values::{ChangeSummaryOut, diagnostics_to_js, path_to_js, to_js};
 
@@ -66,7 +65,6 @@ pub(crate) fn call_host_with(callback: &Function, arguments: &[JsValue]) {
 pub(crate) struct State {
     /// The host's language, which `editAs` switches from.
     pub(crate) language: Language,
-    pub(crate) value: RwSignal<String>,
     pub(crate) baseline: RwSignal<String>,
     pub(crate) edit_as: RwSignal<Option<Language>>,
     pub(crate) settings: RwSignal<EditorSettings>,
@@ -88,24 +86,19 @@ pub(crate) struct State {
     /// Whether `onPathChange` is set: only then is the caret's path computed.
     pub(crate) follows_path: RwSignal<bool>,
     pub(crate) handle: EditorHandle,
-    pub(crate) host_diagnostics: RwSignal<Vec<HostDiagnostic>>,
     pub(crate) read_only_paths: RwSignal<Vec<FieldPath>>,
-    pub(crate) read_only_ranges: RwSignal<Vec<TextRange>>,
     /// What the state callbacks last reported (see `told`).
     pub(crate) told: StoredValue<Told, LocalStorage>,
-    /// The editor's channel to its host (see `host_channel`): the texts
-    /// `onChange` sent that the host has not handed back yet, and its
-    /// ranges as given.
+    /// The editor's channel to its host (the core's record: the texts
+    /// `onChange` sent that the host has not handed back yet, the host log
+    /// and the lists as given), shared with the mounted editor.
     pub(crate) channel: StoredValue<crate::editor::Shared, LocalStorage>,
-    /// The check that the host came back to the document (see `settle`).
-    pub(crate) settle: crate::settle::Slot,
 }
 
 impl State {
     /// Runs `apply` on the editor's channel while it is mounted.
-    pub(crate) fn channel<T>(&self, apply: impl FnOnce(&mut HostChannel) -> T) -> Option<T> {
-        self.channel
-            .try_with_value(|channel| apply(&mut channel.borrow_mut()))
+    pub(crate) fn channel<T>(&self, apply: impl FnOnce(&HostChannel) -> T) -> Option<T> {
+        self.channel.try_with_value(apply)
     }
 
     /// Stops the callbacks once `destroy` is called (from inside one, the
@@ -150,19 +143,20 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
         *latest
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
-        let _ = state.value.try_set(text.clone());
         if let Some(callback) = state.on_change.try_get_value().flatten() {
-            // Its revision goes with it: a host passing it back with the
-            // value (`valueRevision`) has its echo matched exactly.
+            // Its revision goes with it (the editor recorded it as sent): a
+            // host passing it back with the value (`valueRevision`) has its
+            // echo matched exactly.
             let revision = state
-                .channel(|channel| channel.sent(&text))
+                .channel(HostChannel::last_sent)
+                .flatten()
                 .unwrap_or_default();
             call_host_with(
                 &callback,
                 &[JsValue::from_str(&text), JsValue::from_f64(revision as f64)],
             );
         } else {
-            let _ = state.channel(HostChannel::unsent);
+            let _ = state.channel(HostChannel::untold);
         }
     };
     let switched = move |language: Language| {
@@ -220,16 +214,13 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
         }
     };
     follow_path(state);
-    let host_diagnostics = Signal::derive(move || state.host_diagnostics.get());
     let read_only_paths = Signal::derive(move || state.read_only_paths.get());
-    let read_only_ranges = Signal::derive(move || state.read_only_ranges.get());
     let schema_warning =
         move |message: String| match state.on_schema_warning.try_get_value().flatten() {
             Some(callback) => call_host(&callback, &JsValue::from_str(&message)),
             None => web_sys::console::warn_1(&format!("config-editor: {message}").into()),
         };
     let edit_as = Signal::derive(move || state.edit_as.get());
-    let value_signal = Signal::derive(move || state.value.get());
     let baseline = Signal::derive(move || state.baseline.get());
     let settings = saving_settings(state.settings, state.saves);
     let read_only = Signal::derive(move || state.read_only.get());
@@ -239,7 +230,6 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             language=setup.language
             edit_as=edit_as
             initial_value=setup.value
-            value=value_signal
             baseline=baseline
             nostrip:schema=setup.schema.map(SchemaSource::from)
             file_name=setup.file_name
@@ -256,10 +246,8 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             on_dirty_change=dirty_changed
             on_baseline_conflict=conflicted
             handle=state.handle
-            host_diagnostics=host_diagnostics
             on_schema_warning=schema_warning
             read_only_paths=read_only_paths
-            read_only_ranges=read_only_ranges
             secrets=setup.secrets
         />
     }

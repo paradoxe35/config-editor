@@ -1,4 +1,4 @@
-import type { EditorPath, EditorRange, FieldPath, LanguageName, LineRange } from "@pngwasi/config-editor";
+import type { ApplyChangesOptions, EditorPath, EditorRange, FieldPath, LanguageName, LineRange, TextChange } from "@pngwasi/config-editor";
 import type { ConfigEditorProps } from "./types.js";
 /**
  * A schema-aware config editor for YAML, JSON, TOML, HCL and XML.
@@ -14,6 +14,7 @@ declare const ConfigEditor: import("svelte").Component<ConfigEditorProps, {
     getValue: () => string;
     getEditor: () => import("@pngwasi/config-editor").ConfigEditor | null;
     setValue: (text: string) => void;
+    applyChanges: (changes: TextChange[], options?: ApplyChangesOptions) => number | null;
     unifiedDiff: (context?: number) => string;
     getCurrentPath: () => EditorPath | null;
     rangeOf: (path: FieldPath) => EditorRange | null;

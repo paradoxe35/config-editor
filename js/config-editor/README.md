@@ -145,7 +145,9 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `onSchemaWarning`    | `(message: string) => void`                 | console warning  | Called once per thing in `schema` the editor cannot use, such as a `patternProperties` regex its engine cannot compile (keys it matches get no completions or hover docs). Called a microtask after `new ConfigEditor` returns, never inside it, so the instance is yours by then.                                                                                                                                                                                                                                                                                                                             |
 | `readOnlyPaths`      | `FieldPath[]`                               | —                | Fields the user cannot change (each with everything inside it), on top of the schema's `readOnly` ones; see [Read-only fields](#read-only-fields).                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `readOnlyRanges`     | `TextRangeInput[]`                          | —                | Stretches of the document (in `language`) the user cannot change: `{ start, end }` string indices or one-based `{ startLine, startColumn, endLine?, endColumn? }`.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `rangesFor`          | `string`                                    | `value`          | The text `readOnlyRanges` and host `range`s were worked out for, when it is not `value` (a check of a text the document has moved past): they are checked in it and moved to `value`, a range around a change growing over it.                                                                                                                                                                                                                                                                                                                                                                                 |
+| `rangesFor`          | `number \| string`                          | `value`          | The text `readOnlyRanges` name places in: a revision `onChange` gave (or `valueRevision`), or a text (the file as loaded); see [update](#updateoptions).                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `diagnosticsFor`     | `number \| string`                          | `rangesFor`      | The text `hostDiagnostics` ranges name places in, as `rangesFor`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `valueRevision`      | `number`                                    | —                | The revision `onChange` gave `value` with (an editor shown again on a parent's state): `rangesFor` equal to it names `value`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `secrets`            | `SecretOptions`                             | defaults         | `{ placeholder?, isPlaceholder?, hint?, referencePrefixes? }`: how secret placeholders are matched, described and completed; see [Secrets](#secrets).                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `onSave`             | `(value: string, language: string) => void` | —                | Called on `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) and `save()`, with the document in `language`. Nothing saves by itself. Without it, `Ctrl+S` is the browser's.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `onDirtyChange`      | `(dirty: boolean) => void`                  | —                | Called with whether the document differs from `baseline`: once on mount, then each time that changes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -539,40 +541,37 @@ editor.update({ hostDiagnostics: problems, onSave: null });
 - A new `value` replaces the document as a host update, whatever it is (a
   file switched to, a discard, a reset); a `value` that is the document
   already changes nothing. The caret stays on the same text when possible.
-  `readOnlyRanges` and host `range`s given with it are in the new document,
-  and lock exactly what they name there: give ranges with a `value` only
-  when you worked them out for that text (the framework components give a
-  list only when it changed). Without `readOnlyRanges`, the ones you gave
-  last are carried into the new text by a diff, as after `replaceValue`:
-  where the diff cannot tell where a lock went, the whole changed lines
-  around it stay locked until you give ranges again. `readOnlyPaths` do not
+  Without `readOnlyRanges`, the ones you gave last are carried into the new
+  text by a diff, as after `replaceValue`: where the diff cannot tell where
+  a lock went, the whole changed lines around it stay locked until you give
+  ranges again (or send your change with
+  [`applyChanges`](#when-you-know-your-change)). `readOnlyPaths` do not
   depend on places in the text.
   The text `onChange` gave last, given while the editor still held a newer
   edit (one edited as another language, waiting out the typing pause, that
   the update first sends to `onChange`), is older than what was typed: it
   keeps the document. For a host that hands every `onChange` text back, see
   [Hosts that echo](#hosts-that-echo).
-- `readOnlyRanges` equal to the ones given last (the same JSON), given again
-  with no new text (a host passing all its options again, with the `value`
-  `onChange` gave), stay where the editor moved them as the user typed: they
-  are not read again at the places they name in the edited text. Ranges that
-  differ, or come with a new text or `rangesFor`, or the same ones after a
-  text of your own replaced the document (`replaceValue`), are read in that
-  text. Ranges that name places the text they come with lacks (a line or
-  index past its end, a column past its line's end) but fit the text the last
-  ones came with are read in that one and moved to the document (a
-  framework's render listing a newer text with ranges worked out on the one
-  it rendered before).
-  While a save is held, the document has moved on by edits you have not
-  heard yet; ranges given then are moved through those edits. A range
-  whose text one of those edits changed before the lock locks nothing, and
-  the save waits with a "Not saved: …" reason until that text is back.
-- `rangesFor` names the text an update's (or the constructor's)
-  `readOnlyRanges` and host `range`s were worked out for, when it is not the document (a check of a text the
-  user has typed past since): they are checked in it and moved to the
-  document, a range around an edit growing over it (a lock never lets a
-  locked character be edited). Ranges given with a `value` are in that
-  `value`, applied or an echo.
+- Lists name a text. `readOnlyRanges` and `hostDiagnostics` are read in the
+  text `rangesFor` (`diagnosticsFor`, else `rangesFor`) names: a revision
+  `onChange` gave (a server check of the text it ran on) or a text (the
+  file as loaded, for locks worked out once). Left out, they are in the
+  `value` they come with (your own text, or an echo), else in your text
+  now. The editor keeps a record of how each text it sent became the
+  document, and maps them to the document through it exactly; a list for
+  a text from outside is moved by the diff. A list given again as it is in
+  force (the same JSON and `rangesFor`) with no text of your own is no
+  news: the locks stay where the editor moved them as the user typed.
+- A `rangesFor` revision the editor never sent throws, and nothing
+  changes; one it can no longer name (the editor keeps the 64 newest texts
+  it sent, and none from before a text of your own; or the editor a hide
+  and show replaced sent it) is out of date: a console warning, and the
+  locks stay. Ranges that do not fit the text they name throw: give
+  `rangesFor` for ranges worked out on another text.
+- While a save is held, the document has moved on by edits you have not
+  heard yet; ranges given then are moved through those edits. A range whose
+  text one of those edits changed before the lock locks nothing, and the
+  save waits with a "Not saved: …" reason until that text is back.
 - `language`, `schema`, `fileName`, `className`, `secrets` and `echoes` are what the
   editor is built from: they throw (`"language cannot change on a mounted
 ConfigEditor …"`); create a new editor to change them. The value one was
@@ -586,6 +585,27 @@ ConfigEditor …"`); create a new editor to change them. The value one was
   nothing.
 
 </details>
+
+#### When you know your change
+
+`update({ value })` is for a host that has only a whole text (a file loaded,
+a discard): the editor carries the locks into it by a diff. A host that
+knows its edit (a form beside the editor, a "Set port" button, a
+collaborator's step) sends the change itself, as CodeMirror's dispatch:
+
+```ts
+const at = editor.text.indexOf("7835");
+const revision = editor.applyChanges([
+  { from: at, to: at + 4, insert: "8080" },
+]);
+```
+
+The changes are string indices of the text they were made on: your text
+now, or `{ revision }`, a text `onChange` gave. What the user typed since is
+kept and your change rebased over it; the locks, folds, secret
+placeholders and the caret follow it exactly, and Undo does not undo it.
+`onChange` hears the result only when it holds edits you did not know. It
+returns the revision of the new text (pass it back as `valueRevision`).
 
 #### Hosts that echo
 
@@ -696,12 +716,14 @@ document), so set those with `replaceValue` too.
 
 `ConfigEditor` adds:
 
-| Member               | Description                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `update(options)`    | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `replaceValue(text)` | Replace the document with a text of your own, whatever it is: with `echoes`, `update({ value })` takes a text `onChange` gave that has not come back yet for its echo and keeps the document; this never does (a revert to such a text). The caret stays on the same text when possible, and the `readOnlyRanges` on the text they cover; `onChange` does not hear it. Returns whether it replaced the document (`false` for the text it holds already). |
-| `destroy()`          | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside any callback (`onChange`, `onSave`, …).                                                                                                                                                                                                                                                                                           |
-| `free()`             | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method). Inside a callback it frees once the callback returns.                                                                                                    |
+| Member                            | Description                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update(options)`                 | Change the editor live; see [`update`](#updateoptions).                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `replaceValue(text)`              | Replace the document with a text of your own, whatever it is: with `echoes`, `update({ value })` takes a text `onChange` gave that has not come back yet for its echo and keeps the document; this never does (a revert to such a text). The caret stays on the same text when possible, and the `readOnlyRanges` on the text they cover; `onChange` does not hear it. Returns whether it replaced the document (`false` for the text it holds already). |
+| `applyChanges(changes, options?)` | Make your own change of the document (`[{ from, to, insert }]`, string indices of the text `options.revision` names, else your text now), rebased over what the user typed since; see [When you know your change](#when-you-know-your-change).                                                                                                                                                                                                           |
+| `sentRevision` (getter)           | The revision of the text `onChange` sent last (a reset `replaceValue` made included) while it is on its way: pass it back as `valueRevision`.                                                                                                                                                                                                                                                                                                            |
+| `destroy()`                       | Unmount. An edit still converting (while editing as another language) is sent to `onChange` first. Safe to call inside any callback (`onChange`, `onSave`, …).                                                                                                                                                                                                                                                                                           |
+| `free()`                          | Release the WebAssembly object after `destroy()`. Optional; the garbage collector does it too. An editor stays on the page until `destroy()`, whether or not you keep a reference to it. Call `destroy()` first: after `free()` the instance cannot be used at all (wasm-bindgen's own method). Inside a callback it frees once the callback returns.                                                                                                    |
 
 An exception thrown by a callback is logged to the console and does not
 break the editor.

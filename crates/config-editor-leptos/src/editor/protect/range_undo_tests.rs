@@ -20,7 +20,7 @@ use super::ProtectInit;
 const HOST: &str = "listen: 7835\npublic_address: tunnel.example.com\n";
 
 fn mount(view: Language, ranges: RwSignal<Vec<TextRange>>) -> EditorState {
-    EditorState::new(Init {
+    let state = EditorState::new(Init {
         host_language: Language::YAML,
         edit_language: view,
         schema: None,
@@ -32,10 +32,9 @@ fn mount(view: Language, ranges: RwSignal<Vec<TextRange>>) -> EditorState {
         read_only_reason: Signal::stored(None),
         settings: Signal::stored(EditorSettings::default()),
         host_on_change: None,
-        host_diagnostics: Signal::default(),
+        channel: None,
         protect: ProtectInit {
             paths: None,
-            ranges: Some(ranges.into()),
             secrets: None,
             foreign: None,
         },
@@ -43,7 +42,15 @@ fn mount(view: Language, ranges: RwSignal<Vec<TextRange>>) -> EditorState {
         on_baseline_conflict: None,
         clipboard: None,
     })
-    .0
+    .0;
+    crate::editor::sync::follow_lists(
+        state,
+        crate::editor::sync::Lists {
+            read_only_ranges: Some(ranges.into()),
+            ..crate::editor::sync::Lists::default()
+        },
+    );
+    state
 }
 
 fn shown(state: EditorState) -> String {

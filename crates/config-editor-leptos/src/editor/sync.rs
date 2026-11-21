@@ -24,22 +24,35 @@ use crate::reactive::later;
 
 mod echoes;
 mod gate;
+mod host_changes;
+mod host_inputs;
+mod host_log;
 mod session;
 
 pub use echoes::{Echo, Echoes, SETTLE_MS, clock as echo_clock};
 pub(crate) use gate::{Held, Made, Route};
+pub(crate) use host_changes::apply_host_changes;
+pub use host_changes::{ChangeError, HostChange, HostEdits};
+pub(crate) use host_inputs::Link;
+pub use host_inputs::{
+    AnchorError, HostChannel, HostUpdate, List, Listed, RangesFor, Reading, Taken, statement_of,
+};
 pub(crate) use session::{HostSession, HostTextReader};
 
 impl SyncState {
     /// Sends `text`, the document in the host's language, to `on_change`,
     /// recorded as sent: its echo is told apart when it comes back.
     pub(super) fn tell_host(&self, text: String) {
-        self.echoes.update_value(|echoes| {
-            echoes.sent(&text);
-        });
+        self.link(|link| link.sent(&text));
         if let Some(on_change) = self.host_on_change {
             on_change.run(text);
         }
+    }
+
+    /// Runs `apply` on the document's record of its host (see
+    /// `host_inputs`); `None` once the editor is gone.
+    pub(crate) fn link<T>(&self, apply: impl FnOnce(&mut Link) -> T) -> Option<T> {
+        self.channel.try_with_value(|channel| channel.with(apply))
     }
 }
 
@@ -57,6 +70,18 @@ pub(super) struct Host {
     /// The host hands every `on_change` text back as `value` (see
     /// `echoes`).
     pub(super) echoes: bool,
+    /// The host's read-only ranges and diagnostics.
+    pub(super) lists: Lists,
+}
+
+/// The host's read-only ranges and diagnostics (the component's props),
+/// each with the text it names places in.
+#[derive(Clone, Copy, Default)]
+pub(super) struct Lists {
+    pub(super) read_only_ranges: Option<Signal<Vec<super::paths::TextRange>>>,
+    pub(super) read_only_ranges_for: MaybeProp<RangesFor>,
+    pub(super) host_diagnostics: Option<Signal<Vec<super::host_diagnostics::HostDiagnostic>>>,
+    pub(super) host_diagnostics_for: MaybeProp<RangesFor>,
 }
 
 /// The host-and-Edit-as part of the editor state.
@@ -71,9 +96,13 @@ pub(super) struct SyncState {
     pub(super) session: StoredValue<HostSession>,
     /// The session's host text, read.
     pub(super) host_text: HostTextReader,
-    /// The texts sent and handed back (see `echoes`): with the `echoes`
-    /// option, a `value` that is an echo of an edit typed past is skipped.
-    pub(super) echoes: StoredValue<Echoes>,
+    /// The document's record of its host (see `host_inputs`): the texts
+    /// sent and handed back, how each became the document, and the lists
+    /// the host gave; shared with the binding that made the editor.
+    pub(crate) channel: StoredValue<HostChannel, LocalStorage>,
+    /// The host's diagnostics, in the document (the host log's): placed
+    /// from the lists the host gave (see `host_inputs`).
+    pub(super) host_diagnostics: RwSignal<Vec<super::host_diagnostics::HostDiagnostic>>,
     /// Counts the pauses after an echo started (see `settle_later`): only
     /// the newest one's check runs.
     pub(super) settles: StoredValue<u64>,
@@ -116,6 +145,10 @@ impl SyncState {
     /// `opening`, a text in `edit_language` the host kept from an earlier
     /// session, that text is shown instead (in `edit_language` even when the
     /// host's text cannot be), and converts back like an edit.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is one of the inputs the editor mounts with"
+    )]
     pub(super) fn load(
         host_language: Language,
         edit_language: Language,
@@ -124,6 +157,7 @@ impl SyncState {
         opening: Option<String>,
         host_on_change: Option<Callback<String>>,
         line_endings: LineEndings,
+        channel: Option<HostChannel>,
     ) -> (Self, String, Option<Language>) {
         let mut load_problems = Vec::new();
         let mut pending = None;
@@ -180,7 +214,15 @@ impl SyncState {
             clipboard: StoredValue::new(Clipboard::default()),
             host_text: HostTextReader(session),
             session,
-            echoes: StoredValue::new(Echoes::new(false)),
+            host_diagnostics: RwSignal::new(
+                channel
+                    .as_ref()
+                    .map(|channel| channel.with(|link| link.diagnostics.clone()))
+                    .unwrap_or_default(),
+            ),
+            channel: StoredValue::new_local(
+                channel.unwrap_or_else(|| HostChannel::new(false, &host_text, None)),
+            ),
             settles: StoredValue::new(0),
             synced: Trigger::new(),
             on_edit_as_change: StoredValue::new(None),
@@ -196,6 +238,27 @@ impl SyncState {
 }
 
 impl EditorState {
+    /// The edit pipeline's record of `edit` reaches the host log (see
+    /// `host_log`): while editing in the host's language, the text on
+    /// screen is the log's document, and positions the host gave map
+    /// through each edit exactly.
+    pub(super) fn note_host_log(&self, edit: &Edit) {
+        if self.config().host_language != self.sync().edit_language.get_untracked() {
+            return;
+        }
+        let kind = match &edit.origin {
+            Origin::Input { kind, .. } => kind.as_str(),
+            _ => "",
+        };
+        let mapping = edit.mapping();
+        let (before, after) = (
+            Arc::<str>::from(edit.before.as_str()),
+            Arc::<str>::from(edit.text.as_str()),
+        );
+        self.sync()
+            .link(|link| link.log.edited(&mapping, kind, &before, &after));
+    }
+
     /// The edit pipeline's notify stage: `on_change` hears of the document
     /// (while editing in the host's language; otherwise the conversion
     /// does, after the typing pause).
@@ -433,13 +496,11 @@ pub(super) fn connect(state: EditorState, host: Host) {
         .set_value(host.on_edit_as_change);
     if host.echoes {
         let host_text = state.sync().host_text.get_value();
-        state.sync().echoes.update_value(|echoes| {
-            *echoes = Echoes::new(true);
-            echoes.given(&host_text);
-        });
+        state.sync().link(|link| link.echoing(&host_text));
     }
+    follow_lists(state, host.lists);
     if let Some(value) = host.value {
-        follow_value(state, value, host.value_revision);
+        follow_value(state, value, host.value_revision, host.lists);
     }
     debounce_validation(state);
     convert_edits(state);
@@ -459,16 +520,81 @@ fn report_sync(state: EditorState, callback: Callback<bool>) {
     Effect::new(move |_| callback.run(shown.get()));
 }
 
+impl Lists {
+    /// The lists as they are now, with the texts they name places in, for
+    /// an update with `value` (given with `revision`).
+    fn now(self, value: Option<String>, revision: Option<u64>) -> HostUpdate {
+        HostUpdate {
+            value,
+            value_revision: revision,
+            ranges: self
+                .read_only_ranges
+                .map(|ranges| Listed::new(ranges.get_untracked())),
+            ranges_for: self.read_only_ranges_for.get_untracked(),
+            diagnostics: self
+                .host_diagnostics
+                .map(|list| Listed::new(list.get_untracked())),
+            diagnostics_for: self.host_diagnostics_for.get_untracked(),
+            ..HostUpdate::default()
+        }
+    }
+}
+
+/// The host's read-only ranges and diagnostics, and the texts they name
+/// places in: taken as the editor mounts (in the text it mounts with,
+/// unless they name another), then each time one of them changes (the
+/// lists given again are no news, see `host_inputs`).
+pub(super) fn follow_lists(state: EditorState, lists: Lists) {
+    let (ranges, ranges_for) = (lists.read_only_ranges, lists.read_only_ranges_for);
+    let (diagnostics, diagnostics_for) = (lists.host_diagnostics, lists.host_diagnostics_for);
+    if ranges.is_none() && diagnostics.is_none() {
+        return;
+    }
+    let take = move || take_lists(state, lists);
+    take();
+    // At once, as the value is: a host setting its lists and then typing
+    // a key in the same task finds them placed.
+    let first = StoredValue::new(true);
+    leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
+        if let Some(ranges) = ranges {
+            ranges.track();
+        }
+        if let Some(diagnostics) = diagnostics {
+            diagnostics.track();
+        }
+        ranges_for.track();
+        diagnostics_for.track();
+        if !first.try_update_value(std::mem::take).unwrap_or(false) {
+            untrack(take);
+        }
+    });
+}
+
+/// Takes the lists of `lists` as they are now.
+pub(super) fn take_lists(state: EditorState, lists: Lists) {
+    if lists.read_only_ranges.is_some() || lists.host_diagnostics.is_some() {
+        report_refused(take_host_update(state, lists.now(None, None)));
+    }
+}
+
+/// A list a Leptos host gave that the editor refused (a revision it never
+/// sent), said on the console: the locks stay as they were.
+fn report_refused(taken: Result<Taken, AnchorError>) {
+    if let Err(error) = taken {
+        leptos::logging::error!("config-editor: {error}");
+    }
+}
+
 /// A controlled `value` flows into the editor, at once: input the browser
 /// sends right after a host sets the value (in the same task) lands on the
 /// new text, not on the old one the effect would replace later. Its
-/// `revision`, read as the value changes, is the one the host set with it.
-fn follow_value(state: EditorState, value: Signal<String>, revision: MaybeProp<u64>) {
+/// revision and lists, read as the value changes, are the ones the host
+/// set with it (before it).
+fn follow_value(state: EditorState, value: Signal<String>, revision: MaybeProp<u64>, lists: Lists) {
     leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
         let value = value.get();
-        let revision = revision.get_untracked();
-        let text = state.sync().line_endings.received(value);
-        take_host_value_at(state, text, revision);
+        let update = untrack(|| lists.now(Some(value), revision.get_untracked()));
+        report_refused(take_raw_host_update(state, update));
     });
 }
 
@@ -485,8 +611,7 @@ fn settle_later(state: EditorState) {
         let host = state.sync().host_text.get_value();
         let again = state
             .sync()
-            .echoes
-            .try_update_value(|echoes| echoes.settle(&host))
+            .link(|link| link.settle(&host))
             .unwrap_or(false);
         if again && let Some(on_change) = state.sync().host_on_change {
             on_change.run(host);
@@ -494,56 +619,108 @@ fn settle_later(state: EditorState) {
     });
 }
 
-/// [`take_host_value_at`] for a text the host gave with no revision.
+/// [`take_host_update`] for a text the host gave with no revision and no
+/// lists.
 #[cfg(test)]
 #[allow(
     dead_code,
     reason = "its callers are tests of single languages: some builds have none"
 )]
 pub(super) fn take_host_value(state: EditorState, external: String) {
-    take_host_value_at(state, external, None);
+    report_refused(take_host_update(
+        state,
+        HostUpdate {
+            value: Some(external),
+            ..HostUpdate::default()
+        },
+    ));
 }
 
-/// Shows `external` (normalized), a new text from the host, given with the
-/// `revision` `on_change` sent it with when the host passes it back (the
-/// `value_revision` prop: its echo is matched exactly, see
-/// `Echoes::received_at`). One the language on screen cannot hold (TOML
-/// has no `null`) is shown in the host's language, read as it, and the
-/// switch waits for the document to convert, as one asked for on such a
-/// document does: the host hears the language on screen, and the edits
-/// reach `on_change` meanwhile.
-fn take_host_value_at(state: EditorState, external: String, revision: Option<u64>) {
+/// The one entry for what the host gives (see `host_inputs`): its text
+/// (normalized here), the revision it came with and its lists, decided by
+/// the document's record of its host. An echo the user typed past keeps
+/// the document (the host hears it again when it is left behind); a text
+/// of the host's own is shown; the lists are placed where they name
+/// places. Nothing changes when a list names a revision the editor never
+/// sent (the error says so); a list that can no longer be named is not
+/// taken (a warning on the console).
+pub(crate) fn take_host_update(
+    state: EditorState,
+    update: HostUpdate,
+) -> Result<Taken, AnchorError> {
     let host = state
         .sync()
         .session
         .with_value(|session| session.host.clone());
-    let flushed = echo_clock();
-    match state
+    let value = update.value.clone();
+    let reset = update.reset;
+    let rewrite =
+        |from: &str, to: &str, ranges: &[TextRange]| state.rewrite_ranges(from, to, ranges);
+    let taken = state
         .sync()
-        .echoes
-        .try_update_value(|echoes| match revision {
-            Some(revision) => echoes.received_at(&external, revision, &host, flushed),
-            None => echoes.received(&external, &host, flushed),
-        })
-        .unwrap_or(Echo::Apply)
-    {
-        Echo::Apply => {}
-        Echo::Skip => return,
-        Echo::Settle => return settle_later(state),
+        .link(|link| link.take(update, &host, &rewrite))
+        .unwrap_or_else(|| Ok(Taken::default()))?;
+    for warning in &taken.warnings {
+        leptos::logging::warn!("config-editor: {warning}");
+    }
+    match taken.echo {
+        Some(Echo::Settle) => settle_later(state),
         // Left behind the document by a late echo: the host hears it
         // again (recorded as sent already).
-        Echo::Resend => {
+        Some(Echo::Resend) => {
             if let Some(on_change) = state.sync().host_on_change {
                 on_change.run(host.to_string());
             }
-            return settle_later(state);
+            settle_later(state);
+        }
+        _ => {}
+    }
+    if let Some(diagnostics) = &taken.diagnostics {
+        state.sync().host_diagnostics.set(diagnostics.clone());
+    }
+    if taken.shown
+        && let Some(value) = value
+    {
+        show_host_value(state, value);
+    }
+    if taken.ranges || (reset && taken.shown) {
+        state.host_ranges_given();
+    }
+    Ok(taken)
+}
+
+/// [`take_host_update`] for an update as the host wrote it: its value
+/// and the texts its lists name read as the editor reads text (the host's
+/// line endings noted for what it hears, see `line_endings`).
+pub(crate) fn take_raw_host_update(
+    state: EditorState,
+    mut update: HostUpdate,
+) -> Result<Taken, AnchorError> {
+    let line_endings = state.sync().line_endings;
+    // Its line endings are noted only once it is shown: an echo written
+    // another way, skipped, leaves the document's own.
+    let given = update.value.take();
+    update.value = given.clone().map(|value| line_endings.read(value));
+    for anchor in [&mut update.ranges_for, &mut update.diagnostics_for] {
+        if let Some(RangesFor::Text(text)) = anchor {
+            *text = Arc::from(super::line_endings::editor_text(text.to_string()).as_str());
         }
     }
-    // The host's text already (its own echo): reconverting would reformat
-    // the text under the caret.
-    if *host == *external {
-        return;
+    let taken = take_host_update(state, update)?;
+    if taken.shown
+        && let Some(given) = given
+    {
+        line_endings.received(given);
     }
+    Ok(taken)
+}
+
+/// Shows `external` (normalized), a text of the host's own. One the
+/// language on screen cannot hold (TOML has no `null`) is shown in the
+/// host's language, read as it, and the switch waits for the document to
+/// convert, as one asked for on such a document does: the host hears the
+/// language on screen, and the edits reach `on_change` meanwhile.
+fn show_host_value(state: EditorState, external: String) {
     let (edit, waiting) = match state.shown(&external) {
         Ok(edit) => (edit, None),
         Err(_) => (

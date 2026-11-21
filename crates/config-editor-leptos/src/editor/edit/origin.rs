@@ -8,6 +8,7 @@
 //! | `Undo`, `Redo` | – | yes | yes | the step moves | yes | – |
 //! | `Reload` | – | – | yes | its own step | yes | the host's placeholders |
 //! | `HostValue` | – | – | – | carried into the steps before (dropped when shown in another language) | – | indent, ranges, the host's placeholders |
+//! | `HostChange` | – | – | yes, exactly | not a step: the steps before are rebased over it | only when rebased (see `sync::apply_host_changes`) | – |
 //! | `Switch` | – | – | – | its own step | – | indent, ranges, placeholders |
 //!
 //! Widened: an edit cutting a secret placeholder takes it whole. Checked:
@@ -39,6 +40,9 @@ pub(in crate::editor) enum Origin {
     },
     /// A new controlled `value` from the host.
     HostValue,
+    /// The host's own change of its text (`applyChanges`), rebased over
+    /// the edits it had not heard: followed exactly, as an edit is.
+    HostChange,
     /// The document converted by an `edit_as` switch: an undo step back to
     /// the language and text it left.
     Switch,
@@ -56,7 +60,9 @@ impl Origin {
     pub(super) fn is_checked(&self) -> bool {
         match self {
             Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo => true,
-            Origin::Reload { .. } | Origin::HostValue | Origin::Switch => false,
+            Origin::Reload { .. } | Origin::HostValue | Origin::HostChange | Origin::Switch => {
+                false
+            }
         }
     }
 
@@ -70,7 +76,10 @@ impl Origin {
     /// from the host is its own already, and a switch reports through the
     /// conversion (see `sync`).
     pub(super) fn notifies(&self) -> bool {
-        !matches!(self, Origin::HostValue | Origin::Switch)
+        !matches!(
+            self,
+            Origin::HostValue | Origin::HostChange | Origin::Switch
+        )
     }
 
     /// Whether the edit may bring its own indentation, so the indent unit

@@ -11,7 +11,15 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import type { EditorPath, EditorRange, FieldPath, LanguageName, LineRange } from "@pngwasi/config-editor";
+  import type {
+    ApplyChangesOptions,
+    EditorPath,
+    EditorRange,
+    FieldPath,
+    LanguageName,
+    LineRange,
+    TextChange,
+  } from "@pngwasi/config-editor";
   import { type EditorBindingProps, EditorBinding } from "@pngwasi/config-editor/binding";
   import type { ConfigEditorProps } from "./types.js";
   import { readAll } from "./track.js";
@@ -71,6 +79,10 @@
   /** Replaces the document, always, and reports it (`value`, `onChange`); see `ConfigEditorHandle.setValue`. */
   export function setValue(text: string): void {
     handle.setValue(text);
+  }
+  /** Makes the host's own change of the document; see `ConfigEditorHandle.applyChanges`. */
+  export function applyChanges(changes: TextChange[], options?: ApplyChangesOptions): number | null {
+    return handle.applyChanges(changes, options);
   }
   /** The unified diff (`diff -u`) of the baseline against the document; empty when they are the same. */
   export function unifiedDiff(context?: number): string {

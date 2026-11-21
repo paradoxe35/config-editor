@@ -51,7 +51,7 @@ struct Host {
 
 fn mount(language: Language, text: &str, host: &Host) -> EditorState {
     let heard = host.heard;
-    EditorState::new(Init {
+    let state = EditorState::new(Init {
         host_language: language,
         edit_language: language,
         schema: None,
@@ -65,7 +65,7 @@ fn mount(language: Language, text: &str, host: &Host) -> EditorState {
         host_on_change: Some(Callback::new(move |text| {
             heard.update(|all| all.push(text));
         })),
-        host_diagnostics: Signal::default(),
+        channel: None,
         protect: ProtectInit {
             // In XML, where typing into one tag breaks the text, `listen`
             // is held by its path instead (see `hold`).
@@ -74,7 +74,6 @@ fn mount(language: Language, text: &str, host: &Host) -> EditorState {
             } else {
                 Vec::new()
             })),
-            ranges: Some(host.ranges.into()),
             secrets: None,
             foreign: None,
         },
@@ -82,7 +81,15 @@ fn mount(language: Language, text: &str, host: &Host) -> EditorState {
         on_baseline_conflict: None,
         clipboard: None,
     })
-    .0
+    .0;
+    crate::editor::sync::follow_lists(
+        state,
+        crate::editor::sync::Lists {
+            read_only_ranges: Some(host.ranges.into()),
+            ..crate::editor::sync::Lists::default()
+        },
+    );
+    state
 }
 
 /// Bytes `range` of `text` as the host gives a range: lines and character

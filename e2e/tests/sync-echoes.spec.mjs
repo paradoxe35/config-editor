@@ -1016,7 +1016,7 @@ test.describe(() => {
         return {
           valid,
           past: thrown(() => editor.update({ rangesFor: older, readOnlyRanges: [{ start: 0, end: older.length + 1 }] })),
-          notText: thrown(() => editor.update({ rangesFor: 5 })),
+          notText: thrown(() => editor.update({ rangesFor: true })),
         };
       });
       expect(result.valid).toBeNull();

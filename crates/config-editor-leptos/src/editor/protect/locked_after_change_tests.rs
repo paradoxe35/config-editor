@@ -50,10 +50,9 @@ fn mount(language: Language, text: &str) -> (Owner, EditorState, RwSignal<Vec<Fi
         read_only_reason: Signal::stored(None),
         settings: Signal::stored(EditorSettings::default()),
         host_on_change: None,
-        host_diagnostics: Signal::default(),
+        channel: None,
         protect: ProtectInit {
             paths: Some(paths.into()),
-            ranges: None,
             secrets: None,
             foreign: None,
         },

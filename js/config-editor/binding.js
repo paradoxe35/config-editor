@@ -207,10 +207,6 @@ export class EditorBinding extends Binding {
   #reset = null;
   // Each live prop as last applied.
   #applied = {};
-  // The bound value each positional prop (`readOnlyRanges`,
-  // `hostDiagnostics`) was given with, when its list last changed: its
-  // places are in that text, sent along as `rangesFor`, on a re-mount too.
-  #givenFor = {};
   #followPath = (path) => this.props.onPathChange?.(path);
   #save = (value, language) => this.props.onSave?.(value, language);
 
@@ -251,23 +247,19 @@ export class EditorBinding extends Binding {
     const value = this.#reset ?? this.#carried?.value ?? props.value ?? props.defaultValue ?? "";
     const baseline = props.baseline ?? this.#carried?.baseline ?? value;
     this.#carried = { value, baseline };
-    // Ranges are in the text they were given with (the bound value when
-    // their list last changed, or now for a new list): on a document
-    // carried past it, they are moved from it to the document, never read
-    // again in a text they were not given for.
-    const givenFor = (name) =>
-      this.#applied[name] === JSON.stringify(props[name] ?? []) && name in this.#givenFor
-        ? this.#givenFor[name]
-        : props.value;
-    // The ranges the old editor was given last, rendered again: the channel
-    // taken over holds them where they are, so they are not given (a value
-    // they were rendered with since may be an echo of the editor's own
-    // text, where their numbers name other places).
-    const held = this.#channel !== null && this.#applied.readOnlyRanges === JSON.stringify(props.readOnlyRanges ?? []);
-    const textFor = held ? value : givenFor("readOnlyRanges");
-    const rangesFor = textFor === undefined || textFor === value ? undefined : textFor;
-    // Diagnostics given with another text come with the first update.
-    const diagnostics = givenFor("hostDiagnostics") === textFor ? props.hostDiagnostics : undefined;
+    // A list naming no text is in the parent's value. On a re-mount the
+    // editor shows its own document, so the value names a list that is
+    // new; the lists the editor had, rendered again, go as they are (no
+    // news to the channel taken over, wherever their numbers were read).
+    const listedAgain =
+      this.#channel &&
+      this.#applied.lists ===
+        JSON.stringify([props.readOnlyRanges ?? [], props.rangesFor ?? null, props.hostDiagnostics ?? [], props.diagnosticsFor ?? null]);
+    const valueNames = this.#channel && !listedAgain ? props.value : undefined;
+    // The value's revision, the lists and the texts they name go as they
+    // are: the editor reads each list in the text it names (on a re-mount
+    // the channel taken over holds them, and the same ones rendered again
+    // are no news).
     return new ConfigEditor(element, {
       ...settings,
       value,
@@ -295,10 +287,12 @@ export class EditorBinding extends Binding {
       onChangeSummary: (summary) => this.props.onChangeSummary?.(summary),
       onProblems: (problems) => this.props.onProblems?.(problems),
       onPathChange: props.onPathChange ? this.#followPath : undefined,
-      hostDiagnostics: diagnostics,
+      valueRevision: this.#reset === null ? props.valueRevision : undefined,
+      hostDiagnostics: props.hostDiagnostics,
+      diagnosticsFor: props.diagnosticsFor ?? (props.rangesFor === undefined ? valueNames : undefined),
       readOnlyPaths: props.readOnlyPaths,
-      readOnlyRanges: held ? undefined : (props.readOnlyRanges ?? []),
-      rangesFor,
+      readOnlyRanges: props.readOnlyRanges ?? [],
+      rangesFor: props.rangesFor ?? valueNames,
       secrets: props.secrets && {
         ...props.secrets,
         isPlaceholder: props.secrets.isPlaceholder
@@ -335,7 +329,8 @@ export class EditorBinding extends Binding {
       // The `value` prop still holds what the host had before the reset
       // reaches it: not a new value of its own.
       this.#handledValue = this.props.value;
-      this.props.onChange?.(value);
+      this.#handledRevision = this.props.valueRevision;
+      this.props.onChange?.(value, this.instance?.sentRevision);
     }
     this.sync(true);
   }
@@ -375,41 +370,38 @@ export class EditorBinding extends Binding {
       return true;
     };
     const value = props.value;
-    // The editor tells the parent's echoes from its own values (`echoes`).
-    const handled = value === this.#handledValue && props.valueRevision === this.#handledRevision;
-    // A new value goes with the read-only ranges the parent renders with
-    // it when their list changed: worked out for that text, they are read
-    // in it. The same list rendered again stays in the text it was given
-    // with and is carried into the new value: that value may be an echo of
-    // an editor's own text (one this editor never sent, after the parent
-    // hid and showed it), where the same numbers name other places.
-    let rangesWithValue = false;
-    if (this.instance && value !== undefined && !handled) {
+    // The bound value, its revision, the lists and the texts they name go
+    // in one update whenever one of them changed (the lists by JSON, only
+    // to skip work): the editor decides where each list's numbers are read
+    // (see the core's `host_inputs`), and a list given again is no news.
+    // Right after a mount the editor has them all.
+    const host = {
+      value,
+      valueRevision: props.valueRevision,
+      readOnlyRanges: props.readOnlyRanges ?? [],
+      rangesFor: props.rangesFor,
+      hostDiagnostics: props.hostDiagnostics ?? [],
+      diagnosticsFor: props.diagnosticsFor,
+    };
+    const lists = JSON.stringify([host.readOnlyRanges, host.rangesFor ?? null, host.hostDiagnostics, host.diagnosticsFor ?? null]);
+    const newValue = value !== this.#handledValue || props.valueRevision !== this.#handledRevision;
+    const newLists = this.#applied.lists !== lists;
+    this.#applied.lists = lists;
+    // Right after a mount the editor has them all, except a new value the
+    // parent gave in the render that re-mounted it (the editor starts from
+    // its own document): that goes as any new value does.
+    const sinceMount = value !== undefined && newValue && value !== this.#carried?.value;
+    if (force && !sinceMount) {
       this.#handledValue = value;
       this.#handledRevision = props.valueRevision;
-      const ranges = JSON.stringify(props.readOnlyRanges ?? []);
-      rangesWithValue = this.#applied.readOnlyRanges !== ranges;
-      // The revision the parent stored with it, when it passes it back:
-      // its echo is then matched exactly.
-      const revision = props.valueRevision;
-      const update = revision === undefined ? { value } : { value, valueRevision: revision };
-      if (rangesWithValue) {
-        this.#applied.readOnlyRanges = ranges;
-        this.#givenFor.readOnlyRanges = value;
+    } else if (this.instance && (newLists || (value !== undefined && newValue))) {
+      this.#handledValue = value;
+      this.#handledRevision = props.valueRevision;
+      const update = {};
+      for (const [key, given] of Object.entries(host)) {
+        if (given !== undefined) update[key] = given;
       }
-      this.guard((editor) => {
-        if (!rangesWithValue) return editor.update(update);
-        try {
-          editor.update({ ...update, readOnlyRanges: JSON.parse(ranges) });
-        } catch (error) {
-          // Ranges that fit neither this text nor the one the last ones
-          // came with are reported once (rendered again, they are no new
-          // list); the value still applies, the editor keeping the locks it
-          // had, carried into it.
-          this.report(error);
-          editor.update(update);
-        }
-      });
+      this.guard((editor) => editor.update(update));
     }
     // The live props that changed, each in its own `update`: a bad one
     // (reported) does not hold the others back.
@@ -421,31 +413,15 @@ export class EditorBinding extends Binding {
     if (changed("editAs", props.editAs ?? null)) update.editAs = props.editAs ?? null;
     if (changed("readOnly", props.readOnly ?? false)) update.readOnly = props.readOnly ?? false;
     if (changed("readOnlyReason", props.readOnlyReason ?? null)) update.readOnlyReason = props.readOnlyReason ?? null;
-    for (const name of ["hostDiagnostics", "readOnlyPaths", "readOnlyRanges"]) {
-      if (name === "readOnlyRanges" && rangesWithValue) continue;
-      const list = JSON.stringify(props[name] ?? []);
-      // A new list is given with the bound value now.
-      if (this.#applied[name] !== list) this.#givenFor[name] = value;
-      if (changed(name, list)) update[name] = JSON.parse(list);
-    }
-    // Right after a mount the editor has the ranges: given to it, or held
-    // by the channel it took over (given again, they would be read anew).
-    if (force) delete update.readOnlyRanges;
-    // Ranges are in the bound value they were given with, which may be an
-    // echo the user typed past: the editor maps them from it to the
-    // document (also when a re-mount sends them again).
-    const ranged = (key) => key === "hostDiagnostics" || key === "readOnlyRanges";
-    const rangesFor = (key) => {
-      const text = this.#givenFor[key] ?? value;
-      return ranged(key) && text !== undefined ? { rangesFor: text } : {};
-    };
+    const paths = JSON.stringify(props.readOnlyPaths ?? []);
+    if (changed("readOnlyPaths", paths) && !force) update.readOnlyPaths = JSON.parse(paths);
     const followsPath = props.onPathChange !== undefined;
     if (changed("followsPath", followsPath)) update.onPathChange = followsPath ? this.#followPath : null;
     // `Ctrl+S` is the editor's only while `onSave` is set.
     const saves = props.onSave !== undefined;
     if (changed("saves", saves)) update.onSave = saves ? this.#save : null;
-    for (const [key, list] of Object.entries(update)) {
-      this.guard((editor) => editor.update({ [key]: list, ...rangesFor(key) }));
+    for (const [key, given] of Object.entries(update)) {
+      this.guard((editor) => editor.update({ [key]: given }));
     }
   }
 
@@ -468,8 +444,9 @@ export class EditorBinding extends Binding {
       // A reset to the document as it is changes nothing, and is not reported.
       if (!editor.replaceValue(value)) return;
       // The host's state follows the reset: it is reported like an edit,
-      // and the editor tells its echo apart like one.
-      this.props.onChange?.(value);
+      // with the revision the editor recorded it with, so a parent keeping
+      // revisions tells its echo apart exactly.
+      this.props.onChange?.(value, editor.sentRevision);
     });
   }
 
@@ -524,6 +501,14 @@ export class EditorBinding extends Binding {
           return true;
         }, false),
       setValue: (value) => binding.#setValue(value),
+      // The host's own change, reported as `setValue`'s reset is: the
+      // parent's state follows from `onChange` (one way).
+      applyChanges: (changes, options) =>
+        binding.ask((editor) => {
+          const revision = editor.applyChanges(changes, options) ?? null;
+          if (revision !== null) binding.props.onChange?.(editor.value, revision);
+          return revision;
+        }, null),
       unifiedDiff: (context) => binding.#unifiedDiff(context),
     };
   }
@@ -564,7 +549,7 @@ export class DocumentsBinding extends Binding {
       onSelect: (id) => this.props.onSelect?.(id),
       onClose: props.onClose ? (request) => this.props.onClose?.(request) : undefined,
       onAdd: props.onAdd ? () => this.props.onAdd?.() : undefined,
-      onChange: (id, value) => this.props.onChange?.(id, value),
+      onChange: (id, value, revision) => this.props.onChange?.(id, value, revision),
       onSave: this.#save,
       onDirtyChange: (id, dirty) => this.props.onDirtyChange?.(id, dirty),
       onProblems: (id, problems) => this.props.onProblems?.(id, problems),
@@ -626,6 +611,12 @@ export class DocumentsBinding extends Binding {
       focus: () => binding.guard((view) => view.focus()),
       editor: (id) => binding.ask((view) => view.editor(id) ?? null, null),
       setValue: (id, value) => binding.#setValue(id, value),
+      applyChanges: (id, changes, options) =>
+        binding.ask((view) => {
+          const revision = view.applyChanges(id, changes, options) ?? null;
+          if (revision !== null) binding.props.onChange?.(id, view.editor(id).value, revision);
+          return revision;
+        }, null),
     };
   }
 
@@ -639,8 +630,8 @@ export class DocumentsBinding extends Binding {
       // A reset to the text the document holds changes nothing, and is not
       // reported: the parent's list holds it once.
       if (!view.replaceValue(id, value)) return false;
-      // The parent's list follows, as after an edit.
-      this.props.onChange?.(id, value);
+      // The parent's list follows, as after an edit, with the reset's revision.
+      this.props.onChange?.(id, value, view.sentRevision(id));
       return true;
     }, false);
   }

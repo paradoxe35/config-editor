@@ -32,7 +32,7 @@ const documentsProps = {
   /** `@add`: the user asks for a new document (the "+" after the last tab, shown only with a listener; it stays at the strip's end when the tabs overflow). It only asks: add the new document to `documents`; the next one added is selected and its editor focused. Whether one is set re-mounts. */
   onAdd: listener<() => void>(),
   /** `@change`: a document's id and text after every edit. */
-  onChange: listener<(id: string, value: string) => void>(),
+  onChange: listener<(id: string, value: string, revision: number) => void>(),
   /** `@save`: the user saved a document (`Ctrl+S` / `Cmd+S`), or you called `save(id)` / `saveAll()`. */
   onSave: listener<(id: string, value: string, language: LanguageName) => void>(),
   /** `@dirty-change`: a document's id and whether it differs from its baseline, when added and then each time that changes. */

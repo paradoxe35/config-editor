@@ -37,6 +37,11 @@ const slow = new URLSearchParams(location.search).has("slow");
 // whatever order the delays give (a fetch per edit). `?manual`: when a test
 // says so (see `echo-delay.ts`).
 const random = new URLSearchParams(location.search).has("random");
+// `?revisions` keeps `{ text, revision }` as the README shows: the newest
+// revision `onChange` gave wins (a late, older one is ignored), passed back
+// as `valueRevision`, and the locks of the first line name the file as
+// loaded (`rangesFor`).
+const revisions = new URLSearchParams(location.search).has("revisions");
 // `?reset-early` calls `ref.setValue` from an effect, before the editor has
 // mounted (it mounts once the wasm is ready).
 const resetEarly = new URLSearchParams(location.search).has("reset-early");
@@ -48,7 +53,16 @@ Object.assign(window, { packageApi: api, coreApi: core, toolsApi: tools });
 const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 function App({ schema }: { schema: string }) {
-  const [value, setValue] = useState(initialText);
+  const [value, setText] = useState(initialText);
+  // The revision `value` came with (`?revisions`), and the newest one heard.
+  const [revision, setRevision] = useState<number | undefined>(undefined);
+  const newest = useRef<number | undefined>(undefined);
+  // A text of the parent's own: no revision.
+  const setValue = (next: string | ((current: string) => string)) => {
+    newest.current = undefined;
+    setRevision(undefined);
+    setText(next);
+  };
   // The version the host last saved; saves and other clients move it.
   const [baseline, setBaseline] = useState(initialText);
   const [dirty, setDirty] = useState(false);
@@ -75,8 +89,10 @@ function App({ schema }: { schema: string }) {
   (window as unknown as { editorHandle: typeof handle }).editorHandle = handle;
   // For tests: a re-mount prop changed without moving focus.
   (window as unknown as { renameFile: () => void }).renameFile = () => setFileName((name) => `renamed-${name}`);
-  // For tests: the parent's own state setter.
+  // For tests: the parent's own state setter, and its state as rendered
+  // (the text and the revision it came with).
   (window as unknown as { setParentValue: typeof setValue }).setParentValue = setValue;
+  (window as unknown as { parentState: () => { text: string; revision?: number } }).parentState = () => ({ text: value, revision });
   // For tests: unmounting and mounting the component again.
   const [shown, setShown] = useState(true);
   (window as unknown as { setShown: typeof setShown }).setShown = setShown;
@@ -123,6 +139,19 @@ function App({ schema }: { schema: string }) {
         </label>
         <button id="replace" type="button" onClick={() => setValue("listen: 9000\n")}>
           Replace value
+        </button>
+        <button
+          id="set-port"
+          type="button"
+          onClick={() => {
+            // The host's own change, sent as a change (no whole text).
+            const text = handle.current?.text ?? "";
+            const at = text.indexOf("listen: ") + "listen: ".length;
+            const end = text.indexOf("\n", at);
+            if (at >= "listen: ".length) handle.current?.applyChanges([{ from: at, to: end, insert: "8080" }]);
+          }}
+        >
+          Set port
         </button>
         <button id="revert" type="button" onClick={() => setValue(previous.current)}>
           Revert last edit
@@ -183,12 +212,19 @@ function App({ schema }: { schema: string }) {
         language="yaml"
         schema={schema}
         {...(uncontrolled ? { defaultValue: initialText } : { value })}
-        onChange={(next) => {
-          const apply = () =>
-            setValue((current) => {
+        onChange={(next, sent) => {
+          const apply = () => {
+            if (revisions) {
+              // The newest revision wins: a late, older one is ignored.
+              if (newest.current !== undefined && sent < newest.current) return;
+              newest.current = sent;
+              setRevision(sent);
+            }
+            setText((current) => {
               previous.current = current;
               return next;
             });
+          };
           if (slow) return void setTimeout(apply, 1500);
           if (random || manual) return void later(apply);
           if (!late) return apply();
@@ -205,6 +241,8 @@ function App({ schema }: { schema: string }) {
         secrets={{ hint: "Keeps the stored secret" }}
         readOnlyPaths={lockAddress ? ["/public_address"] : []}
         readOnlyRanges={lockFirstLine ? [{ startLine: 1, startColumn: 1, endLine: 2, endColumn: 1 }] : []}
+        valueRevision={revisions ? revision : undefined}
+        rangesFor={revisions ? initialText : undefined}
         baseline={baseline}
         onSave={(text) => {
           setSaves((all) => [...all, text]);

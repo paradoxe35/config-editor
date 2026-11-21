@@ -19,6 +19,8 @@ export type {
   SecretOptions,
   Severity,
   TextRangeInput,
+  TextChange,
+  ApplyChangesOptions,
   ThemeColorMap,
   ThemeName,
 } from "@pngwasi/config-editor";

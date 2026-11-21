@@ -18,6 +18,8 @@ import {
   type LineRange,
   type SchemaFormatName,
   type SecretOptions,
+  type TextChange,
+  type ApplyChangesOptions,
   type TextRangeInput,
 } from "./pkg/config_editor.js";
 
@@ -50,6 +52,10 @@ export interface EditorBindingProps extends EditorSettings {
   hostDiagnostics?: HostDiagnostic[];
   readOnlyPaths?: FieldPath[];
   readOnlyRanges?: TextRangeInput[];
+  /** The text `readOnlyRanges` name places in: a revision `onChange` gave, or a text; left out, the `value` they come with. */
+  rangesFor?: number | string;
+  /** The text `hostDiagnostics` name places in; left out, `rangesFor`. */
+  diagnosticsFor?: number | string;
   secrets?: SecretOptions;
   schema?: string;
   /** The format `schema` is written in (default `"json-schema"`). Changing it re-mounts. */
@@ -83,6 +89,13 @@ export interface ConfigEditorHandle {
    * such a text goes through here.
    */
   setValue(value: string): void;
+  /**
+   * Makes the host's own change of the document (`ConfigEditor.applyChanges`):
+   * the read-only ranges, folds and caret follow it exactly; the revision of
+   * the new text, or `null` when nothing changed (or before the editor mounts).
+   * `onChange` hears the result, as `setValue`'s reset.
+   */
+  applyChanges(changes: TextChange[], options?: ApplyChangesOptions): number | null;
   /**
    * The unified diff (`diff -u`) of the baseline against the document, with
    * `context` unchanged lines around each change (default 3); empty when
@@ -133,7 +146,7 @@ export interface DocumentsBindingProps extends EditorSettings {
   onSelect?: (id: string) => void;
   onClose?: (request: CloseRequest) => void;
   onAdd?: () => void;
-  onChange?: (id: string, value: string) => void;
+  onChange?: (id: string, value: string, revision: number) => void;
   onSave?: (id: string, value: string, language: LanguageName) => void;
   onDirtyChange?: (id: string, dirty: boolean) => void;
   onProblems?: (id: string, problems: Diagnostic[]) => void;
@@ -183,6 +196,8 @@ export interface ConfigDocumentsHandle {
    * is reported then).
    */
   setValue(id: string, value: string): boolean;
+  /** Makes the host's own change of the document `id`'s text (`ConfigDocuments.applyChanges`); `onChange` hears the result. */
+  applyChanges(id: string, changes: TextChange[], options?: ApplyChangesOptions): number | null;
 }
 
 /**

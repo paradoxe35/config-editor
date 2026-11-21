@@ -10,11 +10,11 @@ use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use super::tab_names::TabNames;
 use crate::EditorStrings;
-use crate::editor::{Clipboard, DocumentPlaceholders, same_document};
+use crate::editor::{Clipboard, DocumentPlaceholders, HostChannel, same_document};
 use crate::reactive::{Relay, detached_owner, later};
 use crate::{
-    Diagnostic, EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, SaveRequest,
-    SecretOptions, TextRange,
+    Diagnostic, EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, RangesFor,
+    SaveRequest, SecretOptions, TextRange,
 };
 use std::sync::Arc;
 
@@ -49,8 +49,11 @@ pub(super) struct Entry {
     pub(super) host_diagnostics: RwSignal<Vec<HostDiagnostic>>,
     pub(super) read_only_paths: RwSignal<Vec<FieldPath>>,
     pub(super) read_only_ranges: RwSignal<Vec<TextRange>>,
-    /// Which giving of them they are (see `Document::read_only_ranges_version`).
-    pub(super) read_only_ranges_version: StoredValue<u64>,
+    /// The texts its lists name places in, and the revision of its value
+    /// (see `Document::read_only_ranges_for`, `value_revision`).
+    pub(super) read_only_ranges_for: RwSignal<Option<RangesFor>>,
+    pub(super) host_diagnostics_for: RwSignal<Option<RangesFor>>,
+    pub(super) value_revision: RwSignal<Option<u64>>,
     /// Taken when the editor mounts.
     pub(super) secrets: SecretOptions,
     /// The text differs from the baseline: from the editor once mounted,
@@ -98,7 +101,9 @@ impl Entry {
             host_diagnostics: RwSignal::new(document.host_diagnostics.clone()),
             read_only_paths: RwSignal::new(document.read_only_paths.clone()),
             read_only_ranges: RwSignal::new(document.read_only_ranges.clone()),
-            read_only_ranges_version: StoredValue::new(document.read_only_ranges_version),
+            read_only_ranges_for: RwSignal::new(document.read_only_ranges_for.clone()),
+            host_diagnostics_for: RwSignal::new(document.host_diagnostics_for.clone()),
+            value_revision: RwSignal::new(document.value_revision),
             secrets: document.secrets.clone().unwrap_or_default(),
             dirty: RwSignal::new(dirty),
             conflicted: RwSignal::new(false),
@@ -142,19 +147,15 @@ impl Entry {
     /// Takes the host's new values for a document whose editor stays.
     fn update(&self, documents: Documents, document: &Document) {
         set_if_changed(self.file_name, &document.file_name);
-        // Its ranges before its text: a new text places the ranges it comes
-        // with, never the ones given for the text it replaces (placed first,
-        // the old lock would stay beside the new one).
-        // A listing is the ranges and the giving they belong to: another
-        // giving at the same positions (for another text) is placed anew
-        // (a new lock at an old lock's first positions is not the old one).
-        if self.read_only_ranges_version.get_value() == document.read_only_ranges_version {
-            set_if_changed(self.read_only_ranges, &document.read_only_ranges);
-        } else {
-            self.read_only_ranges_version
-                .set_value(document.read_only_ranges_version);
-            self.read_only_ranges.set(document.read_only_ranges.clone());
-        }
+        // Its lists, the texts they name and its value's revision before its
+        // text: the editor reads them as the text changes (see
+        // `sync::host_inputs`), so a new text places the lists it comes
+        // with, read where they name places.
+        set_if_changed(self.read_only_ranges_for, &document.read_only_ranges_for);
+        set_if_changed(self.host_diagnostics_for, &document.host_diagnostics_for);
+        set_if_changed(self.value_revision, &document.value_revision);
+        set_if_changed(self.read_only_ranges, &document.read_only_ranges);
+        set_if_changed(self.host_diagnostics, &document.host_diagnostics);
         // A host lists every document again after each keystroke: only one
         // whose text or baseline changed is compared again for being dirty.
         let mut changed = set_if_changed(self.value, &document.value);
@@ -176,7 +177,6 @@ impl Entry {
             self.mount_if_edited(document);
         }
         set_if_changed(self.settings, &document.settings);
-        set_if_changed(self.host_diagnostics, &document.host_diagnostics);
         set_if_changed(self.read_only_paths, &document.read_only_paths);
         // Its dirty state now, as its editor will report it once it has
         // shown the new text (a `saveAll` in the same task acts on it).
@@ -339,6 +339,10 @@ pub(super) struct Documents {
     /// One clipboard per host language for every editor of the view: an
     /// item copied in one document and pasted in another keeps its source.
     clipboards: StoredValue<Vec<(Language, StoredValue<Clipboard>)>>,
+    /// The documents whose host's record a binding keeps (the JavaScript
+    /// `ConfigDocuments`): their editors take it over, and the binding
+    /// hands each update to them (no `value` or list props).
+    channels: StoredValue<std::collections::HashMap<String, HostChannel>, LocalStorage>,
 }
 
 thread_local! {
@@ -385,6 +389,7 @@ impl Documents {
             tab_names,
             said: RwSignal::new(String::new()),
             clipboards: StoredValue::new(Vec::new()),
+            channels: StoredValue::new_local(std::collections::HashMap::new()),
             callbacks,
             follows: Follows {
                 active: Relay::new(move || active.get()),
@@ -437,6 +442,21 @@ impl Documents {
 
     /// The open document `id`.
     /// The clipboard the editors of documents in `language` share.
+    /// The document `id`'s host keeps its record in `channel` (see
+    /// `channels`).
+    pub(super) fn bind_channel(&self, id: &str, channel: HostChannel) {
+        self.channels.update_value(|channels| {
+            channels.insert(id.to_string(), channel);
+        });
+    }
+
+    /// The record of the document `id`'s host, when a binding keeps it.
+    pub(super) fn bound_channel(&self, id: &str) -> Option<HostChannel> {
+        self.channels
+            .try_with_value(|channels| channels.get(id).cloned())
+            .flatten()
+    }
+
     pub(super) fn clipboard_for(&self, language: Language) -> StoredValue<Clipboard> {
         if let Some(shared) = self.clipboards.with_value(|clipboards| {
             clipboards

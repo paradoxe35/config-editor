@@ -1,19 +1,21 @@
-//! What both simulated views share: the actions of a run, the host's lock
-//! as it works it out in its own copy of a text, the kinds of failure,
-//! and the editor's core as far as locks go (`Core`).
+//! What the simulated views share: the actions of a run, the host's lock
+//! as it works it out in the text it names, the kinds of failure, and the
+//! editor's core as far as locks go (`Core`).
 //!
-//! The core is modelled, not run (it needs a browser): an edit touching a
-//! lock is refused, an edit before a lock moves it, one after leaves it,
-//! and a host text (`Origin::HostValue`) places the ranges the core was
-//! given in it at once, while new ranges are placed by an effect, before
-//! the next task (`connect_protection`). Texts are ASCII: bytes are
-//! UTF-16 units.
+//! The core's record of its host (`js_support::HostChannel`: the echo
+//! engine, the host log and the lists given) runs as it is; around it, an
+//! edit touching a lock is refused (the guard) and every edit is recorded
+//! in the host log, as the edit pipeline does. The locks are what the
+//! channel places: the given ranges mapped from the text they name to the
+//! document, a range whose text the document does not hold there locking
+//! nothing. Texts are ASCII: bytes are UTF-16 units.
 
 use std::ops::Range;
 
+use leptos_config_editor::js_support::HostChannel;
 use leptos_config_editor::{TextPosition, TextRange};
 
-/// The locked text: the host locks it wherever it is in its copy.
+/// The locked text: the host locks it wherever it is in the text it names.
 pub(crate) const LOCKED: &str = "secret: keep";
 
 /// The documents the runs start from: the lock first, in the middle, on
@@ -26,14 +28,14 @@ pub(crate) const BASES: &[&str] = &[
 ];
 
 /// How the host writes its ranges: by lines and columns, or by string
-/// index (what an update's same-ranges rule compares differs).
+/// index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Form {
     Lines,
     Index,
 }
 
-/// What a `replaceValue` gives.
+/// What a reset gives.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ResetKind {
     /// A newer version of the host's copy (a line changed, added or
@@ -49,6 +51,30 @@ pub(crate) enum ResetKind {
     Twice(u16),
 }
 
+/// How a reset is made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Via {
+    /// `replaceValue`; the host lists the text later.
+    ReplaceValue,
+    /// A binding's `setValue`: `replaceValue`, then `onChange` with the
+    /// reset's revision.
+    SetValue,
+    /// `setValue` and the parent's own state set to the text (with
+    /// revisions only).
+    Both,
+}
+
+/// Which text a host's list names (`rangesFor`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Anchor {
+    /// None: the value it comes with.
+    None,
+    /// The revision of the text it was worked out on.
+    Revision,
+    /// That text itself.
+    Text,
+}
+
 /// One step of a run. Positions are taken modulo the text's length, a
 /// pick modulo the host's queue, so any list of steps can be replayed
 /// (and shrunk).
@@ -60,29 +86,28 @@ pub(crate) enum Act {
     Delete { at: u16, len: u8 },
     /// The user presses Enter at `at`.
     Enter { at: u16 },
-    /// The user swaps line `line` with the next (Alt+Down, or Alt+Up on
-    /// the next).
+    /// The user swaps line `line` with the next.
     MoveLine { line: u16 },
     /// The host hands back the text queued at `pick` for document `doc`
-    /// (`dup`: twice in a row, as a framework rendering twice; a copy
-    /// coming again after newer texts came back is the host's own by the
-    /// echo contract), with its ranges worked out
-    /// in it (`ranges`; a documents list always has them).
+    /// (`dup`: twice in a row), with its ranges worked out in it
+    /// (`ranges`), naming it by `anchor`.
     Deliver {
         doc: u8,
         pick: u16,
         dup: bool,
         ranges: bool,
         same_task: bool,
+        anchor: Anchor,
     },
-    /// The host fails to hand back the text queued at `pick` now (a
-    /// fetch that failed), and hands it back after the others.
+    /// The host fails to hand back the text queued at `pick` now, and
+    /// hands it back after the others.
     Drop { doc: u8, pick: u16 },
-    /// The host calls `replaceValue`; it lists that text later.
+    /// The host resets the document.
     Reset {
         doc: u8,
         kind: ResetKind,
         same_task: bool,
+        via: Via,
     },
     /// The host gives a text of its own (`update({ value })`: another
     /// version of the file), its pending echoes dropped.
@@ -92,13 +117,25 @@ pub(crate) enum Act {
         ranges: bool,
         same_task: bool,
     },
-    /// The host gives its ranges again with `rangesFor` its copy (a
-    /// `ConfigEditor` only).
-    RangesFor { same_task: bool },
+    /// The host gives ranges worked out on a text it holds or still has
+    /// on its way (`worked_on`: a pick of its queue, else its store), a
+    /// late server check, naming that text by `anchor`.
+    Ranges {
+        doc: u8,
+        anchor: Anchor,
+        worked_on: u16,
+        same_task: bool,
+    },
     /// The pause after an echo is over.
     Settle,
     /// The user shows document `doc` (a documents view only).
     Select { doc: u8 },
+    /// The binding re-mounts the editor (a new `fileName`): the channel
+    /// goes on, the props are rendered again.
+    Remount { doc: u8 },
+    /// The component is hidden and shown: a fresh editor on the parent's
+    /// state, no channel.
+    FreshMount { doc: u8 },
 }
 
 impl Act {
@@ -107,8 +144,27 @@ impl Act {
             Act::Deliver { same_task, .. }
             | Act::Reset { same_task, .. }
             | Act::Own { same_task, .. }
-            | Act::RangesFor { same_task } => *same_task,
+            | Act::Ranges { same_task, .. } => *same_task,
             _ => false,
+        }
+    }
+
+    /// The kind of step, as failures are grouped.
+    pub(crate) fn kind(&self) -> String {
+        let name = format!("{self:?}");
+        let mut name = name
+            .split([' ', '{'])
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        if let Act::Reset { kind, .. } = self {
+            let kind = format!("{kind:?}");
+            name = format!("{name} {}", kind.split('(').next().unwrap_or_default());
+        }
+        if self.same_task() {
+            format!("{name} in the same task")
+        } else {
+            name
         }
     }
 }
@@ -118,24 +174,35 @@ impl Act {
 pub(crate) enum Class {
     /// The locked text changed, or the editor's lock no longer covers it.
     LockOff,
+    /// A lock covers text the host did not give it for (beside the locked
+    /// text), in a run whose host names its texts (revisions, anchors).
+    LockOnOtherText,
     /// The lock covers text beside the locked text while texts are on
-    /// their way.
+    /// their way (a host naming no text).
     OverLockInFlight,
     /// The same once every text came back.
     OverLockAtRest,
+    /// A list naming a revision the editor can no longer name moved a
+    /// lock.
+    AnchorOutOfDateTaken,
+    /// A list naming a text was refused (a revision the editor never
+    /// sent).
+    AnchorRefused,
     /// A text the host handed back replaced newer typing.
     TypingLost,
-    /// The same, the text a listing of one the host gave `replaceValue`
-    /// (listed after a newer text came back).
+    /// The same, after a hide and show: a late echo of the editor that is
+    /// gone is the host's own text for the fresh one.
+    TypingLostAfterHideShow,
+    /// The same, the text a listing of one the host reset to.
     RevertedByListing,
-    /// The same, `replaceValue` given the text the editor held then.
+    /// The same, a reset to the text the editor held then.
     RevertedBySameListing,
     /// Once every text came back, the host and the editor differ.
     NotConverged,
     /// The same, the host holding a text of its own that is the one it
-    /// gave last, given again (see `HostDoc::own`).
+    /// gave last, given again.
     NotConvergedOnGivenAgain,
-    /// Ranges past the end of the text they are placed in.
+    /// Ranges past the end of the text they are read in.
     PastEnd,
     /// A panic.
     Panic,
@@ -144,8 +211,7 @@ pub(crate) enum Class {
 #[derive(Clone, Debug)]
 pub(crate) struct Failure {
     pub(crate) class: Class,
-    /// The kind of step it failed at (`Reset`, `Reset in the same
-    /// task`, `drain` once every text comes back).
+    /// The kind of step it failed at (`drain` once every text comes back).
     pub(crate) step: String,
     pub(crate) detail: String,
 }
@@ -172,33 +238,20 @@ impl Failure {
     }
 }
 
-impl Act {
-    /// The kind of step, as failures are grouped.
-    pub(crate) fn kind(&self) -> String {
-        let name = format!("{self:?}");
-        let mut name = name
-            .split([' ', '{'])
-            .next()
-            .unwrap_or_default()
-            .to_string();
-        if let Act::Reset { kind, .. } = self {
-            let kind = format!("{kind:?}");
-            name = format!("{name} {}", kind.split('(').next().unwrap_or_default());
-        }
-        if self.same_task() {
-            format!("{name} in the same task")
-        } else {
-            name
-        }
-    }
-}
-
 pub(crate) type Outcome = Result<(), Failure>;
 
-/// The host's lock in its copy `text`, written in `form`: the range and
-/// what an update compares it by (its JSON); `None` when the locked text
-/// is not there.
-pub(crate) fn host_lock(text: &str, form: Form) -> Option<(TextRange, String)> {
+/// The host's lock in `text`, the text it works it out in: by lines, the
+/// string indices, and its JSON in `form` (what a list is compared by).
+#[derive(Clone, Debug)]
+pub(crate) struct HostLock {
+    pub(crate) range: TextRange,
+    pub(crate) index: Range<usize>,
+    pub(crate) print: String,
+}
+
+/// The host's lock in `text`, written in `form`; `None` when the locked
+/// text is not there.
+pub(crate) fn host_lock(text: &str, form: Form) -> Option<HostLock> {
     let start = text.find(LOCKED)?;
     let end = start + LOCKED.len();
     let range = TextRange::new(
@@ -212,12 +265,34 @@ pub(crate) fn host_lock(text: &str, form: Form) -> Option<(TextRange, String)> {
         ),
         Form::Index => format!("I{start}-{end}"),
     };
-    Some((range, print))
+    Some(HostLock {
+        range,
+        index: start..end,
+        print,
+    })
 }
 
-/// Whether `range` is inside `text` (what `ranges_from` and the core
-/// check: no "end past the text's end").
-pub(crate) fn fits(range: TextRange, text: &str) -> bool {
+/// `lock` read in `text` as `ranges_from` reads it (a string index turned
+/// into lines and columns in `text`); `None` when it names a place past
+/// `text`'s end (`ranges_from` throws).
+pub(crate) fn read_in(lock: &HostLock, text: &str, form: Form) -> Option<TextRange> {
+    let range = match form {
+        Form::Lines => lock.range,
+        Form::Index => {
+            if lock.index.end > text.len() {
+                return None;
+            }
+            TextRange::new(
+                TextPosition::from_offset(text, lock.index.start),
+                TextPosition::from_offset(text, lock.index.end),
+            )
+        }
+    };
+    fits(range, text).then_some(range)
+}
+
+/// Whether `range` is inside `text`.
+fn fits(range: TextRange, text: &str) -> bool {
     let lines: Vec<&str> = text.split('\n').collect();
     let inside = |at: TextPosition| {
         at.line >= 1
@@ -227,37 +302,6 @@ pub(crate) fn fits(range: TextRange, text: &str) -> bool {
                 .is_some_and(|line| at.column <= line.len() + 1)
     };
     inside(range.start) && inside(range.end) && range.start <= range.end
-}
-
-/// `protect::ranges_in` over positions: `ranges` given with `host_text`
-/// are read there; but when they name places it lacks and all fit one of
-/// `before` (the texts the last ones came with), they were worked out on
-/// the first such one, and are moved from it; ranges fitting none throw
-/// ("end past the text's end").
-pub(crate) fn read_ranges(
-    ranges: &[TextRange],
-    host_text: &str,
-    before: &[&str],
-) -> Result<Vec<TextRange>, Failure> {
-    let all_fit = |text: &str| ranges.iter().all(|range| fits(*range, text));
-    if !all_fit(host_text)
-        && let Some(before) = before
-            .iter()
-            .find(|before| **before != host_text && all_fit(before))
-    {
-        return Ok(
-            crate::remap::moved_between(before, host_text, Some(ranges.to_vec()), None)
-                .0
-                .unwrap_or_default(),
-        );
-    }
-    if !all_fit(host_text) {
-        return Err(Failure::new(
-            Class::PastEnd,
-            format!("{ranges:?} read in {host_text:?}"),
-        ));
-    }
-    Ok(ranges.to_vec())
 }
 
 /// A newer version of `text`: by `edit`, a line other than the locked one
@@ -285,58 +329,37 @@ pub(crate) fn new_version(text: &str, edit: u16) -> String {
     lines.join("\n")
 }
 
-/// The editor's core for one document, as far as locks go.
+/// The editor's core for one document, as far as locks go: its text and
+/// its record of its host.
 #[derive(Clone)]
 pub(crate) struct Core {
     pub(crate) text: String,
-    /// The ranges the host gave (the `read_only_ranges` signal), in the
-    /// text they were placed in.
-    pub(crate) given: Vec<TextRange>,
-    /// The locks where the edits since moved them (`protect().ranges`).
-    pub(crate) locks: Vec<Range<usize>>,
-    /// New ranges given, not placed yet (the effect waits for the task's
-    /// end).
-    pub(crate) pending: bool,
+    pub(crate) channel: HostChannel,
 }
 
 impl Core {
-    pub(crate) fn new(text: &str, given: Vec<TextRange>) -> Result<Self, Failure> {
-        let mut core = Self {
-            text: text.to_string(),
-            given,
-            locks: Vec::new(),
-            pending: false,
-        };
-        core.place()?;
-        Ok(core)
-    }
-
-    /// Places the ranges given in the text (`place_ranges`; a position
-    /// past a line's or the text's end is that end, as `to_offset` reads
-    /// it: ranges given for another text land somewhere, and the checks
-    /// tell where).
-    pub(crate) fn place(&mut self) -> Outcome {
-        let mut locks = Vec::new();
-        for range in &self.given {
-            locks.push(range.start.to_offset(&self.text)..range.end.to_offset(&self.text));
-        }
-        self.locks = locks;
-        self.pending = false;
-        Ok(())
-    }
-
-    /// The effect placing new ranges runs (the task is over).
-    pub(crate) fn flush(&mut self) -> Outcome {
-        if self.pending {
-            self.place()?;
-        }
-        Ok(())
+    /// The locks: the given ranges where the channel places them, a range
+    /// whose text the document does not hold there locking nothing.
+    pub(crate) fn locks(&self) -> Vec<Range<usize>> {
+        self.channel
+            .placed()
+            .into_iter()
+            .map(|(range, locked)| {
+                let end = range.end.min(self.text.len());
+                let start = range.start.min(end);
+                if self.text.get(start..end) == Some(locked.as_str()) {
+                    start..end
+                } else {
+                    start..start
+                }
+            })
+            .collect()
     }
 
     /// An edit replacing `start..end` with `insert`: refused when it
-    /// touches a lock (the guard), else made, the locks moved with it.
+    /// touches a lock (the guard), else made and recorded in the host log.
     pub(crate) fn edit(&mut self, start: usize, end: usize, insert: &str) -> bool {
-        let touches = self.locks.iter().any(|lock| {
+        let touches = self.locks().iter().any(|lock| {
             !lock.is_empty()
                 && if start == end {
                     lock.start < start && start < lock.end
@@ -347,39 +370,25 @@ impl Core {
         if touches {
             return false;
         }
-        let grown = insert.len() as isize - (end - start) as isize;
-        for lock in &mut self.locks {
-            if end <= lock.start {
-                lock.start = (lock.start as isize + grown) as usize;
-                lock.end = (lock.end as isize + grown) as usize;
-            }
-        }
+        self.channel.edited(start..end, insert);
         self.text.replace_range(start..end, insert);
         true
-    }
-
-    /// A text from the host (`take_host_value`): shown, the ranges given
-    /// placed in it.
-    pub(crate) fn host_value(&mut self, text: &str) -> Outcome {
-        if text == self.text {
-            return Ok(());
-        }
-        text.clone_into(&mut self.text);
-        self.place()
-    }
-
-    /// New ranges from the host: placed once the task is over.
-    pub(crate) fn set_given(&mut self, ranges: Vec<TextRange>) {
-        if ranges != self.given {
-            self.given = ranges;
-            self.pending = true;
-        }
     }
 
     /// Checks the locked text is there once and locked, and (`exact`)
     /// that nothing beside it is.
     pub(crate) fn check(&self, what: &str, exact: Option<Class>) -> Outcome {
-        check_locks(&self.text, &self.locks, what, exact)
+        if self.channel.document() != self.text {
+            return Err(Failure::new(
+                Class::Panic,
+                format!(
+                    "{what}: the channel's document {:?} is not the editor's {:?}",
+                    self.channel.document(),
+                    self.text
+                ),
+            ));
+        }
+        check_locks(&self.text, &self.locks(), what, exact)
     }
 }
 

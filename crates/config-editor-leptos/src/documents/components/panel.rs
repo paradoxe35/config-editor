@@ -10,7 +10,10 @@ use leptos::prelude::*;
 
 use super::super::entries::{Documents, Entry};
 use crate::reactive::{later, mount_detached};
-use crate::{BaselineConflict, ConfigEditor, Diagnostic, EditorSettings, Language, SaveRequest};
+use crate::{
+    BaselineConflict, ConfigEditor, Diagnostic, EditorSettings, HostDiagnostic, Language,
+    SaveRequest, TextRange,
+};
 
 #[component]
 pub(in crate::documents) fn DocumentPanel(documents: Documents, entry: Entry) -> impl IntoView {
@@ -186,12 +189,26 @@ fn editor(
         ..own_settings.get().unwrap_or_else(|| view_settings.get())
     });
     let language: Language = entry.setup.language;
+    // A binding that keeps the document's record hands its updates to the
+    // editor itself: the editor takes that record over, and no prop gives
+    // a text or a list (see `sync::host_inputs`).
+    let bound = documents.bound_channel(&entry.id);
+    let initial = entry.value.get_untracked();
+    if let Some(channel) = bound.clone() {
+        entry.handle.give_channel(channel);
+    }
+    let unbound = bound.is_none();
+    let value = unbound.then_some(entry.value);
+    let host_diagnostics = unbound.then_some(entry.host_diagnostics);
+    let read_only_ranges = unbound.then_some(entry.read_only_ranges);
 
     view! {
         <ConfigEditor
             language=language
             edit_as=edit_as
-            value=entry.value
+            value_revision=entry.value_revision
+            initial_value=initial
+            nostrip:value=value.map(Signal::<String>::from)
             echoes=documents.callbacks.echoes
             baseline=entry.baseline
             read_only=entry.read_only
@@ -199,9 +216,11 @@ fn editor(
             nostrip:schema=schema
             file_name=entry.file_name.get_untracked()
             settings=settings
-            host_diagnostics=entry.host_diagnostics
+            nostrip:host_diagnostics=host_diagnostics.map(Signal::<Vec<HostDiagnostic>>::from)
+            host_diagnostics_for=entry.host_diagnostics_for
             read_only_paths=entry.read_only_paths
-            read_only_ranges=entry.read_only_ranges
+            nostrip:read_only_ranges=read_only_ranges.map(Signal::<Vec<TextRange>>::from)
+            read_only_ranges_for=entry.read_only_ranges_for
             secrets=entry.secrets.clone()
             on_change=changed
             nostrip:on_save=saved

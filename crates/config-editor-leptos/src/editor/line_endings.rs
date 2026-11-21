@@ -83,13 +83,25 @@ impl LineEndings {
     /// the byte order mark the host's first text had, and goes; when that
     /// text had none, it is a character of the document, and stays.
     pub(super) fn received(&self, text: String) -> String {
-        let marked = self.0.with_value(|endings| endings.marked);
-        let document = match byte_order_mark::split(&text) {
-            (document, true) if marked => document.to_string(),
-            _ => text,
-        };
+        let document = self.unmarked(text);
         self.note_endings(&document);
         normalize_newlines(document)
+    }
+
+    /// A later text from the host as the editor reads it ([`Self::received`])
+    /// without noting its line endings: an echo the editor skips, written
+    /// another way (a store that writes LF), leaves the document's own.
+    pub(super) fn read(&self, text: String) -> String {
+        normalize_newlines(self.unmarked(text))
+    }
+
+    /// `text` without the byte order mark the host's first text had.
+    fn unmarked(&self, text: String) -> String {
+        let marked = self.0.with_value(|endings| endings.marked);
+        match byte_order_mark::split(&text) {
+            (document, true) if marked => document.to_string(),
+            _ => text,
+        }
     }
 
     /// `text`'s line endings (a text without line breaks keeps the most

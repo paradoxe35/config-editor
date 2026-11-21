@@ -20,6 +20,11 @@ const initialFiles: DocumentSpec[] = [
   { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema, readOnly: true },
 ];
 
+// `?revisions`: each file keeps the revision `onChange` gave its value
+// (`valueRevision`), as the README shows: the newest revision wins (a late,
+// older one is ignored).
+const revisions = new URLSearchParams(location.search).has("revisions");
+
 function App() {
   const [files, setFilesState] = useState(initialFiles);
   // The list as last set, rendered or not: what the next render lists, so a
@@ -69,9 +74,18 @@ function App() {
         ref={tabs}
         {...settings}
         documents={files}
-        onChange={(id, value) => {
+        onChange={(id, value, revision) => {
           note(`change ${id}`);
-          later(() => update(id, { value }));
+          later(() => {
+            if (!revisions) return update(id, { value });
+            setFiles((list) =>
+              list.map((file) =>
+                file.id !== id || (file.valueRevision !== undefined && revision < file.valueRevision)
+                  ? file
+                  : { ...file, value, valueRevision: revision },
+              ),
+            );
+          });
         }}
         onSave={(id, value, language) => {
           note(`save ${id} ${language}`);

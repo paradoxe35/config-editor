@@ -4,22 +4,20 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use js_sys::{Array, Object};
+use leptos_config_editor::js_support::{HostChannel, HostUpdate, Listed as ListedItems, TextLines};
 use leptos_config_editor::{
     Document, EditorSettings, Language, Schema, SecretOptions, TextPosition, TextRange,
 };
 use wasm_bindgen::prelude::*;
 
+use crate::anchors::{anchor_of, revision_of, with_lists};
 use crate::given::Given;
-use crate::host_channel::{HostChannel, Ranges};
-use crate::host_diagnostics::host_diagnostics_from;
-use crate::host_locks::print;
 use crate::languages::{language_for_path, language_named, writable_edit_as};
 use crate::options::{bool_option, warn_unknown_keys};
-use crate::protect::{paths_from, ranges_in, secrets_from};
+use crate::protect::{paths_from, secrets_from};
 use crate::schema_formats::{SOURCE_KEYS, read_spec};
 use crate::schema_spec::{SpecKey, registrations};
 use crate::settings::{setting_keys, settings_over};
-use crate::text_lines::TextLines;
 use crate::values::{field, json_from_js, optional_text, text_arg};
 
 /// The keys of one document.
@@ -42,6 +40,9 @@ const DOCUMENT_KEYS: &[&str] = &[
     "hostDiagnostics",
     "readOnlyPaths",
     "readOnlyRanges",
+    "rangesFor",
+    "diagnosticsFor",
+    "valueRevision",
     "secrets",
 ];
 
@@ -51,12 +52,14 @@ const DOCUMENT_KEYS: &[&str] = &[
 pub(crate) struct Listed {
     pub(crate) documents: Vec<Document>,
     pub(crate) overrides: Vec<(String, JsValue)>,
-    /// The ranges listed for each document listed before, read (or not)
-    /// as its channel's first step (see `HostChannel::ranges`): the view
-    /// takes the list with the second; `None` when they could not be read
-    /// (taken as a list without ranges). A document listed for the first
-    /// time has none here: it is taken as listed.
-    pub(crate) ranges: HashMap<String, Option<Ranges>>,
+    /// The update each document listed before gives its host's record:
+    /// its value with the lists read in the texts they name (see the
+    /// core's `host_inputs`), which the view hands its editor. A document
+    /// listed for the first time has none here: its record was made with
+    /// them.
+    pub(crate) updates: HashMap<String, HostUpdate>,
+    /// The records made for the documents listed for the first time.
+    pub(crate) fresh: Vec<(String, HostChannel)>,
     /// The documents whose `readOnlyRanges` could not be read in their
     /// text: one document's bad ranges hold no other document back (see
     /// `with_protection`), so they are reported once the list is taken.
@@ -74,7 +77,8 @@ pub(crate) struct Kept {
     schemas: KeptSchemas,
     /// Whether the host lists every text `onChange` gives back (`echoes`).
     pub(crate) echoing: bool,
-    /// Each document's channel to the host (see `host_channel`).
+    /// Each document's record of its host (the core's), shared with its
+    /// editor once it mounts.
     pub(crate) channels: HashMap<String, HostChannel>,
 }
 
@@ -159,7 +163,8 @@ pub(crate) fn documents_from<'a>(
     let list: &Array = list.unchecked_ref();
     let mut documents = Vec::with_capacity(list.length() as usize);
     let mut overrides = Vec::new();
-    let mut ranges = HashMap::new();
+    let mut updates = HashMap::new();
+    let mut fresh = Vec::new();
     let mut refused = Vec::new();
     for (index, item) in list.iter().enumerate() {
         let name = |key: &str| format!("documents[{index}].{key}");
@@ -220,8 +225,11 @@ pub(crate) fn documents_from<'a>(
         }
         let protected = with_protection(document, &item, index, kept, current)?;
         document = protected.document;
-        if let Some(listed) = protected.ranges {
-            ranges.insert(document.id.clone(), listed);
+        if let Some(update) = protected.update {
+            updates.insert(document.id.clone(), update);
+        }
+        if let Some(channel) = protected.fresh {
+            fresh.push((document.id.clone(), channel));
         }
         refused.extend(protected.refused);
         let own = field(&item, "settings");
@@ -253,7 +261,8 @@ pub(crate) fn documents_from<'a>(
     Ok(Listed {
         documents,
         overrides,
-        ranges,
+        updates,
+        fresh,
         refused,
     })
 }
@@ -261,23 +270,26 @@ pub(crate) fn documents_from<'a>(
 /// A document with its host problems, read-only fields and secrets.
 struct Protected {
     document: Document,
-    /// Its ranges for the channel's second step, when it was listed before
-    /// (`None` inside when they could not be read).
-    ranges: Option<Option<Ranges>>,
-    /// Why its ranges could not be read.
+    /// The update for its host's record, when it was listed before (`None`
+    /// inside its lists when they could not be read).
+    update: Option<HostUpdate>,
+    /// Its record, when it is listed for the first time.
+    fresh: Option<HostChannel>,
+    /// Why its lists could not be read.
     refused: Option<JsError>,
 }
 
-/// A document's host problems, read-only fields and secrets. Its ranges
-/// are read by its channel's first step when it was listed before (see
-/// `HostChannel::ranges`), and returned for the second; listed for the
-/// first time, they are read in its text and it gets its channel.
+/// A document's host problems, read-only fields and secrets. Its lists are
+/// read in the texts they name (`rangesFor`, `diagnosticsFor`, else its
+/// value, see the core's `host_inputs`), against its host's record: a
+/// document listed before gets the update for it, one listed for the
+/// first time a new record that holds them.
 ///
-/// Ranges that cannot be read in its text (nor in the one the last ones
-/// came with) are returned as the error, and hold back no other document:
-/// one listed before is taken as listed without ranges (its locks carried
-/// into its new text); one listed for the first time is locked whole, as
-/// nothing tells which of it the host meant to lock.
+/// Lists that cannot be read (a revision never sent, ranges past the text
+/// they name) are returned as the error, and hold back no other document:
+/// one listed before is taken as listed without them (its locks stay);
+/// one listed for the first time is locked whole, as nothing tells which
+/// of it the host meant to lock.
 fn with_protection<'a>(
     mut document: Document,
     item: &JsValue,
@@ -286,50 +298,85 @@ fn with_protection<'a>(
     current: &dyn Fn(&str) -> Option<&'a str>,
 ) -> Result<Protected, JsError> {
     let name = |key: &str| format!("documents[{index}].{key}");
-    let diagnostics = field(item, "hostDiagnostics");
-    if !diagnostics.is_undefined() && !diagnostics.is_null() {
-        let list = host_diagnostics_from(&diagnostics, &document.value)
-            .map_err(|error| prefixed(&name("hostDiagnostics"), error))?;
-        document = document.host_diagnostics(list);
-    }
+    let prefix = name("");
     let paths = paths_from(&field(item, "readOnlyPaths"), &name("readOnlyPaths"))?;
     document = document.read_only_paths(paths);
-    let given = field(item, "readOnlyRanges");
-    let read =
-        |text: &str, before: &[&str]| ranges_in(&given, text, before, &name("readOnlyRanges"));
-    let mut refused = None;
-    let listed = match (current(&document.id), kept.channels.get_mut(&document.id)) {
-        (Some(current), Some(channel)) => Some(
-            channel
-                .ranges(
-                    print(&given),
-                    Some(&document.value),
-                    None,
-                    current,
-                    false,
-                    |text, came_with| read(text, came_with),
-                )
-                .map_err(|error| refused = Some(error))
-                .ok(),
+    let value_revision = revision_of(item);
+    let ranges_for = anchor_of(item, "rangesFor")
+        .map_err(|error| prefixed(&format!("documents[{index}]"), error))?;
+    let diagnostics_for = anchor_of(item, "diagnosticsFor")
+        .map_err(|error| prefixed(&format!("documents[{index}]"), error))?;
+    let before = current(&document.id).zip(kept.channels.get(&document.id).cloned());
+    let (channel, host_text, fresh) = match before {
+        Some((current, channel)) => (channel, current.to_string(), false),
+        None => (
+            HostChannel::new(kept.echoing, &document.value, value_revision),
+            document.value.clone(),
+            true,
         ),
-        _ => {
-            let ranges = read(&document.value, &[]).unwrap_or_else(|error| {
-                refused = Some(error);
-                vec![whole(&document.value)]
-            });
-            let channel = HostChannel::new(
-                kept.echoing,
-                &document.value,
-                print(&given),
-                &document.value,
-                ranges.clone(),
-            );
-            document.read_only_ranges_version = channel.version();
-            kept.channels.insert(document.id.clone(), channel);
-            document = document.read_only_ranges(ranges);
-            None
-        }
     };
+    let head = HostUpdate {
+        value: Some(document.value.clone()),
+        value_revision,
+        ranges_for,
+        diagnostics_for,
+        ..HostUpdate::default()
+    };
+    let mut refused = None;
+    let update = with_lists(&channel, item, head, &host_text, &prefix)
+        .map_err(|error| refused = Some(error))
+        .ok();
+    if !fresh {
+        let update = update.or_else(|| {
+            Some(HostUpdate {
+                value: Some(document.value.clone()),
+                value_revision,
+                ..HostUpdate::default()
+            })
+        });
+        return Ok(Protected {
+            document: with_secrets(document, item, index, kept)?,
+            update,
+            fresh: None,
+            refused,
+        });
+    }
+    let update = update.unwrap_or_else(|| HostUpdate {
+        ranges: Some(ListedItems::new(vec![whole(&document.value)])),
+        ..HostUpdate::default()
+    });
+    if update.ranges.is_some() || update.diagnostics.is_some() {
+        let update = HostUpdate {
+            value: None,
+            value_revision: None,
+            ..update
+        };
+        if let Err(error) = channel.take_unmounted(update, &document.value) {
+            refused.get_or_insert_with(|| {
+                prefixed(
+                    &format!("documents[{index}]"),
+                    JsError::new(&error.to_string()),
+                )
+            });
+        }
+    }
+    kept.channels.insert(document.id.clone(), channel.clone());
+    Ok(Protected {
+        document: with_secrets(document, item, index, kept)?,
+        update: None,
+        fresh: Some(channel),
+        refused,
+    })
+}
+
+/// `document` with its `secrets` (built once per id).
+fn with_secrets(
+    mut document: Document,
+    item: &JsValue,
+    index: usize,
+    kept: &mut Kept,
+) -> Result<Document, JsError> {
+    let name = |key: &str| format!("documents[{index}].{key}");
     let given = field(item, "secrets");
     if !given.is_undefined() && !given.is_null() {
         let options = match kept.secrets.get(&document.id) {
@@ -342,11 +389,7 @@ fn with_protection<'a>(
         };
         document = document.secrets(options);
     }
-    Ok(Protected {
-        document,
-        ranges: listed,
-        refused,
-    })
+    Ok(document)
 }
 
 /// A range over all of `text`.

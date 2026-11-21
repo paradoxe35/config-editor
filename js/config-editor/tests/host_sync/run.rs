@@ -4,10 +4,9 @@
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use crate::documents_sim::DocumentsSim;
-use crate::editor_sim::EditorSim;
-use crate::model::{Act, BASES, Class, Failure, Form, Outcome, ResetKind};
+use crate::model::{Act, Anchor, BASES, Class, Failure, Form, Outcome, ResetKind, Via};
 use crate::rng::{Rng, shrink};
+use crate::sim::Sim;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum View {
@@ -23,6 +22,9 @@ pub(crate) struct Setup {
     pub(crate) base: usize,
     pub(crate) other: usize,
     pub(crate) form: Form,
+    /// The host keeps `{ text, revision }` and passes `valueRevision`
+    /// (else a v0.1.0 host: texts only).
+    pub(crate) revisions: bool,
 }
 
 /// Replays `acts` from `setup`, then lets every text come back.
@@ -45,26 +47,17 @@ fn run(setup: Setup, acts: &[Act]) -> Outcome {
             ..failure
         }
     };
-    match setup.view {
-        View::Editor => {
-            let mut sim = EditorSim::new(BASES[setup.base], setup.form)?;
-            for (step, act) in acts.iter().enumerate() {
-                let outcome = sim.step(act);
-                trace(act, &sim.describe());
-                outcome.map_err(at(step))?;
-            }
-            sim.drain()
-        }
-        View::Documents => {
-            let mut sim = DocumentsSim::new([BASES[setup.base], BASES[setup.other]], setup.form)?;
-            for (step, act) in acts.iter().enumerate() {
-                let outcome = sim.step(act);
-                trace(act, &sim.describe());
-                outcome.map_err(at(step))?;
-            }
-            sim.drain()
-        }
+    let bases: Vec<&str> = match setup.view {
+        View::Editor => vec![BASES[setup.base]],
+        View::Documents => vec![BASES[setup.base], BASES[setup.other]],
+    };
+    let mut sim = Sim::new(&bases, setup.form, setup.revisions)?;
+    for (step, act) in acts.iter().enumerate() {
+        let outcome = sim.step(act);
+        trace(act, &sim.describe());
+        outcome.map_err(at(step))?;
     }
+    sim.drain()
 }
 
 /// Prints each step with `HOST_SYNC_TRACE=1` (for a repro run alone).
@@ -84,6 +77,15 @@ fn setup(rng: &mut Rng, view: View) -> Setup {
         } else {
             Form::Index
         },
+        revisions: rng.chance(50),
+    }
+}
+
+fn anchor(rng: &mut Rng) -> Anchor {
+    match rng.below(3) {
+        0 => Anchor::None,
+        1 => Anchor::Revision,
+        _ => Anchor::Text,
     }
 }
 
@@ -100,20 +102,21 @@ fn act(rng: &mut Rng, view: View) -> Act {
             at: rng.small(),
             len: rng.below(3) as u8,
         },
-        32..=38 => Act::Enter { at: rng.small() },
-        39..=42 => Act::MoveLine { line: rng.small() },
-        43..=67 => Act::Deliver {
+        32..=37 => Act::Enter { at: rng.small() },
+        38..=41 => Act::MoveLine { line: rng.small() },
+        42..=63 => Act::Deliver {
             doc,
             pick: if rng.chance(50) { 0 } else { rng.small() },
             dup: rng.chance(10),
             ranges: rng.chance(80),
             same_task,
+            anchor: anchor(rng),
         },
-        68..=70 => Act::Drop {
+        64..=66 => Act::Drop {
             doc,
             pick: rng.small(),
         },
-        71..=80 => Act::Reset {
+        67..=75 => Act::Reset {
             doc,
             kind: match rng.below(5) {
                 0 => ResetKind::NewVersion(rng.small()),
@@ -123,15 +126,27 @@ fn act(rng: &mut Rng, view: View) -> Act {
                 _ => ResetKind::Twice(rng.small()),
             },
             same_task,
+            via: match rng.below(3) {
+                0 => Via::ReplaceValue,
+                1 => Via::SetValue,
+                _ => Via::Both,
+            },
         },
-        81..=83 => Act::Own {
+        76..=78 => Act::Own {
             doc,
             edit: rng.small(),
             ranges: rng.chance(80),
             same_task,
         },
-        84..=86 if view == View::Editor => Act::RangesFor { same_task },
-        84..=91 => Act::Settle,
+        79..=84 => Act::Ranges {
+            doc,
+            anchor: anchor(rng),
+            worked_on: rng.small(),
+            same_task,
+        },
+        85..=86 => Act::Remount { doc },
+        87 => Act::FreshMount { doc },
+        88..=94 => Act::Settle,
         _ if view == View::Documents => Act::Select { doc },
         _ => Act::Settle,
     }

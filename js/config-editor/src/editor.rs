@@ -3,10 +3,9 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::PoisonError;
 
-use leptos_config_editor::js_support::Timer;
+use leptos_config_editor::js_support::{self, HostChannel, HostUpdate};
 use leptos_config_editor::{EditorHandle, Language};
 
 use crate::schema_formats::{SOURCE_KEYS, read_spec};
@@ -14,20 +13,16 @@ use js_sys::Function;
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
+use crate::anchors::{anchor_of, revision_of, with_lists};
 use crate::handle_calls;
-use crate::host_channel::{Given, HostChannel};
-use crate::host_diagnostics::host_diagnostics_from;
-use crate::host_locks::print;
 use crate::languages::{language_named, writable_edit_as};
-use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host, call_host_with};
+use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host};
 use crate::options::{
     EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, bool_option, function_option, string_option,
     warn_unknown_options,
 };
-use crate::protect::{paths_from, ranges_from, ranges_in, secrets_from};
-use crate::remap::moved_between;
+use crate::protect::{paths_from, secrets_from};
 use crate::settings::{settings_from, settings_result};
-use crate::settle;
 use crate::told::{self, Told};
 use crate::typings::{
     EditorOptions, EditorUpdate, LineRanges, PathResult, RangeResult, SettingsResult,
@@ -36,7 +31,7 @@ use crate::update::{
     Fixed, callback_change, flag_change, given, plain_object, refuse_remount, settings_change,
 };
 use crate::values::{context_arg, field, text_arg};
-use leptos_config_editor::js_support::{Echo, echo_clock};
+use leptos_config_editor::js_support::echo_clock;
 
 /// A config editor mounted into an element.
 ///
@@ -71,8 +66,8 @@ pub struct ConfigEditor {
 }
 
 /// A channel shared by the editor, its mounted view and an editor that
-/// takes it over.
-pub(crate) type Shared = Rc<RefCell<HostChannel>>;
+/// takes it over (the core's record of the document's host).
+pub(crate) type Shared = HostChannel;
 
 /// An editor's channel to its host: the texts `onChange` sent that the
 /// host has not handed back yet, and the host's read-only ranges as given.
@@ -137,13 +132,32 @@ fn editor_fixed(language: Language) -> Vec<Fixed> {
 }
 
 impl ConfigEditor {
-    /// Shows `value` as the host's document.
+    /// The editor shows `value`, the host's document, now.
     fn show(&self, value: String) {
         *self
             .latest
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = value.clone();
-        let _ = self.state.value.try_set(value);
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = value;
+    }
+
+    /// Takes `update` through the editor's one entry (see the core's
+    /// `host_inputs`); `true` when its value replaced the document.
+    fn take(&self, update: HostUpdate) -> Result<bool, JsError> {
+        let value = update.value.clone();
+        let taken = match js_support::host_update(&self.state.handle, update) {
+            Some(taken) => taken,
+            None => return Ok(false),
+        }
+        .map_err(|error| JsError::new(&error.to_string()))?;
+        for warning in &taken.warnings {
+            web_sys::console::warn_1(&format!("config-editor: {warning}").into());
+        }
+        if taken.shown
+            && let Some(value) = value
+        {
+            self.show(value);
+        }
+        Ok(taken.shown)
     }
 
     /// The document as the host last saw it.
@@ -208,27 +222,13 @@ impl ConfigEditor {
         let on_save = function_option(&options, "onSave")?;
         let on_dirty_change = function_option(&options, "onDirtyChange")?;
         let on_baseline_conflict = function_option(&options, "onBaselineConflict")?;
-        // Ranges are in `rangesFor` (a text the document has moved past, a
-        // component's bound value), else in `value`; moved to `value`.
-        let ranges_for = text_option("rangesFor")?;
-        let host_text = ranges_for.as_deref().unwrap_or(&value);
-        let host_diagnostics = match field(&options, "hostDiagnostics") {
-            list if list.is_undefined() || list.is_null() => Vec::new(),
-            list => host_diagnostics_from(&list, host_text)?,
-        };
+        // The texts the lists name places in, and the revision `value` came
+        // with (a fresh editor showing an echo of one that is gone).
+        let value_revision = revision_of(&options);
+        let ranges_for = anchor_of(&options, "rangesFor")?;
+        let diagnostics_for = anchor_of(&options, "diagnosticsFor")?;
         let on_schema_warning = function_option(&options, "onSchemaWarning")?;
         let read_only_paths = paths_from(&field(&options, "readOnlyPaths"), "readOnlyPaths")?;
-        // An editor taking a channel over with no `readOnlyRanges` holds
-        // the ones the channel holds (see `HostChannel::remount`).
-        let ranges_list = field(&options, "readOnlyRanges");
-        let channel = field(&options, "channel");
-        let channel_given = !channel.is_undefined() && !channel.is_null();
-        let read_only_ranges = (!(channel_given && ranges_list.is_undefined()))
-            .then(|| ranges_from(&ranges_list, host_text, "readOnlyRanges"))
-            .transpose()?;
-        let (read_only_ranges, host_diagnostics) =
-            moved_between(host_text, &value, read_only_ranges, Some(host_diagnostics));
-        let host_diagnostics = host_diagnostics.unwrap_or_default();
         warn_unknown_options(&options, EDITOR_OPTIONS);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -238,26 +238,36 @@ impl ConfigEditor {
         let latest_for_view = latest.clone();
         let owner = Owner::new();
         let secrets = owner.with(|| secrets_from(&field(&options, "secrets"), "secrets"))?;
-        // Taken last, once nothing can throw: a channel taken over is the
-        // old editor's no more.
-        let came_with = ranges_for.as_deref().unwrap_or(&value);
-        let ranges_print = print(&ranges_list);
-        let (channel, read_only_ranges) = match taken_channel(&options)? {
+        // The channel: taken over (its echoes, host log and lists go on;
+        // the lists the binding renders again are no news), or new. The
+        // lists are read in the texts they name before the editor mounts;
+        // one naming a revision this channel never sent throws.
+        let taken = taken_channel(&options)?;
+        let fresh = taken.is_none();
+        let channel = match taken {
             Some(EditorChannel(channel)) => {
-                let given = read_only_ranges.map(|ranges| (ranges_print, came_with, ranges));
-                let ranges = channel.borrow_mut().remount(&value, given);
-                (channel, ranges)
+                channel.remount(&value);
+                channel
             }
-            None => {
-                let ranges = read_only_ranges.unwrap_or_default();
-                let channel =
-                    HostChannel::new(echoes, &value, ranges_print, came_with, ranges.clone());
-                (Rc::new(RefCell::new(channel)), ranges)
-            }
+            None => HostChannel::new(echoes, &value, value_revision),
         };
+        let head = HostUpdate {
+            value: fresh.then(|| value.clone()),
+            value_revision: value_revision.filter(|_| fresh),
+            ranges_for,
+            diagnostics_for,
+            ..HostUpdate::default()
+        };
+        let update = with_lists(&channel, &options, head, &value, "")?;
+        if update.ranges.is_some() || update.diagnostics.is_some() {
+            channel
+                .take_unmounted(update, &value)
+                .map_err(|error| JsError::new(&error.to_string()))?;
+        }
+        let handle = EditorHandle::new();
+        js_support::give_channel(&handle, channel.clone());
         let state = owner.with(|| State {
             language,
-            value: RwSignal::new(value.clone()),
             baseline: RwSignal::new(baseline),
             edit_as: RwSignal::new(edit_as),
             settings: RwSignal::new(settings),
@@ -275,13 +285,10 @@ impl ConfigEditor {
             on_dirty_change: StoredValue::new_local(on_dirty_change),
             on_baseline_conflict: StoredValue::new_local(on_baseline_conflict),
             on_schema_warning: StoredValue::new_local(on_schema_warning),
-            handle: EditorHandle::new(),
-            host_diagnostics: RwSignal::new(host_diagnostics),
+            handle,
             read_only_paths: RwSignal::new(read_only_paths),
-            read_only_ranges: RwSignal::new(read_only_ranges),
             told: StoredValue::new_local(Told::default()),
             channel: StoredValue::new_local(channel.clone()),
-            settle: StoredValue::new_local(Timer::default()),
         });
         let setup = Setup {
             language,
@@ -409,16 +416,10 @@ impl ConfigEditor {
         let options = crate::reentry::without_newer(&options, &newer);
         let value = value.filter(|_| !newer.contains("value"));
         // The revision `onChange` sent the value with, when the host passes
-        // it back: its echo is matched exactly (see `Echoes::received_at`).
-        let value_revision = given(&options, "valueRevision")
-            .and_then(|revision| revision.as_f64())
-            .filter(|revision| *revision >= 0.0)
-            .map(|revision| revision as u64);
-        // Ranges are in the text they were given for: `rangesFor`, else the
-        // update's `value` (an echo skipped included), else the document.
-        let ranges_for = given(&options, "rangesFor")
-            .map(|text| text_arg(&text, "rangesFor"))
-            .transpose()?;
+        // it back: its echo is matched exactly; the texts its lists name.
+        let value_revision = revision_of(&options);
+        let ranges_for = anchor_of(&options, "rangesFor")?;
+        let diagnostics_for = anchor_of(&options, "diagnosticsFor")?;
         let baseline = given(&options, "baseline")
             .map(|baseline| text_arg(&baseline, "baseline"))
             .transpose()?;
@@ -445,38 +446,23 @@ impl ConfigEditor {
             .transpose()?;
         let current = self.state.settings.try_get_untracked().unwrap_or_default();
         let settings = settings_change(&current, &options)?;
-        // The ranges and diagnostics, read in the text they were given for
-        // (see `HostChannel::ranges`; moved to the document once it is
-        // known, below).
-        let (host_diagnostics, read_only_ranges) = {
-            let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
-            let host_text = ranges_for
-                .as_deref()
-                .or(value.as_deref())
-                .unwrap_or(&latest);
-            let host_diagnostics = given(&options, "hostDiagnostics")
-                .map(|list| {
-                    if list.is_null() {
-                        Ok(Vec::new())
-                    } else {
-                        host_diagnostics_from(&list, host_text)
-                    }
-                })
-                .transpose()?;
-            let read_only_ranges = given(&options, "readOnlyRanges")
-                .map(|list| {
-                    self.channel.borrow_mut().ranges(
-                        print(&list),
-                        value.as_deref(),
-                        ranges_for.as_deref(),
-                        &latest,
-                        told,
-                        |text, came_with| ranges_in(&list, text, came_with, "readOnlyRanges"),
-                    )
-                })
-                .transpose()?;
-            (host_diagnostics, read_only_ranges)
-        };
+        // The lists, read in the texts they name places in (checked before
+        // anything changes).
+        let host = with_lists(
+            &self.channel,
+            &options,
+            HostUpdate {
+                value: value.clone(),
+                value_revision,
+                ranges_for,
+                diagnostics_for,
+                flushed: Some(flushed),
+                stale: told,
+                ..HostUpdate::default()
+            },
+            &self.latest_text(),
+            "",
+        )?;
         let read_only_paths = given(&options, "readOnlyPaths")
             .map(|list| paths_from(&list, "readOnlyPaths"))
             .transpose()?;
@@ -497,39 +483,11 @@ impl ConfigEditor {
         let on_path_change = callback_change(&options, "onPathChange")?;
         let on_save = callback_change(&options, "onSave")?;
 
-        // Everything checked: apply (see `HostChannel::received`). The text
-        // the host was told last, given while the flush above sent it a
-        // newer one (an Edit-as edit waiting out the typing pause), is older
-        // than what the user typed: it keeps the document, with or without
-        // `echoes` (the host could not know the newer text).
-        let hosted = value.is_some() || read_only_ranges.is_some() || host_diagnostics.is_some();
-        let taken = hosted.then(|| {
-            let latest = self.latest.lock().unwrap_or_else(PoisonError::into_inner);
-            self.channel.borrow_mut().received(
-                Given {
-                    value: value.as_deref(),
-                    revision: value_revision,
-                    ranges_for: ranges_for.as_deref(),
-                    ranges: read_only_ranges,
-                    diagnostics: host_diagnostics,
-                    flushed,
-                    stale: told,
-                },
-                &latest,
-            )
-        });
-        let (echo, read_only_ranges, host_diagnostics) = taken
-            .map_or((None, None, None), |taken| {
-                (taken.echo, taken.ranges, taken.diagnostics)
-            });
-        let shows = echo == Some(Echo::Apply);
-        // Its ranges before its text: a new text places the ranges it comes
-        // with, never the ones given for the text it replaces.
-        if let Some(ranges) = read_only_ranges {
-            let _ = state.read_only_ranges.try_set(ranges);
-        }
-        if shows && let Some(value) = value {
-            self.show(value);
+        // Everything checked: apply, the host's text and lists through the
+        // editor's one entry (the text the host was told last, given while
+        // the flush above sent it a newer one, is older than the typing).
+        if host.value.is_some() || host.ranges.is_some() || host.diagnostics.is_some() {
+            self.take(host)?;
         }
         if let Some(baseline) = baseline {
             let _ = state.baseline.try_set(baseline);
@@ -550,9 +508,6 @@ impl ConfigEditor {
                 == Some(true)
         {
             let _ = state.settings.try_set(settings);
-        }
-        if let Some(diagnostics) = host_diagnostics {
-            let _ = state.host_diagnostics.try_set(diagnostics);
         }
         if let Some(paths) = read_only_paths {
             let _ = state.read_only_paths.try_set(paths);
@@ -584,26 +539,6 @@ impl ConfigEditor {
                 call_host(&callback, &argument);
             }
         }
-        // The host was left on an echo of a text the user typed past: it
-        // hears the document again (`Resend`), or once a pause is over if it
-        // is still on it then (`Settle`: the document's echo is on its way,
-        // or was lost in a render of the host's that took a later text too).
-        if matches!(echo, Some(Echo::Resend | Echo::Settle)) {
-            if echo == Some(Echo::Resend) {
-                tell_host(state, &self.latest);
-            }
-            let latest = self.latest.clone();
-            settle::arm(state.settle, move || {
-                leptos_config_editor::js_support::flush_pending_input();
-                let again = {
-                    let current = latest.lock().unwrap_or_else(PoisonError::into_inner);
-                    state.channel(|channel| channel.settle(&current))
-                };
-                if again == Some(true) {
-                    tell_host(state, &latest);
-                }
-            });
-        }
         Ok(())
     }
 
@@ -631,18 +566,85 @@ impl ConfigEditor {
         if self.id.get().is_none() || newer.contains("value") || value == self.latest_text() {
             return Ok(false);
         }
-        // The host's own text: what it holds, no echo to wait for. The
-        // locks go with the text they cover, carried from the ranges as
-        // given (see `host_locks`), before the text they belong to.
-        let ranges = self
-            .channel
-            .borrow_mut()
-            .replaced(&value, &self.latest_text());
-        if let Some(ranges) = ranges {
-            let _ = self.state.read_only_ranges.try_set(ranges);
+        // The host's own text: what it holds, no echo to wait for, recorded
+        // as sent (its late listing is told apart, and `sentRevision` names
+        // it). The locks are carried into it from the ranges as given.
+        self.take(HostUpdate {
+            value: Some(value),
+            reset: true,
+            ..HostUpdate::default()
+        })
+    }
+
+    /// Makes the host's own change of its text, as CodeMirror's dispatch:
+    /// `changes` (string indices `from`..`to`, sorted and apart, of the text
+    /// they were made on: `options.revision`, a text `onChange` gave, else
+    /// the host's text now) replaced by their `insert`. What the user typed
+    /// since is kept, the host's change rebased over it (where both wrote
+    /// at one place, the host's first); the read-only ranges, folds, secret
+    /// placeholders and the caret follow it exactly, and Undo does not undo
+    /// it. `onChange` hears the result only when it holds edits the host
+    /// did not know. Lists given in `options` are read in the new document
+    /// (or where `rangesFor` names). Returns the revision of the new
+    /// document (pass it back as `valueRevision`), `null` when nothing
+    /// changed. A revision out of date or never sent, or changes that do
+    /// not fit the text, throw and change nothing.
+    #[wasm_bindgen(js_name = applyChanges)]
+    pub fn apply_changes(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "TextChange[]")] changes: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "ApplyChangesOptions")] options: JsValue,
+    ) -> Result<Option<f64>, JsError> {
+        let edits = crate::anchors::changes_from(&changes)?;
+        let options = if options.is_undefined() || options.is_null() {
+            js_sys::Object::new().into()
+        } else {
+            options
+        };
+        let base = crate::anchors::revision_named(&options, "revision");
+        let ranges_for = anchor_of(&options, "rangesFor")?;
+        let diagnostics_for = anchor_of(&options, "diagnosticsFor")?;
+        let _ = self
+            .reentry
+            .flush(leptos_config_editor::js_support::flush_pending_input);
+        if self.id.get().is_none() {
+            return Ok(None);
         }
-        self.show(value);
-        Ok(true)
+        let revision = js_support::apply_changes(
+            &self.state.handle,
+            &leptos_config_editor::js_support::HostEdits::Utf16(edits),
+            base,
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?;
+        if let Some(text) = self.state.handle.value() {
+            self.show(text);
+        }
+        let lists = with_lists(
+            &self.channel,
+            &options,
+            HostUpdate {
+                ranges_for,
+                diagnostics_for,
+                ..HostUpdate::default()
+            },
+            &self.latest_text(),
+            "applyChanges: ",
+        )?;
+        if lists.ranges.is_some() || lists.diagnostics.is_some() {
+            self.take(lists)?;
+        }
+        Ok(revision.map(|revision| revision as f64))
+    }
+
+    /// The revision of the text sent last while it is on its way (with
+    /// `echoes`), a reset `replaceValue` made included: pass it back as
+    /// `valueRevision` with that text. `undefined` when every text came
+    /// back.
+    #[wasm_bindgen(getter, js_name = sentRevision)]
+    pub fn sent_revision(&self) -> Option<f64> {
+        self.channel
+            .latest_revision()
+            .map(|revision| revision as f64)
     }
 
     /// The unified diff (`diff -u`) of the baseline against the document,
@@ -788,7 +790,6 @@ impl ConfigEditor {
     pub fn destroy(&self) {
         // Input the browser sent in this task first (see `flush_pending_input`).
         leptos_config_editor::js_support::flush_pending_input();
-        settle::cancel(self.state.settle);
         let Some((mounted, owner, _)) = self
             .id
             .take()
@@ -835,17 +836,4 @@ fn taken_channel(options: &JsValue) -> Result<Option<EditorChannel>, JsError> {
 /// The document `latest` holds, taken out of it.
 fn take_text(latest: &Latest) -> String {
     std::mem::take(&mut *latest.lock().unwrap_or_else(PoisonError::into_inner))
-}
-
-/// Sends the document `latest` to the host's `onChange`, if it has one.
-fn tell_host(state: State, latest: &Latest) {
-    if let Some(callback) = state.on_change.try_get_value().flatten() {
-        // Read before the call: the host may update the editor from it.
-        let text = JsValue::from_str(&latest.lock().unwrap_or_else(PoisonError::into_inner));
-        let revision = state
-            .channel(|channel| channel.latest_revision())
-            .flatten()
-            .unwrap_or_default();
-        call_host_with(&callback, &[text, JsValue::from_f64(revision as f64)]);
-    }
 }

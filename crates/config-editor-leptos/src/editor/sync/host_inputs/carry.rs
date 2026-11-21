@@ -15,16 +15,15 @@
 //! covers the same text: typing in several places maps every range away
 //! from them exactly.
 
-// By path: the native tests (`tests/remap.rs`) load this file by path too.
-#[path = "remap/stretches.rs"]
 mod stretches;
 
-#[path = "remap/exact.rs"]
 mod exact;
+pub(crate) use exact::Lines;
 
-use leptos_config_editor::{DiagnosticTarget, HostDiagnostic, TextPosition, TextRange};
+use crate::editor::host_diagnostics::{DiagnosticTarget, HostDiagnostic};
+use crate::editor::paths::{TextPosition, TextRange};
 
-use crate::text_lines::TextLines;
+use crate::editor::text::lines::TextLines;
 use stretches::{Stretch, stretches};
 
 /// Moves positions in `from` to `to`.
@@ -112,7 +111,7 @@ impl<'a> Remap<'a> {
 /// host gives ranges for (`rangesFor`) may be the document as stored or as
 /// the editor shows it (`text`): they name the same places.
 fn as_read(text: &str) -> std::borrow::Cow<'_, str> {
-    let text = crate::text_lines::document(text);
+    let text = crate::editor::text::lines::document(text);
     if text.contains('\r') {
         std::borrow::Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n"))
     } else {
@@ -123,6 +122,7 @@ fn as_read(text: &str) -> std::borrow::Cow<'_, str> {
 /// Whether `a` and `b` are one text as the editor reads it (see
 /// [`as_read`]): a host store writing LF or dropping the byte order mark
 /// hands back the document it was given. Read again only when they differ.
+#[cfg(test)]
 pub(crate) fn reads_as(a: &str, b: &str) -> bool {
     a == b || as_read(a) == as_read(b)
 }
@@ -169,9 +169,7 @@ pub(crate) fn carried(from: &str, to: &str, ranges: &[TextRange]) -> Vec<TextRan
 }
 
 #[cfg(test)]
-#[path = "remap/tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "remap/scale_tests.rs"]
 mod scale_tests;

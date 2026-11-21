@@ -1,8 +1,8 @@
 //! Moving ranges between two texts.
-use leptos_config_editor::{TextPosition, TextRange};
+use crate::editor::paths::{TextPosition, TextRange};
 
 use super::{Remap, moved_between, reads_as};
-use crate::text_lines::TextLines;
+use crate::editor::text::lines::TextLines;
 
 /// Ranges given for the text on screen of a BOM or CRLF document name
 /// the places they name there: nothing moves (one character right

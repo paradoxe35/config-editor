@@ -51,6 +51,9 @@ pub struct EditorHandle {
     /// `ConfigDocuments` view's editors of one host language), taken when
     /// it mounts.
     clipboard: StoredValue<Option<StoredValue<Clipboard>>>,
+    /// The document's record of its host the editor mounting next takes
+    /// over (a binding's, or a documents view's), taken when it mounts.
+    channel: StoredValue<Option<super::sync::HostChannel>, LocalStorage>,
 }
 
 impl Default for EditorHandle {
@@ -77,6 +80,7 @@ impl EditorHandle {
             opening: StoredValue::new(None),
             foreign: StoredValue::new(None),
             clipboard: StoredValue::new(None),
+            channel: StoredValue::new_local(None),
         }
     }
 
@@ -117,6 +121,29 @@ impl EditorHandle {
     /// copied in one pasted in another keeps its source.
     pub(crate) fn share_clipboard(self, clipboard: StoredValue<Clipboard>) {
         let _ = self.clipboard.try_set_value(Some(clipboard));
+    }
+
+    /// The editor mounting next with this handle keeps its host's record in
+    /// `channel` (see `sync::host_inputs`): the echoes on their way, the
+    /// host log and the lists given, made before it mounted or by the
+    /// editor it replaces.
+    pub(crate) fn give_channel(self, channel: super::sync::HostChannel) {
+        let _ = self.channel.try_set_value(Some(channel));
+    }
+
+    /// The record to take over, once.
+    pub(super) fn take_channel(self) -> Option<super::sync::HostChannel> {
+        self.channel.try_update_value(std::mem::take).flatten()
+    }
+
+    /// Takes `update` from the host through the editor's one entry (see
+    /// `sync::host_inputs`); `None` while no editor is mounted.
+    pub(crate) fn host_update(
+        &self,
+        update: super::sync::HostUpdate,
+    ) -> Option<Result<super::sync::Taken, super::sync::AnchorError>> {
+        let state = self.editor()?;
+        Some(untrack(|| super::sync::take_raw_host_update(state, update)))
     }
 
     /// The clipboard to share, once.
@@ -207,9 +234,41 @@ impl EditorHandle {
     pub fn sent_revision(&self) -> Option<u64> {
         self.editor()?
             .sync()
-            .echoes
-            .try_with_value(super::sync::Echoes::latest_revision)
+            .link(|link| link.echoes.latest_revision())
             .flatten()
+    }
+
+    /// Makes the host's own change of its text (as CodeMirror's dispatch):
+    /// `changes` (ranges by lines and columns, sorted and apart) made on the
+    /// text `on_change` sent at `base` ([`sent_revision`](Self::sent_revision)),
+    /// else on the host's text now. Edits the user made since are kept, the
+    /// host's rebased over them (at one place, the host's first); locks,
+    /// folds, secret placeholders and the caret follow it exactly, and Undo
+    /// does not undo it. Returns the revision of the new document (pass it
+    /// back as `value_revision` with that text), `None` when nothing
+    /// changed or no editor is mounted. When it was rebased over newer
+    /// edits, `on_change` hears the result.
+    pub fn apply_changes(
+        &self,
+        changes: Vec<super::sync::HostChange>,
+        base: Option<u64>,
+    ) -> Option<u64> {
+        let state = self.editor()?;
+        untrack(|| {
+            super::sync::apply_host_changes(state, &super::sync::HostEdits::Lines(changes), base)
+        })
+        .ok()
+        .flatten()
+    }
+
+    /// [`apply_changes`](Self::apply_changes) with every refusal said.
+    pub(crate) fn apply_edits(
+        &self,
+        edits: &super::sync::HostEdits,
+        base: Option<u64>,
+    ) -> Result<Option<u64>, super::sync::ChangeError> {
+        let state = self.editor().ok_or(super::sync::ChangeError::Unmounted)?;
+        untrack(|| super::sync::apply_host_changes(state, edits, base))
     }
 
     /// The unified diff (`diff -u`) of the baseline against

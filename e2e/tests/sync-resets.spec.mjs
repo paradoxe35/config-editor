@@ -946,9 +946,12 @@ test.describe(() => {
         const hold = (value) => window.held.push(() => (window.stored = value));
         const give = () => {
           const value = window.stored;
-          const readOnlyRanges = window.lockFor(window.lockText(value));
-          if (kind === 'editor') window.view.update({ value, readOnlyRanges });
-          else window.view.update({ documents: [{ id: 'main', fileName: 'main.yaml', value, readOnlyRanges }] });
+          // The lock names the text it was worked out on (`rangesFor`): a
+          // host whose lock lags its text says so.
+          const rangesFor = window.lockText(value);
+          const readOnlyRanges = window.lockFor(rangesFor);
+          if (kind === 'editor') window.view.update({ value, readOnlyRanges, rangesFor });
+          else window.view.update({ documents: [{ id: 'main', fileName: 'main.yaml', value, readOnlyRanges, rangesFor }] });
         };
         if (kind === 'editor') {
           window.view = new module.ConfigEditor(element, {

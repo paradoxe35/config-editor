@@ -116,6 +116,9 @@ export function generate(r, { kind }, { userOnly = false } = {}) {
           [1, () => ({ k: 'lockPath', on: r.chance(0.6) })],
           [1, () => ({ k: 'unlock' })],
           [1, () => ({ k: 'prop', prop: r.pick(['theme', 'readOnly', 'footer', 'rename']) })],
+          [2, () => hostChange(r)],
+          [1, () => ({ k: 'hideShow', wait: r.pick([0, 0, 50, 300]) })],
+          [1, () => lateDiagnostics(r)],
         ]
       : [
           [3, () => ({ k: 'tab', index: r.int(0, 3) })],
@@ -124,11 +127,22 @@ export function generate(r, { kind }, { userOnly = false } = {}) {
           [2, () => ({ k: 'echo' })],
           [2, () => ({ k: 'lock', range: lockRange(r) })],
           [1, () => ({ k: 'unlock' })],
+          [2, () => hostChange(r)],
+          [1, () => lateDiagnostics(r)],
         ];
   return r.weighted(userOnly ? user : [...user, ...host])();
 }
 
 const round = (value) => Math.round(value * 1000) / 1000;
+
+// The host's own change (`applyChanges`): a line put in at a line start (a
+// fraction of the text), on the text the host holds (named by its
+// revision, maybe behind the editor's) or on the editor's text now.
+const hostChange = (r) => ({ k: 'hostChange', at: round(r.next()), base: r.chance(0.6), line: r.pick(['# host note', 'host_key: 1']) });
+
+// Problems the host found on a text it holds, given late: anchored to that
+// text (its revision or the text itself), on a line of it (a fraction).
+const lateDiagnostics = (r) => ({ k: 'lateDiagnostics', at: round(r.next()), by: r.pick(['revision', 'text']), wait: r.pick([0, 200]) });
 
 // Where in the host's text a lock starts (a fraction of it) and how long it
 // is; the runner turns it into `{ start, end }` string indices.

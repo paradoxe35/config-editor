@@ -19,7 +19,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 export function sequenceFor(name, seed, steps) {
   const r = rng(seed);
   const page = PAGES[name];
-  const query = page.vanilla ? '' : r.pick(['', '', '?random']);
+  // Half the hosts keep revisions and name the text of their lists.
+  const query = page.vanilla ? r.pick(['', '?revisions']) : r.pick(['', '?random', '?revisions', '?random&revisions']);
   const userOnly = r.chance(0.35);
   const actions = Array.from({ length: steps }, () => generate(r, page, { userOnly }));
   // Most edits of a locked text happen long after the lock: start half the
@@ -41,7 +42,7 @@ function withLimit(promise, what, ms = STEP_LIMIT_MS) {
 // The run's host model: the locks it gave (per document), the secret
 // placeholders it gives (`secrets`) and those in the text it last set on
 // each document (`given`).
-function hostModel(page, cdp, kind, name, strict) {
+function hostModel(page, cdp, kind, name, strict, revisions) {
   const locks = new Map();
   const given = new Map();
   const key = (id) => id ?? '';
@@ -59,6 +60,8 @@ function hostModel(page, cdp, kind, name, strict) {
     kind,
     // The page's own host (no framework component): its resets report nothing.
     vanilla: !!PAGES[name].vanilla,
+    // A host keeping revisions and naming the text of its lists.
+    revisions,
     secrets: new Set(TOKENS),
     hostReplaced: false,
     // The text the host last gave the single editor (its mount text, a
@@ -207,7 +210,7 @@ async function openPage(browser, name, query) {
 export async function runSequence(browser, name, query, actions, { strict = process.env.FUZZ_BROWSER_STRICT === '1' } = {}) {
   const { kind } = PAGES[name];
   const { context, page, errors, cdp } = await openPage(browser, name, query);
-  const run = hostModel(page, cdp, kind, name, strict);
+  const run = hostModel(page, cdp, kind, name, strict, new URLSearchParams(query).has('revisions'));
   const result = await runSteps(run, context, page, errors, kind, actions);
   // A known class found by a check that ends the sequence (host, undo,
   // errors, hang) is noted too.

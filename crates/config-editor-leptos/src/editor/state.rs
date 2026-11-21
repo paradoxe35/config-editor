@@ -40,7 +40,6 @@ use super::edit_as::EditAsState;
 #[cfg(feature = "folding")]
 use super::folding::FoldState;
 use super::history::Selection;
-use super::host_diagnostics::HostDiagnostic;
 use super::host_editing::{
     self, BaselineConflict, HostEditing, SaveRequest, SentTexts, noting_sent,
 };
@@ -97,8 +96,9 @@ pub(super) struct Init {
     /// The host's `on_change`; edits reach it directly or through the
     /// Edit-as conversion (see `sync`).
     pub(super) host_on_change: Option<Callback<String>>,
-    /// The host's own problems (see `host_diagnostics`).
-    pub(super) host_diagnostics: Signal<Vec<HostDiagnostic>>,
+    /// The document.s record of its host a binding made (see
+    /// `sync::host_inputs`), else a new one.
+    pub(super) channel: Option<super::sync::HostChannel>,
     /// The host's read-only paths and ranges (see `protect`).
     pub(super) protect: ProtectInit,
     pub(super) on_save: Option<Callback<SaveRequest>>,
@@ -224,7 +224,7 @@ impl EditorState {
             read_only_reason,
             settings,
             host_on_change,
-            host_diagnostics,
+            channel,
             protect,
             on_save,
             on_baseline_conflict,
@@ -256,6 +256,7 @@ impl EditorState {
             opening,
             host_on_change,
             line_endings,
+            channel,
         );
         // Shared with other editors (a documents view's), else its own.
         if let Some(clipboard) = clipboard {
@@ -272,6 +273,7 @@ impl EditorState {
                 schema: schema.clone(),
                 host_text: sync.host_text,
                 popups,
+                channel: sync.channel.get_value(),
             },
         );
         let problems = ProblemsState::new(
@@ -282,7 +284,7 @@ impl EditorState {
                 schema: schema.clone(),
                 schema_error,
                 enabled: settings.diagnostics,
-                host_diagnostics,
+                host_diagnostics: sync.host_diagnostics.into(),
                 strings: settings.strings,
             },
             &sync,

@@ -9,38 +9,25 @@
 //! came back the host and the editor agree; nothing panics or places
 //! ranges past a text's end.
 //!
-//! The library's host channel, remap and reset code (wasm32-only there)
-//! runs here natively, loaded by path; `editor_sim` and `documents_sim`
-//! drive it as the two classes' `update` and `replaceValue` do, and
-//! `model::Core` stands for the editor's locks. Runs are seeded:
+//! The core's record of each document's host (`js_support::HostChannel`:
+//! the echo engine, the host log and the lists given) runs here as it is;
+//! `sim` drives it as the two classes' `update` and `replaceValue` do, and
+//! `model::Core` stands for the editor around it (the guard, the edits it
+//! records). Half the runs have a host keeping revisions and naming the
+//! texts its lists were worked out on (`rangesFor`), the other half a
+//! v0.1.0 host. The main property: a lock never moves to text it was not
+//! given for, in any order of echoes, re-mounts, hide/shows and resets. Runs are seeded:
 //! `HOST_SYNC_CASES` (runs per view), `HOST_SYNC_STEPS` (actions per run)
 //! and `HOST_SYNC_SEED` (the first seed) run more locally. Each class of
 //! failure prints its smallest run as a test to paste below; classes an
 //! open finding or the design explains are listed in `known.rs`.
 
-#[path = "../../src/text_lines.rs"]
-mod text_lines;
-
-#[allow(dead_code)]
-#[path = "../../src/remap.rs"]
-mod remap;
-
-#[allow(dead_code)]
-#[path = "../../src/host_locks.rs"]
-mod host_locks;
-
-// Its diagnostics, revisions and re-mount are for the library.
-#[allow(dead_code)]
-#[path = "../../src/host_channel.rs"]
-mod host_channel;
-
-mod documents_sim;
-mod editor_sim;
 mod host;
 mod known;
 mod model;
 mod rng;
 mod run;
+mod sim;
 
 use model::Failure;
 use rng::env_or;
@@ -101,10 +88,10 @@ fn assert_class(setup: run::Setup, acts: &[model::Act], class: model::Class) {
 #[allow(unused_imports)]
 mod repros {
     use super::{assert_class, assert_ok};
-    use crate::model::Act;
     use crate::model::Class;
     use crate::model::Form::*;
     use crate::model::ResetKind::*;
+    use crate::model::{Act, Anchor, Via};
     use crate::run::Setup;
     use crate::run::View::*;
 
@@ -118,6 +105,7 @@ mod repros {
                 base: 1,
                 other: 0,
                 form: Lines,
+                revisions: false,
             },
             &[
                 Act::MoveLine { line: 18613 },
@@ -125,6 +113,7 @@ mod repros {
                     doc: 0,
                     kind: Same,
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
                 Act::Deliver {
                     doc: 1,
@@ -132,11 +121,13 @@ mod repros {
                     dup: false,
                     ranges: false,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Reset {
                     doc: 0,
                     kind: Original,
                     same_task: true,
+                    via: Via::ReplaceValue,
                 },
                 Act::Type { at: 19343, ch: 'a' },
                 Act::Deliver {
@@ -145,6 +136,7 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Deliver {
                     doc: 0,
@@ -152,6 +144,7 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
             ],
         );
@@ -167,12 +160,14 @@ mod repros {
                 base: 2,
                 other: 3,
                 form: Index,
+                revisions: false,
             },
             &[
                 Act::Reset {
                     doc: 1,
                     kind: NewVersion(3400),
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
                 Act::Delete { at: 8993, len: 2 },
                 Act::Deliver {
@@ -181,11 +176,13 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: true,
+                    anchor: Anchor::None,
                 },
                 Act::Reset {
                     doc: 0,
                     kind: Original,
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
             ],
         );
@@ -201,6 +198,7 @@ mod repros {
                 base: 3,
                 other: 1,
                 form: Lines,
+                revisions: false,
             },
             &[
                 Act::Type { at: 51612, ch: ' ' },
@@ -211,6 +209,7 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Type { at: 48349, ch: ':' },
                 Act::Delete { at: 8282, len: 1 },
@@ -218,6 +217,7 @@ mod repros {
                     doc: 0,
                     kind: Same,
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
                 Act::Drop {
                     doc: 0,
@@ -236,6 +236,7 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: true,
+                    anchor: Anchor::None,
                 },
                 Act::Deliver {
                     doc: 0,
@@ -243,6 +244,7 @@ mod repros {
                     dup: true,
                     ranges: false,
                     same_task: true,
+                    anchor: Anchor::None,
                 },
             ],
         );
@@ -258,6 +260,7 @@ mod repros {
                 base: 1,
                 other: 0,
                 form: Lines,
+                revisions: false,
             },
             &[
                 Act::Type { at: 36100, ch: ' ' },
@@ -278,6 +281,7 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Deliver {
                     doc: 0,
@@ -285,11 +289,13 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Reset {
                     doc: 0,
                     kind: NewVersion(3529),
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
             ],
         );
@@ -307,12 +313,14 @@ mod repros {
                 base: 3,
                 other: 2,
                 form: Lines,
+                revisions: false,
             },
             &[
                 Act::Reset {
                     doc: 0,
                     kind: Twice(24951),
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
                 Act::Deliver {
                     doc: 0,
@@ -320,6 +328,7 @@ mod repros {
                     dup: false,
                     ranges: false,
                     same_task: true,
+                    anchor: Anchor::None,
                 },
                 Act::Deliver {
                     doc: 1,
@@ -327,6 +336,7 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Type { at: 58081, ch: ':' },
                 Act::Enter { at: 37481 },
@@ -336,12 +346,14 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Settle,
                 Act::Reset {
                     doc: 0,
                     kind: NewVersion(38468),
                     same_task: true,
+                    via: Via::ReplaceValue,
                 },
                 Act::Own {
                     doc: 0,
@@ -355,15 +367,19 @@ mod repros {
     }
 
     /// The same in a documents view: a newer version, then the host's own
-    /// text without its added line, the one it listed last.
+    /// text without its added line, the one it listed last. Each document
+    /// goes through its own record as an editor does, and the view's listing
+    /// of the other document no longer gives this one's text again: it ends
+    /// on the host's text.
     #[test]
     fn repro_documents_own_text_given_again_after_a_reset() {
-        assert_class(
+        assert_ok(
             Setup {
                 view: Documents,
                 base: 1,
                 other: 1,
                 form: Index,
+                revisions: false,
             },
             &[
                 Act::Own {
@@ -376,6 +392,7 @@ mod repros {
                     doc: 0,
                     kind: Twice(60416),
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
                 Act::Type { at: 7497, ch: 'b' },
                 Act::MoveLine { line: 35032 },
@@ -384,6 +401,7 @@ mod repros {
                     doc: 0,
                     kind: NewVersion(12078),
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
                 Act::Own {
                     doc: 1,
@@ -399,6 +417,7 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: true,
+                    anchor: Anchor::None,
                 },
                 Act::Delete { at: 40421, len: 0 },
                 Act::Deliver {
@@ -407,6 +426,7 @@ mod repros {
                     dup: false,
                     ranges: false,
                     same_task: true,
+                    anchor: Anchor::None,
                 },
                 Act::Delete { at: 63843, len: 2 },
                 Act::Enter { at: 38994 },
@@ -416,11 +436,13 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Reset {
                     doc: 0,
                     kind: NewVersion(60439),
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
                 Act::Type { at: 56831, ch: ':' },
                 Act::Settle,
@@ -431,7 +453,6 @@ mod repros {
                     same_task: false,
                 },
             ],
-            Class::NotConvergedOnGivenAgain,
         );
     }
 
@@ -447,6 +468,7 @@ mod repros {
                 base: 0,
                 other: 2,
                 form: Lines,
+                revisions: false,
             },
             &[
                 Act::Delete { at: 25242, len: 2 },
@@ -456,6 +478,7 @@ mod repros {
                     dup: false,
                     ranges: false,
                     same_task: true,
+                    anchor: Anchor::None,
                 },
                 Act::Type { at: 50182, ch: 'a' },
                 Act::Type { at: 8875, ch: 'x' },
@@ -467,6 +490,7 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Settle,
                 Act::Deliver {
@@ -475,11 +499,13 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Reset {
                     doc: 0,
                     kind: Twice(65224),
                     same_task: false,
+                    via: Via::ReplaceValue,
                 },
                 Act::Deliver {
                     doc: 0,
@@ -487,6 +513,7 @@ mod repros {
                     dup: false,
                     ranges: true,
                     same_task: false,
+                    anchor: Anchor::None,
                 },
                 Act::Own {
                     doc: 1,
@@ -498,6 +525,193 @@ mod repros {
                     doc: 0,
                     kind: Twice(42024),
                     same_task: false,
+                    via: Via::ReplaceValue,
+                },
+            ],
+        );
+    }
+
+    /// A host keeping revisions: typing above the lock, a late server check
+    /// of the text before (`rangesFor` its revision), a re-mount and a hide
+    /// and show: the lock stays on its text exactly.
+    #[test]
+    fn a_lock_stays_on_its_text_through_a_late_check_a_remount_and_a_hide_and_show() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 0,
+                other: 0,
+                form: Index,
+                revisions: true,
+            },
+            &[
+                Act::Enter { at: 0 },
+                Act::Type { at: 0, ch: 'x' },
+                Act::Ranges {
+                    doc: 0,
+                    anchor: Anchor::Revision,
+                    worked_on: 1,
+                    same_task: false,
+                },
+                Act::Remount { doc: 0 },
+                Act::Type { at: 1, ch: 'a' },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 1,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::Revision,
+                },
+                Act::FreshMount { doc: 0 },
+            ],
+        );
+    }
+
+    /// A new text of the host's own with the same ranges reads them in it
+    /// (no whole-line lock), in a v0.1.0 host too.
+    #[test]
+    fn the_same_ranges_with_a_new_text_of_the_hosts_own_lock_exactly() {
+        for revisions in [false, true] {
+            assert_ok(
+                Setup {
+                    view: Editor,
+                    base: 1,
+                    other: 0,
+                    form: Lines,
+                    revisions,
+                },
+                &[
+                    Act::Own {
+                        doc: 0,
+                        edit: 2,
+                        ranges: true,
+                        same_task: false,
+                    },
+                    Act::Type { at: 3, ch: 'x' },
+                ],
+            );
+        }
+    }
+
+    /// Typing, a hide and show, then a reset (`replaceValue` and the host's
+    /// list of it): the gone editor's late echo brings its typing back for
+    /// a moment and the reset's report replaces it. Nothing typed in the
+    /// new editor is lost.
+    #[test]
+    fn repro_editor_reset_after_a_hide_and_show_replaces_the_typing_brought_back() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 1,
+                other: 1,
+                form: Index,
+                revisions: false,
+            },
+            &[
+                Act::Type { at: 37807, ch: ' ' },
+                Act::FreshMount { doc: 1 },
+                Act::Reset {
+                    doc: 0,
+                    kind: NewVersion(7915),
+                    same_task: false,
+                    via: Via::Both,
+                },
+            ],
+        );
+    }
+
+    /// A hide and show, a reset by `setValue`, then the gone editor's late
+    /// echo shown over it: the revision of the reset's report still names
+    /// the reset's text (a list for it never lands on the echo's text).
+    #[test]
+    fn repro_editor_a_resets_revision_names_its_text_after_an_older_echo_shows() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 2,
+                other: 0,
+                form: Index,
+                revisions: true,
+            },
+            &[
+                Act::Own {
+                    doc: 0,
+                    edit: 53966,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Type { at: 20633, ch: 'a' },
+                Act::Delete { at: 62131, len: 1 },
+                Act::FreshMount { doc: 1 },
+                Act::Reset {
+                    doc: 0,
+                    kind: NewVersion(51439),
+                    same_task: false,
+                    via: Via::SetValue,
+                },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 28090,
+                    dup: true,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+            ],
+        );
+    }
+
+    /// The same, through a re-mount and lists naming their revisions.
+    #[test]
+    fn repro_editor_a_resets_revision_names_its_text_through_a_remount() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 0,
+                other: 3,
+                form: Index,
+                revisions: true,
+            },
+            &[
+                Act::Type { at: 22220, ch: 'b' },
+                Act::Reset {
+                    doc: 1,
+                    kind: LastListed,
+                    same_task: true,
+                    via: Via::Both,
+                },
+                Act::FreshMount { doc: 0 },
+                Act::Reset {
+                    doc: 1,
+                    kind: NewVersion(16482),
+                    same_task: true,
+                    via: Via::SetValue,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 13056,
+                    dup: false,
+                    ranges: true,
+                    same_task: true,
+                    anchor: Anchor::Text,
+                },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::Revision,
+                },
+                Act::Remount { doc: 1 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: true,
+                    anchor: Anchor::Revision,
                 },
             ],
         );

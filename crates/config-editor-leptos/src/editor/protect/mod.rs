@@ -67,7 +67,6 @@ mod rewritten;
 mod save;
 mod scan;
 mod secrets;
-mod since_host;
 #[cfg(all(
     test,
     feature = "yaml",

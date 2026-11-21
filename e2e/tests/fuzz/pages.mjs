@@ -28,6 +28,9 @@ export const pageUrl = (name, query = '') => pathToFileURL(join(js, 'examples', 
 export function installProbe({ kind, vanilla }) {
   const fz = {
     kind,
+    // A host keeping revisions (`?revisions`): it names the text its lists
+    // were worked out on.
+    revisions: new URLSearchParams(location.search).has('revisions'),
     hostSeen: [],
     extra: {},
     // The vanilla documents page keeps its list to itself: the documents it
@@ -68,6 +71,14 @@ export function installProbe({ kind, vanilla }) {
     if (kind === 'single') return document.getElementById('saved').textContent;
     const file = fz.files().find((candidate) => candidate.id === (id ?? fz.activeId()));
     return file ? file.value : null;
+  };
+  // The host's state for the document on screen: its text and the
+  // revision it came with (none for a text of the host's own).
+  fz.parent = () => {
+    if (kind === 'single' && vanilla) return { text: fz.host(), revision: window.savedRevision };
+    if (kind === 'single') return window.parentState();
+    const file = fz.files().find((candidate) => candidate.id === fz.activeId());
+    return file ? { text: file.value, revision: file.valueRevision } : null;
   };
   // The text `readOnlyRanges` given alone name places in: the text the host
   // lists them with (its own, which a late echo may leave older than the
@@ -273,6 +284,9 @@ export function installProbe({ kind, vanilla }) {
       return tokens.some(([from, to]) => start > from && start < to && (column === from || column === to));
     };
     if (listed.some((problem) => columns.some((column) => on(problem, column)))) return null;
+    // The host's problems (see `lateDiagnostics`) are walked too, and
+    // `onProblems` does not list them: each starts a line.
+    if (fz.hostDiagnosed && caret.column === 1) return null;
     // The walk visits the problems with no place last (the footer shows
     // them): the caret stays, and the announcement names the one reached.
     const said = fz.root()?.querySelector('.config-editor__announcement')?.textContent ?? '';

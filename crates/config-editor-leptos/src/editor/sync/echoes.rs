@@ -76,6 +76,12 @@ pub fn clock() -> u64 {
     CLOCK.with(Cell::get)
 }
 
+/// A revision for a text of the host's own (see `HostLog`), from the same
+/// clock as the texts sent.
+pub(crate) fn issue() -> u64 {
+    tick()
+}
+
 fn tick() -> u64 {
     CLOCK.with(|clock| {
         let now = clock.get();
@@ -91,7 +97,7 @@ fn tick() -> u64 {
 /// length of the text as given (`raw`) only tells whether a print kept for
 /// the document may still be its own (see `document_print`).
 #[derive(Clone, Copy, Debug)]
-struct Print(usize, u64, usize);
+pub(crate) struct Print(usize, u64, usize);
 
 impl PartialEq for Print {
     fn eq(&self, other: &Self) -> bool {
@@ -108,7 +114,7 @@ impl std::hash::Hash for Print {
 }
 
 impl Print {
-    fn of(text: &str) -> Self {
+    pub(crate) fn of(text: &str) -> Self {
         work::note(work::Work::TextRead);
         let bytes = text.strip_prefix('\u{feff}').unwrap_or(text).as_bytes();
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -146,7 +152,7 @@ struct Sent {
 }
 
 /// What to do with a text the host handed back.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Echo {
     /// The host's own text, or the document already: show it (nothing to
     /// do when it is the document).
@@ -210,9 +216,16 @@ pub struct Echoes {
     /// When the host's last reset (`replaceValue`) was sent, until the host
     /// gives that text or one sent after it (see [`Echoes::before_reset`]).
     reset: Option<u64>,
+    /// The revision of the text sent last (with or without the option).
+    last_sent: Option<u64>,
 }
 
 impl Echoes {
+    /// Whether the host hands every text back (`echoes`).
+    pub fn is_on(&self) -> bool {
+        self.on
+    }
+
     /// For a host that hands every text back (`on`), or not.
     pub fn new(on: bool) -> Self {
         Self {
@@ -245,15 +258,17 @@ impl Echoes {
     /// nothing: its text is listed already, or on its way once (a second
     /// Discard waits for no listing of its own, so the host's own revert to
     /// it is not taken for its echo).
-    pub fn replaced(&mut self, text: &str) {
+    pub fn replaced(&mut self, text: &str) -> Option<u64> {
         if self.on {
             let print = Print::of(text);
             self.last_given = Some(print);
             if self.document != Some(print) {
-                self.send(print);
-                self.reset = self.order.last_key_value().map(|(serial, _)| *serial);
+                let serial = self.send(print);
+                self.reset = Some(serial);
+                return Some(serial);
             }
         }
+        None
     }
 
     /// A new editor takes this record over with `text` as its document (a
@@ -295,8 +310,24 @@ impl Echoes {
         if self.on {
             self.send(Print::of(text))
         } else {
-            tick()
+            let serial = tick();
+            self.last_sent = Some(serial);
+            serial
         }
+    }
+
+    /// The copy sent at `revision` reached no host (no `onChange`): it is
+    /// no echo to wait for, and the host was not told the document.
+    pub fn untold(&mut self, revision: u64) {
+        if let Some(print) = self.order.remove(&revision)
+            && let Some(copies) = self.copies.get_mut(&print)
+        {
+            copies.retain(|sent| sent.serial != revision);
+            if copies.is_empty() {
+                self.copies.remove(&print);
+            }
+        }
+        self.document = None;
     }
 
     /// The document changed and the host was not told (no `onChange`).
@@ -313,6 +344,7 @@ impl Echoes {
             doubted: false,
         });
         self.document = Some(print);
+        self.last_sent = Some(serial);
         serial
     }
 
@@ -560,6 +592,22 @@ impl Echoes {
         Echo::Resend
     }
 
+    /// The revision of the text sent last, on its way or not.
+    pub fn last_sent(&self) -> Option<u64> {
+        self.last_sent
+    }
+
+    /// When the newest of the texts that came back was sent: the texts
+    /// sent before it can no longer be named (see `HostLog::confirmed`).
+    pub fn came_back(&self) -> Option<u64> {
+        self.came_back.filter(|_| self.on)
+    }
+
+    /// The print of the copy sent at `revision`, while it is on its way.
+    pub(crate) fn print_sent(&self, revision: u64) -> Option<Print> {
+        self.order.get(&revision).copied()
+    }
+
     /// The revision of the text sent last, if any is on its way.
     pub fn latest_revision(&self) -> Option<u64> {
         self.order.last_key_value().map(|(serial, _)| *serial)
@@ -571,6 +619,25 @@ impl Echoes {
     pub fn replaces(&mut self, value: &str, current: &str) -> bool {
         let print = Print::of(value);
         !self.same(value, print, current) && (!self.on || self.kind(print) == Kind::Own)
+    }
+
+    /// Whether [`Echoes::received_at`] would take `value`, given with
+    /// `revision`, for a text that replaces the document `current`,
+    /// without taking it.
+    pub fn replaces_at(&mut self, value: &str, revision: u64, current: &str) -> bool {
+        if !self.on {
+            return self.replaces(value, current);
+        }
+        let print = Print::of(value);
+        if !self.order.contains_key(&revision)
+            && self.came_back.is_some_and(|back| revision <= back)
+        {
+            return false;
+        }
+        if self.order.get(&revision) == Some(&print) {
+            return false;
+        }
+        self.replaces(value, current)
     }
 
     /// The pause after a [`Echo::Settle`] or [`Echo::Resend`] is over:
@@ -1293,6 +1360,7 @@ mod tests {
             last_listed: echoes.last_listed,
             document: echoes.document,
             reset: echoes.reset,
+            last_sent: echoes.last_sent,
         }
     }
 

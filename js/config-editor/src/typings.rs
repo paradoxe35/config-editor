@@ -5,6 +5,24 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
+/** One replacement of the host's own change (`applyChanges`): string indices `from`..`to` of the text it was made on, as `rangeOf` gives them, replaced by `insert`. */
+export interface TextChange {
+  from: number;
+  to: number;
+  insert: string;
+}
+
+/** What `applyChanges` takes beside the changes. */
+export interface ApplyChangesOptions {
+  /** The revision of the text the changes were made on (`onChange` gave it); left out, the host's text now. One the editor can no longer name, or never sent, throws and changes nothing. */
+  revision?: number;
+  /** Read-only ranges given with the change: in the new document, unless `rangesFor` names another text. */
+  readOnlyRanges?: TextRangeInput[] | null;
+  rangesFor?: number | string;
+  hostDiagnostics?: HostDiagnostic[] | null;
+  diagnosticsFor?: number | string;
+}
+
 /** What `new ConfigEditor` takes: the document and its callbacks, and every setting of `EditorSettings`. */
 export interface EditorOptions extends EditorSettings {
   /** The document, in `language`. */
@@ -59,9 +77,11 @@ export interface EditorOptions extends EditorSettings {
   readOnlyPaths?: FieldPath[];
   /** Stretches of the document (in `language`) the user cannot change; they follow the text through edits; `update` replaces them. */
   readOnlyRanges?: TextRangeInput[];
-  /** The text `readOnlyRanges` and `hostDiagnostics` ranges were given for, when it is not `value` (a check of a text the document has moved past): they are checked in it and moved to `value`. Default: `value`. */
-  rangesFor?: string;
-  /** The `revision` of `value`, read by `update` (see `EditorUpdate.valueRevision`); none at construction. */
+  /** The text this list names places in: a revision (the number `onChange` gave with a text, as a server check ran on it, or the `valueRevision` given with `value`) or a text (the file as loaded, for locks worked out once). Left out: the `value` it comes with, else the document as the host has it now; a list given again as it is in force is no news. A revision this editor never sent throws; one it can no longer name (64 newer texts sent since, a text of your own given since, or sent by an editor a hide and show replaced) is out of date: a console warning, and the locks stay. */
+  rangesFor?: number | string;
+  /** The text `hostDiagnostics` name places in, as `rangesFor` says; left out, `rangesFor`. */
+  diagnosticsFor?: number | string;
+  /** The `revision` `onChange` gave `value` with (a component shown again with its parent's state): `rangesFor` equal to it names `value`. */
   valueRevision?: number;
   /** How secret placeholders (`«secret 3f2a»`) are matched, described and completed in fields the schema marks `writeOnly` or `x-secret`. */
   secrets?: SecretOptions;
@@ -136,8 +156,10 @@ export interface EditorUpdate extends SettingsUpdate {
   value?: string;
   /** With `echoes`: the `revision` `onChange` gave `value` with, for a host that stores the newest revision it hears and never goes back to an older one. The echo is then matched exactly, with no pause: that revision and every earlier one are confirmed. Leave it out for a text of your own. Without it, an echo is told apart by its text, and an echo left behind by the document is checked again a pause (250 ms) later. */
   valueRevision?: number;
-  /** The text this update's `readOnlyRanges` and `hostDiagnostics` ranges were given for, when it is not the document (a check of a text the user has typed past): they are checked in it and moved to the document. Default: `value`, else the document. */
-  rangesFor?: string;
+  /** The text this list names places in: a revision (the number `onChange` gave with a text, as a server check ran on it, or the `valueRevision` given with `value`) or a text (the file as loaded, for locks worked out once). Left out: the `value` it comes with, else the document as the host has it now; a list given again as it is in force is no news. A revision this editor never sent throws; one it can no longer name (64 newer texts sent since, a text of your own given since, or sent by an editor a hide and show replaced) is out of date: a console warning, and the locks stay. */
+  rangesFor?: number | string;
+  /** The text `hostDiagnostics` name places in, as `rangesFor` says; left out, `rangesFor`. */
+  diagnosticsFor?: number | string;
   /** The text the diff gutter compares against. */
   baseline?: string;
   /** Edit in another language; `null` edits in `language` again. */
@@ -150,7 +172,7 @@ export interface EditorUpdate extends SettingsUpdate {
   hostDiagnostics?: HostDiagnostic[] | null;
   /** Replaces the fields the user cannot change; `null` or `[]` clears them. */
   readOnlyPaths?: FieldPath[] | null;
-  /** Replaces the stretches the user cannot change (in `rangesFor`, else `value`, else the document); `null` or `[]` clears them. The ones given last, given again with no new text, stay where the editor moved them as the user typed. */
+  /** Replaces the stretches the user cannot change (in the text `rangesFor` names, else `value`, else the document); `null` or `[]` clears them. The ones in force, given again with no text of your own, stay where the editor moved them as the user typed. */
   readOnlyRanges?: TextRangeInput[] | null;
   onChange?: ((value: string, revision: number) => void) | null;
   onEditAsChange?: ((language: LanguageName) => void) | null;
@@ -220,6 +242,8 @@ export interface EditorView {
   unfoldAll(): void;
   /** Focuses the editor, keeping its selection. */
   focus(): void;
+  /** Makes the host's own change of the document: `changes` (string indices of the text `options.revision` names, else the host's text now) rebased over what the user typed since; locks, folds and the caret follow it exactly, and Undo does not undo it. The revision of the new text, `undefined` when nothing changed (or a document's editor not mounted yet). */
+  applyChanges(changes: TextChange[], options?: ApplyChangesOptions): number | undefined;
   /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet). */
   save(): boolean;
   /** The unified diff (`diff -u`) of the baseline against the document, with `context` unchanged lines around each change (default 3); empty when they are the same. */
@@ -401,6 +425,12 @@ export interface DocumentSpec {
   readOnlyPaths?: FieldPath[];
   /** Stretches of this document (in its language) the user cannot change; update live. */
   readOnlyRanges?: TextRangeInput[];
+  /** The text this list names places in: a revision (the number `onChange` gave with a text, as a server check ran on it, or the `valueRevision` given with `value`) or a text (the file as loaded, for locks worked out once). Left out: the `value` it comes with, else the document as the host has it now; a list given again as it is in force is no news. A revision this editor never sent throws; one it can no longer name (64 newer texts sent since, a text of your own given since, or sent by an editor a hide and show replaced) is out of date: a console warning, and the locks stay. */
+  rangesFor?: number | string;
+  /** The text `hostDiagnostics` name places in, as `rangesFor` says; left out, `rangesFor`. */
+  diagnosticsFor?: number | string;
+  /** With `echoes`: the `revision` `onChange` gave `value` with, for an exact echo match. */
+  valueRevision?: number;
   /** Secret placeholders, as `ConfigEditor`'s `secrets`. Read when the document's editor mounts (the first time it is shown, or at once when it is listed with `editAsText`). */
   secrets?: SecretOptions;
 }
@@ -430,8 +460,8 @@ export interface DocumentsOptions extends EditorSettings {
   onClose?: (request: CloseRequest) => void;
   /** Called when the user asks for a new document: the "+" button after the last tab, shown only with it (it stays at the strip's end when the tabs overflow). It only asks: add the new document to the list; the next one added is selected and its editor focused. No key adds one (`Ctrl+T` / `Ctrl+N` are the browser's). */
   onAdd?: () => void;
-  /** Called with a document's id and text after every edit: store it as the document's `value`. */
-  onChange?: (id: string, value: string) => void;
+  /** Called with a document's id and text after every edit, and the text's `revision`: store it as the document's `value` (and `valueRevision`). */
+  onChange?: (id: string, value: string, revision: number) => void;
   /** Called when the user saves a document (`Ctrl+S` / `Cmd+S`) or you call `save(id)` / `saveAll()`. */
   onSave?: (id: string, value: string, language: LanguageName) => void;
   /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */

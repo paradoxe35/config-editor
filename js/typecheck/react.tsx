@@ -60,3 +60,15 @@ export function Files({ schema }: { schema: string }) {
       onClose={({ id, dirty }) => { if (!dirty) setFiles((list) => list.filter((file) => file.id !== id)); }} />
   );
 }
+// Lists naming their text, revisions and the host's own change.
+export function Revisions({ loaded }: { loaded: string }) {
+  const [doc, setDoc] = useState({ text: loaded, revision: undefined as number | undefined });
+  const ref = useRef<ConfigEditorHandle>(null);
+  const next: number | null | undefined = ref.current?.applyChanges([{ from: 0, to: 0, insert: "# top\n" }], { revision: doc.revision });
+  void next;
+  return (
+    <ConfigEditor ref={ref} value={doc.text} valueRevision={doc.revision}
+      onChange={(text, revision) => setDoc((old) => (old.revision !== undefined && revision < old.revision ? old : { text, revision }))}
+      readOnlyRanges={[{ startLine: 1, startColumn: 1, endLine: 2, endColumn: 1 }]} rangesFor={loaded} diagnosticsFor={doc.revision ?? doc.text} />
+  );
+}

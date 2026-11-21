@@ -120,12 +120,13 @@ pub use editor::unified_diff;
 pub use editor::{
     BaselineConflict, ChangeSummary, CheckProblem, CheckedDocument, CompiledSchema, ConfigEditor,
     ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,
-    DiagnosticOrigin, DiagnosticTarget, EditorHandle, EditorTheme, FieldPath, HostDiagnostic,
-    HoverDocs, Language, LossEffect, PRESET_CSS, ParseError, SaveRequest, Schema, SchemaCheck,
-    SchemaCompiler, SchemaError, SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss,
-    SchemaResources, SchemaSource, SecretOptions, Severity, Suggestion, TextPosition, TextRange,
-    ThemeColor, ThemeColors, UnknownLanguage, UnknownSchemaFormat, UnknownTheme, check_syntax,
-    float_of, float_value, flush_pending_edits, string_of, string_value,
+    DiagnosticOrigin, DiagnosticTarget, EditorHandle, EditorTheme, FieldPath, HostChange,
+    HostDiagnostic, HoverDocs, Language, LossEffect, PRESET_CSS, ParseError, RangesFor,
+    SaveRequest, Schema, SchemaCheck, SchemaCompiler, SchemaError, SchemaFormat, SchemaFormatInfo,
+    SchemaInput, SchemaLoss, SchemaResources, SchemaSource, SecretOptions, Severity, Suggestion,
+    TextPosition, TextRange, ThemeColor, ThemeColors, UnknownLanguage, UnknownSchemaFormat,
+    UnknownTheme, check_syntax, float_of, float_value, flush_pending_edits, string_of,
+    string_value,
 };
 
 /// What the browser bindings (`config-editor-js`, published to npm as
@@ -133,7 +134,11 @@ pub use editor::{
 /// Rust API: no stability promise, and not for other crates.
 #[doc(hidden)]
 pub mod js_support {
-    pub use crate::editor::{Echo, Echoes, SETTLE_MS, echo_clock, flush_pending_input, is_web_url};
+    pub use crate::editor::text::lines::{TextLines, document};
+    pub use crate::editor::{
+        AnchorError, ChangeError, Echo, Echoes, HostChannel, HostEdits, HostUpdate, List, Listed,
+        Reading, SETTLE_MS, Taken, echo_clock, flush_pending_input, is_web_url, statement_of,
+    };
 
     /// A timer [`after`] set, to [`cancel`](Self::cancel) it.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -190,6 +195,42 @@ pub mod js_support {
     /// no copy of the text, and no read of it up to the offset, per call.
     pub fn path_at_offset(handle: &crate::EditorHandle, offset: usize) -> Option<crate::FieldPath> {
         handle.path_at_offset(offset)
+    }
+
+    /// The editor mounting next with `handle` keeps its host's record in
+    /// `channel`: made before it mounts (the lists given to the
+    /// constructor), or the record of the editor it replaces.
+    pub fn give_channel(handle: &crate::EditorHandle, channel: HostChannel) {
+        handle.give_channel(channel);
+    }
+
+    /// Takes `update` from the host through the mounted editor's one entry
+    /// (the text, its revision, the lists and the texts they name); `None`
+    /// while no editor is mounted.
+    pub fn host_update(
+        handle: &crate::EditorHandle,
+        update: HostUpdate,
+    ) -> Option<Result<Taken, AnchorError>> {
+        handle.host_update(update)
+    }
+
+    /// The document `id` of the view of `handle` keeps its host's record in
+    /// `channel`: its editor takes it over when it mounts, and takes no
+    /// text or list from its listing (the binding hands each update to it
+    /// with [`host_update`]).
+    pub fn bind_document_channel(handle: &crate::DocumentsHandle, id: &str, channel: HostChannel) {
+        handle.bind_channel(id, channel);
+    }
+
+    /// The host's change of its text through the mounted editor (see
+    /// [`EditorHandle::apply_changes`](crate::EditorHandle::apply_changes)),
+    /// every refusal said.
+    pub fn apply_changes(
+        handle: &crate::EditorHandle,
+        edits: &HostEdits,
+        base: Option<u64>,
+    ) -> Result<Option<u64>, ChangeError> {
+        handle.apply_edits(edits, base)
     }
 
     /// Makes the view of `handle` take `documents` (the list just given to

@@ -7,12 +7,12 @@
 use wasm_bindgen::prelude::*;
 
 use crate::languages::language_named;
-use crate::text_lines::{TextLines, document};
 use crate::typings::{Data, PathResult, RangeResult, RangeResults};
 use crate::values::{
     index_arg, json_from_js, json_to_js, path_from_js, path_to_js, range_to_js, ranges_to_js,
     text_arg,
 };
+use leptos_config_editor::js_support::{TextLines, document};
 
 /// Parses `text` into plain data (objects, arrays, strings, numbers,
 /// booleans, `null`): the model schema validation sees, the same for every

@@ -11,7 +11,7 @@
 use std::ops::Range;
 
 #[path = "line_runs.rs"]
-pub(in crate::remap) mod line_runs;
+pub(in crate::editor::sync::host_inputs::carry) mod line_runs;
 
 /// One stretch two texts differ in, as UTF-16 offsets: `from` in the first
 /// text became `to` in the second. Stretches come in text order, with
@@ -113,8 +113,8 @@ fn alike(old: &str, new: &str) -> bool {
 fn narrowed(
     from: &str,
     to: &str,
-    (old, old_run): (&Lines, Range<usize>),
-    (new, new_run): (&Lines, Range<usize>),
+    (old, old_run): (&Lines<'_>, Range<usize>),
+    (new, new_run): (&Lines<'_>, Range<usize>),
 ) -> Option<Stretch> {
     let old_text = &from[old.bytes[old_run.start]..old.bytes[old_run.end]];
     let new_text = &to[new.bytes[new_run.start]..new.bytes[new_run.end]];

@@ -33,6 +33,10 @@ export interface ConfigEditorProps extends EditorSettings {
     readOnlyPaths?: FieldPath[];
     /** Stretches of the document (in `language`) the user cannot change. Updates live. */
     readOnlyRanges?: TextRangeInput[];
+    /** The text `readOnlyRanges` name places in: a revision `onChange` gave (as a server check ran on it, or `valueRevision`), or a text (the file as loaded, for locks worked out once). Left out: the `value` they come with. A revision the editor never sent is reported to `onError` and the locks stay; one it can no longer name is out of date (a console warning, the locks stay). */
+    rangesFor?: number | string;
+    /** The text `hostDiagnostics` name places in, as `rangesFor`; left out, `rangesFor`. */
+    diagnosticsFor?: number | string;
     /** How secret placeholders are matched, described and completed. Changing `placeholder`, `hint` or `referencePrefixes`, or adding or removing `isPlaceholder`, re-mounts; a new `isPlaceholder` function in its place does not. */
     secrets?: SecretOptions;
     /** JSON Schema as JSON or YAML text. Changing it re-mounts. */
@@ -85,7 +89,7 @@ export interface ConfigDocumentsProps extends EditorSettings {
     /** Called when the user asks for a new document: the "+" after the last tab, shown only with it (it stays at the strip's end when the tabs overflow). It only asks: add the new document to `documents`; the next one added is selected and its editor focused. Whether it is set re-mounts. */
     onAdd?: () => void;
     /** Called with a document's id and text after every edit. */
-    onChange?: (id: string, value: string) => void;
+    onChange?: (id: string, value: string, revision: number) => void;
     /** Called when the user saves a document (`Ctrl+S` / `Cmd+S`) or you call `save(id)` / `saveAll()`. */
     onSave?: (id: string, value: string, language: LanguageName) => void;
     /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */

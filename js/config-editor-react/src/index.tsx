@@ -40,6 +40,8 @@ export type {
   SecretOptions,
   Severity,
   TextRangeInput,
+  TextChange,
+  ApplyChangesOptions,
   ThemeColorMap,
   ThemeName,
 } from "@pngwasi/config-editor";
@@ -90,6 +92,10 @@ export interface ConfigEditorProps extends EditorSettings {
   readOnlyPaths?: FieldPath[];
   /** Stretches of the document (in `language`) the user cannot change. Updates live. */
   readOnlyRanges?: TextRangeInput[];
+  /** The text `readOnlyRanges` name places in: a revision `onChange` gave (as a server check ran on it, or `valueRevision`), or a text (the file as loaded, for locks worked out once). Left out: the `value` they come with. A revision the editor never sent is reported to `onError` and the locks stay; one it can no longer name is out of date (a console warning, the locks stay). */
+  rangesFor?: number | string;
+  /** The text `hostDiagnostics` name places in, as `rangesFor`; left out, `rangesFor`. */
+  diagnosticsFor?: number | string;
   /**
    * How secret placeholders are matched, described and completed. Changing
    * `placeholder`, `hint` or `referencePrefixes`, or adding or removing
@@ -194,7 +200,7 @@ export interface ConfigDocumentsProps extends EditorSettings {
    */
   onAdd?: () => void;
   /** Called with a document's id and text after every edit. */
-  onChange?: (id: string, value: string) => void;
+  onChange?: (id: string, value: string, revision: number) => void;
   /** Called when the user saves a document (`Ctrl+S` / `Cmd+S`) or you call `ref.save(id)` / `ref.saveAll()`. */
   onSave?: (id: string, value: string, language: LanguageName) => void;
   /** Called with a document's id and whether it differs from its baseline: when it is added, then each time that changes. */

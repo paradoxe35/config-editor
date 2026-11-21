@@ -24,16 +24,23 @@
   // reach the parent 400 ms late, only the latest. `?slow`: every edit 1.5 s
   // late. `?random`: every edit 0-200 ms late, in whatever order the delays
   // give. `?manual`: when a test says so (see `echo-delay.ts`).
-  // `?reset-early`: `setValue` before the editor mounts.
+  // `?reset-early`: `setValue` before the editor mounts. `?revisions` keeps
+  // the value with its revision as the README shows: the newest revision
+  // heard wins (a late, older one is ignored), passed back as
+  // `valueRevision`; the locks of the first line name the file as loaded.
   // `?props={...}`: extra props (`setExtraProps` changes them later).
   const uncontrolled = query.has("uncontrolled");
   const late = query.has("late");
   const slow = query.has("slow");
   const random = query.has("random");
+  const revisions = query.has("revisions");
   const resetEarly = query.has("reset-early");
   const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
   let value = $state(initialText);
+  // The revision `value` came with (`?revisions`); none for a text of the
+  // parent's own.
+  let revision: number | undefined = $state(undefined);
   // The version the host last saved; saves and other clients move it.
   let baseline = $state(initialText);
   let dirty = $state(false);
@@ -68,6 +75,7 @@
       get foldedLines() { return instance.getFoldedLines(); },
       get isDirty() { return instance.isDirty(); },
       setValue: instance.setValue,
+      applyChanges: instance.applyChanges,
       unifiedDiff: instance.unifiedDiff,
       rangeOf: instance.rangeOf,
       pathAt: instance.pathAt,
@@ -90,7 +98,8 @@
     setExtraProps: (change: Change) => (extra = typeof change === "function" ? change(extra) : change),
     editorHandle: { get current() { return editor ? asHandle(editor) : null; } },
     renameFile: () => (fileName = `renamed-${fileName}`),
-    setParentValue: (text: string) => (value = text),
+    setParentValue: (text: string) => own(text),
+    parentState: () => ({ text: value, revision }),
     setShown: (next: boolean) => (shown = next),
   });
 
@@ -100,7 +109,17 @@
     if (resetEarly) editor?.setValue("from-effect: 1\n");
   });
 
-  function apply(next: string) {
+  // A text of the parent's own: no revision.
+  function own(text: string) {
+    revision = undefined;
+    value = text;
+  }
+  function apply(next: string, sent: number) {
+    if (revisions) {
+      // The newest revision wins: a late, older one is ignored.
+      if (revision !== undefined && sent < revision) return;
+      revision = sent;
+    }
     previous = value;
     value = next;
   }
@@ -110,12 +129,19 @@
     previous = last;
     last = next;
   }
-  function onChange(next: string) {
-    if (slow) return void setTimeout(() => apply(next), 1500);
-    if (random || manual) return void later(() => apply(next));
-    if (!late) return apply(next);
+  function onChange(next: string, sent: number) {
+    if (slow) return void setTimeout(() => apply(next, sent), 1500);
+    if (random || manual) return void later(() => apply(next, sent));
+    if (!late) return apply(next, sent);
     clearTimeout(lateTimer);
-    lateTimer = setTimeout(() => apply(next), 400);
+    lateTimer = setTimeout(() => apply(next, sent), 400);
+  }
+  // The host's own change, sent as a change (no whole text).
+  function setPort() {
+    const text = editor?.getText() ?? "";
+    const at = text.indexOf("listen: ") + "listen: ".length;
+    const end = text.indexOf("\n", at);
+    if (at >= "listen: ".length) editor?.applyChanges([{ from: at, to: end, insert: "8080" }]);
   }
   // A discard that also drops an edit the late parent has not applied yet.
   // One way only: setValue reports the text, and the state follows from
@@ -158,9 +184,10 @@
     </select>
   </label>
   <label><input id="read-only" type="checkbox" bind:checked={readOnly} /> Read-only</label>
-  <button id="replace" type="button" onclick={() => (value = "listen: 9000\n")}>Replace value</button>
-  <button id="revert" type="button" onclick={() => (value = previous)}>Revert last edit</button>
-  <button id="reset" type="button" onclick={() => (value = initialText)}>Reset</button>
+  <button id="replace" type="button" onclick={() => own("listen: 9000\n")}>Replace value</button>
+  <button id="set-port" type="button" onclick={setPort}>Set port</button>
+  <button id="revert" type="button" onclick={() => own(previous)}>Revert last edit</button>
+  <button id="reset" type="button" onclick={() => own(initialText)}>Reset</button>
   <button id="force-reset" type="button" onclick={() => discard(initialText)}>Reset (always)</button>
   <button id="bad-theme" type="button" onclick={() => (theme = "not-a-theme")}>Invalid theme</button>
   <button id="rename" type="button" onclick={() => (fileName = `renamed-${fileName}`)}>Rename (re-mounts)</button>
@@ -168,7 +195,7 @@
   <button id="host-problems" type="button" onclick={toggleHostProblems}>Host problems</button>
   <label><input id="lock-address" type="checkbox" bind:checked={lockAddress} /> Lock public_address</label>
   <label><input id="lock-first-line" type="checkbox" bind:checked={lockFirstLine} /> Lock line 1</label>
-  <button id="load-secret" type="button" onclick={() => (value = "clients:\n  acme:\n    secret: «secret 3f2a»\n")}>Load a secret</button>
+  <button id="load-secret" type="button" onclick={() => own("clients:\n  acme:\n    secret: «secret 3f2a»\n")}>Load a secret</button>
   <button id="external-change" type="button" onclick={() => (baseline = baseline.replace("7835", "7836"))}>External change</button>
   <button id="save" type="button" onclick={() => editor?.save()}>Save</button>
   <span id="dirty">{dirty ? "unsaved" : "saved"}</span>
@@ -209,9 +236,15 @@
   <!-- Unmounted (`setShown(false)`). -->
 {:else if uncontrolled}
   {@render editorView({ defaultValue: initialText, onChange })}
-{:else if late || slow || random || manual}
-  <!-- A parent applying edits late: one-way `value` and `onChange`. -->
-  {@render editorView({ value, onChange })}
+{:else if late || slow || random || manual || revisions}
+  <!-- A parent applying edits late or keeping revisions: one-way `value`
+       and `onChange`. -->
+  {@render editorView({
+    value,
+    onChange,
+    valueRevision: revisions ? revision : undefined,
+    rangesFor: revisions ? initialText : undefined,
+  })}
 {:else}
   <ConfigEditor
     bind:this={editor}

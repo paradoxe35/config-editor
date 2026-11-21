@@ -12,7 +12,7 @@
 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import type { EditorView, LanguageName } from "@pngwasi/config-editor";
+  import type { ApplyChangesOptions, EditorView, LanguageName, TextChange } from "@pngwasi/config-editor";
   import { DocumentsBinding, type DocumentsBindingProps } from "@pngwasi/config-editor/binding";
   import type { ConfigDocumentsProps } from "./types.js";
   import { readAll } from "./track.js";
@@ -78,6 +78,10 @@
   /** Replaces the text of the document `id`, always, and reports it through `onChange`; `false` when there is no such document. */
   export function setValue(id: string, value: string): boolean {
     return handle.setValue(id, value);
+  }
+  /** Makes the host's own change of the document `id`'s text; see `ConfigDocumentsHandle.applyChanges`. */
+  export function applyChanges(id: string, changes: TextChange[], options?: ApplyChangesOptions): number | null {
+    return handle.applyChanges(id, changes, options);
   }
 </script>
 

@@ -22,7 +22,7 @@ struct Host {
 
 fn mount(text: &str, host: &Host) -> EditorState {
     let heard = host.heard;
-    EditorState::new(Init {
+    let state = EditorState::new(Init {
         host_language: Language::YAML,
         edit_language: Language::YAML,
         schema: None,
@@ -36,10 +36,9 @@ fn mount(text: &str, host: &Host) -> EditorState {
         host_on_change: Some(Callback::new(move |text| {
             heard.update(|all| all.push(text));
         })),
-        host_diagnostics: Signal::default(),
+        channel: None,
         protect: ProtectInit {
             paths: Some(host.paths.into()),
-            ranges: Some(host.ranges.into()),
             secrets: None,
             foreign: None,
         },
@@ -47,7 +46,15 @@ fn mount(text: &str, host: &Host) -> EditorState {
         on_baseline_conflict: None,
         clipboard: None,
     })
-    .0
+    .0;
+    crate::editor::sync::follow_lists(
+        state,
+        crate::editor::sync::Lists {
+            read_only_ranges: Some(host.ranges.into()),
+            ..crate::editor::sync::Lists::default()
+        },
+    );
+    state
 }
 
 /// Writes `with` over bytes `at` of the text on screen; whether it was taken.

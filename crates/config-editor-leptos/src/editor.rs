@@ -57,7 +57,10 @@ pub(crate) use bridge::links::Clipboard;
 pub use input::flush_pending_input;
 pub(crate) use line_endings::same_document;
 pub use sync::flush_pending_edits;
-pub use sync::{Echo, Echoes, SETTLE_MS, echo_clock};
+pub use sync::{
+    AnchorError, ChangeError, Echo, Echoes, HostChange, HostChannel, HostEdits, HostUpdate, List,
+    Listed, RangesFor, Reading, SETTLE_MS, Taken, echo_clock, statement_of,
+};
 mod keyboard;
 mod keys;
 pub mod language;
@@ -93,7 +96,7 @@ mod sync;
 mod platform;
 #[cfg(all(test, feature = "yaml"))]
 mod test_state;
-mod text;
+pub(crate) mod text;
 mod text_change;
 mod theme;
 mod touch;
@@ -290,6 +293,13 @@ pub fn ConfigEditor(
     /// [`HostDiagnostic`].
     #[prop(optional, into)]
     host_diagnostics: Option<Signal<Vec<HostDiagnostic>>>,
+    /// The text `host_diagnostics` name places in: the revision
+    /// [`EditorHandle::sent_revision`] gave the text they were worked out
+    /// on (a server's check of an older text), or that text itself. Unset:
+    /// `read_only_ranges_for`, else the `value` they come with, else the
+    /// host's text now. Set it before `host_diagnostics`.
+    #[prop(optional, into)]
+    host_diagnostics_for: MaybeProp<RangesFor>,
     /// Called with the path of what the caret is on each time it changes
     /// (and once on mount), for a breadcrumb: `/web/listen`, or the root at
     /// the top level.
@@ -310,6 +320,16 @@ pub fn ConfigEditor(
     /// so).
     #[prop(optional, into)]
     read_only_ranges: Option<Signal<Vec<TextRange>>>,
+    /// The text `read_only_ranges` name places in: a revision `on_change`
+    /// sent ([`EditorHandle::sent_revision`]) or `value_revision` gave,
+    /// or a text with no revision (the file as loaded, for locks worked
+    /// out once). Unset: the `value` they come with, else the host's text
+    /// now; the same list given again is no news. Set it before
+    /// `read_only_ranges` and `value`. A revision the editor never sent is
+    /// refused, one it can no longer name (the host passed a newer one
+    /// back) is out of date: the console says so, and the locks stay.
+    #[prop(optional, into)]
+    read_only_ranges_for: MaybeProp<RangesFor>,
     /// How secret placeholders are matched, described and completed; see
     /// [`SecretOptions`]. Fields the schema marks `writeOnly` or `x-secret`
     /// are secrets. Needs the `protect` feature: without it, placeholders
@@ -373,9 +393,10 @@ pub fn ConfigEditor(
         read_only_reason: Signal::derive(move || read_only_reason.get()),
         settings,
         host_on_change: on_change,
-        host_diagnostics: host_diagnostics.unwrap_or_default(),
+        channel: handle.and_then(EditorHandle::take_channel),
         protect: protect::ProtectInit {
             paths: read_only_paths,
+            #[cfg(not(feature = "protect"))]
             ranges: read_only_ranges,
             secrets,
             foreign: handle.and_then(EditorHandle::take_foreign),
@@ -401,6 +422,12 @@ pub fn ConfigEditor(
             initial_pending,
             on_sync_change,
             echoes,
+            lists: sync::Lists {
+                read_only_ranges,
+                read_only_ranges_for,
+                host_diagnostics,
+                host_diagnostics_for,
+            },
         },
     );
     host_editing::connect(

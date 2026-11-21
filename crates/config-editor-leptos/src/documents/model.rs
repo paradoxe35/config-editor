@@ -2,7 +2,8 @@
 //! asks of the host.
 
 use crate::{
-    EditorSettings, FieldPath, HostDiagnostic, Language, SchemaSource, SecretOptions, TextRange,
+    EditorSettings, FieldPath, HostDiagnostic, Language, RangesFor, SchemaSource, SecretOptions,
+    TextRange,
 };
 
 /// One open document of a [`ConfigDocuments`](crate::ConfigDocuments): a
@@ -36,6 +37,11 @@ pub struct Document {
     /// The text, in the document's language. Changing it updates the editor
     /// (keeping the caret), as the `value` of a `ConfigEditor` does.
     pub value: String,
+    /// With the view's `echoes`: the revision `on_change` sent `value`
+    /// with ([`DocumentsHandle::sent_revision`](crate::DocumentsHandle::sent_revision)),
+    /// for a host that stores it beside the text: its echo is then matched
+    /// exactly. `None` for a text of the host's own.
+    pub value_revision: Option<u64>,
     /// The text to diff against and to tell unsaved edits by: the version
     /// last saved or loaded. Unset, it is `value` as the document was added.
     pub baseline: Option<String>,
@@ -87,11 +93,15 @@ pub struct Document {
     /// editor's `read_only_ranges`; update live: ranges listed as before
     /// keep where the editor moved them with the user's edits.
     pub read_only_ranges: Vec<TextRange>,
-    /// Which giving of [`read_only_ranges`](Self::read_only_ranges) this
-    /// is: listed with another version, they are a new listing (ranges for
-    /// another text) and are placed where they say, even at the positions
-    /// listed before. Left as it is (`0`), the ranges alone tell.
-    pub read_only_ranges_version: u64,
+    /// The text [`read_only_ranges`](Self::read_only_ranges) name places
+    /// in, as the editor's `read_only_ranges_for`: a revision `on_change`
+    /// sent (or `value_revision`), or a text. Unset: `value` when it is
+    /// new, else the document's text now; ranges listed as before are no
+    /// news.
+    pub read_only_ranges_for: Option<RangesFor>,
+    /// The text [`host_diagnostics`](Self::host_diagnostics) name places
+    /// in, as the editor's `host_diagnostics_for`.
+    pub host_diagnostics_for: Option<RangesFor>,
     /// Secret placeholders, as the editor's `secrets`. Read when the editor
     /// mounts (the first time the document is shown, or at once when it
     /// is listed with an [`edit_as_text`](Self::edit_as_text)).
@@ -123,7 +133,9 @@ impl Document {
             host_diagnostics: Vec::new(),
             read_only_paths: Vec::new(),
             read_only_ranges: Vec::new(),
-            read_only_ranges_version: 0,
+            read_only_ranges_for: None,
+            host_diagnostics_for: None,
+            value_revision: None,
             secrets: None,
         }
     }
@@ -214,6 +226,30 @@ impl Document {
     #[must_use]
     pub fn read_only_ranges(mut self, ranges: Vec<TextRange>) -> Self {
         self.read_only_ranges = ranges;
+        self
+    }
+
+    /// Sets the text the read-only ranges name places in (see
+    /// [`read_only_ranges_for`](Self::read_only_ranges_for)).
+    #[must_use]
+    pub fn read_only_ranges_for(mut self, text: RangesFor) -> Self {
+        self.read_only_ranges_for = Some(text);
+        self
+    }
+
+    /// Sets the text the host's diagnostics name places in (see
+    /// [`host_diagnostics_for`](Self::host_diagnostics_for)).
+    #[must_use]
+    pub fn host_diagnostics_for(mut self, text: RangesFor) -> Self {
+        self.host_diagnostics_for = Some(text);
+        self
+    }
+
+    /// Sets the revision `on_change` sent the value with (see
+    /// [`value_revision`](Self::value_revision)).
+    #[must_use]
+    pub fn value_revision(mut self, revision: u64) -> Self {
+        self.value_revision = Some(revision);
         self
     }
 

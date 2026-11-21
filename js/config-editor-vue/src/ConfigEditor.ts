@@ -58,6 +58,10 @@ const editorProps = {
   readOnlyPaths: optional(Array as PropType<FieldPath[]>),
   /** Stretches of the document (in `language`) the user cannot change. Updates live. */
   readOnlyRanges: optional(Array as PropType<TextRangeInput[]>),
+  /** The text `readOnlyRanges` name places in: a revision `onChange` gave (as a server check ran on it, or `valueRevision`), or a text (the file as loaded, for locks worked out once). Left out: the `value` they come with. A revision the editor never sent is reported to `onError` and the locks stay; one it can no longer name is out of date (a console warning, the locks stay). */
+  rangesFor: optional([Number, String] as PropType<number | string>),
+  /** The text `hostDiagnostics` name places in, as `rangesFor`; left out, `rangesFor`. */
+  diagnosticsFor: optional([Number, String] as PropType<number | string>),
   /** The `revision` `@update:model-value` gave the value with (its second argument), when the parent stores it beside the value and never goes back to an older one: a late echo is then matched exactly, with no pause. `v-model` keeps the value alone. */
   valueRevision: optional(Number),
   /** How secret placeholders are matched, described and completed. Changing `placeholder`, `hint` or `referencePrefixes`, or adding or removing `isPlaceholder`, re-mounts; a new `isPlaceholder` function in its place does not. */

@@ -37,6 +37,7 @@ pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "readOnlyRanges",
     "rangesFor",
     "valueRevision",
+    "diagnosticsFor",
     "secrets",
     "channel",
 ];

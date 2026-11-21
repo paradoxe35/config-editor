@@ -18,6 +18,8 @@ pub(super) struct TestEditor {
     pub(super) text: String,
     pub(super) read_only_paths: Vec<FieldPath>,
     pub(super) read_only_ranges: Vec<TextRange>,
+    /// The `read_only_ranges_for` prop.
+    pub(super) read_only_ranges_for: Option<super::sync::RangesFor>,
     pub(super) on_change: Option<Callback<String>>,
     pub(super) on_save: Option<Callback<super::host_editing::SaveRequest>>,
     pub(super) read_only: bool,
@@ -48,6 +50,7 @@ impl TestEditor {
             text: text.to_string(),
             read_only_paths: Vec::new(),
             read_only_ranges: Vec::new(),
+            read_only_ranges_for: None,
             on_change: None,
             on_save: None,
             read_only: false,
@@ -67,6 +70,9 @@ impl TestEditor {
     pub(super) fn mount(self) -> (Owner, EditorState) {
         let owner = Owner::new();
         owner.set();
+        let ranges = self.read_only_ranges;
+        let ranges_for = self.read_only_ranges_for;
+        let diagnostics = self.host_diagnostics;
         let (state, _) = EditorState::new(Init {
             host_language: self.language,
             edit_language: self.edit_as.unwrap_or(self.language),
@@ -79,17 +85,27 @@ impl TestEditor {
             read_only_reason: Signal::stored(self.read_only_reason),
             settings: self.settings,
             host_on_change: self.on_change,
-            host_diagnostics: self.host_diagnostics,
+            channel: None,
             protect: ProtectInit {
                 paths: Some(Signal::stored(self.read_only_paths)),
-                ranges: Some(Signal::stored(self.read_only_ranges)),
                 secrets: self.secrets,
                 foreign: self.foreign,
+                #[cfg(not(feature = "protect"))]
+                ranges: Some(Signal::stored(ranges.clone())),
             },
             on_save: self.on_save,
             on_baseline_conflict: None,
             clipboard: self.clipboard,
         });
+        super::sync::take_lists(
+            state,
+            super::sync::Lists {
+                read_only_ranges: Some(Signal::stored(ranges)),
+                read_only_ranges_for: ranges_for.into(),
+                host_diagnostics: Some(diagnostics),
+                ..super::sync::Lists::default()
+            },
+        );
         (owner, state)
     }
 }

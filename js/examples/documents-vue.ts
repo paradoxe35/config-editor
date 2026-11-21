@@ -16,6 +16,11 @@ await loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.
 const schema = await (await fetch("../../schema.json")).text();
 
 
+// `?revisions`: each file keeps the revision `@change` gave its value
+// (`valueRevision`), as the README shows: the newest revision wins (a late,
+// older one is ignored).
+const revisions = new URLSearchParams(location.search).has("revisions");
+
 const App = defineComponent({
   components: { ConfigDocuments },
   setup() {
@@ -51,9 +56,14 @@ const App = defineComponent({
       log,
       tabs,
       settings,
-      onChange: (id: string, value: string) => {
+      onChange: (id: string, value: string, revision: number) => {
         note(`change ${id}`);
-        later(() => update(id, { value }));
+        later(() => {
+          if (!revisions) return update(id, { value });
+          const file = files.value.find((candidate) => candidate.id === id);
+          if (file && (file.valueRevision === undefined || revision >= file.valueRevision))
+            update(id, { value, valueRevision: revision });
+        });
       },
       onSave: (id: string, value: string, language: LanguageName) => {
         note(`save ${id} ${language}`);

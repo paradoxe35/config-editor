@@ -6,7 +6,6 @@ use std::collections::HashMap;
 
 use js_sys::Function;
 use leptos::prelude::*;
-use leptos_config_editor::js_support::Timer;
 use leptos_config_editor::{
     CloseRequest, ConfigDocuments as DocumentsView, Diagnostic, Document, DocumentsHandle,
     EditorSettings, Language, SaveRequest,
@@ -87,8 +86,6 @@ pub(crate) struct State {
     texts: StoredValue<HashMap<String, Texts>, LocalStorage>,
     /// What the state callbacks last reported of each document (see `told`).
     told: StoredValue<HashMap<String, Told>, LocalStorage>,
-    /// The check that the host came back to each document (see `settle`).
-    settle: crate::settle::Slot,
     pub(crate) handle: DocumentsHandle,
 }
 
@@ -130,6 +127,25 @@ impl State {
     }
 
     /// The document `id`'s text and baseline, while it is listed.
+    /// The document `id`'s editor took the host's own change: the view's
+    /// record of its value (what `editor(id).value` reads) and its listing
+    /// follow.
+    pub(crate) fn took_host_change(&self, id: &str, editor: &leptos_config_editor::EditorHandle) {
+        let Some(text) = editor.value() else {
+            return;
+        };
+        let _ = self.texts.try_update_value(|texts| {
+            if let Some(known) = texts.get_mut(id) {
+                known.value.clone_from(&text);
+            }
+        });
+        let _ = self.documents.try_update(|documents| {
+            if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
+                document.value = text;
+            }
+        });
+    }
+
     pub(crate) fn texts_of(&self, id: &str) -> Option<Texts> {
         self.texts
             .try_with_value(|texts| texts.get(id).cloned())
@@ -277,21 +293,26 @@ fn view(state: State, setup: Setup) -> AnyView {
             }
         });
         if let Some(callback) = host(state.on_change) {
-            // The host lists this string as the document's value next.
+            // The host lists this string as the document's value next, with
+            // the revision the editor recorded it with (`valueRevision`).
             let value = JsValue::from_str(&text);
+            let revision = state
+                .channel_of(&id)
+                .and_then(|channel| channel.last_sent())
+                .unwrap_or_default();
             let _ = state.kept.try_update_value(|kept| {
-                if let Some(channel) = kept.channels.get_mut(&id) {
-                    channel.sent(&text);
-                }
                 kept.texts.remember(&id, "value", value.clone(), text);
             });
-            call_host_with(&callback, &[JsValue::from_str(&id), value]);
+            call_host_with(
+                &callback,
+                &[
+                    JsValue::from_str(&id),
+                    value,
+                    JsValue::from_f64(revision as f64),
+                ],
+            );
         } else {
-            let _ = state.kept.try_update_value(|kept| {
-                if let Some(channel) = kept.channels.get_mut(&id) {
-                    channel.unsent();
-                }
-            });
+            state.untold(&id);
         }
     };
     let saved = move |(id, request): (String, SaveRequest)| {
@@ -502,11 +523,14 @@ impl ConfigDocuments {
             adds: setup.adds,
             texts: StoredValue::new_local(HashMap::new()),
             told: StoredValue::new_local(HashMap::new()),
-            settle: StoredValue::new_local(Timer::default()),
             handle: DocumentsHandle::new(),
         });
         remember_texts(state.texts, &state.documents.get_untracked());
         let mount_element = element.clone();
+        // Each document's record goes to its editor when it mounts.
+        for (id, channel) in std::mem::take(&mut listed.fresh) {
+            leptos_config_editor::js_support::bind_document_channel(&state.handle, &id, channel);
+        }
         let mounted = owner.with(|| leptos::mount::mount_to(element, move || view(state, setup)));
         let id = NEXT_ID.with(|next| {
             let id = next.get();
@@ -645,6 +669,62 @@ impl ConfigDocuments {
         .unchecked_into())
     }
 
+    /// Makes the host's own change of the document `id`'s text, as
+    /// `ConfigEditor.applyChanges` does (`options.revision` names the text
+    /// the changes were made on); its editor must be mounted (the document
+    /// was shown): list a new `value` otherwise. Returns the revision of the
+    /// new text, `null` when nothing changed.
+    #[wasm_bindgen(js_name = applyChanges)]
+    pub fn apply_changes(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "TextChange[]")] changes: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "ApplyChangesOptions")] options: JsValue,
+    ) -> Result<Option<f64>, JsError> {
+        let id = text_arg(&id, "id")?;
+        let edits = crate::anchors::changes_from(&changes)?;
+        let base = if options.is_undefined() || options.is_null() {
+            None
+        } else {
+            crate::anchors::revision_named(&options, "revision")
+        };
+        leptos_config_editor::js_support::flush_pending_input();
+        let editor = self
+            .state
+            .handle
+            .editor(&id)
+            .filter(leptos_config_editor::EditorHandle::is_mounted)
+            .ok_or_else(|| {
+                JsError::new(&format!(
+                    "applyChanges: the document {id:?} has no editor yet (it was never shown): list its new value instead"
+                ))
+            })?;
+        let revision = leptos_config_editor::js_support::apply_changes(
+            &editor,
+            &leptos_config_editor::js_support::HostEdits::Utf16(edits),
+            base,
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?;
+        self.state.took_host_change(&id, &editor);
+        Ok(revision.map(|revision| revision as f64))
+    }
+
+    /// The revision of the text of the document `id` sent or given last
+    /// (`replaceValue` included): what a host lists back as its
+    /// `valueRevision`; `null` for no such document.
+    #[wasm_bindgen(js_name = sentRevision)]
+    pub fn sent_revision(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "string")] id: JsValue,
+    ) -> Result<Option<f64>, JsError> {
+        let id = text_arg(&id, "id")?;
+        Ok(self
+            .state
+            .channel_of(&id)
+            .and_then(|channel| channel.sent_revision())
+            .map(|revision| revision as f64))
+    }
+
     /// Replaces the text of the document `id` with `value`, the host's own
     /// whatever it is: with `echoes`, a document's `value` in
     /// `update({ documents })` that its editor gave and has not seen come
@@ -689,27 +769,23 @@ impl ConfigDocuments {
         {
             return Ok(false);
         }
-        // The host's own text: no echo to wait for, and the ranges carried
-        // into it from the ones given (see `HostChannel::replaced`).
-        let ranges = self
+        // The host's own text: no echo to wait for, recorded as sent (its
+        // listing is told apart), the locks carried into it.
+        let current = self
             .state
-            .texts
-            .try_update_value(|texts| {
-                texts.get_mut(&id).and_then(|known| {
-                    let ranges = self.state.replaced(&id, &value, &known.value);
-                    known.value.clone_from(&value);
-                    ranges
-                })
-            })
-            .flatten();
+            .texts_of(&id)
+            .map(|known| known.value)
+            .unwrap_or_default();
+        self.state.replaced(&id, &value, &current);
+        let _ = self.state.texts.try_update_value(|texts| {
+            if let Some(known) = texts.get_mut(&id) {
+                known.value.clone_from(&value);
+            }
+        });
         let _ = self.state.documents.try_update(|documents| {
             keep_edits(documents, &edits);
             if let Some(document) = documents.iter_mut().find(|document| document.id == id) {
                 document.value = value;
-                if let Some((ranges, version)) = &ranges {
-                    document.read_only_ranges.clone_from(ranges);
-                    document.read_only_ranges_version = *version;
-                }
             }
         });
         if let Some(documents) = self.state.documents.try_get_untracked() {
@@ -853,11 +929,13 @@ impl ConfigDocuments {
         if let Some(settings) = settings {
             let _ = self.state.settings.try_set(settings);
         }
-        let mut resend = (Vec::new(), false);
         let mut refused = Vec::new();
         if let Some(mut listed) = listed {
             refused = std::mem::take(&mut listed.refused);
-            resend = self.state.take_listed(&mut listed, flushed);
+            for update in listed.updates.values_mut() {
+                update.flushed = Some(flushed);
+            }
+            refused.extend(self.state.take_listed(&mut listed));
             self.state.show(listed);
             // Taken now: `activeId` and every query answer for the new list
             // right after `update` returns.
@@ -900,12 +978,6 @@ impl ConfigDocuments {
             self.state.handle.show(&id);
         }
         self.tell_added(added);
-        // A host left on an echo of a text the user typed past hears the
-        // document again: now, or once a pause is over if it is still on it
-        // then (the document's echo may have been lost in a render of the
-        // host's that took a later text too).
-        let (resend, settles) = resend;
-        self.state.tell_again(resend, settles);
         // A document whose ranges could not be read held no other back: the
         // list is taken, and the first such document is reported.
         match refused.into_iter().next() {
@@ -970,7 +1042,6 @@ impl ConfigDocuments {
     /// afterwards.
     pub fn destroy(&self) {
         leptos_config_editor::js_support::flush_pending_input();
-        crate::settle::cancel(self.state.settle);
         let Some((mounted, owner, _)) = self
             .id
             .take()

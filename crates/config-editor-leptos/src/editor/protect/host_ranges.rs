@@ -33,11 +33,6 @@ impl HostRanges {
         HostRanges(StoredValue::new((host.to_string(), offsets(host, ranges))))
     }
 
-    /// Places the host's `ranges` in its text `host` afresh (it gave either).
-    pub(super) fn place(self, host: &str, ranges: &[paths::TextRange]) {
-        self.0.set_value((host.to_string(), offsets(host, ranges)));
-    }
-
     /// Takes `ranges`, already followed into `text` (the host's language on
     /// screen, left for another).
     pub(super) fn keep(self, text: &str, ranges: Vec<TextRange>) {

@@ -184,10 +184,9 @@ fn a_key_renamed_by_an_undo_is_named() {
         read_only_reason: Signal::stored(None),
         settings: Signal::stored(EditorSettings::default()),
         host_on_change: Some(Callback::new(|_: String| {})),
-        host_diagnostics: Signal::default(),
+        channel: None,
         protect: ProtectInit {
             paths: None,
-            ranges: Some(ranges.into()),
             secrets: None,
             foreign: None,
         },
@@ -195,6 +194,13 @@ fn a_key_renamed_by_an_undo_is_named() {
         on_baseline_conflict: None,
         clipboard: None,
     });
+    crate::editor::sync::follow_lists(
+        state,
+        crate::editor::sync::Lists {
+            read_only_ranges: Some(ranges.into()),
+            ..crate::editor::sync::Lists::default()
+        },
+    );
     change(state, "7835", "78350");
     change(state, "public_address", "tpublic_address");
     // The host locks the renamed field's value; undoing the typed letter
@@ -266,10 +272,9 @@ fn a_field_the_text_no_longer_has_is_named_removed() {
         read_only_reason: Signal::stored(None),
         settings: Signal::stored(EditorSettings::default()),
         host_on_change: None,
-        host_diagnostics: Signal::default(),
+        channel: None,
         protect: ProtectInit {
             paths: Some(paths.into()),
-            ranges: None,
             secrets: None,
             foreign: None,
         },
@@ -372,10 +377,9 @@ fn a_field_changed_before_the_host_locked_it_is_named() {
         read_only_reason: Signal::stored(None),
         settings: Signal::stored(EditorSettings::default()),
         host_on_change: None,
-        host_diagnostics: Signal::default(),
+        channel: None,
         protect: ProtectInit {
             paths: Some(paths.into()),
-            ranges: None,
             secrets: None,
             foreign: None,
         },

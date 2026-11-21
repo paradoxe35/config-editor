@@ -7,12 +7,12 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::super::codec;
-use super::super::edit::{Assoc, Change, Edit, Origin};
+use super::super::edit::{Change, Edit, Origin};
 use super::super::edit_as::SaveError;
 use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
-use super::super::paths::{self, FieldPath};
+use super::super::paths::FieldPath;
 use super::super::popups::PopupState;
 use super::super::schema::SchemaBundle;
 use super::super::secret_options::SecretOptions;
@@ -22,21 +22,20 @@ use super::follow::follow_ranges;
 use super::foreign::DocumentPlaceholders;
 use super::glued::{first_glued, glued_elsewhere, glued_in_save, glued_message};
 use super::guard::{Blocked, Carets, judge};
-use super::host_ranges::{HostRanges, followed_to, offsets};
+use super::host_ranges::{HostRanges, followed_to};
 use super::locate::LineIndex;
 use super::locks::{HoldCause, Protected, Sources, protect};
 use super::save::{ReadOnlyChange, check_save, locked_pointers, range_pointers};
 use super::secrets::SecretState;
-use super::since_host::SinceHost;
 use super::texts::{Reason, save_held, save_held_placeholder, save_waits};
 use super::whole_guard::Placeholders;
 use crate::EditorStrings;
+use crate::editor::sync::{HostChannel, Link};
 use crate::editor::text::{self, TextRange, TextSize, utf16_of};
 
 /// The host's side of protection (the component's props, when given).
 pub(crate) struct ProtectInit {
     pub(crate) paths: Option<Signal<Vec<FieldPath>>>,
-    pub(crate) ranges: Option<Signal<Vec<paths::TextRange>>>,
     pub(crate) secrets: Option<SecretOptions>,
     /// The placeholders of the other editors of a documents view (see
     /// `foreign`).
@@ -64,9 +63,6 @@ pub(crate) struct Marks {
     /// Every token the host gave since the editor was made (see
     /// `own_placeholders`).
     pub(crate) given: std::collections::HashSet<String>,
-    /// What the edits since the host's last text made of it (see
-    /// [`SinceHost`]).
-    since_host: Option<SinceHost>,
 }
 
 /// An edit the locks follow: the text it was made on and the text it made,
@@ -93,7 +89,12 @@ impl Followed {
 #[derive(Clone, Copy)]
 pub(crate) struct ProtectState {
     pub(crate) host_paths: Signal<Vec<FieldPath>>,
-    pub(crate) host_ranges: Signal<Vec<paths::TextRange>>,
+    /// The document's record of its host, which keeps the ranges it gave
+    /// (see `sync::host_inputs`): what is locked is derived from them.
+    channel: StoredValue<HostChannel, LocalStorage>,
+    /// Counts the changes of the host's ranges (see
+    /// [`EditorState::host_ranges_given`]).
+    ranges_given: RwSignal<u64>,
     /// The host's ranges as ranges of the text on screen, followed
     /// through edits; empty while editing as another language (there the
     /// fields they cover are locked by path).
@@ -107,10 +108,6 @@ pub(crate) struct ProtectState {
     /// locks nothing on screen meanwhile; a save, a change event and the
     /// value wait (P1) until the text holds it again.
     pub(super) ranges_changed: RwSignal<Option<(String, usize)>>,
-    /// The host's ranges `ranges` was first placed from, until the effect
-    /// placing them again first runs: ranges the host changed before then
-    /// (an update in the task that mounts the editor) are placed then.
-    placed_at_mount: StoredValue<Option<Vec<paths::TextRange>>>,
     /// The locks of the text on screen.
     pub(crate) protected: Memo<Arc<Protected>>,
     /// The popups, where the lock tip shows.
@@ -132,12 +129,12 @@ pub(crate) struct Inputs {
     pub(crate) schema: Option<Arc<SchemaBundle>>,
     pub(crate) host_text: super::super::sync::HostTextReader,
     pub(crate) popups: PopupState,
+    pub(crate) channel: HostChannel,
 }
 
 impl ProtectState {
     pub(crate) fn new(init: ProtectInit, inputs: Inputs) -> Self {
         let paths = init.paths.unwrap_or_default();
-        let ranges = init.ranges.unwrap_or_default();
         let secrets = init.secrets.unwrap_or_default();
         let foreign = init.foreign.unwrap_or_default();
         if let Err(error) = secrets.check_placeholder() {
@@ -151,6 +148,7 @@ impl ProtectState {
             schema,
             host_text,
             popups: inputs_popups,
+            channel,
         } = inputs;
         let secrets = host_text.with_value(|host| {
             source.with_untracked(|shown| {
@@ -162,13 +160,24 @@ impl ProtectState {
                 )
             })
         });
-        let mounted_with = ranges.get_untracked();
-        let in_host = host_text.with_value(|host| HostRanges::new(host, &mounted_with));
+        // The ranges given before the editor mounted (a binding's), in the
+        // text it mounts with.
+        let mounted_with = channel.with(|link| {
+            let rewrite = |from: &str, to: &str, ranges: &[TextRange]| {
+                let reading = schema.as_deref().map(|bundle| &bundle.schema);
+                followed_to(host_language.behavior(), from, to, ranges, reading)
+            };
+            link.placed(&rewrite).0
+        });
+        let in_host = host_text.with_value(|host| HostRanges::new(host, &[]));
         let local = RwSignal::new(if edit_language.get_untracked() == host_language {
-            source.with_untracked(|text| offsets(text, &mounted_with))
+            mounted_with
         } else {
+            host_text.with_value(|host| in_host.keep(host, mounted_with));
             Vec::new()
         });
+        let ranges_given = RwSignal::new(0);
+        let channel = StoredValue::new_local(channel);
         let marks = StoredValue::new(Marks::default());
         let covered = Covered(StoredValue::new(None));
         let protected = Memo::new_with_compare(
@@ -191,7 +200,8 @@ impl ProtectState {
                     local.get()
                 } else {
                     // Edit-as: the host's ranges lock the fields they cover.
-                    if !ranges.with(Vec::is_empty) {
+                    ranges_given.track();
+                    if channel.with_value(|channel| channel.with(|link| link.has_ranges())) {
                         host_text.with_value(|host| {
                             let placed = in_host.in_text(host_language.behavior(), host, reading);
                             range_fields = covered.found(host_language, host, &placed, reading);
@@ -252,11 +262,11 @@ impl ProtectState {
         );
         ProtectState {
             host_paths: paths,
-            host_ranges: ranges,
+            channel,
+            ranges_given,
             ranges: local,
             in_host,
             ranges_changed: RwSignal::new(None),
-            placed_at_mount: StoredValue::new(Some(mounted_with)),
             protected,
             popups: inputs_popups,
             marks,
@@ -491,8 +501,7 @@ fn text_ranges_kept(old: &str, new: &str, ranges: &[TextRange]) -> Result<(), Re
 /// say why the save waits. Edits that write the text back (an undo) place
 /// it again (see `follow_edit`).
 fn keeping_their_text(
-    host: &str,
-    given: &[TextRange],
+    locked: &[String],
     text: &str,
     mut placed: Vec<TextRange>,
     others: impl FnOnce() -> Vec<TextRange>,
@@ -505,10 +514,8 @@ fn keeping_their_text(
     let mut others = Some(others);
     let mut other: Vec<TextRange> = Vec::new();
     let mut changed = None;
-    for (index, (given, placed)) in given.iter().zip(placed.iter_mut()).enumerate() {
-        let Some(locked) = slice(host, given) else {
-            continue;
-        };
+    for (index, (locked, placed)) in locked.iter().zip(placed.iter_mut()).enumerate() {
+        let locked = locked.as_str();
         if slice(text, placed) == Some(locked) {
             continue;
         }
@@ -597,47 +604,53 @@ impl EditorState {
     /// locks held back unsent once they are gone.
     pub(crate) fn connect_protection(&self) {
         let state = *self;
-        // Counts the host's changes of its ranges: given again at the same
-        // places (for another text), they are placed anew too.
-        let ranges_given = Memo::new(move |seen: Option<&u64>| {
-            state.protect().host_ranges.track();
-            seen.map_or(0, |seen| seen + 1)
-        });
-        Effect::new(move |previous: Option<u64>| {
+        Effect::new(move |previous: Option<()>| {
             state.protect().host_paths.track();
-            let given = ranges_given.get();
-            untrack(|| match previous {
-                // The first run places them only if the host changed them
-                // since the mount (in the same task: the effect runs after
-                // it).
-                None => {
-                    let changed = state
-                        .protect()
-                        .placed_at_mount
-                        .try_update_value(Option::take)
-                        .flatten()
-                        .is_some_and(|placed| {
-                            state
-                                .protect()
-                                .host_ranges
-                                .with_untracked(|ranges| *ranges != placed)
-                        });
-                    if changed {
-                        state.place_ranges();
-                    }
-                }
-                // New locks from the host: what the old ones refused is
-                // asked again (a key at the refused place, an Edit-as edit
-                // the pause could not convert).
-                Some(placed) => {
-                    if placed != given {
-                        state.place_ranges();
-                    }
-                    state.locks_changed_by_host();
-                }
-            });
-            given
+            state.protect().ranges_given.track();
+            // New locks from the host (placed as they came): what the old
+            // ones refused is asked again (a key at the refused place, an
+            // Edit-as edit the pause could not convert).
+            if previous.is_some() {
+                untrack(|| state.locks_changed_by_host());
+            }
         });
+    }
+
+    /// The host gave new ranges (or a text they were carried into): they
+    /// are placed at once, and what the old locks refused is asked again
+    /// once the effects run.
+    pub(crate) fn host_ranges_given(&self) {
+        self.place_ranges();
+        self.protect().ranges_given.update(|given| *given += 1);
+    }
+
+    /// Whether the host gave read-only ranges.
+    fn has_host_ranges(&self) -> bool {
+        self.protect()
+            .channel
+            .try_with_value(|channel| channel.with(|link| link.has_ranges()))
+            .unwrap_or(false)
+    }
+
+    /// `ranges` of `from`, a text in the host's language, in `to`, a text
+    /// no edit made of it (a conversion back from another language): by
+    /// position where their text was kept, else at the fields they cover.
+    pub(crate) fn rewrite_ranges(
+        &self,
+        from: &str,
+        to: &str,
+        ranges: &[TextRange],
+    ) -> Vec<TextRange> {
+        self.config().schema.with_value(|schema| {
+            let reading = schema.as_deref().map(|bundle| &bundle.schema);
+            followed_to(
+                self.config().host_language.behavior(),
+                from,
+                to,
+                ranges,
+                reading,
+            )
+        })
     }
 
     /// The host changed its locks: a refusal of the old ones holds no more,
@@ -802,7 +815,11 @@ impl EditorState {
             // that does not parse, as often as the host gave it, the ones
             // it kept first. Found again by their text, a copy written
             // before the real one would take its place.
-            Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo => {}
+            Origin::Command
+            | Origin::Input { .. }
+            | Origin::Undo
+            | Origin::Redo
+            | Origin::HostChange => {}
         }
     }
 
@@ -813,7 +830,6 @@ impl EditorState {
         let caret = edit.caret();
         let change = edit.change().map(Arc::new);
         let (shared_before, shared_after) = (Arc::<str>::from(before), Arc::<str>::from(after));
-        let since = self.since_host(edit, &shared_before, &shared_after);
         self.protect().marks.update_value(|marks| {
             marks.followed = Some(Followed {
                 before: shared_before,
@@ -821,7 +837,6 @@ impl EditorState {
                 caret: edit.written_end(),
                 change: change.clone(),
             });
-            marks.since_host = since;
         });
         self.follow_tokens(before, after, caret, change.as_deref());
         if self.protect().ranges.with_untracked(Vec::is_empty) {
@@ -843,27 +858,6 @@ impl EditorState {
         });
     }
 
-    /// What the edits since the host's last text made of it, with `edit`
-    /// (made on `before`, making `after`) added: begun anew by an edit of
-    /// the host's own text, else `edit` composed onto the record of the
-    /// edits before it. `None` in another language than the host's, or
-    /// after a text no recorded edit made.
-    fn since_host(&self, edit: &Edit, before: &Arc<str>, after: &Arc<str>) -> Option<SinceHost> {
-        if self.config().host_language != self.sync().edit_language.get_untracked() {
-            return None;
-        }
-        let host_is_before = self.sync().host_text.with_value(|host| *host == **before);
-        self.protect().marks.with_value(|marks| {
-            SinceHost::with(
-                marks.since_host.as_ref(),
-                host_is_before,
-                edit,
-                before,
-                after,
-            )
-        })
-    }
-
     /// Places the host's ranges again (they changed, or the host replaced
     /// the text): on the text on screen in the host's language, else in the
     /// host's text, where each conversion back follows them.
@@ -873,77 +867,69 @@ impl EditorState {
             self.place_ranges_in(&text);
             return;
         }
-        self.protect().host_ranges.with_untracked(|ranges| {
-            self.sync()
-                .host_text
-                .with_value(|text| self.protect().in_host.place(text, ranges));
+        let (placed, _, document) = self.given_ranges();
+        self.sync().host_text.with_value(|host| {
+            let placed = if *document == *host {
+                placed
+            } else {
+                self.rewrite_ranges(&document, host, &placed)
+            };
+            self.protect().in_host.keep(host, placed);
         });
         self.protect().ranges_changed.set(None);
         self.protect().ranges.set(Vec::new());
     }
 
-    /// Places the host's ranges in `text`, the text on screen in the
-    /// host's language. They name places in the host's text: `text` when
-    /// every edit reached the host, else an older one (an edit held), from
-    /// which they are mapped through what the edits since recorded they
-    /// did; followed by reading the two texts only when no record reaches
-    /// back to it. A range whose text `text` does not hold where it lands
-    /// locks nothing there and holds the save (see
-    /// [`ProtectState::ranges_changed`]).
-    fn place_ranges_in(&self, text: &str) {
-        let host_text = self.sync().host_text.get_value();
-        let given = self
-            .protect()
-            .host_ranges
-            .with_untracked(|ranges| offsets(&host_text, ranges));
-        if *text == host_text || given.is_empty() {
-            self.protect().ranges_changed.set(None);
-            self.protect().ranges.set(given);
-            return;
-        }
-        let followed = || {
-            self.config().schema.with_value(|schema| {
-                let reading = schema.as_deref().map(|bundle| &bundle.schema);
-                followed_to(self.behavior(), &host_text, text, &given, reading)
+    /// The host's ranges, mapped from the text each names to the document
+    /// of the host log, the text each held there, and that document.
+    fn given_ranges(&self) -> (Vec<TextRange>, Vec<String>, Arc<str>) {
+        let rewrite =
+            |from: &str, to: &str, ranges: &[TextRange]| self.rewrite_ranges(from, to, ranges);
+        self.protect()
+            .channel
+            .try_with_value(|channel| {
+                channel.with(|link| {
+                    let (placed, texts) = link.placed(&rewrite);
+                    (placed, texts, link.log.document().clone())
+                })
             })
-        };
-        let (placed, changed) = match self.mapped_since_host(&host_text, text, &given) {
-            Some(mapped) => keeping_their_text(&host_text, &given, text, mapped, followed),
-            None => keeping_their_text(&host_text, &given, text, followed(), Vec::new),
-        };
-        self.protect().ranges_changed.set(changed);
-        self.protect().ranges.set(placed);
+            .unwrap_or_else(|| (Vec::new(), Vec::new(), Arc::from("")))
     }
 
-    /// `ranges` (of `host`, the host's text) in `text`, mapped
-    /// through the record of the edits that made `text` of `host`; `None`
-    /// when the record does not reach from one to the other. A range an
-    /// edit wrote inside lands where its ends went (see
-    /// [`keeping_their_text`]).
-    fn mapped_since_host(
-        &self,
-        host: &str,
-        text: &str,
-        ranges: &[TextRange],
-    ) -> Option<Vec<TextRange>> {
-        let since = self
-            .protect()
-            .marks
-            .with_value(|marks| marks.since_host.clone())
-            .filter(|since| *since.from == *host && *since.to == *text)?;
-        let change = &since.change;
-        Some(
-            ranges
-                .iter()
-                .map(|range| {
-                    change.map_range(range).unwrap_or_else(|| {
-                        let start = change.map_pos(range.start(), Assoc::After).pos;
-                        let end = change.map_pos(range.end(), Assoc::Before).pos;
-                        TextRange::new(start, end.max(start))
-                    })
-                })
-                .collect(),
-        )
+    /// Places the host's ranges in `text`, the text on screen in the
+    /// host's language: mapped from the text each names through what the
+    /// edits since recorded they did (the host log), never read off two
+    /// texts but where no record reaches (a text no edit made). A range
+    /// whose text `text` does not hold where it lands locks nothing there
+    /// and holds the save (see [`ProtectState::ranges_changed`]).
+    fn place_ranges_in(&self, text: &str) {
+        let (placed, texts, document) = self.given_ranges();
+        if placed.is_empty() {
+            self.protect().ranges_changed.set(None);
+            self.protect().ranges.set(placed);
+            return;
+        }
+        let placed = if *document == *text {
+            placed
+        } else {
+            self.rewrite_ranges(&document, text, &placed)
+        };
+        // Where the fields they covered in the text they name are written
+        // in `text`, for a range whose text an edit changed.
+        let followed = || {
+            let given = self
+                .protect()
+                .channel
+                .try_with_value(|channel| channel.with(Link::given_at_anchor))
+                .flatten();
+            match given {
+                Some((anchor, ranges)) => self.rewrite_ranges(&anchor, text, &ranges),
+                None => Vec::new(),
+            }
+        };
+        let (placed, changed) = keeping_their_text(&texts, text, placed.clone(), followed);
+        self.protect().ranges_changed.set(changed);
+        self.protect().ranges.set(placed);
     }
 
     /// Before a switch away from the host's language, whose text was
@@ -1131,7 +1117,7 @@ impl EditorState {
                 .map(|bundle| &bundle.schema);
             let behavior = self.config().host_language.behavior();
             let paths = self.protect().host_paths.get_untracked();
-            let ranges = if self.protect().host_ranges.with_untracked(Vec::is_empty) {
+            let ranges = if !self.has_host_ranges() {
                 Vec::new()
             } else {
                 self.protect().in_host.in_text(behavior, old, reading)

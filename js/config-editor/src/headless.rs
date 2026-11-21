@@ -77,7 +77,7 @@ pub fn validate(
     let language = language_named(&text_arg(&language, "language")?)?;
     let text = text_arg(&text, "text")?;
     // Lines and columns in the document, as the editor gives them.
-    let text = crate::text_lines::document(&text);
+    let text = leptos_config_editor::js_support::document(&text);
     let schema = optional_text(&schema, "schema")?;
     let problems = match schema {
         Some(schema) => schema_from(&schema, &source)?.validate(language, text),
@@ -102,7 +102,7 @@ pub fn convert(
     let to = language_named(&text_arg(&to, "to")?)?;
     let text = text_arg(&text, "text")?;
     // The document: a leading byte order mark is none of it.
-    let text = crate::text_lines::document(&text);
+    let text = leptos_config_editor::js_support::document(&text);
     let converted = match schema {
         Some(schema) => schema_from(&schema, &source)?.convert(from, text, to),
         None => from.convert(text, to),

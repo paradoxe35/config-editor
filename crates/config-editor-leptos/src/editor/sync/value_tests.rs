@@ -10,7 +10,7 @@ use super::super::edit::Edit;
 use super::super::languages::Language;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
-use super::{Echoes, follow_value};
+use super::follow_value;
 
 /// Types `text` at the end of the document's first line.
 fn type_at_line_end(state: EditorState, text: &str) {
@@ -45,19 +45,22 @@ fn mounted(
         ..TestEditor::new(Language::YAML, &value.get_untracked())
     }
     .mount();
-    state.sync().echoes.update_value(|echoes| {
-        *echoes = Echoes::new(true);
-        echoes.given(&value.get_untracked());
-    });
-    follow_value(state, value.into(), revision.into());
+    let text = value.get_untracked();
+    state.sync().link(|link| link.echoing(&text));
+    follow_value(
+        state,
+        value.into(),
+        revision.into(),
+        super::Lists::default(),
+    );
     (owner, state, heard)
 }
 
 fn sent_revision(state: EditorState) -> u64 {
     state
         .sync()
-        .echoes
-        .with_value(Echoes::latest_revision)
+        .link(|link| link.echoes.latest_revision())
+        .flatten()
         .expect("a text on its way")
 }
 
@@ -121,4 +124,74 @@ fn a_later_text_starting_with_u_feff_is_read_by_the_first_texts_mark() {
         state.sync().line_endings.restore("a: 2\n".to_string()),
         "\u{feff}a: 2\n"
     );
+}
+
+/// P2: an echo the host's store wrote with LF breaks, of a CRLF document,
+/// is skipped and leaves the document's own breaks: the host hears CRLF.
+#[test]
+fn an_echo_written_with_other_line_breaks_leaves_the_documents_own() {
+    let value = RwSignal::new("a: 1\r\nb: 2\r\n".to_string());
+    let (_owner, state, heard) = mounted(value, RwSignal::new(None));
+    type_at_line_end(state, "x");
+    assert_eq!(
+        heard.lock().expect("heard").last().map(String::as_str),
+        Some("a: 1x\r\nb: 2\r\n")
+    );
+    value.set("a: 1x\nb: 2\n".to_string());
+    assert_eq!(state.doc().text.get_untracked(), "a: 1x\nb: 2\n");
+    type_at_line_end(state, "y");
+    assert_eq!(
+        heard.lock().expect("heard").last().map(String::as_str),
+        Some("a: 1xy\r\nb: 2\r\n")
+    );
+}
+
+/// The locks of the text on screen, as the text they cover.
+#[cfg(feature = "protect")]
+fn locked(state: EditorState) -> Vec<String> {
+    let text = state.doc().text.get_untracked();
+    state.protect().ranges.with_untracked(|ranges| {
+        ranges
+            .iter()
+            .map(|range| text[usize::from(range.start())..usize::from(range.end())].to_string())
+            .collect()
+    })
+}
+
+/// Ranges worked out once on the file as loaded, given with the text the
+/// editor mounts with (a line added above since): they lock their text,
+/// not what their numbers name in the mount's text.
+#[cfg(feature = "protect")]
+#[test]
+fn ranges_named_by_the_file_as_loaded_lock_their_text() {
+    use super::super::paths::{TextPosition, TextRange};
+    let loaded = "a: 1\nb: 2\n";
+    let (_owner, state) = TestEditor {
+        read_only_ranges: vec![TextRange::new(
+            TextPosition::new(2, 1),
+            TextPosition::new(2, 5),
+        )],
+        read_only_ranges_for: Some(super::RangesFor::Text(loaded.into())),
+        ..TestEditor::new(Language::YAML, "top: 0\na: 1\nb: 2\n")
+    }
+    .mount();
+    assert_eq!(locked(state), ["b: 2"]);
+}
+
+/// A revision the editor never sent names no text: the list is refused and
+/// the editor locks nothing new.
+#[cfg(feature = "protect")]
+#[test]
+fn ranges_named_by_a_revision_never_sent_lock_nothing() {
+    use super::super::paths::{TextPosition, TextRange};
+    let (_owner, state) = TestEditor {
+        read_only_ranges: vec![TextRange::new(
+            TextPosition::new(1, 1),
+            TextPosition::new(1, 5),
+        )],
+        read_only_ranges_for: Some(super::RangesFor::Revision(u64::MAX)),
+        ..TestEditor::new(Language::YAML, "a: 1\n")
+    }
+    .mount();
+    assert!(locked(state).is_empty());
 }

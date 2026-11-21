@@ -28,7 +28,6 @@ use crate::editor::paths::{FieldPath, TextPosition, TextRange};
 use crate::editor::protect::ProtectInit;
 use crate::editor::schema::{SchemaBundle, build_schema};
 use crate::editor::state::{EditorState, Init};
-use crate::editor::sync::take_host_value;
 use crate::{EditorSettings, EditorTheme};
 
 /// One step of a session.
@@ -240,7 +239,7 @@ fn mount(
     schema: Option<Arc<SchemaBundle>>,
 ) -> EditorState {
     let host = language(case.language);
-    EditorState::new(Init {
+    let state = EditorState::new(Init {
         host_language: host,
         edit_language: host,
         schema,
@@ -252,10 +251,9 @@ fn mount(
         read_only_reason: Signal::stored(None),
         settings: props.settings.into(),
         host_on_change: None,
-        host_diagnostics: Signal::default(),
+        channel: None,
         protect: ProtectInit {
             paths: Some(props.paths.into()),
-            ranges: Some(props.ranges.into()),
             secrets: None,
             foreign: None,
         },
@@ -263,7 +261,15 @@ fn mount(
         on_baseline_conflict: None,
         clipboard: None,
     })
-    .0
+    .0;
+    crate::editor::sync::follow_lists(
+        state,
+        crate::editor::sync::Lists {
+            read_only_ranges: Some(props.ranges.into()),
+            ..crate::editor::sync::Lists::default()
+        },
+    );
+    state
 }
 
 /// A problem as compared: its line, columns and message.
@@ -445,7 +451,18 @@ pub(super) fn check(case: &LiveCase) -> Result<(), Failure> {
                     _ => before.clone(),
                 };
                 let text = state.sync().line_endings.received(value);
-                take_host_value(state, text);
+                // The host gives its ranges with its new text: they are
+                // read in it, as a fresh editor reads them.
+                let _ = crate::editor::sync::take_host_update(
+                    state,
+                    crate::editor::sync::HostUpdate {
+                        value: Some(text),
+                        ranges: Some(crate::editor::sync::Listed::new(
+                            props.ranges.get_untracked(),
+                        )),
+                        ..crate::editor::sync::HostUpdate::default()
+                    },
+                );
                 // The host's ranges are placed again in a new text.
                 ranges_placed |= state.doc().text.get_untracked() != before;
             }

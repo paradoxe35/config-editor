@@ -191,6 +191,36 @@ impl DocumentEditorView {
         handle_calls::focus(self.handle());
     }
 
+    /// Makes the host's own change of the document, as
+    /// `ConfigEditor.applyChanges` does (`options.revision` names the text
+    /// the changes were made on); `null` while its editor is not mounted
+    /// (the document was never shown) or when nothing changed.
+    #[wasm_bindgen(js_name = applyChanges)]
+    pub fn apply_changes(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "TextChange[]")] changes: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "ApplyChangesOptions")] options: JsValue,
+    ) -> Result<Option<f64>, JsError> {
+        let edits = crate::anchors::changes_from(&changes)?;
+        let base = if options.is_undefined() || options.is_null() {
+            None
+        } else {
+            crate::anchors::revision_named(&options, "revision")
+        };
+        leptos_config_editor::js_support::flush_pending_input();
+        let Some(editor) = self.handle().filter(EditorHandle::is_mounted) else {
+            return Ok(None);
+        };
+        let revision = leptos_config_editor::js_support::apply_changes(
+            &editor,
+            &leptos_config_editor::js_support::HostEdits::Utf16(edits),
+            base,
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?;
+        self.state.took_host_change(&self.id, &editor);
+        Ok(revision.map(|revision| revision as f64))
+    }
+
     /// Saves the document as `Ctrl+S` in its editor does (calls the view's
     /// `onSave`); `false` when nothing was sent.
     pub fn save(&self) -> bool {

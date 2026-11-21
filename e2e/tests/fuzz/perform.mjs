@@ -3,6 +3,7 @@
 // `run` is the sequence's state: the page, its CDP session and the host
 // model (the locks given, the extra props passed).
 
+import { clearHostDiagnostics, hideShow, hostChange, lateDiagnostics } from './host-actions.mjs';
 import { dragMove, f8, hover, suggestMouse } from './pointer.mjs';
 import { clipboardTokens, crossCopy } from './secrets.mjs';
 
@@ -128,6 +129,8 @@ export async function host(page, call, arg, onText) {
       if (onText !== undefined && fz.rangesText() !== onText) return moved;
       const id = fz.activeId();
       const vanilla = !!window.documentsView || !!window.editor;
+      // A revisions host names the text its ranges were worked out on.
+      const named = (text) => (fz.revisions ? { rangesFor: text } : {});
       const calls = {
         // A new text with the read-only ranges the host works out on it
         // (`ranges`), given together where the API allows.
@@ -137,12 +140,14 @@ export async function host(page, call, arg, onText) {
             // The host's own text: the editor does not report it back.
             window.editor.replaceValue(text);
             saved.textContent = text;
-            window.editor.update({ readOnlyRanges: ranges });
+            window.savedRevision = undefined;
+            window.editor.update({ readOnlyRanges: ranges, ...named(text) });
           } else if (window.editor) {
             // The vanilla host's state is its `#saved`: what it sets, then
-            // what `onChange` reports.
+            // what `onChange` reports (with the revision it gives).
             saved.textContent = text;
-            window.editor.update({ value: text, readOnlyRanges: ranges });
+            window.savedRevision = undefined;
+            window.editor.update({ value: text, readOnlyRanges: ranges, ...named(text) });
           } else if (how === 'setValue') {
             // One way per reset: the handle's `setValue` reports the text,
             // and the parent's state follows from that report (its ranges
@@ -151,14 +156,14 @@ export async function host(page, call, arg, onText) {
           } else {
             // The parent lists the text it set with the ranges it worked
             // out on it.
-            fz.extra = { ...fz.extra, readOnlyRanges: ranges };
+            fz.extra = { ...fz.extra, readOnlyRanges: ranges, ...named(text) };
             window.setParentValue(text);
             window.setExtraProps({ ...fz.extra });
           }
         },
         singleEcho: () => {
           const text = fz.host();
-          if (window.editor) window.editor.update({ value: text });
+          if (window.editor) window.editor.update({ value: text, ...(fz.revisions ? { valueRevision: window.savedRevision } : {}) });
           else window.setParentValue(text);
         },
         singleProps: (props) => {
@@ -181,7 +186,7 @@ export async function host(page, call, arg, onText) {
           // The vanilla view's `replaceValue` reports nothing: the host
           // lists the text itself.
           if (how === 'setValue') window.documentsView.replaceValue(id, text);
-          window.updateFile(id, { value: text, readOnlyRanges: ranges });
+          window.updateFile(id, { value: text, readOnlyRanges: ranges, ...(fz.revisions ? { rangesFor: text, valueRevision: undefined } : {}) });
         },
         docEcho: () => typeof fz.host() === 'string' && window.updateFile(id, { value: fz.host() }),
         docProps: (props) => window.updateFile(id, props),
@@ -234,7 +239,7 @@ async function resetThenRanges(run, text, call, ranges) {
     if ((await page.evaluate(() => window.__fz.host())) === text) break;
     await page.waitForTimeout(60);
   }
-  await host(page, call, { readOnlyRanges: ranges }, text);
+  await host(page, call, { readOnlyRanges: ranges, ...(run.revisions ? { rangesFor: text } : {}) }, text);
 }
 
 // Gives the page a lock from `spec` (see `lockIndices`) and notes it in
@@ -243,6 +248,7 @@ async function resetThenRanges(run, text, call, ranges) {
 // settle: given only while that text holds (a few tries).
 export async function giveLock(run, spec) {
   const { page } = run;
+  if (run.revisions) return giveNamedLock(run, spec);
   for (let tries = 0; tries < 5; tries += 1) {
     const state = await page.evaluate(() => ({ text: window.__fz.rangesText(), id: window.__fz.activeId() }));
     if (typeof state.text !== 'string') return;
@@ -254,6 +260,34 @@ export async function giveLock(run, spec) {
     run.setLock(state.id, 'range', { range, text: state.text.slice(range.start, range.end) });
     return;
   }
+}
+
+// A revisions host's lock: worked out on the host's text, late echo or
+// not, and given with that text (`rangesFor`), so no settle and no retry.
+// The editor maps it onto the same characters in its text now; noted when
+// they are still there (typing since may have changed them).
+async function giveNamedLock(run, spec) {
+  const { page } = run;
+  const state = await page.evaluate(() => ({ text: window.__fz.rangesText(), id: window.__fz.activeId() }));
+  if (typeof state.text !== 'string') return;
+  const range = lockIndices(state.text, spec);
+  if (!range) return;
+  const call = run.kind === 'single' ? 'singleProps' : 'docProps';
+  const locked = state.text.slice(range.start, range.end);
+  const value = await page.evaluate(
+    ([call, props]) => {
+      const fz = window.__fz;
+      if (call === 'singleProps' && window.editor) window.editor.update(props);
+      else if (call === 'singleProps') {
+        fz.extra = { ...fz.extra, ...props };
+        window.setExtraProps({ ...fz.extra });
+      } else window.updateFile(fz.activeId(), props);
+      return fz.editor()?.value;
+    },
+    [call, { readOnlyRanges: [range], rangesFor: state.text }],
+  );
+  run.locked = true;
+  run.setLock(state.id, 'range', typeof value === 'string' && value.includes(locked) ? { range, text: locked } : null);
 }
 
 // Whether `got` is what a copy of `want` (an `fz.selected()`) puts on the
@@ -417,6 +451,9 @@ export async function perform(run, action) {
     case 'hostValue': {
       run.hostReplaced = true;
       await settle(page);
+      // A new text of the host's own: the problems it found on the old one
+      // go with it (see `lateDiagnostics`).
+      await clearHostDiagnostics(page);
       if (run.kind === 'single') {
         // A value equal to the editor's may give it nothing new.
         const before = await page.evaluate(() => window.__fz.editor()?.value);
@@ -511,6 +548,12 @@ export async function perform(run, action) {
       return suggestMouse(run, action);
     case 'crossCopy':
       return crossCopy(run, action);
+    case 'hostChange':
+      return hostChange(run, action);
+    case 'hideShow':
+      return hideShow(run, action);
+    case 'lateDiagnostics':
+      return lateDiagnostics(run, action);
     default:
       throw new Error(`unknown action ${action.k}`);
   }

@@ -10,6 +10,7 @@
     clippy::cast_sign_loss
 )]
 
+pub(crate) mod lines;
 mod offset;
 pub(crate) mod slice;
 

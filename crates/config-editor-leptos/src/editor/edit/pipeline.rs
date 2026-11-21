@@ -106,6 +106,7 @@ impl EditorState {
             self.show_language(language, &edit);
         }
         if changed && origin.follows() {
+            self.note_host_log(&edit);
             self.follow_edit(&edit);
         }
         let kept = match edit.after {
@@ -373,6 +374,9 @@ impl EditorState {
                 Some(next) if next != language => history.clear(),
                 _ => history.rebase(edit.made()),
             }),
+            // Not a step either: Undo does not undo the host; the steps
+            // before take its exact change.
+            Origin::HostChange => history.update(|history| history.rebase(edit.made())),
         }
     }
 }

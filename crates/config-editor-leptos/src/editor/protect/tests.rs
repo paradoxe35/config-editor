@@ -773,8 +773,9 @@ fn random_edits_never_change_a_read_only_value() {
 }
 
 /// Editing as another language, the host's read-only ranges lock the
-/// fields they cover in the host's text: a new host text puts them on what
-/// it now has there, not on what the text held at mount.
+/// fields they cover in the host's text: a new host text that comes with
+/// no ranges carries them to the text they covered (the safe diff), not
+/// to what the new text holds at their numbers.
 #[test]
 fn host_ranges_lock_the_fields_of_the_current_host_text_while_editing_as() {
     use super::super::paths::{TextPosition, TextRange};
@@ -801,5 +802,5 @@ fn host_ranges_lock_the_fields_of_the_current_host_text_while_editing_as() {
     };
     assert_eq!(locked(), ["/b"]);
     take_host_value(state, "b: 2\na: 1\n".to_string());
-    assert_eq!(locked(), ["/a"]);
+    assert_eq!(locked(), ["/b"]);
 }

@@ -564,6 +564,24 @@ impl Edit {
         }
     }
 
+    /// The host's own `change` of `before` (`applyChanges`), already rebased
+    /// over the edits it had not heard; `None` when it is not a change of
+    /// `before`.
+    pub(super) fn host_change(before: String, change: Change) -> Option<Self> {
+        let text = change.apply(&before)?;
+        Some(Self {
+            before,
+            made: change,
+            told: true,
+            text,
+            restore: (TextSize::default(), TextSize::default()),
+            after: After::Mapped,
+            origin: Origin::HostChange,
+            language: None,
+            folds: None,
+        })
+    }
+
     /// The document converted by an Edit-as switch to `language`, made with
     /// `selection` (in `before`, where undo puts it back), the caret at
     /// `caret` (on the field it was on), else where the textarea has it.

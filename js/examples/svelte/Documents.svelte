@@ -13,6 +13,10 @@
   import { later } from "../echo-delay";
 
   let { schema }: { schema: string } = $props();
+  // `?revisions`: each file keeps the revision `onChange` gave its value
+  // (`valueRevision`), as the README shows: the newest revision wins (a
+  // late, older one is ignored).
+  const revisions = new URLSearchParams(location.search).has("revisions");
 
   // The schema is fixed for the page: read once.
   const documentSchema = untrack(() => schema);
@@ -44,6 +48,7 @@
       focus: instance.focus,
       editor: instance.editor,
       setValue: instance.setValue,
+      applyChanges: instance.applyChanges,
     };
   }
   // For tests: the view's settings, a document's own fields and the instance.
@@ -54,9 +59,14 @@
     documentsHandle: { get current() { return tabs ? asHandle(tabs) : null; } },
   });
 
-  function onChange(id: string, value: string) {
+  function onChange(id: string, value: string, revision: number) {
     note(`change ${id}`);
-    later(() => update(id, { value }));
+    later(() => {
+      if (!revisions) return update(id, { value });
+      const file = files.find((candidate) => candidate.id === id);
+      if (file && (file.valueRevision === undefined || revision >= file.valueRevision))
+        update(id, { value, valueRevision: revision });
+    });
   }
   function onSave(id: string, value: string, language: LanguageName) {
     note(`save ${id} ${language}`);

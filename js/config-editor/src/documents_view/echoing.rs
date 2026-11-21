@@ -1,161 +1,108 @@
-//! A documents view's side of each document's channel to the host (see
-//! `host_channel`): a listed text its editor sent and moved past keeps
-//! what the editor holds, its ranges and diagnostics move to it, and a
-//! host left on such a text hears the document again.
+//! A documents view's side of each document's record of its host (the
+//! core's `host_inputs`): every listed document's update goes through its
+//! editor's one entry when it is mounted (which tells an echo from the
+//! host's own text, places the lists where they name places, and has a
+//! host left on an older text hear the document again), else through the
+//! record alone. A listed text that keeps what the editor holds is listed
+//! with that text.
 
-use std::collections::HashMap;
-
-use leptos::prelude::{GetValue, UpdateValue, WithUntracked, WithValue};
-use leptos_config_editor::TextRange;
-use leptos_config_editor::js_support::{Echo, flush_pending_input};
-use wasm_bindgen::JsValue;
+use leptos::prelude::{UpdateValue, WithValue};
+use leptos_config_editor::js_support::{self, HostChannel, HostUpdate, Taken};
+use wasm_bindgen::prelude::*;
 
 use super::State;
 use crate::documents_list::Listed;
-use crate::host_channel::Given;
-use crate::mount::call_host_with;
-use crate::settle;
 
 impl State {
-    /// Takes `listed`: each document listed before goes through its
-    /// channel's second step (see `HostChannel::received`), the texts sent
-    /// from `flushed` on (while the list was read) unknown to the host. A
-    /// document whose listed text keeps what its editor holds is listed
-    /// with that text, and with the ranges its editor has when they stay.
-    /// Returns the documents whose host was left on an older text, with
-    /// the text to send it again, and whether a document waits for the
-    /// check after a pause ([`Echo::Settle`]).
-    pub(super) fn take_listed(
+    /// The record of the document `id`'s host.
+    pub(super) fn channel_of(&self, id: &str) -> Option<HostChannel> {
+        self.kept
+            .try_with_value(|kept| kept.channels.get(id).cloned())
+            .flatten()
+    }
+
+    /// Hands `update` to the document `id`'s editor when it is mounted,
+    /// else to its record alone, the host's text being `current`.
+    pub(super) fn take(
         &self,
-        listed: &mut Listed,
-        flushed: u64,
-    ) -> (Vec<(String, String)>, bool) {
-        let mut resend = Vec::new();
-        let mut settles = false;
+        id: &str,
+        channel: &HostChannel,
+        update: HostUpdate,
+        current: &str,
+    ) -> Result<Taken, JsError> {
+        let mounted = self
+            .handle
+            .editor(id)
+            .filter(leptos_config_editor::EditorHandle::is_mounted);
+        let taken =
+            match mounted.and_then(|editor| js_support::host_update(&editor, update.clone())) {
+                Some(taken) => taken,
+                None => channel.take_unmounted(update, current),
+            }
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        for warning in &taken.warnings {
+            web_sys::console::warn_1(&format!("config-editor: {id}: {warning}").into());
+        }
+        Ok(taken)
+    }
+
+    /// Takes `listed`: the new records are bound to the view (their editors
+    /// take them over), and each document listed before gives its update.
+    /// A document whose listed text keeps what its editor holds is listed
+    /// with that text. Returns the errors of the documents whose update
+    /// was refused (their lists name a revision never sent).
+    pub(super) fn take_listed(&self, listed: &mut Listed) -> Vec<JsError> {
+        for (id, channel) in listed.fresh.drain(..) {
+            js_support::bind_document_channel(&self.handle, &id, channel);
+        }
+        let mut refused = Vec::new();
         let Listed {
-            documents, ranges, ..
+            documents, updates, ..
         } = listed;
-        // The ranges each editor has, for the ones that stay.
-        let shown: HashMap<String, Vec<TextRange>> = self
-            .documents
-            .try_with_untracked(|shown| {
-                shown
-                    .iter()
-                    .filter(|document| ranges.contains_key(&document.id))
-                    .map(|document| (document.id.clone(), document.read_only_ranges.clone()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let _ = self.kept.try_update_value(|kept| {
-            // Each document's text read where it is kept, not copied.
-            self.texts.try_with_value(|texts| {
-                for document in documents.iter_mut() {
-                    let (Some(listed), Some(current), Some(channel)) = (
-                        ranges.remove(&document.id),
-                        texts.get(&document.id).map(|texts| &texts.value),
-                        kept.channels.get_mut(&document.id),
-                    ) else {
-                        // Listed for the first time: taken as listed.
-                        continue;
-                    };
-                    let diagnostics = std::mem::take(&mut document.host_diagnostics);
-                    let taken = channel.received(
-                        Given {
-                            value: Some(&document.value),
-                            revision: None,
-                            ranges_for: None,
-                            ranges: listed,
-                            diagnostics: Some(diagnostics),
-                            flushed,
-                            stale: false,
-                        },
-                        current,
-                    );
-                    document.host_diagnostics = taken.diagnostics.unwrap_or_default();
-                    document.read_only_ranges = taken
-                        .ranges
-                        .or_else(|| shown.get(&document.id).cloned())
-                        .unwrap_or_default();
-                    document.read_only_ranges_version = channel.version();
-                    match taken.echo {
-                        None | Some(Echo::Apply) => continue,
-                        Some(Echo::Skip) => {}
-                        Some(Echo::Settle) => settles = true,
-                        Some(Echo::Resend) => {
-                            settles = true;
-                            resend.push((document.id.clone(), current.clone()));
-                        }
-                    }
-                    current.clone_into(&mut document.value);
+        for document in documents.iter_mut() {
+            let (Some(update), Some(channel), Some(current)) = (
+                updates.remove(&document.id),
+                self.channel_of(&document.id),
+                self.texts_of(&document.id).map(|texts| texts.value),
+            ) else {
+                continue;
+            };
+            let shown = match self.take(&document.id, &channel, update, &current) {
+                Ok(taken) => taken.shown,
+                Err(error) => {
+                    refused.push(error);
+                    false
                 }
-            })
-        });
-        (resend, settles)
+            };
+            if !shown {
+                current.clone_into(&mut document.value);
+            }
+        }
+        refused
     }
 
     /// The host gave `value` of its own for the document `id`
-    /// (`replaceValue`), its editor holding `current`: the ranges to hand
-    /// it there and their version, `None` when it is `current` (see
-    /// `HostChannel::replaced`).
-    pub(super) fn replaced(
-        &self,
-        id: &str,
-        value: &str,
-        current: &str,
-    ) -> Option<(Vec<TextRange>, u64)> {
-        self.kept
-            .try_update_value(|kept| {
-                let channel = kept.channels.get_mut(id)?;
-                let ranges = channel.replaced(value, current)?;
-                Some((ranges, channel.version()))
-            })
-            .flatten()
+    /// (`replaceValue`), its editor holding `current`: whether it replaced
+    /// the text.
+    pub(super) fn replaced(&self, id: &str, value: &str, current: &str) -> bool {
+        let Some(channel) = self.channel_of(id) else {
+            return false;
+        };
+        let update = HostUpdate {
+            value: Some(value.to_string()),
+            reset: true,
+            ..HostUpdate::default()
+        };
+        self.take(id, &channel, update, current)
+            .is_ok_and(|taken| taken.shown)
     }
 
-    /// Sends the documents in `resend` to the host's `onChange` again; with
-    /// `settles`, checks again once a pause is over.
-    pub(super) fn tell_again(self, resend: Vec<(String, String)>, settles: bool) {
-        self.tell(resend);
-        if settles {
-            settle::arm(self.settle, move || self.settle_all());
-        }
-    }
-
-    /// The pause is over: each document whose host is still on an older
-    /// text hears it again.
-    fn settle_all(self) {
-        flush_pending_input();
-        let resend = self
-            .kept
-            .try_update_value(|kept| {
-                self.texts.try_with_value(|texts| {
-                    kept.channels
-                        .iter_mut()
-                        .filter_map(|(id, channel)| {
-                            let current = &texts.get(id)?.value;
-                            channel
-                                .settle(current)
-                                .then(|| (id.clone(), current.clone()))
-                        })
-                        .collect::<Vec<_>>()
-                })
-            })
-            .flatten()
-            .unwrap_or_default();
-        self.tell(resend);
-    }
-
-    fn tell(self, resend: Vec<(String, String)>) {
-        if resend.is_empty() {
-            return;
-        }
-        if let Some(callback) = self.on_change.try_get_value().flatten() {
-            for (id, text) in resend {
-                call_host_with(
-                    &callback,
-                    &[JsValue::from_str(&id), JsValue::from_str(&text)],
-                );
+    /// The document `id`'s last text sent reached no host (no `onChange`).
+    pub(super) fn untold(&self, id: &str) {
+        let _ = self.kept.try_update_value(|kept| {
+            if let Some(channel) = kept.channels.get(id) {
+                channel.untold();
             }
-        }
+        });
     }
 }

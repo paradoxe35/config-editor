@@ -46,6 +46,7 @@ pub(super) struct Inputs {
     pub(super) schema: Option<Arc<SchemaBundle>>,
     pub(super) host_text: super::sync::HostTextReader,
     pub(super) popups: super::popups::PopupState,
+    pub(super) channel: super::sync::HostChannel,
 }
 
 /// Nothing protected.
@@ -174,6 +175,17 @@ fn warn_unused(prop: &str) {
 
 impl EditorState {
     pub(super) fn connect_protection(&self) {}
+
+    pub(crate) fn host_ranges_given(&self) {}
+
+    pub(crate) fn rewrite_ranges(
+        &self,
+        _from: &str,
+        _to: &str,
+        ranges: &[crate::editor::text::TextRange],
+    ) -> Vec<crate::editor::text::TextRange> {
+        ranges.to_vec()
+    }
 
     pub(super) fn widen_edit(&self, _edit: &mut Edit) {}
 

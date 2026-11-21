@@ -7,20 +7,20 @@
 //! given), lines and columns do not (line 1, column 1 is the character
 //! after it, as in the editor).
 
-use leptos_config_editor::TextPosition;
+use crate::editor::paths::TextPosition;
 
 /// A byte order mark.
 const MARK: char = '\u{feff}';
 
 /// `text` without a leading byte order mark: the document, whose lines and
 /// columns positions name.
-pub(crate) fn document(text: &str) -> &str {
+pub fn document(text: &str) -> &str {
     text.strip_prefix(MARK).unwrap_or(text)
 }
 
 /// Where each line of a text starts and where its content ends (before its
 /// break), and the text's length in UTF-16 units.
-pub(crate) struct TextLines<'a> {
+pub struct TextLines<'a> {
     text: &'a str,
     /// `(byte, UTF-16)` start of each line.
     starts: Vec<(usize, usize)>,
@@ -33,7 +33,8 @@ pub(crate) struct TextLines<'a> {
 }
 
 impl<'a> TextLines<'a> {
-    pub(crate) fn new(text: &'a str) -> Self {
+    /// `text` split into lines once.
+    pub fn new(text: &'a str) -> Self {
         // Line 1 starts after a byte order mark (one UTF-16 unit).
         let mark = usize::from(text.starts_with(MARK));
         let mut starts = vec![(mark * MARK.len_utf8(), mark)];
@@ -71,7 +72,7 @@ impl<'a> TextLines<'a> {
     /// The position of UTF-16 `offset` in the text's LF form (each break
     /// one unit, as the editor's own `rangeOf` counts in the host's view);
     /// `None` past its end or inside a character.
-    pub(crate) fn position_in_lf(&self, offset: usize) -> Option<TextPosition> {
+    pub fn position_in_lf(&self, offset: usize) -> Option<TextPosition> {
         let index = self.lf_starts.partition_point(|start| *start <= offset) - 1;
         let mut units = self.lf_starts[index];
         let mut column = 1;
@@ -87,12 +88,12 @@ impl<'a> TextLines<'a> {
     }
 
     /// How many lines the text has (an empty one has one).
-    pub(crate) fn count(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.starts.len()
     }
 
     /// The text's length in UTF-16 units.
-    pub(crate) fn units(&self) -> usize {
+    pub fn units(&self) -> usize {
         self.units
     }
 
@@ -100,20 +101,20 @@ impl<'a> TextLines<'a> {
     fn line(&self, line: usize) -> &'a str {
         let index = line.wrapping_sub(1);
         match (self.starts.get(index), self.ends.get(index)) {
-            (Some(&(start, _)), Some(&end)) => &self.text[start..end],
+            (Some(&(start, _)), Some(&end)) => self.text.get(start..end).unwrap_or_default(),
             _ => "",
         }
     }
 
     /// The characters of line `line` (one-based); 0 past the last.
-    pub(crate) fn width(&self, line: usize) -> usize {
+    pub fn width(&self, line: usize) -> usize {
         self.line(line).chars().count()
     }
 
     /// The UTF-16 offset of `position`, as [`TextPosition::to_offset`]
     /// gives it: a column past its line's end is the line's end, a line
     /// past the text the text's end.
-    pub(crate) fn offset(&self, position: TextPosition) -> usize {
+    pub fn offset(&self, position: TextPosition) -> usize {
         let Some(&(_, start)) = self.starts.get(position.line.saturating_sub(1)) else {
             return self.units;
         };
@@ -128,7 +129,7 @@ impl<'a> TextLines<'a> {
 
     /// The position of UTF-16 `offset`, as [`TextPosition::from_offset`]
     /// gives it.
-    pub(crate) fn position(&self, offset: usize) -> TextPosition {
+    pub fn position(&self, offset: usize) -> TextPosition {
         // Before a byte order mark: where the document starts.
         let offset = offset.max(self.starts[0].1);
         let index = self.starts.partition_point(|(_, units)| *units <= offset) - 1;
@@ -140,7 +141,8 @@ impl<'a> TextLines<'a> {
             .starts
             .get(index + 1)
             .map_or(self.text.len(), |(next, _)| *next);
-        for character in self.text[self.starts[index].0..end].chars() {
+        let line = self.text.get(self.starts[index].0..end).unwrap_or_default();
+        for character in line.chars() {
             if units >= offset {
                 break;
             }
@@ -153,7 +155,7 @@ impl<'a> TextLines<'a> {
 
 #[cfg(test)]
 mod tests {
-    use leptos_config_editor::TextPosition;
+    use crate::editor::paths::TextPosition;
 
     use super::{TextLines, document};
 

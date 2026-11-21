@@ -35,6 +35,10 @@ const uncontrolled = query.has("uncontrolled");
 const late = query.has("late");
 const slow = query.has("slow");
 const random = query.has("random");
+// `?revisions` keeps the value with its revision as the README shows: the
+// newest revision heard wins (a late, older one is ignored), passed back as
+// `value-revision`; the locks of the first line name the file as loaded.
+const revisions = query.has("revisions");
 const resetEarly = query.has("reset-early");
 const initialExtra = JSON.parse(query.get("props") ?? "{}") as Record<string, unknown>;
 const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
@@ -46,6 +50,7 @@ type Hooks = {
   editorHandle: { readonly current: ConfigEditorHandle | null };
   renameFile: () => void;
   setParentValue: (value: string) => void;
+  parentState: () => { text: string; revision?: number };
   setShown: (shown: boolean) => void;
 };
 const hooks = window as unknown as Hooks;
@@ -60,6 +65,9 @@ const App = defineComponent({
   props: { schema: { type: String, required: true } },
   setup() {
     const value = ref(initialText);
+    // The revision `value` came with (`?revisions`); none for a text of the
+    // parent's own.
+    const revision = ref<number | undefined>(undefined);
     // The version the host last saved; saves and other clients move it.
     const baseline = ref(initialText);
     const dirty = ref(false);
@@ -92,21 +100,38 @@ const App = defineComponent({
       },
     };
     hooks.renameFile = () => (fileName.value = `renamed-${fileName.value}`);
-    hooks.setParentValue = (text) => (value.value = text);
+    const own = (text: string) => {
+      revision.value = undefined;
+      value.value = text;
+    };
+    hooks.setParentValue = own;
+    hooks.parentState = () => ({ text: value.value, revision: revision.value });
     hooks.setShown = (next) => (shown.value = next);
     void ready.then(() => (themeNames.value = themes().map((theme) => theme.name)));
     onMounted(() => resetEarly && editor.value?.setValue("from-effect: 1\n"));
 
-    const apply = (next: string) => {
+    const apply = (next: string, sent?: number) => {
+      if (revisions && sent !== undefined) {
+        // The newest revision wins: a late, older one is ignored.
+        if (revision.value !== undefined && sent < revision.value) return;
+        revision.value = sent;
+      }
       previous = value.value;
       value.value = next;
     };
-    const onModel = (next: string) => {
-      if (slow) return void setTimeout(() => apply(next), 1500);
-      if (random || manual) return void later(() => apply(next));
-      if (!late) return apply(next);
+    const onModel = (next: string, sent?: number) => {
+      if (slow) return void setTimeout(() => apply(next, sent), 1500);
+      if (random || manual) return void later(() => apply(next, sent));
+      if (!late) return apply(next, sent);
       clearTimeout(lateTimer);
-      lateTimer = setTimeout(() => apply(next), 400);
+      lateTimer = setTimeout(() => apply(next, sent), 400);
+    };
+    // The host's own change, sent as a change (no whole text).
+    const setPort = () => {
+      const text = editor.value?.text ?? "";
+      const at = text.indexOf("listen: ") + "listen: ".length;
+      const end = text.indexOf("\n", at);
+      if (at >= "listen: ".length) editor.value?.applyChanges([{ from: at, to: end, insert: "8080" }]);
     };
     // A discard that also drops an edit the late parent has not applied yet.
     // One way only: setValue reports the text, and the state follows from
@@ -131,10 +156,10 @@ const App = defineComponent({
     const onPathChange = (next: EditorPath) => (path.value = next.pointer || "/");
 
     return {
-      value, baseline, dirty, saves, conflicts, fileName, editAs, theme, readOnly, editing, changes, path,
+      value, revision, revisions, baseline, dirty, saves, conflicts, fileName, editAs, theme, readOnly, editing, changes, path,
       hostProblems, lockAddress, lockFirstLine, themeNames, shown, editor, extra, uncontrolled, initialText,
-      onModel, discard, toggleHostProblems, onSave, onChangeSummary, onPathChange,
-      revert: () => (value.value = previous),
+      onModel, setPort, own, discard, toggleHostProblems, onSave, onChangeSummary, onPathChange,
+      revert: () => own(previous),
       secrets: { hint: "Keeps the stored secret" },
       colors: { key: "#ffcc66" },
     };
@@ -151,9 +176,10 @@ const App = defineComponent({
         <select id="theme" v-model="theme"><option v-for="name in themeNames" :key="name">{{ name }}</option></select>
       </label>
       <label><input id="read-only" type="checkbox" v-model="readOnly" /> Read-only</label>
-      <button id="replace" type="button" @click="value = 'listen: 9000\\n'">Replace value</button>
+      <button id="replace" type="button" @click="own('listen: 9000\\n')">Replace value</button>
+      <button id="set-port" type="button" @click="setPort">Set port</button>
       <button id="revert" type="button" @click="revert">Revert last edit</button>
-      <button id="reset" type="button" @click="value = initialText">Reset</button>
+      <button id="reset" type="button" @click="own(initialText)">Reset</button>
       <button id="force-reset" type="button" @click="discard(initialText)">Reset (always)</button>
       <button id="bad-theme" type="button" @click="theme = 'not-a-theme'">Invalid theme</button>
       <button id="rename" type="button" @click="fileName = 'renamed-' + fileName">Rename (re-mounts)</button>
@@ -161,7 +187,7 @@ const App = defineComponent({
       <button id="host-problems" type="button" @click="toggleHostProblems">Host problems</button>
       <label><input id="lock-address" type="checkbox" v-model="lockAddress" /> Lock public_address</label>
       <label><input id="lock-first-line" type="checkbox" v-model="lockFirstLine" /> Lock line 1</label>
-      <button id="load-secret" type="button" @click="value = 'clients:\\n  acme:\\n    secret: «secret 3f2a»\\n'">Load a secret</button>
+      <button id="load-secret" type="button" @click="own('clients:\\n  acme:\\n    secret: «secret 3f2a»\\n')">Load a secret</button>
       <button id="external-change" type="button" @click="baseline = baseline.replace('7835', '7836')">External change</button>
       <button id="save" type="button" @click="editor?.save()">Save</button>
       <span id="dirty">{{ dirty ? "unsaved" : "saved" }}</span>
@@ -178,6 +204,8 @@ const App = defineComponent({
       :schema="schema"
       :model-value="uncontrolled ? undefined : value"
       :default-value="uncontrolled ? initialText : undefined"
+      :value-revision="revisions ? revision : undefined"
+      :ranges-for="revisions ? initialText : undefined"
       @update:model-value="onModel"
       :edit-as="editAs"
       @edit-as-change="editing = $event"

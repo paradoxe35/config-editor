@@ -5,8 +5,8 @@ use leptos_config_editor::{HostDiagnostic, Severity};
 use wasm_bindgen::prelude::*;
 
 use crate::options::warn_unknown_keys;
-use crate::text_lines::TextLines;
 use crate::values::{field, path_from_js, range_from_js, string_field};
+use leptos_config_editor::js_support::TextLines;
 
 /// Host diagnostics from JavaScript; `host_text` (the document in
 /// `language`) turns string-index ranges into lines and columns.

@@ -17,7 +17,7 @@
 
 use std::ops::Range;
 
-use leptos_config_editor::{TextPosition, TextRange};
+use crate::editor::paths::{TextPosition, TextRange};
 
 use super::stretches::line_runs::{Run, line_runs, myers};
 
@@ -36,13 +36,13 @@ thread_local! {
 
 /// A text (as the editor reads it: LF breaks, no byte order mark) and
 /// where each of its lines starts.
-struct Lines<'a> {
+pub(crate) struct Lines<'a> {
     text: &'a str,
     starts: Vec<usize>,
 }
 
 impl<'a> Lines<'a> {
-    fn new(text: &'a str) -> Self {
+    pub(crate) fn new(text: &'a str) -> Self {
         let mut starts = vec![0];
         starts.extend(text.match_indices('\n').map(|(at, _)| at + 1));
         Self { text, starts }
@@ -50,11 +50,11 @@ impl<'a> Lines<'a> {
 
     /// The byte of `position` (a column past its line's end is its end, a
     /// line past the text the text's end).
-    fn byte(&self, position: TextPosition) -> usize {
+    pub(crate) fn byte(&self, position: TextPosition) -> usize {
         let Some(&start) = self.starts.get(position.line.saturating_sub(1)) else {
             return self.text.len();
         };
-        let line = self.line(position.line - 1);
+        let line = self.line(position.line.saturating_sub(1));
         start
             + line
                 .char_indices()
@@ -66,7 +66,8 @@ impl<'a> Lines<'a> {
         self.starts.partition_point(|start| *start <= byte) - 1
     }
 
-    fn position(&self, byte: usize) -> TextPosition {
+    pub(crate) fn position(&self, byte: usize) -> TextPosition {
+        let byte = byte.min(self.text.len());
         let line = self.line_of(byte);
         let column = self.text[self.starts[line]..byte].chars().count() + 1;
         TextPosition::new(line + 1, column)
@@ -145,7 +146,7 @@ impl<'a> Exact<'a> {
         let (old_lines, new_lines) = (Lines::new(old), Lines::new(new));
         let split = |text: &'a str| -> Vec<&'a str> { text.split_inclusive('\n').collect() };
         let (old_split, new_split) = (split(old), split(new));
-        let bytes = |lines: &Lines, run: Range<usize>, text: &str| {
+        let bytes = |lines: &Lines<'_>, run: Range<usize>, text: &str| {
             let at = |line: usize| lines.starts.get(line).copied().unwrap_or(text.len());
             at(run.start)..at(run.end)
         };
