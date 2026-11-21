@@ -6,8 +6,8 @@
 //! read-only value would reach it changed (P1, the lock holding: P5's
 //! "a lock holds" in practices). Each such edit is refused or held, the
 //! save waiting, in a YAML view of every host language, for a secret, a
-//! read-only path and the schema's `readOnly`, in a list (last or middle
-//! item) and a map, whether the text before the edit parsed or not.
+//! read-only path and the schema's `readOnly`, in a list (first, middle or
+//! last item) and a map, whether the text before the edit parsed or not.
 //!
 //! The holder of a placeholder was looked for only at its field, its
 //! copies and inside it, and among the lines around the edit, so a parent
@@ -41,33 +41,47 @@ enum Lock {
     Schema,
 }
 
-/// A YAML text with the protected value (`{v}`) four lines below its
-/// parent's first line, and the field's pointer.
+/// A YAML text with the protected value (`{v}`) under its parent, the
+/// field's pointer, and the lines typed under the parent's key first (to
+/// put the value lines below it).
 struct Shape {
     label: &'static str,
     text: &'static str,
     pointer: &'static str,
     list: bool,
+    above: &'static str,
 }
 
 const SHAPES: &[Shape] = &[
+    Shape {
+        label: "list, first item",
+        text: "keys:\n  - {v}\n  - o\nport: 1\n",
+        pointer: "/keys/0",
+        list: true,
+        // The host's first item (`/keys/0`, which a language repeating
+        // keys also reads at `/keys`) moved four lines down on screen.
+        above: "\n  - a1\n  - a2\n  - a3\n  - a4",
+    },
     Shape {
         label: "list, last item",
         text: "keys:\n  - a1\n  - a2\n  - a3\n  - a4\n  - o\n  - {v}\nport: 1\n",
         pointer: "/keys/5",
         list: true,
+        above: "",
     },
     Shape {
         label: "list, middle item",
         text: "keys:\n  - a1\n  - a2\n  - a3\n  - a4\n  - {v}\n  - o\nport: 1\n",
         pointer: "/keys/4",
         list: true,
+        above: "",
     },
     Shape {
         label: "map",
         text: "db:\n  a1: x\n  a2: x\n  a3: x\n  a4: x\n  z: o\n  password: {v}\nport: 1\n",
         pointer: "/db/password",
         list: false,
+        above: "",
     },
 ];
 
@@ -234,6 +248,14 @@ fn a_parent_made_one_string_far_from_a_protected_value_never_reaches_the_host() 
                                 "parsing before"
                             },
                         );
+                        if !shape.above.is_empty() {
+                            let shown = state.doc().text.get_untracked();
+                            let at = shown.find("keys:").unwrap() + "keys:".len();
+                            if !input(state, at, shape.above) {
+                                failures.push(format!("{case}: the items above refused"));
+                                continue;
+                            }
+                        }
                         // The text broken first, lines from the value: `{`
                         // opening a flow map never closed.
                         if broken {
