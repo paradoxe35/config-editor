@@ -21,17 +21,6 @@ pub(super) struct Known {
 }
 
 pub(super) const KNOWN: &[Known] = &[
-    // Open: a list a fill writes items for (`minItems`) holds them as
-    // values, which the XML writer writes as elements without the schema,
-    // so an item's required attribute is written as a child element (or
-    // the list is left out). Needs the items filled as required children
-    // (`Fill::Children` per item), which carry the attribute mark.
-    Known {
-        finding: "open: a fill writes a list item's required attributes as elements, or leaves the list out",
-        property: "xsd_assist",
-        class: "a fill writes a list item's required attributes as elements or leaves the list out",
-        applies: |_| true,
-    },
     // `completion::required`: a fill writes what an object requires; a
     // required choice of several options (`oneOf` of `required`s) requires
     // none of them in particular, so which one is the user's to type.

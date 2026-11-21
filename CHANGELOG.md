@@ -109,6 +109,12 @@ versions move together.
 - A secret's field is named by its language's reading of indexes: only
   XML and HCL, which write a list by repeating a key, read `/l/0` and
   `/l` as the same field.
+- A required list filled with the items its `minItems` asks for writes
+  each item as a single value of its schema is written: an object item's
+  required children in the same order, a required XML attribute in the
+  item's start tag (it was written as a child element). A custom
+  language's `write_insert` gets such a list as `Fill::List`, its value
+  `Fill::value`.
 
 ## 0.1.1 — 2026-11-21
 

@@ -1,8 +1,9 @@
 //! What a block inserted for an object writes for its required children,
 //! decided once for every language (each only writes it in its syntax):
 //! a default the language keeps, a list as an empty list (`[]`) or with
-//! the items its `minItems` asks for (each a value to type), an
-//! object's own required children filled the same way, the caret at the
+//! the items its `minItems` asks for (each a value to type, an object
+//! item's members required children of it), an object's own required
+//! children filled the same way, the caret at the
 //! first value left to type, and past it what the language keeps of a
 //! value. A child whose key or value the language cannot write as text
 //! reading back the same is left out, not written wrong.
@@ -43,13 +44,52 @@ pub enum Fill<'a> {
     },
     /// This value with the caret at it (before it, inside an empty list):
     /// the block leaves no value to type, so the caret goes to its first.
-    /// A list written with items to type (its `minItems`) is written so
-    /// too, the caret then moved into its first item's value.
     CaretAt(Value),
+    /// A list written with the items its schemas ask for (`minItems`,
+    /// `contains`), each filled as a required child is: an object item
+    /// its members as required children of it (an XML attribute marked
+    /// and first), a list item a list of its own, else its value.
+    /// [`Fill::value`] is the list as a value, for a language that writes
+    /// no attributes.
+    List {
+        /// Its items, each [`Fill::Value`], [`Fill::Children`] or
+        /// [`Fill::List`].
+        items: Vec<Fill<'a>>,
+        /// Whether the caret goes to it: before it, then moved into its
+        /// first item's value.
+        caret: bool,
+    },
     /// No value to write: an empty value where the language has one (a
     /// YAML `key:`, an XML `<key></key>`), else this one (`""`, `null`,
     /// `{}`), else the child is left out.
     Empty(Option<Value>),
+}
+
+impl Fill<'_> {
+    /// The value this fill writes, an object's members and a list's items
+    /// as values; `None` where it leaves the value to type
+    /// ([`Fill::Caret`], [`Fill::Empty`] with none), and such a member of
+    /// an object is left out.
+    pub fn value(&self) -> Option<Value> {
+        match self {
+            Fill::Value(value) | Fill::CaretAt(value) | Fill::Empty(Some(value)) => {
+                Some(value.clone())
+            }
+            Fill::Children(children) => Some(Value::Object(
+                children
+                    .iter()
+                    .filter_map(|child| Some((child.key.to_string(), child.fill.value()?)))
+                    .collect(),
+            )),
+            Fill::List { items, .. } => Some(Value::Array(
+                items
+                    .iter()
+                    .map(|item| item.value().unwrap_or(Value::Null))
+                    .collect(),
+            )),
+            Fill::Caret { .. } | Fill::Empty(None) => None,
+        }
+    }
 }
 
 /// How deep required children of required children are filled (a schema
@@ -100,6 +140,10 @@ fn caret_at_first_value(children: &mut [RequiredChild<'_>]) -> bool {
             true
         }
         Fill::Children(nested) => caret_at_first_value(nested),
+        Fill::List { caret, .. } => {
+            *caret = true;
+            true
+        }
         _ => false,
     })
 }
@@ -235,6 +279,7 @@ fn preview(children: &[RequiredChild<'_>], root: &Value) -> Value {
                     Fill::Children(nested) => preview(nested, root),
                     Fill::Caret { .. } | Fill::Empty(None) => placeholder(child.schema, root),
                     Fill::Empty(Some(value)) => value.clone(),
+                    list @ Fill::List { .. } => list.value().unwrap_or_default(),
                 };
                 (child.key.to_string(), value)
             })
@@ -305,6 +350,7 @@ fn written_only(children: &[RequiredChild<'_>]) -> Value {
                 let value = match &child.fill {
                     Fill::Value(value) | Fill::CaretAt(value) => value.clone(),
                     Fill::Children(nested) => written_only(nested),
+                    list @ Fill::List { .. } => list.value().unwrap_or_default(),
                     Fill::Caret { .. } | Fill::Empty(_) => Value::Null,
                 };
                 (child.key.to_string(), value)
@@ -507,11 +553,14 @@ fn fill<'a>(
         };
         // Items to type: the caret starts in the first one when no value
         // before the list took it.
-        if list.as_array().is_some_and(|items| !items.is_empty()) && !*caret {
-            *caret = true;
-            return Some(Fill::CaretAt(list));
-        }
-        return Some(Fill::Value(list));
+        return Some(match list {
+            Value::Array(items) if !items.is_empty() => {
+                let here = !*caret;
+                *caret = true;
+                super::list_fill::list_fill(language, items, at, root, here)
+            }
+            list => Fill::Value(list),
+        });
     }
     if types.allows_type("object") && object_branch(child, root).is_some() {
         let nested = children(language, child, Some(at), root, caret, depth + 1);
@@ -549,10 +598,10 @@ pub fn writes_key(language: &dyn ConfigLanguage, key: &str) -> bool {
 }
 
 /// Whether the caret of `children` goes to a list written with items
-/// (see [`Fill::CaretAt`]).
+/// (see [`Fill::List`]).
 pub(crate) fn caret_at_list(children: &[RequiredChild<'_>]) -> bool {
     children.iter().any(|child| match &child.fill {
-        Fill::CaretAt(Value::Array(items)) => !items.is_empty(),
+        Fill::List { caret, .. } => *caret,
         Fill::Children(nested) => caret_at_list(nested),
         _ => false,
     })

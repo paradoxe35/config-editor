@@ -546,6 +546,13 @@ fn write_children(
     for child in elements {
         let name = child.key;
         insert.push_str(&child_indent);
+        if let Fill::List { items, caret: at } = &child.fill {
+            if *at {
+                *caret = Some(insert.len());
+            }
+            write_items(name, items, &child_indent, unit, insert, caret);
+            continue;
+        }
         let value = match &child.fill {
             Fill::Value(value) | Fill::CaretAt(value) | Fill::Empty(Some(value)) => Some(value),
             _ => None,
@@ -581,6 +588,44 @@ fn write_children(
         insert.push_str(&format!("</{name}>\n"));
     }
     insert.push_str(base_indent);
+}
+
+/// The items of a list `name` as its repeated elements, each on a line
+/// of its own at `indent` (the first's already written): an object item
+/// as its required children (its attributes in its start tag), and so a
+/// list item of one such item, which the writer writes as that item's
+/// element; another item as the writer writes a list of it alone.
+fn write_items(
+    name: &str,
+    items: &[Fill<'_>],
+    indent: &str,
+    unit: &str,
+    insert: &mut String,
+    caret: &mut Option<usize>,
+) {
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            insert.push_str(indent);
+        }
+        let mut item = item;
+        while let Fill::List { items, .. } = item
+            && let [only] = items.as_slice()
+        {
+            item = only;
+        }
+        if let Fill::Children(members) = item {
+            insert.push_str(&format!("<{name}>"));
+            write_children(members, indent, unit, insert, caret);
+            insert.push_str(&format!("</{name}>\n"));
+            continue;
+        }
+        let value = Value::Array(vec![item.value().unwrap_or_default()]);
+        match written_elements(name, &value, indent, unit) {
+            Some(elements) => insert.push_str(&elements),
+            None => insert.push_str(&format!("<{name}></{name}>")),
+        }
+        insert.push('\n');
+    }
 }
 
 /// Text as element content: a carriage return as a reference, since XML

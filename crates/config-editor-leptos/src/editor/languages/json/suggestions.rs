@@ -237,6 +237,12 @@ fn write_children(
                 *caret = Some(insert.len() + usize::from(text == "[]"));
                 insert.push_str(&text);
             }
+            list @ Fill::List { caret: at, .. } => {
+                if *at {
+                    *caret = Some(insert.len());
+                }
+                insert.push_str(&json_text(&list.value().unwrap_or_default()));
+            }
             Fill::Empty(None) => {}
         }
     }

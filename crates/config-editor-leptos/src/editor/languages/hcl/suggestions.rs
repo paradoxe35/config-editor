@@ -645,6 +645,12 @@ fn write_object(
                         *caret = Some(insert.len() + usize::from(text == "[]"));
                         insert.push_str(&text);
                     }
+                    list @ Fill::List { caret: at, .. } => {
+                        if *at {
+                            *caret = Some(insert.len());
+                        }
+                        insert.push_str(&hcl_text(&list.value().unwrap_or_default()));
+                    }
                     Fill::Children(_) | Fill::Empty(None) => {}
                 }
             }

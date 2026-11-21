@@ -485,6 +485,12 @@ fn write_child(child: &RequiredChild<'_>, insert: &mut String, caret: &mut Optio
             *caret = Some(insert.len() + usize::from(text == "[]"));
             insert.push_str(&text);
         }
+        list @ Fill::List { caret: at, .. } => {
+            if *at {
+                *caret = Some(insert.len());
+            }
+            insert.push_str(&toml_text(&list.value().unwrap_or_default()));
+        }
         Fill::Empty(None) => {}
     }
     true

@@ -52,6 +52,9 @@ fn collect_fills(children: &[RequiredChild<'_>], fills: &mut Vec<(String, String
             Fill::Value(value) | Fill::CaretAt(value) | Fill::Empty(Some(value)) => {
                 collect_values(child.key, value, fills);
             }
+            list @ Fill::List { .. } => {
+                collect_values(child.key, &list.value().unwrap_or_default(), fills);
+            }
             Fill::Caret { .. } | Fill::Empty(None) => {}
         }
     }

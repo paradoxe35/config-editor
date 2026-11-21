@@ -162,6 +162,13 @@ pub(super) fn write_children(
                 output.push(' ');
                 output.push_str(&yaml_value(value));
             }
+            list @ Fill::List { caret, .. } => {
+                output.push(' ');
+                if *caret {
+                    *cursor_offset = Some(base_offset + output.encode_utf16().count());
+                }
+                output.push_str(&yaml_value(&list.value().unwrap_or_default()));
+            }
             // The value's place, so Tab lands where typing reads `key: x`.
             Fill::Empty(_) => output.push(' '),
         }
@@ -192,6 +199,12 @@ fn write_flow(children: &[RequiredChild<'_>], insert: &mut String, cursor: &mut 
                 let text = flow(value);
                 *cursor = Some(insert.len() + usize::from(text == "[]"));
                 insert.push_str(&text);
+            }
+            list @ Fill::List { caret, .. } => {
+                if *caret {
+                    *cursor = Some(insert.len());
+                }
+                insert.push_str(&flow(&list.value().unwrap_or_default()));
             }
             Fill::Empty(_) => {}
         }

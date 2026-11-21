@@ -263,6 +263,14 @@ fn children_value(children: &[RequiredChild<'_>], holes: &mut Vec<Hole>) -> Valu
             Fill::Children(nested) => children_value(nested, holes),
             Fill::Caret { string } => hole(holes, Hole::Caret { string: *string }),
             Fill::CaretAt(value) => hole(holes, Hole::CaretAt(value.clone())),
+            list @ Fill::List { caret, .. } => {
+                let value = list.value().unwrap_or_default();
+                if *caret {
+                    hole(holes, Hole::CaretAt(value))
+                } else {
+                    value
+                }
+            }
             Fill::Empty(_) => hole(holes, Hole::Empty),
         };
         map.insert(child.key.to_string(), value);
