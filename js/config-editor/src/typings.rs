@@ -59,7 +59,7 @@ export interface EditorOptions extends EditorSettings {
   valueRevision?: number;
   /** How secret placeholders (`«secret 3f2a»`) are matched, described and completed in fields the schema marks `writeOnly` or `x-secret`. */
   secrets?: SecretOptions;
-  /** The `channel` of an editor this one replaces (a framework re-creating its editor for a new `language` or `fileName`), with `echoes` as that editor had it: the texts it sent that the host has not handed back yet are this editor's echoes too, so none of them rolls back what was typed. The object is this editor's from then on. */
+  /** The `channel` of an editor this one replaces (a framework re-creating its editor for a new `language` or `fileName`), with `echoes` as that editor had it: the texts it sent that the host has not handed back yet are this editor's echoes too, so none of them rolls back what was typed. With no `readOnlyRanges` given, this editor holds the ones that editor held, where they are now. The object is this editor's from then on. */
   channel?: HostChannel;
 }
 

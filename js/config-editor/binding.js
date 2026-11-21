@@ -252,7 +252,12 @@ export class EditorBinding extends Binding {
       this.#applied[name] === JSON.stringify(props[name] ?? []) && name in this.#givenFor
         ? this.#givenFor[name]
         : props.value;
-    const textFor = givenFor("readOnlyRanges");
+    // The ranges the old editor was given last, rendered again: the channel
+    // taken over holds them where they are, so they are not given (a value
+    // they were rendered with since may be an echo of the editor's own
+    // text, where their numbers name other places).
+    const held = this.#channel !== null && this.#applied.readOnlyRanges === JSON.stringify(props.readOnlyRanges ?? []);
+    const textFor = held ? value : givenFor("readOnlyRanges");
     const rangesFor = textFor === undefined || textFor === value ? undefined : textFor;
     // Diagnostics given with another text come with the first update.
     const diagnostics = givenFor("hostDiagnostics") === textFor ? props.hostDiagnostics : undefined;
@@ -282,7 +287,7 @@ export class EditorBinding extends Binding {
       onPathChange: props.onPathChange ? this.#followPath : undefined,
       hostDiagnostics: diagnostics,
       readOnlyPaths: props.readOnlyPaths,
-      readOnlyRanges: props.readOnlyRanges,
+      readOnlyRanges: held ? undefined : (props.readOnlyRanges ?? []),
       rangesFor,
       secrets: props.secrets && {
         ...props.secrets,
@@ -411,6 +416,9 @@ export class EditorBinding extends Binding {
       if (this.#applied[name] !== list) this.#givenFor[name] = value;
       if (changed(name, list)) update[name] = JSON.parse(list);
     }
+    // Right after a mount the editor has the ranges: given to it, or held
+    // by the channel it took over (given again, they would be read anew).
+    if (force) delete update.readOnlyRanges;
     // Ranges are in the bound value they were given with, which may be an
     // echo the user typed past: the editor maps them from it to the
     // document (also when a re-mount sends them again).

@@ -107,16 +107,22 @@ impl HostChannel {
     /// [`HostChannel::new`] takes them: the texts still on their way are
     /// echoes for it too. A `value` that is not the text sent last (a
     /// reset made while there was no editor) is the host's own, on its
-    /// way as a reset is.
+    /// way as a reset is. With no ranges given (`None`: the host renders
+    /// the ones it gave before), the ones the channel holds are moved to
+    /// `value`. Returns the ranges to hand the new editor.
     pub(crate) fn remount(
         &mut self,
         value: &str,
-        print: Option<String>,
-        came_with: &str,
-        ranges: Vec<TextRange>,
-    ) {
+        given: Option<(Option<String>, &str, Vec<TextRange>)>,
+    ) -> Vec<TextRange> {
         self.echoes.carried(value);
-        self.locks = HostLocks::given(print, came_with, value, ranges);
+        match given {
+            Some((print, came_with, ranges)) => {
+                self.locks = HostLocks::given(print, came_with, value, ranges.clone());
+                ranges
+            }
+            None => self.locks.moved_to(value),
+        }
     }
 
     /// The first step of an update: its `readOnlyRanges` (printed `print`),

@@ -38,7 +38,7 @@ use std::rc::Rc;
 use config_editor_leptos::TextRange;
 use wasm_bindgen::JsValue;
 
-use crate::remap::carried;
+use crate::remap::{carried, moved_between};
 
 /// What a list of ranges is compared by: its JSON. `None` when it has none
 /// (a cycle, a value JSON cannot write): it then equals no other.
@@ -149,6 +149,21 @@ impl HostLocks {
         }
         self.came(text);
         carried(&self.text, text, &self.ranges)
+    }
+
+    /// An editor taken over on `value` (a framework re-mount) holds these
+    /// ranges still: the ones to hand it there, moved from the text their
+    /// positions are in as an edit moves them. Never read again in a text
+    /// the host rendered them with since: an echo of the editor's own text
+    /// rendered with them names other places with the same numbers.
+    pub(crate) fn moved_to(&mut self, value: &str) -> Vec<TextRange> {
+        let (ranges, _) = moved_between(&self.text, value, Some(self.ranges.clone()), None);
+        self.ranges = ranges.unwrap_or_default();
+        if !self.ranges.is_empty() {
+            self.text = Rc::from(value);
+        }
+        self.version = next_version();
+        self.ranges.clone()
     }
 
     /// Ranges came with `text` (taken or not): the host's text the next ones

@@ -147,6 +147,43 @@ fn ranges_that_stay_are_not_moved_from_an_echo() {
     }
 }
 
+/// P1: an editor taking the channel over (a framework re-mount) after the
+/// host rendered the ranges again with an echo holds the lock on its field:
+/// moved from the text it was given for, never read in the echo, where the
+/// same numbers name the line above it.
+#[test]
+fn a_remount_holds_the_ranges_given_again_with_an_echo() {
+    for sample in SAMPLES {
+        let (file, lock) = (sample.file, sample.lock());
+        let texts = sample.typed();
+        let current = texts.last().expect("typed");
+        let below = TextRange::new(
+            TextPosition::new(lock.start.line + 1, lock.start.column),
+            TextPosition::new(lock.end.line + 1, lock.end.column),
+        );
+        for echo in &texts {
+            let mut channel = HostChannel::new(
+                true,
+                sample.text,
+                Some("[3]".into()),
+                sample.text,
+                vec![lock],
+            );
+            for text in &texts {
+                channel.sent(text);
+            }
+            list(&mut channel, echo, "[3]", &[lock], current);
+            assert_eq!(
+                channel.remount(current, None),
+                vec![below],
+                "{file} {echo:?}"
+            );
+            // Held by the new editor: the same ones given again stay.
+            assert!(channel.locks.again(Some("[3]")), "{file} {echo:?}");
+        }
+    }
+}
+
 /// Ranges worked out in an echo the user typed past are moved from it to
 /// the document (the lock stays on its field); ranges given with a text
 /// of the host's own are read in it, as given.

@@ -199,6 +199,46 @@ export function frameworkCases(name) {
       });
     }
 
+    // The ranges a parent renders again with the editor's own text (its
+    // echo) were given for the text before the edit: a re-mount locks the
+    // text they locked there, not what the same numbers name in the echo.
+    for (const query of ['', '?random']) {
+      test(`${query || '(controlled)'}: a re-mount after an edit above a lock keeps the locked text locked and marked`, async ({ page: browserPage }) => {
+        const errors = [];
+        browserPage.on('pageerror', (error) => errors.push(String(error)));
+        browserPage.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+        await browserPage.goto(page(name) + query);
+        await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+        const locked = 'public_address: tunnel.example.com';
+        // Longer than the lock: read in the echo, the range lay wholly above it.
+        const above = 'first: 1\nsecond: 2\nthird: 3\nfourth: 4\nfifth: 5\n';
+        const text = await input(browserPage).inputValue();
+        const start = text.indexOf(locked);
+        await browserPage.evaluate((range) => window.setExtraProps({ readOnlyRanges: [range] }), { start, end: start + locked.length });
+        await browserPage.waitForTimeout(200);
+        await input(browserPage).evaluate((element) => {
+          element.focus();
+          element.setSelectionRange(0, 0);
+        });
+        await browserPage.keyboard.insertText(above);
+        const typed = above + text;
+        await expect(saved(browserPage)).toHaveText(typed);
+        await browserPage.waitForTimeout(300);
+        await browserPage.locator('#rename').click();
+        await expect(browserPage.locator('.config-editor__toolbar')).toContainText('renamed-tunnel.yaml');
+        await expect(browserPage.locator('.config-editor__locked')).toHaveText([locked]);
+        await input(browserPage).evaluate((element, locked) => {
+          const at = element.value.indexOf(locked) + 'public_address: tunnel'.length;
+          element.focus();
+          element.setSelectionRange(at, at);
+        }, locked);
+        await browserPage.keyboard.type('Z');
+        await browserPage.waitForTimeout(300);
+        await expect(input(browserPage)).toHaveValue(typed);
+        expect(errors).toEqual([]);
+      });
+    }
+
     // late parents and failed mounts
     test('a reset to a value a debounced parent skipped is its echo, the parent kept in step; setValue applies it', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?late');
