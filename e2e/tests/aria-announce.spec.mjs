@@ -99,12 +99,13 @@ test.describe('protected fields', () => {
     await expect(said(page)).toHaveText(/Assigned by the server/);
   });
 
-  // a secret placeholder has no suggestions; Ctrl+Space says why.
-  test('Ctrl+Space on a secret placeholder announces what it is', async ({ page }) => {
+  // a secret placeholder offers the reference forms that replace it whole.
+  test('Ctrl+Space on a secret placeholder offers its reference forms', async ({ page }) => {
     await selectIn(page, '«secret 3f2a»', 0, '«secret 3f2a»'.length);
     await page.keyboard.press('Control+Space');
-    await expect(options(page)).toHaveCount(0);
-    await expect(said(page)).toHaveText(/Keeps the current secret/);
+    await expect(options(page)).toHaveCount(2);
+    await expect(options(page).first()).toContainText('${VAR}');
+    await expect(options(page).nth(1)).toContainText('file:');
   });
 });
 

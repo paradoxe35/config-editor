@@ -523,9 +523,13 @@ editor.update({ hostDiagnostics: problems, onSave: null });
 - A new `value` replaces the document as a host update, whatever it is (a
   file switched to, a discard, a reset); a `value` that is the document
   already changes nothing. The caret stays on the same text when possible.
-  `readOnlyRanges` and host `range`s given with it are in the new document;
-  without new `readOnlyRanges`, the ones you gave last go with the text they
-  cover, as after `replaceValue`.
+  `readOnlyRanges` and host `range`s given with it are in the new document,
+  and lock exactly what they name there (give the ranges with each text of
+  your own, changed or not, as the framework components do). Without
+  `readOnlyRanges`, the ones you gave last are carried into the new text by
+  a diff, as after `replaceValue`: where the diff cannot tell where a lock
+  went, the whole changed lines around it stay locked until you give ranges
+  again.
   The text `onChange` gave last, given while the editor still held a newer
   edit (one edited as another language, waiting out the typing pause, that
   the update first sends to `onChange`), is older than what was typed: it
@@ -633,12 +637,17 @@ given back after what is typed next, it is the reset's echo and keeps the
 typing, also for a reset to the text you gave last (a discard to the file
 as loaded). A reset to the document as it is changes nothing (a second
 Discard): your store holds that text once. The `readOnlyRanges` you gave go
-with the text they cover into the reset's text: carried afresh from the text
-you gave them for, each locked line goes to the line holding its text there
-(nearest to its place when it moved), or, when its text changed, to the line
-in its place; no line around it is locked with it, and no lock is dropped.
-The ranges you give next, the same ones too, are read in the text they come
-with. The promise is
+with the text they cover into the reset's text, carried afresh from the text
+you gave them for by a line and character diff: a lock whose text is kept
+stays on it, and one whose text changed in place grows over what replaced
+it. Where the diff cannot tell where a lock went (its lines rewritten, a
+text with nothing of it left), the whole changed lines around it are
+locked: never a guess, and no lock is dropped. They stay locked until you
+give ranges again: the ranges you give next, the same ones too, are read in
+the text they come with, and lock exactly what they name there. Ranges that
+name places past that text's end but fit the text the last ones came with
+before the reset (a host rendering the ranges it had) are read in that one
+and moved to the document. The promise is
 yours to keep: a host that hands back only some texts (the latest of
 several) leaves the others counted as echoes (every text sent is
 remembered until its echo comes or a text of your own replaces the
@@ -1242,7 +1251,8 @@ without the lines of closed folds, so read the document from `value` (or
 While the text scrolls, the lines that open the blocks around the top line
 (parent keys, tables, elements) stay at the top, outermost first, as in VS
 Code; the innermost is pushed up as its block ends, and a click on one
-scrolls back to it with the caret at its start. They come from the same
+scrolls back to it with the caret at its start. A root that only opens a
+bracket (JSON's `{`) does not stick. They come from the same
 blocks as folding (also with `folding: false`), in every language and in an
 Edit-as view, and show the text as the editor does (colors, locked values,
 secret placeholders). Screen readers skip them (they read the text itself),
@@ -1393,6 +1403,14 @@ view.isDirty("main");
   an unchanged prop); `view.replaceValue(id, text)` goes back to such a
   text (list the document with it from then on; `false` for an id not
   listed or a text it holds already); it changes only that document, the others keep their edits.
+  A document's `readOnlyRanges` are read in the `value` listed with it, as
+  `ConfigEditor`'s `update({ value, readOnlyRanges })` reads them: ranges
+  past that text's end that fit the text the last ones came with (the
+  ranges you kept listing after a `replaceValue`) are read there and moved.
+  Ranges that fit neither hold no other document back: the rest of the
+  list applies, that document keeps the locks it had (carried into its new
+  text; a document listed for the first time is locked whole), and
+  `update` then throws naming it (`documents[0].readOnlyRanges[0]: …`).
 - `update` and `replaceValue` (on both classes) first apply input the
   browser sent in this task, which calls `onChange`: what you set from
   there (a list, a value, locks, callbacks) is newer than the call that
