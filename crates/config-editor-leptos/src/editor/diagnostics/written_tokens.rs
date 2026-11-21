@@ -48,7 +48,7 @@ fn each_place(text: &str, tokens: &[&str], mut found: impl FnMut(usize, Range<us
 
 /// Which of `tokens` `text` writes (an empty one, as `str::contains`
 /// finds it, everywhere).
-pub(super) fn written<'t>(text: &str, tokens: &[&'t str]) -> Vec<&'t str> {
+pub(in crate::editor) fn written<'t>(text: &str, tokens: &[&'t str]) -> Vec<&'t str> {
     let mut seen: Vec<bool> = tokens.iter().map(|token| token.is_empty()).collect();
     each_place(text, tokens, |at, _| seen[at] = true);
     tokens

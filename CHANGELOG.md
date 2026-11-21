@@ -142,9 +142,18 @@ versions move together.
 - An Edit-as save after typing does the work of what was typed, not of
   every item of the document: an XML host with attributes no longer pairs
   each item with its link or checks each item and element's markup again
-  when only a value's text changed (a 10 000-line XML host edited as JSON
-  saves a typed value natively in about 1.1 s under its schema, from
-  2.2 s, and in 0.6 s without one, from 1.5 s).
+  when only a value's text changed (a 10 000-line XML host edited as JSON,
+  measured natively with no parses kept between steps, saves a typed value
+  in about 1.1 s under its schema, from 2.2 s, and in 0.6 s without one,
+  from 1.5 s; the next line gives a mounted editor's times).
+- A typed Edit-as save over an XML host walks the schema for the values
+  it writes as attributes only where the document holds new values, and
+  reads the host's markup only up to its first element holding some; a
+  held secret placeholder's tokens are looked for in one pass over the
+  text, not one pass each. The same 10 000-line XML host edited as JSON,
+  in a mounted editor (which keeps its last parses, as in the browser),
+  saves a typed value natively in about 0.47 s under its
+  schema, from 0.57 s, and in 0.43 s without one, from 0.46 s.
 - In an XML view under a schema, a copy of a list item pasted into the
   list the host already holds is a new item: it saves as the view reads
   it where the schema takes only that reading (a `<d>0</d>` copied where

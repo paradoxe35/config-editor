@@ -283,6 +283,10 @@ pub(crate) enum Work {
     /// A whole text searched for the host's secret placeholders written in
     /// it: one pass finds them all, not one pass for each of them.
     TokenSearch,
+    /// An XML element's start tag read for what no view shows (its
+    /// markup, its name's prefix, its attributes; `kept_markup`).
+    #[cfg_attr(not(feature = "xml"), allow(dead_code, reason = "only XML notes it"))]
+    MarkupRead,
 }
 
 impl Work {
@@ -346,6 +350,7 @@ impl Work {
             Self::SchemaCheck => 54,
             Self::SaveItemJudged => 55,
             Self::TokenSearch => 56,
+            Self::MarkupRead => 57,
         }
     }
 
@@ -409,12 +414,13 @@ impl Work {
         Self::SchemaCheck,
         Self::SaveItemJudged,
         Self::TokenSearch,
+        Self::MarkupRead,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 57;
+const KINDS: usize = 58;
 
 #[cfg(test)]
 thread_local! {

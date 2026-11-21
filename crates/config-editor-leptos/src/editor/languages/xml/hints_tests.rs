@@ -106,3 +106,37 @@ fn completion_offers_attributes_in_a_start_tag_and_elements_in_the_content() {
         assert_eq!(all, expected, "{marked}");
     }
 }
+
+/// Which new values the schema makes attributes is read walking the
+/// schema only where the document holds what the text before did not: a
+/// typed value walks it as far for a document four times as large, and
+/// a server added still takes its attributes.
+#[test]
+fn the_schema_is_walked_for_attributes_only_where_values_are_new() {
+    use crate::editor::work_count::{Work, counted};
+    let schema: Value = serde_json::from_str(
+        &SCHEMA.replace(r#""server": {"#, r#""servers": {"type": "array", "items": {"#).replacen("}\n  }\n}", "}}\n  }\n}", 1),
+    )
+    .unwrap();
+    let servers = |count: usize| -> Value {
+        let items: Vec<Value> = (0..count).map(|at| json!({"port": "80", "proto": "tcp", "name": format!("s{at}")})).collect();
+        json!({ "servers": items })
+    };
+    let walks = |count: usize| {
+        let old = servers(count);
+        let mut value = old.clone();
+        value["servers"][count / 2]["name"] = json!("typed");
+        let (found, walks) = counted(Work::BranchWalk, || super::hints::schema_attribute_paths(&value, &schema, Some(&old)));
+        assert!(found.is_empty(), "{found:?}");
+        walks
+    };
+    let (small, large) = (walks(50), walks(200));
+    assert!(large <= small, "{small} schema walks for 50 servers, then {large} for 200");
+    let old = servers(3);
+    let mut added = old.clone();
+    added["servers"].as_array_mut().unwrap().push(json!({"port": "81", "name": "new"}));
+    let found = super::hints::schema_attribute_paths(&added, &schema, Some(&old));
+    let mut found: Vec<Vec<String>> = found.into_iter().collect();
+    found.sort();
+    assert_eq!(found, [vec!["servers".to_string(), "port".to_string()]]);
+}

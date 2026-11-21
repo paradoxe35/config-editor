@@ -398,6 +398,14 @@ mod option_document_reads;
     feature = "schema-validation"
 ))]
 mod option_nested_keys_work;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod save_time;
 #[cfg(all(feature = "json", feature = "schema-validation"))]
 mod schema_error_bound;
 #[cfg(all(feature = "json", feature = "schema-validation"))]

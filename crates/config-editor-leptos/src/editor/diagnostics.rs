@@ -39,7 +39,7 @@ use specific::{Explanations, own_errors, specific_errors, text_for_typed_option,
 mod unevaluated;
 #[cfg(feature = "schema-validation")]
 mod wording;
-mod written_tokens;
+pub(in crate::editor) mod written_tokens;
 
 /// The most problems of one kind (the schema's, the secret placeholders')
 /// shown and underlined; past it, a note says more follow.

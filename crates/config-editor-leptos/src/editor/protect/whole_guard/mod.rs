@@ -50,6 +50,7 @@ use super::super::text::TextRange;
 use serde_json::Value;
 
 use super::super::codec::scalar_range;
+use super::super::diagnostics::written_tokens;
 use super::super::language::ConfigLanguage;
 use super::super::parse_cache;
 use super::super::paths::written_value_span;
@@ -361,9 +362,10 @@ impl Held {
         let holders = OnceCell::new();
         let host = origin.map(|origin| parse_cache::parsed(behavior, origin));
         let host = host.as_ref().and_then(|host| host.as_ref().as_ref().ok());
-        self.tokens
-            .iter()
-            .filter(|token| text.contains(token.as_str()))
+        // Each token the text still writes, found in one pass for all.
+        let tokens: Vec<&str> = self.tokens.iter().map(String::as_str).collect();
+        written_tokens::written(text, &tokens)
+            .into_iter()
             .any(|token| {
                 let mut fields = known
                     .iter()

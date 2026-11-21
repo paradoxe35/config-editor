@@ -109,6 +109,7 @@ impl HostElements {
                 .filter(|attribute| !attribute.markup)
                 .map(|attribute| local(slice::slice(text, byte_range(attribute.name.clone())).unwrap_or_default()))
                 .collect();
+            crate::editor::work_count::note(crate::editor::work_count::Work::MarkupRead);
             let element = HostElement {
                 markup: markup_attributes(text, token, &read.markup),
                 filled: filled(text, token),
@@ -188,8 +189,20 @@ fn told_in_place(told: SaveTold<'_>) -> bool {
 /// Whether an element of `text` holds markup, a prefixed name or an
 /// attribute: what no view shows.
 pub(super) fn holds_markup(text: &str) -> bool {
-    let read = HostElements::of(text);
-    read.marked || read.attributed
+    // Read as `HostElements::of` reads each element, up to the first that
+    // holds any.
+    let markup = declarations::Markup::of(text);
+    let tokens = tokenize(text);
+    let plan = plan_paths(text, &tokens);
+    tokens.iter().filter(|token| matches!(token.kind, Kind::OpenTag { closing: false, .. })).any(|token| {
+        plan.path_of(token.start).is_some() && {
+            crate::editor::work_count::note(crate::editor::work_count::Work::MarkupRead);
+            let tag = Tag::of(text, token, &markup);
+            !markup_attributes(text, token, &markup).is_empty()
+                || written_names::prefix(text, token).is_some()
+                || tag.attributes.iter().any(|attribute| !attribute.markup)
+        }
+    })
 }
 
 /// The pointer of the first element of `patched` (a save's text for
@@ -343,6 +356,43 @@ mod tests {
             text.push_str(&format!("  <s{space}{markup}><n>{size}</n></s>\n"));
         }
         text + "</l>\n"
+    }
+
+    /// Whether a host's elements hold what no view shows is read up to the
+    /// first that holds some (each save of an XML host asks it), not by
+    /// reading every element's markup.
+    #[test]
+    fn a_host_holding_markup_is_told_from_its_first_element_holding_some() {
+        use super::holds_markup;
+        use crate::editor::work_count::{Work, counted};
+        let items = |count: usize, first: &str, last: &str| {
+            let mut text = String::from("<r>\n");
+            for at in 0..count {
+                let markup = if at == 0 { first } else if at + 1 == count { last } else { "" };
+                text.push_str(&format!("  <s{markup}><n>{at}</n></s>\n"));
+            }
+            text + "</r>\n"
+        };
+        let reads = |count: usize| counted(Work::MarkupRead, || holds_markup(&items(count, " a=\"1\"", "")));
+        let ((small_holds, small), (large_holds, large)) = (reads(10), reads(1000));
+        assert!(small_holds && large_holds);
+        assert!(large <= small, "{small} start tags read for 10 items, then {large} for 1000");
+        // As the whole read of the host's elements tells it.
+        let whole = |text: &str| {
+            let read = super::HostElements::of(text);
+            read.marked || read.attributed
+        };
+        let marks = ["", " a=\"1\"", " xmlns=\"urn:a\"", " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\""];
+        for first in marks {
+            for last in marks {
+                let text = items(5, first, last);
+                assert_eq!(holds_markup(&text), whole(&text), "{text}");
+            }
+        }
+        assert!(!holds_markup(&items(5, "", "")));
+        for text in ["<r>\n  <x:s xmlns:x=\"urn:x\"/>\n</r>\n", "<r a=\"1\"><s/></r>\n", "<?xml version=\"1.0\"?>\n<r config-root=\"true\">\n  <s>1</s>\n</r>\n"] {
+            assert_eq!(holds_markup(text), whole(text), "{text}");
+        }
     }
 
     #[test]

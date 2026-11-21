@@ -192,3 +192,30 @@ fn a_whole_document_edit_checks_placeholders_in_linear_work() {
     super::super::parse_cache::release();
     assert!(costly.is_empty(), "{costly:#?}");
 }
+
+/// Whether a held placeholder is still read otherwise looks for the
+/// hold's tokens in the text in one pass for all of them, not one pass
+/// for each (a hold may name hundreds), and finds the ones written.
+#[test]
+fn a_hold_looks_for_its_placeholders_in_one_pass() {
+    let tokens: Vec<String> = (0..300).map(|at| format!("«secret {at:08x}»")).collect();
+    let text = format!("a: {}\nb: {} beside\n", tokens[7], tokens[250]);
+    let held = super::whole_guard::Held {
+        field: "/b".to_string(),
+        tokens,
+    };
+    let matcher = super::tokens::SecretMatcher::new(&SecretOptions::default());
+    let (still, searches) = counted(Work::TokenSearch, || {
+        held.still(
+            Language::YAML.behavior(),
+            (&[], &matcher),
+            &text,
+            Some("a: x\nb: y\n"),
+        )
+    });
+    assert_eq!(searches, 1, "one pass over the text for every token");
+    assert!(
+        still,
+        "a token is written with more text beside it than the host's"
+    );
+}

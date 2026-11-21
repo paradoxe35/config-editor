@@ -27,13 +27,17 @@ fn sample(language: Language) -> &'static str {
     }
 }
 
-fn schema() -> Arc<SchemaBundle> {
+pub(super) fn schema() -> Arc<SchemaBundle> {
     Arc::new(build_schema(include_str!("../../../tests/fixtures/tunnel.schema.json")).unwrap())
 }
 
 /// An editor of `text` in `host` with the schema, its problems read as the
 /// mounted view reads them.
-fn mounted(host: Language, text: &str, schema: &Arc<SchemaBundle>) -> (Owner, EditorState) {
+pub(super) fn mounted(
+    host: Language,
+    text: &str,
+    schema: &Arc<SchemaBundle>,
+) -> (Owner, EditorState) {
     let mut editor = TestEditor::new(host, text);
     editor.schema = Some(Arc::clone(schema));
     let mounted = editor.mount();
@@ -47,7 +51,7 @@ fn read_problems(state: EditorState) {
 }
 
 /// Switches to `next`, as the view sees it.
-fn switch(state: EditorState, next: Language) {
+pub(super) fn switch(state: EditorState, next: Language) {
     switch_to(state, next);
     read_problems(state);
 }
@@ -129,7 +133,7 @@ fn a_switch_searches_its_text_for_the_placeholders_once() {
 /// The sample's document with its lists of clients, services, visitors
 /// and sites each `copies` times over, the copies named apart (and their
 /// placeholders told apart, each a placeholder of its own).
-fn document(copies: usize) -> Value {
+pub(super) fn document(copies: usize) -> Value {
     let mut value: Value = serde_json::from_str(sample(Language::JSON)).unwrap();
     for name in ["clients", "services", "visitors", "web"] {
         let Some(Value::Object(entries)) = value.get_mut(name) else {

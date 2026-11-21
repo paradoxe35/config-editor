@@ -34,10 +34,34 @@ pub(super) fn schema_attribute_paths(value: &Value, schema: &Value, old: Option<
             if scalar && marked && old_here.is_none() && !keys.is_empty() {
                 found.insert(keys);
             }
-            Next::Into
+            // Below a value `old` holds every key and item of, `old` holds
+            // each value too: none is new, so the schema is not walked
+            // there (a save of a typed value walks only the way to it).
+            match (value.pointer(at.pointer), old_here) {
+                (Some(here), Some(before)) if holds_all(before, here) => Next::Past,
+                _ => Next::Into,
+            }
         },
     );
     found
+}
+
+/// Whether `old` holds a value at every pointer `value` holds one, as
+/// [`follow`] reads `old` (a lone element where `value` has a list of
+/// one).
+fn holds_all(old: &Value, value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map.iter().all(|(key, child)| old.get(key).is_some_and(|before| holds_all(before, child))),
+        Value::Array(items) => items.iter().enumerate().all(|(index, item)| {
+            let before = match old {
+                Value::Array(olds) => olds.get(index),
+                other if index == 0 => Some(other),
+                _ => None,
+            };
+            before.is_some_and(|before| holds_all(before, item))
+        }),
+        _ => true,
+    }
 }
 
 /// The keys on the way to `pointer` in `value` (array indices left out),
