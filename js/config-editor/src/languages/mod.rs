@@ -3,9 +3,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use config_editor_leptos::Language;
-use config_editor_leptos::language::{LanguageConfig, LanguageInfo, LanguageTraits};
 use js_sys::{Array, Function};
+use leptos_config_editor::Language;
+use leptos_config_editor::language::{LanguageConfig, LanguageInfo, LanguageTraits};
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
 

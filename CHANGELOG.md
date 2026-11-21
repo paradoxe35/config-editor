@@ -1,9 +1,19 @@
 # Changelog
 
-All notable changes to the crate `config-editor-leptos` and the npm packages
+All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor`, `@pngwasi/config-editor-react`,
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
+
+## 0.1.1 — 2026-11-21
+
+- The Rust crate is renamed from `config-editor-leptos` to
+  `leptos-config-editor`, following the `leptos-*` naming of the Leptos
+  ecosystem. Change the dependency to `leptos-config-editor = "0.1"` and the
+  imports from `config_editor_leptos::` to `leptos_config_editor::`. Nothing
+  else changes.
+- The npm packages move to 0.1.1 with the same code, so all versions stay
+  together.
 
 ## 0.1.0 — 2026-11-21
 
@@ -120,7 +130,7 @@ WebAssembly.
 
 ### Packages
 
-- `config-editor-leptos`: the Leptos component and the headless API.
+- `leptos-config-editor`: the Leptos component and the headless API.
 - `@pngwasi/config-editor`: plain JavaScript (`ConfigEditor`,
   `ConfigDocuments`, one `update()` for every option), with `/tools` and
   `/binding` entries.

@@ -20,7 +20,7 @@ const vanilla = pathToFileURL(join(js, "examples", "vanilla.html")).href;
 test.skip(!built, "js packages not built: run `npm run build` in js/");
 
 // Texts this walk does not reach, each checked by the crate's unit tests
-// instead (`cargo test -p config-editor-leptos strings`, `edit_as`,
+// instead (`cargo test -p leptos-config-editor strings`, `edit_as`,
 // `status_bar`, `protect`, `diagnostics`).
 const ELSEWHERE = {
   noSuggestions:

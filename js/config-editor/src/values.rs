@@ -1,11 +1,11 @@
 //! Values crossing between JavaScript and Rust: arguments, paths, ranges,
 //! plain data, and the shapes returned to JavaScript.
 
-use config_editor_leptos::language::SchemaPathSegment;
-use config_editor_leptos::{
+use js_sys::{Array, Object, Reflect};
+use leptos_config_editor::language::SchemaPathSegment;
+use leptos_config_editor::{
     ChangeSummary, Diagnostic, DiagnosticOrigin, FieldPath, TextPosition, TextRange,
 };
-use js_sys::{Array, Object, Reflect};
 
 use crate::text_lines::TextLines;
 use serde::Serialize;
@@ -57,7 +57,7 @@ pub(crate) fn json_from_js(value: &JsValue, depth: usize) -> Result<Value, Strin
         return Ok(number_from_js(number));
     }
     if let Some(text) = value.as_string() {
-        return Ok(config_editor_leptos::string_value(text));
+        return Ok(leptos_config_editor::string_value(text));
     }
     if value.is_bigint() {
         // An integer `parse` gave as a bigint (past 2^53), exact.
@@ -126,7 +126,7 @@ fn number_from_js(number: f64) -> Value {
             return Value::from(number as u64);
         }
     }
-    config_editor_leptos::float_value(number)
+    leptos_config_editor::float_value(number)
 }
 
 /// Whether `value` is a plain object (`{…}` or `Object.create(null)`), not
@@ -535,8 +535,8 @@ fn walk(value: &Value, form: Form) -> JsValue {
         Value::Number(number) => large_integer(number)
             .unwrap_or_else(|| JsValue::from_f64(number.as_f64().unwrap_or_default())),
         Value::String(text) => match form {
-            Form::Model => config_editor_leptos::float_of(value).map_or_else(
-                || JsValue::from_str(config_editor_leptos::string_of(value).unwrap_or(text)),
+            Form::Model => leptos_config_editor::float_of(value).map_or_else(
+                || JsValue::from_str(leptos_config_editor::string_of(value).unwrap_or(text)),
                 JsValue::from_f64,
             ),
             Form::Plain => JsValue::from_str(text),

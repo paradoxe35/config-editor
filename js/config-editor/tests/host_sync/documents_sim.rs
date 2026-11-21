@@ -9,12 +9,12 @@
 
 use std::collections::HashMap;
 
-use config_editor_leptos::TextRange;
+use leptos_config_editor::TextRange;
 
 use crate::host::{HostDoc, ranges_in};
 use crate::host_channel::{Given, HostChannel};
 use crate::model::{Act, Class, Core, Failure, Form, Outcome, ResetKind, read_ranges, user_edit};
-use config_editor_leptos::js_support::{Echo, echo_clock as clock};
+use leptos_config_editor::js_support::{Echo, echo_clock as clock};
 
 /// One document: the `documents` signal's copy, its entry, its editor.
 struct Doc {

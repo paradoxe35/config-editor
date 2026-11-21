@@ -3,8 +3,8 @@
 //! missing ones taking their defaults), and back. The TypeScript type is
 //! generated from the struct (`settings.d.ts`, see `tests/settings.rs`).
 
-use config_editor_leptos::{EditorSettings, EditorStrings, ThemeColors};
 use js_sys::{Object, Reflect};
+use leptos_config_editor::{EditorSettings, EditorStrings, ThemeColors};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 

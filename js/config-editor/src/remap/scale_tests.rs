@@ -2,7 +2,7 @@
 //! ~512 diff steps every range between the first and the last change grew
 //! over all of it), and the diff's work counted: linear in the texts for a
 //! few changes, and bounded per line with many.
-use config_editor_leptos::{TextPosition, TextRange};
+use leptos_config_editor::{TextPosition, TextRange};
 
 use super::Remap;
 use super::stretches::line_runs::WORK;

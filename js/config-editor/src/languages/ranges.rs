@@ -6,8 +6,8 @@
 
 use std::ops::Range;
 
-use config_editor_leptos::language::{ConfigLanguage, utf16_to_byte_index};
 use js_sys::Array;
+use leptos_config_editor::language::{ConfigLanguage, utf16_to_byte_index};
 use wasm_bindgen::prelude::*;
 
 use super::js_language::JsLanguage;

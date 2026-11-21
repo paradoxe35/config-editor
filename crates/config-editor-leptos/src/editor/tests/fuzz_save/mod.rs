@@ -15,7 +15,7 @@
 //! fix).
 //!
 //! The standing test runs [`CASES`] sessions per host and starting view;
-//! `FUZZ_CASES=5000 FUZZ_SEED=7 cargo test -p config-editor-leptos
+//! `FUZZ_CASES=5000 FUZZ_SEED=7 cargo test -p leptos-config-editor
 //! fuzz_save -- --nocapture` runs more (`FUZZ_PAIR=TOML>JSON` one pair
 //! only, `FUZZ_ALL=1` shrinks and prints the allowed failures too).
 

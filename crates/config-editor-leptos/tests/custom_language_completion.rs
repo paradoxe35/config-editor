@@ -4,7 +4,7 @@
 //! and `hover_key`, and `Schema::suggestions` / `Schema::hover` give what
 //! the editor would show.
 
-use config_editor_leptos::{Language, Schema, TextPosition};
+use leptos_config_editor::{Language, Schema, TextPosition};
 
 mod ini;
 use ini::Ini;

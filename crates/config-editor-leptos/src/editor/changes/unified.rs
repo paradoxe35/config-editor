@@ -15,7 +15,7 @@ use super::line_diff::{middle_edits, normalize_newlines};
 /// with `patch` or `git apply` (after renaming the headers to the file).
 ///
 /// ```
-/// use config_editor_leptos::unified_diff;
+/// use leptos_config_editor::unified_diff;
 ///
 /// let patch = unified_diff("listen: 7835\nlog: info\n", "listen: 7836\nlog: info\n", 3);
 /// assert_eq!(

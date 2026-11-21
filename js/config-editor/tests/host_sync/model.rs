@@ -11,7 +11,7 @@
 
 use std::ops::Range;
 
-use config_editor_leptos::{TextPosition, TextRange};
+use leptos_config_editor::{TextPosition, TextRange};
 
 /// The locked text: the host locks it wherever it is in its copy.
 pub(crate) const LOCKED: &str = "secret: keep";

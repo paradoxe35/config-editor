@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag like `v0.1.0` to publish config-editor-leptos to crates.io and
+# Push a tag like `v0.1.1` to publish leptos-config-editor to crates.io and
 # @pngwasi/config-editor and its React, Vue and Svelte packages to npm. The tag
 # must match the version in every manifest.
 #
@@ -63,7 +63,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   crate:
-    name: Publish config-editor-leptos
+    name: Publish leptos-config-editor
     needs: [versions, ci]
     runs-on: ubuntu-latest
     env:
@@ -82,19 +82,19 @@ jobs:
           echo "exists=$([ "$status" = 200 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - name: Publish
         if: github.event_name == 'push' && env.HAS_TOKEN == 'true' && steps.published.outputs.exists != 'true'
-        run: cargo publish -p config-editor-leptos
+        run: cargo publish -p leptos-config-editor
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
       - name: Already published
         if: steps.published.outputs.exists == 'true'
-        run: echo "::notice::config-editor-leptos $VERSION is already on crates.io; skipped"
+        run: echo "::notice::leptos-config-editor $VERSION is already on crates.io; skipped"
       - name: Dry run (manual run, or no CARGO_REGISTRY_TOKEN)
         if: (github.event_name != 'push' || env.HAS_TOKEN != 'true') && steps.published.outputs.exists != 'true'
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             echo "::notice::CARGO_REGISTRY_TOKEN is not set: crates.io publish skipped (dry run only)"
           fi
-          cargo publish -p config-editor-leptos --dry-run
+          cargo publish -p leptos-config-editor --dry-run
 
   npm:
     name: Publish npm packages

@@ -1,7 +1,7 @@
 //! What the editor accepts: language and theme names with what they stand
 //! for, color tokens, and the preset stylesheet.
 
-use config_editor_leptos::{EditorTheme, Language, PRESET_CSS};
+use leptos_config_editor::{EditorTheme, Language, PRESET_CSS};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 

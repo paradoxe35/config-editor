@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 /// `Ctrl`, or `Cmd` on macOS, where the editor takes both.
 ///
 /// ```
-/// use config_editor_leptos::{EditorSettings, EditorStrings};
+/// use leptos_config_editor::{EditorSettings, EditorStrings};
 ///
 /// let settings = EditorSettings {
 ///     strings: EditorStrings {

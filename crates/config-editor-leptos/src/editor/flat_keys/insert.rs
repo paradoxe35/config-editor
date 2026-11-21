@@ -86,7 +86,7 @@ impl LanguageConfig {
     /// an item separator or a map's closer (`<port: ; mode: >`).
     ///
     /// ```
-    /// use config_editor_leptos::language::LanguageConfig;
+    /// use leptos_config_editor::language::LanguageConfig;
     /// let dot = LanguageConfig {
     ///     separators: &[":"],
     ///     map_brackets: Some(('<', '>')),

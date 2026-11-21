@@ -38,7 +38,7 @@ pub enum DiagnosticTarget {
 /// to the editor's own diagnostics and marked as the host's.
 ///
 /// ```
-/// use config_editor_leptos::{HostDiagnostic, Severity};
+/// use leptos_config_editor::{HostDiagnostic, Severity};
 /// let problem = HostDiagnostic::at_path("/web/listen", Severity::Error, "port 80 is taken")
 ///     .with_code("E_PORT")
 ///     .with_source("validator")

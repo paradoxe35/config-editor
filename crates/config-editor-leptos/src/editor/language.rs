@@ -7,8 +7,8 @@
 //! The helpers re-exported here are the building blocks they use.
 //!
 //! ```
-//! use config_editor_leptos::Language;
-//! use config_editor_leptos::language::{
+//! use leptos_config_editor::Language;
+//! use leptos_config_editor::language::{
 //!     ConfigLanguage, LanguageInfo, ParseError, Token, TokenKind, Tokens,
 //! };
 //! use serde_json::{Map, Value};
@@ -585,7 +585,7 @@ pub fn pointer_segments(path: &str) -> Vec<String> {
 /// written `~0`, then `/` is written `~1`).
 ///
 /// ```
-/// use config_editor_leptos::language::{pointer_key, unescaped_key};
+/// use leptos_config_editor::language::{pointer_key, unescaped_key};
 /// assert_eq!(pointer_key("a/b~c"), "a~1b~0c");
 /// assert_eq!(unescaped_key("a~1b~0c"), "a/b~c");
 /// ```
@@ -771,7 +771,7 @@ pub struct Lexical {
 /// [`flat_format_value`](Self::flat_format_value)).
 ///
 /// ```
-/// use config_editor_leptos::language::{LanguageConfig, LanguageTraits};
+/// use leptos_config_editor::language::{LanguageConfig, LanguageTraits};
 ///
 /// const INI: LanguageConfig = LanguageConfig {
 ///     line_comments: &[";", "#"],

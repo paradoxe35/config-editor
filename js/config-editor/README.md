@@ -3,7 +3,7 @@
 A fast, schema-aware config editor for the browser: YAML, JSON, TOML, HCL and XML, or a language of your own,
 with completion from a JSON Schema, hover docs, validation, a diff gutter,
 editing one language as another, and eleven themes. It is written in Rust
-([`config-editor-leptos`](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos))
+([`leptos-config-editor`](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos))
 and ships as WebAssembly; this package is its framework-free JavaScript API.
 
 It has three entries:

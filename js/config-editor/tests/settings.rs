@@ -23,7 +23,7 @@
 
 use std::path::{Path, PathBuf};
 
-use config_editor_leptos::{
+use leptos_config_editor::{
     EditorSettings, EditorStrings, EditorTheme, Language, PRESET_CSS, ThemeColor,
 };
 use serde::Serialize;

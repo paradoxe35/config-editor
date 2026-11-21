@@ -49,7 +49,7 @@ impl std::error::Error for SchemaError {}
 ///
 /// ```
 /// # #[cfg(all(feature = "schema-validation", feature = "yaml", feature = "toml"))] {
-/// use config_editor_leptos::{Language, Schema};
+/// use leptos_config_editor::{Language, Schema};
 /// let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
 /// assert!(schema.validate(Language::YAML, "listen: 7835\n").is_empty());
 /// let problems = schema.validate(Language::TOML, "listen = \"x\"\n");
@@ -130,7 +130,7 @@ impl Schema {
     ///
     /// ```
     /// # #[cfg(feature = "yaml")] {
-    /// use config_editor_leptos::Schema;
+    /// use leptos_config_editor::Schema;
     /// let from_yaml = Schema::compile("properties:\n  listen: {type: integer}\n").unwrap();
     /// assert!(from_yaml.warnings().is_empty());
     /// # }
@@ -154,7 +154,7 @@ impl Schema {
     /// each to `on_schema_warning` when it mounts.
     ///
     /// ```
-    /// use config_editor_leptos::Schema;
+    /// use leptos_config_editor::Schema;
     /// let schema = Schema::compile(r#"{"patternProperties":{"^(?!x-)":{}}}"#).unwrap();
     /// assert_eq!(schema.warnings().len(), 1);
     /// ```
@@ -178,7 +178,7 @@ impl Schema {
     ///
     /// ```
     /// # #[cfg(feature = "toml")] {
-    /// use config_editor_leptos::{Language, Schema};
+    /// use leptos_config_editor::{Language, Schema};
     /// let schema = Schema::compile(r#"{"properties":{"listen":{"type":"integer"}}}"#).unwrap();
     /// let offered = schema.suggestions(Language::TOML, "lis", 3);
     /// assert_eq!(offered[0].label(), "listen");

@@ -294,7 +294,7 @@ impl std::str::FromStr for Severity {
 ///
 /// ```
 /// # #[cfg(feature = "json")] {
-/// use config_editor_leptos::{Language, check_syntax};
+/// use leptos_config_editor::{Language, check_syntax};
 /// assert!(check_syntax(Language::JSON, "{\"a\": 1}").is_empty());
 /// assert_eq!(check_syntax(Language::JSON, "{\"a\": }").len(), 1);
 /// # }

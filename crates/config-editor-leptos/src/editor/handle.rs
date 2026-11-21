@@ -26,7 +26,7 @@ use std::sync::Arc;
 /// editing as another one. Paths are the same in every language.
 ///
 /// ```ignore
-/// use config_editor_leptos::{ConfigEditor, EditorHandle};
+/// use leptos_config_editor::{ConfigEditor, EditorHandle};
 ///
 /// let editor = EditorHandle::new();
 /// view! {

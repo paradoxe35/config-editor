@@ -1,5 +1,5 @@
 //! Moving ranges between two texts.
-use config_editor_leptos::{TextPosition, TextRange};
+use leptos_config_editor::{TextPosition, TextRange};
 
 use super::{Remap, moved_between, reads_as};
 use crate::text_lines::TextLines;

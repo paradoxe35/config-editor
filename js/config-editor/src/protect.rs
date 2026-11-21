@@ -1,9 +1,9 @@
 //! Protected fields from JavaScript: `readOnlyPaths` / `readOnlyRanges`
 //! (options and `update` keys) and the `secrets` option.
 
-use config_editor_leptos::{FieldPath, SecretOptions, TextRange};
 use js_sys::Array;
 use leptos::prelude::*;
+use leptos_config_editor::{FieldPath, SecretOptions, TextRange};
 use wasm_bindgen::prelude::*;
 
 use crate::options::{function_option, warn_unknown_keys};
@@ -165,7 +165,7 @@ pub(crate) fn secrets_from(value: &JsValue, name: &str) -> Result<SecretOptions,
         optional_text(&field(value, "placeholder"), &format!("{name}.placeholder"))?
     {
         options = options.with_placeholder(pattern);
-        config_editor_leptos::js_support::check_placeholder(&options)
+        leptos_config_editor::js_support::check_placeholder(&options)
             .map_err(|error| JsError::new(&format!("{name}.placeholder: {error}")))?;
     }
     if let Some(hint) = optional_text(&field(value, "hint"), &format!("{name}.hint"))? {

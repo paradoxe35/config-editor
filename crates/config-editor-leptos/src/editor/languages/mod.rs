@@ -366,7 +366,7 @@ mod typing_matrix;
 ///
 /// ```
 /// # #[cfg(all(feature = "hcl", feature = "toml", feature = "yaml"))] {
-/// use config_editor_leptos::Language;
+/// use leptos_config_editor::Language;
 /// assert_eq!("yml".parse::<Language>(), Ok(Language::YAML));
 /// assert_eq!(Language::from_path("infra/main.tf"), Some(Language::HCL));
 /// assert_eq!(Language::TOML.to_string(), "TOML");
@@ -481,8 +481,8 @@ impl Language {
     /// Wraps a language implementation, built-in or external.
     ///
     /// ```
-    /// use config_editor_leptos::Language;
-    /// use config_editor_leptos::language::{ConfigLanguage, LanguageInfo, ParseError};
+    /// use leptos_config_editor::Language;
+    /// use leptos_config_editor::language::{ConfigLanguage, LanguageInfo, ParseError};
     ///
     /// struct Lines;
     /// impl ConfigLanguage for Lines {
@@ -557,7 +557,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(feature = "toml")] {
-    /// use config_editor_leptos::Language;
+    /// use leptos_config_editor::Language;
     /// let value = Language::TOML.parse("listen = 7835\n").unwrap();
     /// assert_eq!(value["listen"], 7835);
     /// # }
@@ -615,7 +615,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(feature = "hcl")] {
-    /// use config_editor_leptos::Language;
+    /// use leptos_config_editor::Language;
     /// let value = serde_json::json!({"web": {"http": 80}});
     /// assert_eq!(Language::HCL.serialize(&value).unwrap(), "web {\n  http = 80\n}\n");
     /// # }
@@ -635,7 +635,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(all(feature = "hcl", feature = "yaml"))] {
-    /// use config_editor_leptos::Language;
+    /// use leptos_config_editor::Language;
     /// let hcl = Language::YAML.convert("web:\n  http: 80\n", Language::HCL).unwrap();
     /// assert_eq!(hcl.text, "web {\n  http = 80\n}\n");
     /// assert!(hcl.losses.is_empty());
@@ -658,7 +658,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(all(feature = "yaml", feature = "toml"))] {
-    /// use config_editor_leptos::{Language, TextPosition};
+    /// use leptos_config_editor::{Language, TextPosition};
     /// let text = "web:\n  http: 80\n";
     /// let range = Language::YAML.range_of(text, "/web/http").unwrap();
     /// assert_eq!(range.start, TextPosition::new(2, 3));
@@ -679,7 +679,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(feature = "yaml")] {
-    /// use config_editor_leptos::Language;
+    /// use leptos_config_editor::Language;
     /// let text = "web:\n  http: 80\n  https: 443\n";
     /// let ranges = Language::YAML.ranges_of(text, ["/web/http", "/web/https", "/none"]);
     /// assert_eq!(ranges[1].unwrap().slice(text), "https: 443");
@@ -712,7 +712,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(all(feature = "json", feature = "folding"))] {
-    /// use config_editor_leptos::{Language, language::FoldRange};
+    /// use leptos_config_editor::{Language, language::FoldRange};
     /// let text = "{\n  \"web\": {\n    \"http\": 80\n  }\n}";
     /// assert_eq!(
     ///     Language::JSON.fold_ranges(text),
@@ -733,7 +733,7 @@ impl Language {
     ///
     /// ```
     /// # #[cfg(feature = "yaml")] {
-    /// use config_editor_leptos::{FieldPath, Language, TextPosition};
+    /// use leptos_config_editor::{FieldPath, Language, TextPosition};
     /// let text = "web:\n  http: 80\n";
     /// let path = Language::YAML.path_at(text, TextPosition::new(2, 10)).unwrap();
     /// assert_eq!(path, FieldPath::from("/web/http"));

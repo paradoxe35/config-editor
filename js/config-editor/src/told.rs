@@ -3,8 +3,8 @@
 //! change summary), so a callback given later
 //! through `update` hears it at once instead of waiting for the next change.
 
-use config_editor_leptos::{ChangeSummary, Diagnostic, Language};
 use js_sys::Function;
+use leptos_config_editor::{ChangeSummary, Diagnostic, Language};
 use wasm_bindgen::prelude::*;
 
 use crate::catalog::language_name;

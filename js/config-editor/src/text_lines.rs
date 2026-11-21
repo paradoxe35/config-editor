@@ -7,7 +7,7 @@
 //! given), lines and columns do not (line 1, column 1 is the character
 //! after it, as in the editor).
 
-use config_editor_leptos::TextPosition;
+use leptos_config_editor::TextPosition;
 
 /// A byte order mark.
 const MARK: char = '\u{feff}';
@@ -153,7 +153,7 @@ impl<'a> TextLines<'a> {
 
 #[cfg(test)]
 mod tests {
-    use config_editor_leptos::TextPosition;
+    use leptos_config_editor::TextPosition;
 
     use super::{TextLines, document};
 

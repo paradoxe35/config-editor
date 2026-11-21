@@ -1,6 +1,6 @@
 [package]
 name = "config-editor-demo"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 publish = false
 
@@ -20,7 +20,7 @@ bytecount = { git = "https://github.com/CharlesNg35/bytecount", rev = "f9dd655e3
 [dependencies]
 console_error_panic_hook = "0.1.7"
 leptos = { version = "0.8.23", features = ["csr"] }
-config-editor-leptos = { path = "crates/config-editor-leptos" }
+leptos-config-editor = { path = "crates/config-editor-leptos" }
 web-sys = { version = "0.3", features = ["DomRect", "Element", "EventTarget", "FocusEvent", "History", "HtmlDialogElement", "HtmlElement", "KeyboardEvent", "Location", "MouseEvent", "Node", "NodeList", "PointerEvent", "Window"] }
 serde_json = "1"
 
@@ -29,7 +29,7 @@ serde_json = "1"
 [profile.dev.package."*"]
 opt-level = 2
 
-[profile.dev.package.config-editor-leptos]
+[profile.dev.package.leptos-config-editor]
 opt-level = 2
 
 # Shipped wasm (the demo and the npm package): small over fast to compile.

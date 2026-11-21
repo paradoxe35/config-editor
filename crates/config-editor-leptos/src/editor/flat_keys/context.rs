@@ -21,7 +21,7 @@ impl LanguageConfig {
     /// the hook's.
     ///
     /// ```
-    /// use config_editor_leptos::language::{LanguageConfig, SchemaPathSegment};
+    /// use leptos_config_editor::language::{LanguageConfig, SchemaPathSegment};
     /// let env = LanguageConfig { separators: &["="], ..LanguageConfig::default() };
     /// let key = env.flat_completion_context("PORT=1\nLO", 9);
     /// assert_eq!((key.typed.as_str(), key.value_key), ("LO", None));

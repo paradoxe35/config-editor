@@ -2,7 +2,7 @@
 //! change counts, and schema warnings. Documents (`parse`, `rangeOf`, …)
 //! are in `documents`, accepted names in `catalog`.
 
-use config_editor_leptos::ChangeSummary;
+use leptos_config_editor::ChangeSummary;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -21,7 +21,7 @@ pub fn unified_diff(
     #[wasm_bindgen(unchecked_param_type = "string")] current: JsValue,
     #[wasm_bindgen(unchecked_optional_param_type = "number")] context: JsValue,
 ) -> Result<String, JsError> {
-    Ok(config_editor_leptos::unified_diff(
+    Ok(leptos_config_editor::unified_diff(
         &text_arg(&baseline, "baseline")?,
         &text_arg(&current, "current")?,
         context_arg(&context)?,
@@ -61,7 +61,7 @@ pub fn validate(
         Some(json) => crate::schema_cache::compiled(&json)
             .map_err(|error| JsError::new(&error.to_string()))?
             .validate(language, text),
-        None => config_editor_leptos::check_syntax(language, text),
+        None => leptos_config_editor::check_syntax(language, text),
     };
     Ok(diagnostics_to_js(problems).unchecked_into())
 }

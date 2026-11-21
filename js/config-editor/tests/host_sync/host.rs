@@ -3,7 +3,7 @@
 //! their way back to the editor, and the texts it listed and gave last.
 
 use crate::model::{Class, Form, LOCKED, ResetKind, host_lock, new_version};
-use config_editor_leptos::TextRange;
+use leptos_config_editor::TextRange;
 
 pub(crate) struct HostDoc {
     /// What the host holds.

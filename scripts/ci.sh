@@ -47,14 +47,14 @@ step_clippy() {
   (cd crates/config-editor-leptos &&
     cargo clippy --all-targets --no-default-features --features yaml,json,toml,hcl,xml -- -D warnings)
   # Text offsets stay typed: no file gains a plain `usize` offset.
-  cargo test -p config-editor-leptos --test typed_offsets
+  cargo test -p leptos-config-editor --test typed_offsets
 }
 
 step_test() {
-  run_tests test -p config-editor-leptos
+  run_tests test -p leptos-config-editor
   # The memory tests count this thread's live allocations: other tests
   # running at the same time would move the count, so they run alone.
-  run_tests test -p config-editor-leptos --lib keeps_no_memory -- --ignored --test-threads=1
+  run_tests test -p leptos-config-editor --lib keeps_no_memory -- --ignored --test-threads=1
   # Also checks that the settings' generated TypeScript type and README tables
   # match `EditorSettings` (UPDATE_GENERATED=1 rewrites them).
   run_tests test -p config-editor-js
