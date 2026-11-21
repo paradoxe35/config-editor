@@ -257,12 +257,14 @@ impl Echoes {
     /// the document moved past it. A reset to the document as it is changes
     /// nothing: its text is listed already, or on its way once (a second
     /// Discard waits for no listing of its own, so the host's own revert to
-    /// it is not taken for its echo).
+    /// it is not taken for its echo), and says nothing of what the host
+    /// holds (a binding's `setValue` does not report it): the text the
+    /// host gave last stays the one a pause compares the document with.
     pub fn replaced(&mut self, text: &str) -> Option<u64> {
         if self.on {
             let print = Print::of(text);
-            self.last_given = Some(print);
             if self.document != Some(print) {
+                self.last_given = Some(print);
                 let serial = self.send(print);
                 self.reset = Some(serial);
                 return Some(serial);
@@ -547,7 +549,20 @@ impl Echoes {
             && self.came_back.is_some_and(|back| revision <= back)
         {
             // Confirmed already: the host gives back a revision it moved
-            // past (a render of an old value), no news.
+            // past (a render of an old value), no news. It is still the
+            // text the host gave last: the one it renders next is judged
+            // against it.
+            self.last_given = Some(print);
+            self.last_listed = Some(print);
+            return Echo::Skip;
+        }
+        if self.on && self.behind(revision) {
+            // A revision this record never sent, older than a text it sent
+            // that is on its way: one an editor sent before this one took
+            // the document (hidden and shown again), handed back late. The
+            // host is behind and catching up, no news (see `behind`).
+            self.last_given = Some(print);
+            self.last_listed = Some(print);
             return Echo::Skip;
         }
         if !self.on || self.order.get(&revision) != Some(&print) {
@@ -592,6 +607,42 @@ impl Echoes {
         Echo::Resend
     }
 
+    /// Whether `revision` is one this record never sent, older than a text
+    /// it sent that is still on its way. Revisions come from one clock for
+    /// the page and a host passes back only those `on_change` gave (never
+    /// one for a text of its own), so it is a text an editor sent before
+    /// this record's: the editor a hide and show replaced. The host keeps
+    /// the newest revision and never goes back, so the newer text on its
+    /// way still comes.
+    fn behind(&self, revision: u64) -> bool {
+        !self.order.contains_key(&revision)
+            && self
+                .order
+                .range(revision.saturating_add(1)..)
+                .next()
+                .is_some()
+    }
+
+    /// Whether `value` (given with `revision`, if any) is a text of the
+    /// host's own as [`Echoes::received_at`] and [`Echoes::received`] read
+    /// it, before they take it: no copy sent, nor the text the host gave
+    /// last given again. Without the option every text is.
+    pub fn is_own(&self, value: &str, revision: Option<u64>) -> bool {
+        if !self.on {
+            return true;
+        }
+        let print = Print::of(value);
+        if let Some(revision) = revision
+            && (self.order.get(&revision) == Some(&print)
+                || self.behind(revision)
+                || !self.order.contains_key(&revision)
+                    && self.came_back.is_some_and(|back| revision <= back))
+        {
+            return false;
+        }
+        self.kind(print) == Kind::Own
+    }
+
     /// The revision of the text sent last, on its way or not.
     pub fn last_sent(&self) -> Option<u64> {
         self.last_sent
@@ -631,6 +682,7 @@ impl Echoes {
         let print = Print::of(value);
         if !self.order.contains_key(&revision)
             && self.came_back.is_some_and(|back| revision <= back)
+            || self.behind(revision)
         {
             return false;
         }
@@ -1248,6 +1300,73 @@ mod tests {
         );
         assert!(echoes.settle("b: 2\n"));
         assert_eq!(echoes.received("b: 2\n", "b: 2\n", NONE), Echo::Apply);
+    }
+
+    /// P4: a reset to the document as it is tells nothing of what the host
+    /// holds (a binding's `setValue` does not report it). A host left on an
+    /// older text by a late listing still hears the document once the
+    /// pause is over, whether the reset gives its text through
+    /// `replaceValue` or the host's own update gave it already.
+    #[test]
+    fn a_reset_to_the_document_leaves_the_host_on_the_text_it_gave() {
+        // Two resets, the first one's listing late and the host listing
+        // its store again (the second's listing dropped).
+        let mut echoes = Echoes::new(true);
+        echoes.given("o");
+        echoes.replaced("a1");
+        echoes.replaced("a2");
+        assert_eq!(echoes.received("a1", "a2", NONE), Echo::Settle);
+        assert_eq!(echoes.received("a1", "a2", NONE), Echo::Skip);
+        assert_eq!(echoes.replaced("a2"), None);
+        assert!(echoes.settle("a2"), "the host holds a1");
+        // The host's own text equal to the first reset, its echoes dropped.
+        let mut echoes = Echoes::new(true);
+        echoes.given("o");
+        echoes.replaced("a");
+        echoes.replaced("b");
+        assert_eq!(echoes.received("a", "b", NONE), Echo::Settle);
+        assert_eq!(echoes.replaced("b"), None);
+        assert!(echoes.settle("b"), "the host holds a");
+    }
+
+    /// A revision given back after a newer one came (an old render) is no
+    /// news, but it is the text the host gave last: the host's own text
+    /// given next, the one it gave before that, is news.
+    #[test]
+    fn an_old_revision_given_back_is_the_text_given_last() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("o");
+        let x1 = echoes.replaced("x1").expect("sent");
+        assert_eq!(echoes.received("x1", "x1", NONE), Echo::Apply);
+        echoes.replaced("x2");
+        assert_eq!(echoes.received("x2", "x2", NONE), Echo::Apply);
+        echoes.sent("x2d");
+        assert_eq!(echoes.received_at("x1", x1, "x2d", NONE), Echo::Skip);
+        assert!(echoes.replaces("x2", "x2d"));
+        assert_eq!(echoes.received("x2", "x2d", NONE), Echo::Apply);
+    }
+
+    /// P4: hidden and shown again, a host keeping revisions hands back a
+    /// text the editor that is gone sent, late. Older than a text the new
+    /// editor sent that is on its way, it keeps the typing (that text still
+    /// comes); with nothing typed since, it applies (the gone editor's
+    /// typing comes back).
+    #[test]
+    fn a_gone_editors_revision_older_than_the_typing_keeps_it() {
+        let mut gone = Echoes::new(true);
+        gone.given("s");
+        let late = gone.sent("s1");
+        let mut fresh = Echoes::new(true);
+        fresh.given("s");
+        let typed = fresh.sent("s2");
+        assert!(!fresh.replaces_at("s1", late, "s2"));
+        assert_eq!(fresh.received_at("s1", late, "s2", NONE), Echo::Skip);
+        assert_eq!(fresh.received_at("s2", typed, "s2", NONE), Echo::Apply);
+        assert_eq!(waiting(&fresh), 0);
+        let mut fresh = Echoes::new(true);
+        fresh.given("s");
+        assert!(fresh.replaces_at("s1", late, "s"));
+        assert_eq!(fresh.received_at("s1", late, "s", NONE), Echo::Apply);
     }
 
     /// A reset to the text the host listed last with nothing typed since

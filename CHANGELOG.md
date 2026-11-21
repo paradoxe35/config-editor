@@ -122,6 +122,20 @@ versions move together.
 
 ### Fixes
 
+- With `echoes`, a reset to the text the document already holds
+  (`replaceValue` or `setValue` with the same text, which reports nothing)
+  no longer makes the editor take the host for holding it: a host left on
+  an older text by a late answer still hears the document once the pause
+  is over, so the two agree again.
+- With `valueRevision`, an old revision given back after a newer one came
+  (an old render) is the text the host gave last: the host's own text
+  given next is taken as news, not as that text given again.
+- Hidden and shown again with `valueRevision`, a late answer for a text
+  the editor that is gone sent keeps what is typed in the new editor when
+  it is older than a text the new editor sent (that text still comes);
+  it brought that typing back over the new typing before. Without
+  `valueRevision` the new editor cannot tell such an answer from your own
+  text ("Hosts that echo" in the README says what to do).
 - In XML, a second element of a secret's name (an empty one too) written
   beside a lone secret's element is taken and held, typed or pasted, as a
   list made beside a placeholder is in every language; typing it no longer

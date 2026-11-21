@@ -146,6 +146,53 @@ fn an_echo_written_with_other_line_breaks_leaves_the_documents_own() {
     );
 }
 
+/// P2: a host without `echoes` gives the document again written its own
+/// way (CRLF, CRLF after the byte order mark it loaded with, mixed
+/// breaks): nothing changes and the host hears nothing, but from then on
+/// it hears its own form back, byte for byte.
+#[test]
+fn the_hosts_own_text_written_another_way_is_its_form_from_then_on() {
+    for (first, given, heard_back) in [
+        ("a: 1\nb: 2\n", "a: 1\r\nb: 2\r\n", "a: 1x\r\nb: 2\r\n"),
+        (
+            "\u{feff}a: 1\nb: 2\n",
+            "\u{feff}a: 1\r\nb: 2\r\n",
+            "\u{feff}a: 1x\r\nb: 2\r\n",
+        ),
+        ("a: 1\nb: 2\n", "a: 1\r\nb: 2\n", "a: 1x\r\nb: 2\n"),
+        ("a: 1\r\nb: 2\r\n", "a: 1\nb: 2\n", "a: 1x\nb: 2\n"),
+    ] {
+        let value = RwSignal::new(first.to_string());
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let told = heard.clone();
+        let (_owner, state) = TestEditor {
+            on_change: Some(Callback::new(move |text: String| {
+                told.lock().expect("heard").push(text);
+            })),
+            ..TestEditor::new(Language::YAML, first)
+        }
+        .mount();
+        follow_value(
+            state,
+            value.into(),
+            RwSignal::new(None).into(),
+            super::Lists::default(),
+        );
+        // Given twice: the second time no news either.
+        value.set(given.to_string());
+        value.set(given.to_string());
+        let shown = state.doc().text.get_untracked();
+        assert_eq!(shown, "a: 1\nb: 2\n", "{given:?}");
+        assert!(heard.lock().expect("heard").is_empty(), "{given:?}");
+        type_at_line_end(state, "x");
+        assert_eq!(
+            heard.lock().expect("heard").last().map(String::as_str),
+            Some(heard_back),
+            "{given:?}"
+        );
+    }
+}
+
 /// The locks of the text on screen, as the text they cover.
 #[cfg(feature = "protect")]
 fn locked(state: EditorState) -> Vec<String> {

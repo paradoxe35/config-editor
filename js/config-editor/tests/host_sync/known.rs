@@ -33,10 +33,14 @@ pub(crate) const KNOWN: &[Known] = &[
         step: |step| step == "drain",
         finding: "by design: the text a host gave last, given again, is no news",
     },
-    // Open (qa39 round 39b): after a hide and show, a late echo of the
-    // editor that is gone is the host's own text for the fresh one, which
-    // never sent it; typing made in the fresh editor before it comes is
-    // replaced. The locks stay on their text (the main property holds).
+    // Open (qa39 round 39b), a v0.1.0 host only: after a hide and show, a
+    // late echo of the editor that is gone is the host's own text for the
+    // fresh one, which never sent it (or it takes the echo of the same
+    // text the fresh one sent); typing made in the fresh editor before it
+    // comes is replaced. Telling it apart needs the gone editor's record
+    // of texts sent, which the fresh one does not have: `valueRevision`
+    // gives it (a host keeping revisions is held to `TypingLost`). The
+    // locks stay on their text (the main property holds).
     Known {
         views: BOTH,
         class: Class::TypingLostAfterHideShow,

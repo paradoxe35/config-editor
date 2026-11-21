@@ -45,11 +45,13 @@ pub(crate) struct DocSim {
     /// replaced brought back (no typing of this editor's): a newer text of
     /// the host's replacing it loses nothing typed here.
     brought_back: bool,
-    /// A late text of the editor a hide and show replaced was shown as the
-    /// host's own (the fresh editor cannot know it for an echo): until
-    /// every text on its way came back, what replaces typing then is that
-    /// same open finding (qa39 39b), whatever text does it.
-    gone_text_shown: bool,
+    /// A late text of the editor a hide and show replaced came back (the
+    /// fresh editor cannot know it for an echo: shown as the host's own,
+    /// or taken for the echo of the same text the fresh editor sent, whose
+    /// own echo then reads as the host's): until every text on its way
+    /// came back, what replaces typing then is that same open finding
+    /// (qa39 39b), whatever text does it.
+    gone_text_seen: bool,
 }
 
 impl DocSim {
@@ -66,7 +68,7 @@ impl DocSim {
             carried: false,
             typed_since_fresh: true,
             brought_back: false,
-            gone_text_shown: false,
+            gone_text_seen: false,
         };
         let given = Given {
             anchor: None,
@@ -183,20 +185,24 @@ impl DocSim {
             let typing_back =
                 queued.is_some_and(|queued| queued.before_fresh) && !self.typed_since_fresh;
             if !own && value != latest && !typing_back && !self.brought_back {
+                let class = if self.gone_text_seen {
+                    Class::TypingLostAfterHideShow
+                } else {
+                    self.host.lost_by(queued, &value)
+                };
                 return Err(Failure::new(
-                    if self.gone_text_shown {
-                        Class::TypingLostAfterHideShow
+                    // A host keeping revisions names every text, the gone
+                    // editor's too: nothing excuses a loss there.
+                    if self.host.revisions && class == Class::TypingLostAfterHideShow {
+                        Class::TypingLost
                     } else {
-                        self.host.lost_by(queued, &value)
+                        class
                     },
                     format!("update applied {value:?} over {latest:?}"),
                 ));
             }
             self.core.text = value;
             self.brought_back = typing_back;
-            if queued.is_some_and(|queued| queued.before_fresh) {
-                self.gone_text_shown = true;
-            }
         }
         if taken.echo == Some(Echo::Resend) {
             self.told_again();
@@ -257,6 +263,7 @@ impl DocSim {
             return Ok(());
         }
         queued.text.clone_into(&mut self.host.last_listed);
+        self.gone_text_seen |= queued.before_fresh;
         let revision = queued.revision;
         for _ in 0..if dup { 2 } else { 1 } {
             let given = ranges.then(|| Given {
@@ -272,7 +279,7 @@ impl DocSim {
             )?;
         }
         if self.host.queue.is_empty() {
-            self.gone_text_shown = false;
+            self.gone_text_seen = false;
         }
         Ok(())
     }

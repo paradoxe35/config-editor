@@ -707,7 +707,9 @@ pub(crate) fn take_raw_host_update(
         }
     }
     let taken = take_host_update(state, update)?;
-    if taken.shown
+    // A text of the host's own that reads as the document (written with
+    // CRLF where it was LF) is the host's form from now on too.
+    if (taken.shown || taken.own)
         && let Some(given) = given
     {
         line_endings.received(given);

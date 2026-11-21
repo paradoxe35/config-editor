@@ -716,4 +716,251 @@ mod repros {
             ],
         );
     }
+
+    /// P4: two resets by `setValue`, the host's own text equal to the
+    /// first (its echoes dropped), then a reset to the document as it is
+    /// (not reported): the editor still tells the host the document once
+    /// the pause is over.
+    #[test]
+    fn repro_editor_a_reset_to_the_document_leaves_the_host_heard_again() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 2,
+                other: 0,
+                form: Index,
+                revisions: false,
+            },
+            &[
+                Act::Reset {
+                    doc: 0,
+                    kind: Twice(50458),
+                    same_task: false,
+                    via: Via::SetValue,
+                },
+                Act::Own {
+                    doc: 0,
+                    edit: 35404,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: Same,
+                    same_task: false,
+                    via: Via::ReplaceValue,
+                },
+            ],
+        );
+    }
+
+    /// The same in a documents view: two resets, the first one listed
+    /// late, the store listed again (the second's listing dropped), then a
+    /// `setValue` to the document as it is.
+    #[test]
+    fn repro_documents_a_reset_to_the_document_leaves_the_host_heard_again() {
+        assert_ok(
+            Setup {
+                view: Documents,
+                base: 3,
+                other: 2,
+                form: Index,
+                revisions: false,
+            },
+            &[
+                Act::Reset {
+                    doc: 1,
+                    kind: Twice(36312),
+                    same_task: false,
+                    via: Via::ReplaceValue,
+                },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+                Act::Ranges {
+                    doc: 1,
+                    anchor: Anchor::None,
+                    worked_on: 1004,
+                    same_task: true,
+                },
+                Act::Reset {
+                    doc: 1,
+                    kind: Same,
+                    same_task: false,
+                    via: Via::SetValue,
+                },
+            ],
+        );
+    }
+
+    /// P4, a host keeping revisions: two resets with the parent's state
+    /// set too, typing, the first reset's old revision rendered late, then
+    /// the host's own text equal to the second: it is news (the host gave
+    /// the first one last), and the two converge.
+    #[test]
+    fn repro_documents_an_old_revision_rendered_is_the_text_given_last() {
+        assert_ok(
+            Setup {
+                view: Documents,
+                base: 0,
+                other: 3,
+                form: Lines,
+                revisions: true,
+            },
+            &[
+                Act::Reset {
+                    doc: 1,
+                    kind: Twice(26901),
+                    same_task: false,
+                    via: Via::Both,
+                },
+                Act::Select { doc: 1 },
+                Act::Delete { at: 10238, len: 2 },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::Revision,
+                },
+                Act::Own {
+                    doc: 1,
+                    edit: 56860,
+                    ranges: true,
+                    same_task: true,
+                },
+            ],
+        );
+    }
+
+    /// P4, a host keeping revisions: typing, a hide and show, typing in
+    /// the new editor, then the gone editor's late echo: older than the
+    /// new typing on its way, it keeps it (in both views).
+    #[test]
+    fn a_gone_editors_late_echo_keeps_the_new_typing_with_revisions() {
+        for view in [Editor, Documents] {
+            assert_ok(
+                Setup {
+                    view,
+                    base: 0,
+                    other: 1,
+                    form: Lines,
+                    revisions: true,
+                },
+                &[
+                    Act::Type { at: 26650, ch: ' ' },
+                    Act::FreshMount { doc: 0 },
+                    Act::Type { at: 59253, ch: 'a' },
+                    Act::Deliver {
+                        doc: 0,
+                        pick: 0,
+                        dup: false,
+                        ranges: true,
+                        same_task: false,
+                        anchor: Anchor::Text,
+                    },
+                ],
+            );
+        }
+    }
+
+    /// Open (qa39 39b), a v0.1.0 host: the gone editor's late echo is the
+    /// same text the new editor sent after a hide and show; taken for that
+    /// copy's echo, the copy's own echo then reads as the host's text. The
+    /// class is the open finding's, not `TypingLost`.
+    #[test]
+    fn repro_documents_a_gone_editors_echo_takes_a_new_copy() {
+        assert_class(
+            Setup {
+                view: Documents,
+                base: 2,
+                other: 1,
+                form: Index,
+                revisions: false,
+            },
+            &[
+                Act::Enter { at: 26147 },
+                Act::FreshMount { doc: 0 },
+                Act::Type { at: 14236, ch: 'x' },
+                Act::Reset {
+                    doc: 0,
+                    kind: Original,
+                    same_task: false,
+                    via: Via::SetValue,
+                },
+                Act::Enter { at: 21527 },
+                Act::Type { at: 2704, ch: ' ' },
+            ],
+            Class::TypingLostAfterHideShow,
+        );
+    }
+
+    /// The same with a reset's listing: the gone editor's `setValue`
+    /// report takes the copy of the new editor's reset to that text, and
+    /// the reset's listing then reads as the host's text.
+    #[test]
+    fn repro_editor_a_gone_editors_echo_takes_a_resets_copy() {
+        assert_class(
+            Setup {
+                view: Editor,
+                base: 1,
+                other: 0,
+                form: Index,
+                revisions: false,
+            },
+            &[
+                Act::Own {
+                    doc: 0,
+                    edit: 26090,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: Original,
+                    same_task: false,
+                    via: Via::SetValue,
+                },
+                Act::FreshMount { doc: 0 },
+                Act::Reset {
+                    doc: 0,
+                    kind: Original,
+                    same_task: false,
+                    via: Via::ReplaceValue,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+                Act::MoveLine { line: 63811 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 63179,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::Revision,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::Text,
+                },
+            ],
+            Class::TypingLostAfterHideShow,
+        );
+    }
 }

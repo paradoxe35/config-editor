@@ -655,6 +655,12 @@ An editor a framework creates again (a new `language` or `fileName`) takes
 over the echoes of the one it replaces: pass the old editor's `channel` as
 the new one's `channel` option; given no `readOnlyRanges`, it also holds the
 old editor's ranges where they are now. The framework components do it for you.
+An editor hidden and shown again (a new component, no `channel`) knows only
+the texts it sent itself: without revisions, an answer still to come for a
+text the editor that is gone sent is your own text for the new one, and
+replaces what was typed since. Drop those answers when you show the editor
+again, or keep revisions (below): an answer older than a text the new
+editor sent then keeps the typing.
 
 With revisions there is no pause. `onChange(text, revision)` gives each text
 a revision; store it beside the text, keep only the newest revision you were

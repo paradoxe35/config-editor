@@ -228,6 +228,10 @@ struct Given {
 pub struct Taken {
     /// What the echo engine made of its value; `None` without one.
     pub echo: Option<Echo>,
+    /// Its value is a text of the host's own (no echo of a text sent, nor
+    /// the text the host gave last given again), shown or the document
+    /// already: written in the host's own form, whatever the document's.
+    pub own: bool,
     /// Its value replaces the document (a text of the host's own).
     pub shown: bool,
     /// The given ranges changed: the screen places them again.
@@ -478,6 +482,9 @@ impl Link {
             .then(|| self.placed_now(rewrite))
             .flatten();
         let flushed = update.flushed.unwrap_or_else(super::echoes::clock);
+        taken.own = update.value.as_deref().is_some_and(|value| {
+            !(update.stale && value != current) && self.echoes.is_own(value, update.value_revision)
+        });
         let echo = update.value.as_deref().map(|value| {
             if update.stale && value != current {
                 return Echo::Skip;
@@ -488,6 +495,7 @@ impl Link {
             }
         });
         taken.echo = echo;
+        taken.own &= echo == Some(Echo::Apply);
         self.confirm(rewrite);
         // Only a resend is a new copy of the document: the revision sent
         // last may be a text this update just replaced (a reset's report
