@@ -56,7 +56,7 @@ mod ui_refs;
 pub(crate) use bridge::links::Clipboard;
 pub use input::flush_pending_input;
 pub(crate) use line_endings::same_document;
-#[cfg(all(test, feature = "yaml"))]
+#[cfg(all(test, feature = "yaml", feature = "json"))]
 pub(crate) use sync::echo_record_tests::EchoingEditor;
 pub use sync::flush_pending_edits;
 pub use sync::{

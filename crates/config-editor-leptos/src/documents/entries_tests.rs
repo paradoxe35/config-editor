@@ -372,7 +372,7 @@ fn a_document_not_shown_is_dirty_by_the_editors_rule() {
 /// the list and listed again with its id (hidden and shown), and one
 /// re-mounted (another language), take over the texts their gone editor
 /// sent, so a late echo of one keeps what is typed in the new editor.
-#[cfg(feature = "yaml")]
+#[cfg(all(feature = "yaml", feature = "json"))]
 #[test]
 fn a_document_shown_again_with_its_id_takes_its_gone_editors_echoes() {
     use crate::editor::EchoingEditor;
