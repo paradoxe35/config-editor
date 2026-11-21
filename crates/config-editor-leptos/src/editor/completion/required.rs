@@ -298,13 +298,17 @@ fn written_only(children: &[RequiredChild<'_>]) -> Value {
 }
 
 /// Whether two readings of an object's required keys name the same keys
-/// with the same schemas applying to each.
+/// with the same schemas applying to each, and the same of them certain
+/// to (a branch of an `if` one reading decides is named by both).
 fn same_keys(left: &[RequiredKey<'_>], right: &[RequiredKey<'_>]) -> bool {
     let schemas = |at: &Entry<'_>| {
-        at.schemas()
-            .into_iter()
-            .map(std::ptr::from_ref)
-            .collect::<Vec<_>>()
+        let pointers = |schemas: Vec<&Value>| {
+            schemas
+                .into_iter()
+                .map(std::ptr::from_ref)
+                .collect::<Vec<_>>()
+        };
+        (pointers(at.schemas()), pointers(at.certain()))
     };
     left.len() == right.len()
         && left
@@ -338,50 +342,64 @@ pub(super) fn required_keys<'a>(
         Some(at) => Here::walk(at.clone(), root, Seen::default()),
         None => Here::of(schema, root),
     };
-    let mut sources = here.certain();
-    if let Some(branch) = object_branch(schema, root)
-        && !sources.iter().any(|known| std::ptr::eq(*known, branch))
-    {
-        sources.push(branch);
-    }
-    let mut found: Vec<(&'a str, &'a Value, Entry<'a>)> = Vec::new();
-    let required = sources
-        .iter()
-        .filter_map(|source| source.get("required").and_then(Value::as_array))
-        .flatten()
-        .filter_map(Value::as_str);
-    // And each key a required one makes required in turn (`dependentRequired`,
-    // draft 7's `dependencies` lists, a dependent schema's `required`).
-    let mut names: Vec<&'a str> = required.collect();
-    let mut at = 0;
-    while at < names.len() && names.len() < MAX_REQUIRED {
-        for name in dependent_required(&sources, names[at]) {
+    let branch = object_branch(schema, root);
+    // The keys `walked` requires, and each key a required one makes
+    // required in turn (`dependentRequired`, draft 7's `dependencies`
+    // lists, a dependent schema's `required`).
+    let required_by = |walked: &Here<'a>| {
+        let mut sources = walked.certain();
+        if let Some(branch) = branch
+            && !sources.iter().any(|known| std::ptr::eq(*known, branch))
+        {
+            sources.push(branch);
+        }
+        let mut names: Vec<&'a str> = Vec::new();
+        for name in sources
+            .iter()
+            .filter_map(|source| source.get("required").and_then(Value::as_array))
+            .flatten()
+            .filter_map(Value::as_str)
+        {
             if !names.contains(&name) {
                 names.push(name);
             }
         }
-        at += 1;
-    }
-    // What applies once the object holds these keys: the `then` or
-    // `else` an `if` asking keys (or values, where the object is known)
-    // takes, the dependent schemas of the keys written; and the keys
-    // those require.
-    let keys: HashSet<String> = names.iter().map(|name| (*name).to_string()).collect();
-    let filled = here.rewalk(Seen {
-        value,
-        keys: Some(&keys),
-    });
-    for name in filled
-        .certain()
-        .iter()
-        .filter_map(|source| source.get("required").and_then(Value::as_array))
-        .flatten()
-        .filter_map(Value::as_str)
-    {
-        if !names.contains(&name) && names.len() < MAX_REQUIRED {
-            names.push(name);
+        let mut at = 0;
+        while at < names.len() && names.len() < MAX_REQUIRED {
+            for name in dependent_required(&sources, names[at]) {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+            at += 1;
         }
+        names.truncate(MAX_REQUIRED);
+        names
+    };
+    // A walk not knowing the keys takes every dependent schema and no
+    // branch of an `if` asking keys: the keys it requires are a first
+    // guess. What applies once the object holds just those keys (the
+    // `then` or `else` such an `if` takes, the dependent schemas of the
+    // keys written, not of a key it leaves out) decides the keys again,
+    // until they agree.
+    let mut names = required_by(&here);
+    let mut filled;
+    let mut rounds = 0;
+    loop {
+        let keys: HashSet<String> = names.iter().map(|name| (*name).to_string()).collect();
+        filled = here.rewalk(Seen {
+            value,
+            keys: Some(&keys),
+        });
+        let again = required_by(&filled);
+        rounds += 1;
+        let agree = again.len() == names.len() && again.iter().all(|name| names.contains(name));
+        if agree || rounds == MAX_KEY_ROUNDS {
+            break;
+        }
+        names = again;
     }
+    let mut found: Vec<(&'a str, &'a Value, Entry<'a>)> = Vec::new();
     for name in names {
         let key = language.required_property(name);
         if found.iter().any(|(known, _, _)| *known == key) {
@@ -402,6 +420,11 @@ pub(super) fn required_keys<'a>(
 
 /// Most required keys one object's fill writes.
 const MAX_REQUIRED: usize = 256;
+
+/// Most times [`required_keys`] decides an object's keys again by what
+/// the keys decided before make apply: an `if` turning on a key its own
+/// branch requires (or leaves out) never agrees, and keeps the last.
+const MAX_KEY_ROUNDS: usize = 4;
 
 /// The keys `sources` (an object's schemas) require once `key` is there.
 fn dependent_required<'a>(sources: &[&'a Value], key: &str) -> Vec<&'a str> {
@@ -447,11 +470,12 @@ fn fill<'a>(
     {
         return Some(Fill::Value(default.clone()));
     }
-    // A list only where every schema at the child allows one (a pattern
-    // typing the key `null` beside a property's `prefixItems` does not).
-    let lists = Here::walk(at.clone(), root, Seen::default())
-        .types()
-        .allows_type("array");
+    // A list or an object only where every schema at the child allows
+    // one (a pattern typing the key `null` beside a property's
+    // `prefixItems` does not, nor the `else` its object takes typing it a
+    // boolean beside an option describing an object).
+    let types = Here::walk(at.clone(), root, Seen::default()).types();
+    let lists = types.allows_type("array");
     if lists && array_branch(child, root).is_some() && object_branch(child, root).is_none() {
         let empty = Value::Array(Vec::new());
         // A list the language cannot write (XML's empty one) is left out,
@@ -473,7 +497,7 @@ fn fill<'a>(
         }
         return Some(Fill::Value(list));
     }
-    if object_branch(child, root).is_some() {
+    if types.allows_type("object") && object_branch(child, root).is_some() {
         let nested = children(language, child, Some(at), root, caret, depth + 1);
         if !nested.is_empty() {
             return Some(Fill::Children(nested));

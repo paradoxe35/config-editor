@@ -99,6 +99,12 @@ impl<'s> Entry<'s> {
     pub(crate) fn schemas(&self) -> Vec<&'s Value> {
         super::query::leaves(&self.0, Walked::Any)
     }
+
+    /// The schemas named that are certain to apply: none of a branch of
+    /// an `if` the value does not decide.
+    pub(crate) fn certain(&self) -> Vec<&'s Value> {
+        super::query::leaves(&self.0, Walked::Certain)
+    }
 }
 
 /// Which leaves a walk of a tree takes.

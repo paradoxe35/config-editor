@@ -1181,3 +1181,45 @@ fn a_documented_spelling_names_the_save_beside_a_null_the_schema_reads_back() {
         json!({"name": [{"size": false}], "mode": null}),
     );
 }
+
+/// A key a dependent schema requires is written only beside the key it
+/// depends on: `size` (which the `else` the object then takes types
+/// otherwise) is not filled where `x_two` is not written.
+#[test]
+fn a_key_a_dependent_schema_requires_is_filled_only_beside_its_key() {
+    let schema = json!({"properties": {"mode": {"required": ["b"],
+        "properties": {"b": {"type": "string"},
+            "size": {"anyOf": [{"required": ["a"], "properties": {"a": {"type": "number"}}}]}},
+        "dependentSchemas": {"x_two": {"required": ["size"]}},
+        "if": {"required": ["x"]}, "else": {"properties": {"size": {"type": "integer"}}}}}});
+    holds_everywhere(
+        super::suggestions::check,
+        schema.clone(),
+        json!({}),
+        json!({"mode": {"b": "a"}}),
+    );
+    holds_everywhere(
+        super::fill::check,
+        schema,
+        json!({"mode": {"b": "a"}}),
+        Value::Null,
+    );
+}
+
+/// A required child is filled as an object only where every schema at it
+/// takes one: not where the `else` its object takes (its sibling `a` left
+/// to type misses the `if`) types it a boolean, beside an option
+/// describing an object.
+#[test]
+fn a_required_child_is_filled_as_an_object_only_where_every_schema_at_it_takes_one() {
+    holds_everywhere(
+        super::fill::check,
+        json!({"properties": {"a": {"required": ["a", "c"],
+            "properties": {"c": {"oneOf": [{"required": ["name"],
+                "properties": {"name": {"type": "number"}}}]}},
+            "if": {"properties": {"a": {"const": false}}},
+            "else": {"properties": {"c": {"type": "boolean"}}}}}}),
+        json!({"a": "t"}),
+        Value::Null,
+    );
+}
