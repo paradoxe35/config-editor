@@ -155,7 +155,7 @@ impl Placeholders<'_> {
         };
         let parsed = parse_cache::parsed(self.behavior, origin);
         match parsed.as_ref() {
-            Ok(document) => super::tokens::field_value(document, pointer)
+            Ok(document) => super::tokens::field_value(self.behavior, document, pointer)
                 .and_then(Value::as_str)
                 .is_some_and(|value| value == now),
             // As written, which says something of a value on one line only
@@ -373,7 +373,10 @@ impl Held {
                         return false;
                     };
                     match host {
-                        Some(host) => field_value(document, field) != field_value(host, field),
+                        Some(host) => {
+                            field_value(behavior, document, field)
+                                != field_value(behavior, host, field)
+                        }
                         None => !matches!(
                             holding(
                                 behavior,
@@ -468,7 +471,7 @@ impl Placeholders<'_> {
         let document = read.document;
         let given = || self.index.all().map(|at| &self.known[at]);
         // Each held as the host wrote it, alone in its field: none changed.
-        if alone_in_fields(document, given(), Form::Host) {
+        if alone_in_fields(self.behavior, document, given(), Form::Host) {
             return None;
         }
         // Read the text before only for a value not as the host wrote it.

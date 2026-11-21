@@ -223,7 +223,7 @@ fn along_path<'d>(
         path_at(behavior, text, units).map_or_else(String::new, |path| path.to_pointer());
     loop {
         // The string at the path: a lookup, never a pass of the strings.
-        if let Some(Value::String(value)) = field_value(document, &pointer)
+        if let Some(Value::String(value)) = field_value(behavior, document, &pointer)
             && value.contains(token)
             && !taken.contains(&(token, pointer.as_str()))
         {

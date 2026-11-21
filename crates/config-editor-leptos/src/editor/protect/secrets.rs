@@ -183,7 +183,7 @@ fn in_their_fields(
             return false;
         }
     }
-    let held = held_in_fields(document, known);
+    let held = held_in_fields(behavior, document, known);
     held.iter()
         .all(|(token, count)| shown.get(*token).copied().unwrap_or(0) == *count)
         && shown

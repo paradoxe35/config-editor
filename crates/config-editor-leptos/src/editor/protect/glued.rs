@@ -106,7 +106,7 @@ pub(super) fn holding<'a>(
     // A language that cannot say where a value is written: the field's own
     // value, as the parse reads it there.
     if !places.is_empty() && places.iter().all(|place| place.is_none()) {
-        return match field_value(document, field) {
+        return match field_value(behavior, document, field) {
             Some(Value::String(text)) if known.alone_in(text) => Holding::Alone(text),
             Some(Value::String(text)) if text.contains(&known.token) => Holding::Beside(text),
             _ => Holding::Not,
@@ -138,7 +138,7 @@ pub(super) fn holding<'a>(
             None => {}
         }
     }
-    let container = || field_value(document, field).unwrap_or(&Value::Null);
+    let container = || field_value(behavior, document, field).unwrap_or(&Value::Null);
     let copies = own.len() > 1 || own.iter().any(|(_, indexed)| *indexed);
     if within || (copies && repetition == Repetition::None) {
         return Holding::Within(container());
@@ -249,7 +249,7 @@ pub(crate) fn first_glued<'a>(
     known: &'a [Known],
     matcher: &SecretMatcher,
 ) -> Option<&'a Known> {
-    if alone_in_fields(document, known, Form::Any) {
+    if alone_in_fields(behavior, document, known, Form::Any) {
         return None;
     }
     let holders = Holders::read(behavior, text, document, matcher);
@@ -312,6 +312,7 @@ pub(super) enum Form {
 /// an edit leaving every field as it was (typing in a comment) and a check
 /// of a text gluing nothing stay cheap.
 pub(super) fn alone_in_fields<'k>(
+    behavior: &dyn ConfigLanguage,
     document: &Value,
     known: impl IntoIterator<Item = &'k Known>,
     form: Form,
@@ -324,7 +325,7 @@ pub(super) fn alone_in_fields<'k>(
             let Some(field) = known.field.as_deref() else {
                 return true;
             };
-            match field_value(document, field) {
+            match field_value(behavior, document, field) {
                 Some(Value::String(text)) => {
                     known.alone_in(text)
                         && (form == Form::Any || known.whole.as_deref() == Some(text.as_str()))
@@ -371,7 +372,7 @@ pub(crate) fn glued_in_save(
         return None;
     }
     let after = super::super::codec::read(behavior, new, reading).ok()?;
-    if alone_in_fields(&after, known, Form::Any) {
+    if alone_in_fields(behavior, &after, known, Form::Any) {
         return None;
     }
     let before = super::super::codec::read(behavior, old, reading).ok();
@@ -406,7 +407,7 @@ pub(crate) fn glued_placeholders(
     let Some(document) = parsed.as_ref().as_ref().ok() else {
         return Vec::new();
     };
-    if alone_in_fields(document, known, Form::Any) {
+    if alone_in_fields(behavior, document, known, Form::Any) {
         return Vec::new();
     }
     let holders = Holders::read(behavior, text, document, matcher);

@@ -814,7 +814,11 @@ fn hide_quoted(message: &str, text: &str) -> String {
 /// placeholders; over a token's fields, with one fixed mask in thousands
 /// of fields, the typing pause grew with their square).
 #[cfg(feature = "schema-validation")]
-fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<String> {
+fn accepted_pointers(
+    behavior: &dyn ConfigLanguage,
+    document: &Value,
+    accepted: &[(String, String)],
+) -> Vec<String> {
     if accepted.is_empty() {
         return Vec::new();
     }
@@ -825,7 +829,7 @@ fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<Str
         fields
             .entry(token.as_str())
             .or_default()
-            .insert(super::paths::field_key(field));
+            .insert(super::paths::field_key(behavior, field));
     }
     let mut found = Vec::new();
     let mut stack = vec![(String::new(), document)];
@@ -834,7 +838,7 @@ fn accepted_pointers(document: &Value, accepted: &[(String, String)]) -> Vec<Str
             Value::String(text)
                 if fields.get(text.as_str()).is_some_and(|fields| {
                     super::work_count::note(super::work_count::Work::PlaceLookup);
-                    fields.contains(&super::paths::field_key(&pointer))
+                    fields.contains(&super::paths::field_key(behavior, &pointer))
                 }) =>
             {
                 found.push(pointer)

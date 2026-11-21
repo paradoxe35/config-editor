@@ -167,8 +167,10 @@ impl SyncState {
         let sync = Self {
             edit_language,
             host_on_change,
+            // An opening text the host gave in place of the view: no record
+            // tells its items.
             links: StoredValue::new(if opening_shown {
-                Links::default()
+                Links::Unrecorded
             } else {
                 let shown_in = edit_language.get_untracked();
                 let reading = Bridge::new(host_language, shown_in, schema.get_value())
@@ -337,7 +339,10 @@ impl EditorState {
                 &edit.text,
             )
         } else {
-            Links::default()
+            // A text of the view the editor did not write from the host's
+            // text nor follow from one it wrote (unsaved edits of the
+            // host's own language converted): nothing tells its items.
+            Links::Unrecorded
         };
         self.sync().links.set_value(next);
         before
@@ -353,7 +358,10 @@ impl EditorState {
         language: Language,
         text: &str,
         previous: &str,
-    ) -> (Option<bridge::links::Told>, Vec<bridge::links::Untouched>) {
+    ) -> (
+        Option<bridge::links::Told>,
+        Option<Vec<bridge::links::Untouched>>,
+    ) {
         let identity = bridge.host.behavior().items_hold_unshown(previous);
         let mut links = self.sync().links.get_value();
         // Both read the spans of the view's items: once.
@@ -719,8 +727,13 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
                 } else {
                     Default::default()
                 };
-                let saved =
-                    bridge.to_host_linked(&text, &previous, &origin, told.as_ref(), &untouched);
+                let saved = bridge.to_host_linked(
+                    &text,
+                    &previous,
+                    &origin,
+                    told.as_ref(),
+                    untouched.as_deref(),
+                );
                 loose = told.map(|told| told.loose);
                 saved
             }
@@ -811,13 +824,16 @@ pub(super) fn save_pending(state: EditorState) {
     };
     let (host, origin) = (session.host.to_string(), session.origin.to_string());
     // Told which item is which by the links, as a pause's save is.
-    let (told, untouched) = state
+    let told = state
         .sync()
         .links
         .try_get_value()
-        .map(|_| state.told(&bridge, edit, &text, &host))
-        .unwrap_or_default();
-    if let Ok(saved) = bridge.to_host_linked(&text, &host, &origin, told.as_ref(), &untouched)
+        .map(|_| state.told(&bridge, edit, &text, &host));
+    let (told, untouched) = match &told {
+        Some((told, untouched)) => (told.as_ref(), untouched.as_deref()),
+        None => (None, None),
+    };
+    if let Ok(saved) = bridge.to_host_linked(&text, &host, &origin, told, untouched)
         && saved != host
         && state.admit(&host, &saved, Made::Converted).is_ok()
     {
@@ -1010,7 +1026,7 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                         &host_text,
                         &state.sync().origin(),
                         told.as_ref(),
-                        &untouched,
+                        untouched.as_deref(),
                     )
                     .and_then(|saved| {
                         // The guard holding the text shows it in the host's
@@ -1026,17 +1042,30 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                         }
                     })
             }
-            None => state.config().schema.with_value(|schema| {
-                codec::convert(
-                    &text,
-                    current.behavior(),
-                    next.behavior(),
-                    None,
-                    schema.as_deref().map(|bundle| &bundle.schema),
-                )
-                .map(|conversion| conversion.text)
-                .map_err(SaveError::from)
-            }),
+            // Another view's edits: the values the user left as the editor
+            // wrote them are written as the host holds them (an XML view's
+            // text `2021` for the host's string is that string), the rest
+            // as the view reads them.
+            None => match state.bridge_to(current) {
+                Some(bridge) => {
+                    let (_, untouched) = state.told(&bridge, current, &text, &host_text);
+                    bridge
+                        .to_other_view(&text, next, untouched.as_deref())
+                        .map(|conversion| conversion.text)
+                        .map_err(SaveError::from)
+                }
+                None => state.config().schema.with_value(|schema| {
+                    codec::convert(
+                        &text,
+                        current.behavior(),
+                        next.behavior(),
+                        None,
+                        schema.as_deref().map(|bundle| &bundle.schema),
+                    )
+                    .map(|conversion| conversion.text)
+                    .map_err(SaveError::from)
+                }),
+            },
         }
     };
     match converted {

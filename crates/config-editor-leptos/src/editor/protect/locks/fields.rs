@@ -10,7 +10,8 @@ use serde_json::Value;
 use super::super::super::codec::read_aside;
 use super::super::super::data_reading::lone_spelling;
 use super::super::super::language::ConfigLanguage;
-use super::super::locate::{lookup, plain};
+use super::super::super::paths::field_key;
+use super::super::locate::lookup;
 use super::super::save::range_pointers;
 use super::super::scan;
 use super::super::texts::Reason;
@@ -178,13 +179,13 @@ fn outer_only(behavior: &dyn ConfigLanguage, fields: &[(String, Reason)]) -> Vec
     // Each plain form, with the distinct pointers written so.
     let mut forms: HashMap<String, Vec<&str>> = HashMap::new();
     for (pointer, _) in fields {
-        let spellings = forms.entry(plain(behavior, pointer)).or_default();
+        let spellings = forms.entry(field_key(behavior, pointer)).or_default();
         if !spellings.contains(&pointer.as_str()) {
             spellings.push(pointer);
         }
     }
     let inside_another = |pointer: &str| {
-        let form = plain(behavior, pointer);
+        let form = field_key(behavior, pointer);
         // Another spelling of the same field (a lone element written
         // without the index another spelling gives it), or the whole
         // document. Two items of one list (`/key/0`, `/key/1`) are two

@@ -11,7 +11,6 @@ use serde_json::{Value, json};
 use super::super::Language;
 use super::super::diagnostics::{Diagnostic, Severity};
 use super::super::host_diagnostics::{HostDiagnostic, RangeText, place};
-use super::super::language::Repetition;
 use super::ranges_matrix::{cases as written_cases, pointers};
 use super::{TextPosition, same_field};
 use crate::Schema;
@@ -182,10 +181,7 @@ impl Lcg {
 /// key of its own), its first item. Only XML and HCL write a lone repeated
 /// element or block without its `/0`.
 fn names(language: Language, document: &Value, pointer: &str, found: &str) -> bool {
-    let same = |one: &str, other: &str| {
-        one == other
-            || (language.behavior().repetition() != Repetition::None && same_field(one, other))
-    };
+    let same = |one: &str, other: &str| same_field(language.behavior(), one, other);
     same(found, pointer)
         || (document.pointer(pointer).is_some_and(Value::is_array)
             && same(found, &format!("{pointer}/0")))

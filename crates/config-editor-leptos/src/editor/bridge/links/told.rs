@@ -402,10 +402,14 @@ impl Links {
         language: &dyn ConfigLanguage,
         text: &str,
     ) -> Links {
+        if *self == Links::Unrecorded {
+            return Links::Unrecorded;
+        }
         // The scalars the user left as the editor wrote them, which the
         // new text writes at the same pointers.
         let kept: Arc<super::KeptScalars> = Arc::new(
             self.untouched(from_language, from_text)
+                .unwrap_or_default()
                 .into_iter()
                 .map(|untouched| (untouched.pointer, (untouched.host, untouched.from)))
                 .collect(),
@@ -417,7 +421,7 @@ impl Links {
             .collect();
         let parsed = parse_cache::parsed(language, text);
         let Ok(value) = parsed.as_ref() else {
-            return Links::default();
+            return Links::Unrecorded;
         };
         // A view that writes a list of one as its item (XML) names it
         // without its index, or the other way: each item found where the

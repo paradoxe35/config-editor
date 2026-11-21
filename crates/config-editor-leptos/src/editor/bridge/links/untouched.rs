@@ -86,20 +86,24 @@ fn written<'t>(
 
 impl Links {
     /// The scalars of `text` (in `language`) the user left as the editor
-    /// wrote them, with their sources.
+    /// wrote them, with their sources; `None` for a text with no record
+    /// ([`Links::Unrecorded`]).
     pub(crate) fn untouched(
         &mut self,
         language: &dyn ConfigLanguage,
         text: &str,
-    ) -> Vec<Untouched> {
+    ) -> Option<Vec<Untouched>> {
+        if *self == Links::Unrecorded {
+            return None;
+        }
         let parsed = parse_cache::parsed(language, text);
         let Ok(value) = parsed.as_ref() else {
-            return Vec::new();
+            return Some(Vec::new());
         };
         let mut pointers = Vec::new();
         scalars(value, &mut String::new(), &mut pointers);
         if pointers.is_empty() {
-            return Vec::new();
+            return Some(Vec::new());
         }
         let label = language.info().label;
         let candidates: Vec<Candidate> = match self {
@@ -130,7 +134,7 @@ impl Links {
             }
             _ => {
                 let Some(paired) = self.paired(language, text) else {
-                    return Vec::new();
+                    return Some(Vec::new());
                 };
                 let sources: HashMap<String, Arc<Source>> = paired.into_iter().collect();
                 pointers
@@ -214,6 +218,7 @@ impl Links {
                 host: candidate.host,
                 from: candidate.from,
             })
-            .collect()
+            .collect::<Vec<_>>()
+            .into()
     }
 }

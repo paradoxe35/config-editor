@@ -211,6 +211,8 @@ mod pause_reads;
     feature = "xml"
 ))]
 mod read_back;
+#[cfg(all(feature = "json", feature = "xml"))]
+mod recorded_scalars;
 #[cfg(all(
     feature = "yaml",
     feature = "json",

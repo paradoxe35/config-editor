@@ -2914,3 +2914,27 @@ fn an_inline_list_holding_an_item_typed_over_and_back_is_the_users_line() {
         ],
     );
 }
+
+/// P2: lines copied in an XML view of a TOML host (the string `"2021"`
+/// and a list item, each copied once) and the view switched to JSON: the
+/// JSON view shows the values the host holds (the string `"2021"`, not the
+/// number its XML text reads as), so what the host saves reads as the view.
+#[test]
+fn copied_strings_switched_from_an_xml_view_keep_the_hosts_type_in_the_next_view() {
+    replay(
+        Language::TOML,
+        Language::XML,
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\" # bump on release\nedition = \"2021\"\nauthors = ['Ann <ann@example.com>']\n[dependencies]\n[[bin]]\nname = \"cli\"\npath = \"src/server.rs\"\n",
+        &[
+            Op::CopyLine {
+                line: 4,
+                down: false,
+            },
+            Op::CopyLine {
+                line: 51,
+                down: false,
+            },
+            Op::Switch { to: 1 },
+        ],
+    );
+}

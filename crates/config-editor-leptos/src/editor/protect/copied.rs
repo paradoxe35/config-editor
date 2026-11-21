@@ -48,7 +48,7 @@ pub(super) fn copied_placeholders(
             if !owners.contains(&field) {
                 owners.push(field);
             }
-            own.entry(field_key(field))
+            own.entry(field_key(behavior, field))
                 .or_default()
                 .push((field, known.count));
         }
@@ -57,11 +57,13 @@ pub(super) fn copied_placeholders(
         }
         let owner = owners.join(", ");
         for pointer in pointers {
-            let slot = own.get_mut(&field_key(pointer)).and_then(|fields| {
-                fields.iter_mut().find(|(field, count)| {
-                    *count > 0 && is_own_field(Some(document), field, pointer)
-                })
-            });
+            let slot = own
+                .get_mut(&field_key(behavior, pointer))
+                .and_then(|fields| {
+                    fields.iter_mut().find(|(field, count)| {
+                        *count > 0 && is_own_field(behavior, Some(document), field, pointer)
+                    })
+                });
             if let Some(slot) = slot {
                 slot.1 -= 1;
                 continue;
@@ -87,7 +89,7 @@ fn writes(
     pointer: &str,
     token: &str,
 ) -> bool {
-    if field_value(document, pointer).is_none() {
+    if field_value(behavior, document, pointer).is_none() {
         return false;
     }
     super::super::paths::written_value_span(behavior, text, pointer)

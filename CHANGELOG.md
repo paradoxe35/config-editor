@@ -84,6 +84,16 @@ versions move together.
 - A save waiting because the host cannot hold the top level (a list or a
   scalar where TOML, HCL or XML need an object) says what to do, and a
   null TOML has no value for is worded as XML's.
+- An XML Edit-as view's save tells the values the user wrote from the
+  editor's record of the view's edits, not by comparing the values with
+  the ones the view showed. A text the editor has no record of (an opening
+  `value` given in place of the view) waits, saying why, where only that
+  record could decide a value's type. Switching from an XML view with
+  unsaved edits to another view writes each value the user left as the
+  host holds it (a copied `edition = "2021"` stays the string `"2021"`).
+- A secret's field is named by its language's reading of indexes: only
+  XML and HCL, which write a list by repeating a key, read `/l/0` and
+  `/l` as the same field.
 
 ## 0.1.1 — 2026-11-21
 

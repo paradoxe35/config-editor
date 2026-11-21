@@ -14,8 +14,13 @@ use super::tokens::{Known, SecretMatcher, field_value};
 
 /// Whether `document` holds `token` in `field` itself (a lone element read
 /// as a list of one included), not in a list of several made of it.
-pub(crate) fn held_in_own_field(document: &Value, field: &str, token: &str) -> bool {
-    match field_value(document, field) {
+pub(crate) fn held_in_own_field(
+    behavior: &dyn ConfigLanguage,
+    document: &Value,
+    field: &str,
+    token: &str,
+) -> bool {
+    match field_value(behavior, document, field) {
         Some(Value::String(text)) => text.contains(token),
         Some(Value::Array(items)) if items.len() == 1 => {
             items[0].as_str().is_some_and(|text| text.contains(token))
@@ -28,11 +33,16 @@ pub(crate) fn held_in_own_field(document: &Value, field: &str, token: &str) -> b
 /// gave it in: the same pointer, or the pointer of a lone item of it (an
 /// XML element read as a list of one) while `document` (when it parses)
 /// holds the field as one value, not as a list of several.
-pub(crate) fn is_own_field(document: Option<&Value>, field: &str, pointer: &str) -> bool {
+pub(crate) fn is_own_field(
+    behavior: &dyn ConfigLanguage,
+    document: Option<&Value>,
+    field: &str,
+    pointer: &str,
+) -> bool {
     field == pointer
-        || (super::super::paths::same_field(field, pointer)
+        || (super::super::paths::same_field(behavior, field, pointer)
             && document.is_none_or(|document| {
-                field_value(document, field)
+                field_value(behavior, document, field)
                     .is_some_and(|value| value.as_array().is_none_or(|items| items.len() == 1))
             }))
 }
@@ -61,25 +71,25 @@ pub(crate) fn moved_off_in_save(
             fields
                 .entry(known.token.as_str())
                 .or_default()
-                .entry(field_key(field))
+                .entry(field_key(behavior, field))
                 .or_default()
                 .push(field);
         }
     }
     known.iter().find_map(|secret| {
         let field = secret.field.as_deref()?;
-        if held_in_own_field(&document, field, &secret.token) {
+        if held_in_own_field(behavior, &document, field, &secret.token) {
             return None;
         }
         // Not a field the host gave the same token in too.
         let own = |pointer: &str| {
             fields
                 .get(secret.token.as_str())
-                .and_then(|fields| fields.get(&field_key(pointer)))
+                .and_then(|fields| fields.get(&field_key(behavior, pointer)))
                 .is_some_and(|others| {
                     others
                         .iter()
-                        .any(|other| is_own_field(Some(&document), other, pointer))
+                        .any(|other| is_own_field(behavior, Some(&document), other, pointer))
                 })
         };
         let elsewhere = holders

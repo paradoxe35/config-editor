@@ -8,7 +8,7 @@ use super::super::super::text::TextRange;
 use std::collections::HashMap;
 
 use super::super::super::language::{ConfigLanguage, Repetition};
-use super::super::super::paths::field_key;
+use super::super::super::paths::repeated_form;
 use super::super::super::work_count::{Work, note};
 use super::super::tokens::Known;
 
@@ -51,7 +51,7 @@ impl WholeIndex {
                 .push(at);
             index.all.push(at);
             index.fields.push(field.to_string());
-            index.lone_fields.push(field_key(field));
+            index.lone_fields.push(repeated_form(field));
         }
         for fields in [&mut index.fields, &mut index.lone_fields] {
             fields.sort_unstable();
@@ -95,7 +95,7 @@ impl WholeIndex {
         let (path, fields) = if behavior.repetition() == Repetition::None {
             (path.to_string(), &self.fields)
         } else {
-            (field_key(path), &self.lone_fields)
+            (repeated_form(path), &self.lone_fields)
         };
         let has = |pointer: &str| {
             fields

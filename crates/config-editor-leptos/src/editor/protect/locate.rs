@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use super::super::language::{ConfigLanguage, Repetition};
+use super::super::language::ConfigLanguage;
 use super::super::paths::{self, field_key, key_range, whole_value};
 use super::super::text::{TextRange, TextSize, byte_range, slice, text_size};
 use super::super::work_count::{Work, note_many};
@@ -137,18 +137,8 @@ pub(crate) fn lookup<'a>(document: &'a Value, pointer: &str) -> Option<&'a Value
 /// Whether `path` is `pointer` or inside it, ignoring the `/0` steps of
 /// lone repeated elements.
 pub(crate) fn within(behavior: &dyn ConfigLanguage, path: &str, pointer: &str) -> bool {
-    let (path, pointer) = (plain(behavior, path), plain(behavior, pointer));
+    let (path, pointer) = (field_key(behavior, path), field_key(behavior, pointer));
     pointer.is_empty() || path == pointer || path.starts_with(&format!("{pointer}/"))
-}
-
-/// `pointer` without the `/0` steps of lone repeated elements (as is, in a
-/// language without them): the form [`within`] compares.
-pub(crate) fn plain(behavior: &dyn ConfigLanguage, pointer: &str) -> String {
-    if behavior.repetition() == Repetition::None {
-        pointer.to_string()
-    } else {
-        field_key(pointer)
-    }
 }
 
 /// The values of `value` (a document) under `keys`, any list index between

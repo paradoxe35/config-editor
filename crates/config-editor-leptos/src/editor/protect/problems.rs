@@ -56,7 +56,7 @@ pub(crate) fn unknown_placeholders(
     }
     let held = document
         .as_ref()
-        .map(|document| held_in_fields(document, known))
+        .map(|document| held_in_fields(behavior, document, known))
         .unwrap_or_default();
     // Known tokens the document holds in their fields as often as written.
     let settled = |token: &str| document.is_some() && held.get(token) == written.get(token);
@@ -315,7 +315,7 @@ fn in_own_field(
     place: &Place<'_>,
 ) -> bool {
     let pointer = place.pointer;
-    if is_own_field(document, field, pointer) {
+    if is_own_field(behavior, document, field, pointer) {
         return true;
     }
     if behavior.repetition() != Repetition::Elements {
