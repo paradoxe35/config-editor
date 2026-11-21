@@ -143,11 +143,15 @@ export async function host(page, call, arg, onText) {
             // what `onChange` reports.
             saved.textContent = text;
             window.editor.update({ value: text, readOnlyRanges: ranges });
+          } else if (how === 'setValue') {
+            // One way per reset: the handle's `setValue` reports the text,
+            // and the parent's state follows from that report (its ranges
+            // come once it holds the text, see `resetThenRanges`).
+            window.editorHandle.current?.setValue(text);
           } else {
             // The parent lists the text it set with the ranges it worked
-            // out on it, not the one a late echo of `setValue` would bring.
+            // out on it.
             fz.extra = { ...fz.extra, readOnlyRanges: ranges };
-            if (how === 'setValue') window.editorHandle.current?.setValue(text);
             window.setParentValue(text);
             window.setExtraProps({ ...fz.extra });
           }
@@ -166,12 +170,17 @@ export async function host(page, call, arg, onText) {
         },
         docValue: ({ text, how, ranges }) => {
           // The host lists the text it replaced the document with, with the
-          // ranges it worked out on it (not the one a late echo of
-          // `setValue` would bring).
-          if (how === 'setValue') {
-            if (vanilla) window.documentsView.replaceValue(id, text);
-            else window.documentsHandle.current?.setValue(id, text);
+          // ranges it worked out on it.
+          if (how === 'setValue' && !vanilla) {
+            // One way per reset: the handle's `setValue` reports the text,
+            // and the parent's list follows from that report (the ranges
+            // come once it lists the text, see `resetThenRanges`).
+            window.documentsHandle.current?.setValue(id, text);
+            return;
           }
+          // The vanilla view's `replaceValue` reports nothing: the host
+          // lists the text itself.
+          if (how === 'setValue') window.documentsView.replaceValue(id, text);
           window.updateFile(id, { value: text, readOnlyRanges: ranges });
         },
         docEcho: () => typeof fz.host() === 'string' && window.updateFile(id, { value: fz.host() }),
@@ -214,6 +223,18 @@ export function lockIndices(value, { at: fraction, length, line }) {
   while (low(start)) start -= 1;
   while (low(end)) end += 1;
   return end > start ? { start, end } : null;
+}
+
+// After a framework page's `setValue` reset: once the parent's state
+// holds `text` (the reset's report applied, maybe late), the parent gives
+// the read-only ranges it worked out on it, with `call`.
+async function resetThenRanges(run, text, call, ranges) {
+  const { page } = run;
+  for (let tries = 0; tries < 50; tries += 1) {
+    if ((await page.evaluate(() => window.__fz.host())) === text) break;
+    await page.waitForTimeout(60);
+  }
+  await host(page, call, { readOnlyRanges: ranges }, text);
 }
 
 // Gives the page a lock from `spec` (see `lockIndices`) and notes it in
@@ -402,7 +423,9 @@ export async function perform(run, action) {
         run.hostText = before === action.text ? undefined : action.text;
         const ranges = run.keepLocks(null, action.text);
         run.give(null, action.text);
-        return host(page, 'singleValue', { ...action, ranges });
+        await host(page, 'singleValue', { ...action, ranges });
+        if (action.how === 'setValue' && !run.vanilla) await resetThenRanges(run, action.text, 'singleProps', ranges);
+        return;
       }
       const id = await page.evaluate(() => window.__fz.activeId());
       const { docsFor } = await import('./corpus.mjs');
@@ -410,7 +433,9 @@ export async function perform(run, action) {
       const text = docs[action.pick % docs.length];
       const ranges = run.keepLocks(id, text);
       run.give(id, text);
-      return host(page, 'docValue', { text, how: action.how, ranges });
+      await host(page, 'docValue', { text, how: action.how, ranges });
+      if (action.how === 'setValue' && !run.vanilla) await resetThenRanges(run, text, 'docProps', ranges);
+      return;
     }
     case 'echo':
       await settle(page, 600);

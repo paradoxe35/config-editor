@@ -57,6 +57,8 @@ function hostModel(page, cdp, kind, name, strict) {
     page,
     cdp,
     kind,
+    // The page's own host (no framework component): its resets report nothing.
+    vanilla: !!PAGES[name].vanilla,
     secrets: new Set(TOKENS),
     hostReplaced: false,
     // The text the host last gave the single editor (its mount text, a
