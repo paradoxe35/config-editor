@@ -253,9 +253,12 @@ impl ConfigEditor {
         let owner = Owner::new();
         let secrets = owner.with(|| secrets_from(&field(&options, "secrets"), "secrets"))?;
         // The channel: taken over (its echoes, host log and lists go on;
-        // the lists the binding renders again are no news), or new. The
-        // lists are read in the texts they name before the editor mounts;
-        // one naming a revision this channel never sent throws.
+        // the lists the binding renders again are no news), or new, with
+        // the texts still on their way of the editor destroyed in this
+        // element (see `handoff`). The lists are read in the texts they
+        // name before the editor mounts; one naming a revision this channel
+        // never sent throws.
+        let left = crate::handoff::take(&element);
         let taken = taken_channel(&options)?;
         let fresh = taken.is_none();
         let channel = match taken {
@@ -263,7 +266,7 @@ impl ConfigEditor {
                 channel.remount(&value);
                 channel
             }
-            None => HostChannel::new(echoes, &value, value_revision),
+            None => HostChannel::new(echoes, &value, value_revision, left),
         };
         let head = HostUpdate {
             value: fresh.then(|| value.clone()),
@@ -806,7 +809,7 @@ impl ConfigEditor {
     pub fn destroy(&self) {
         // Input the browser sent in this task first (see `flush_pending_input`).
         leptos_config_editor::js_support::flush_pending_input();
-        let Some((mounted, owner, _)) = self
+        let Some((mounted, owner, element)) = self
             .id
             .take()
             .and_then(|id| MOUNTED.with(|editors| editors.borrow_mut().remove(&id)))
@@ -814,11 +817,15 @@ impl ConfigEditor {
             return;
         };
         // The document is kept once, in `final_value`: `latest` lets go of
-        // its copy once the view (which writes it) is gone.
+        // its copy once the view (which writes it) is gone. The texts still
+        // on their way (an edit sent as it unmounts included) are left in
+        // its element, for the next editor made there.
         let latest = self.latest.clone();
+        let channel = self.channel.clone();
         let unmount = move || {
             drop(mounted);
             owner.cleanup();
+            crate::handoff::leave(&element, channel.handoff());
             take_text(&latest)
         };
         if IN_CALLBACK.with(|depth| depth.get()) > 0 {

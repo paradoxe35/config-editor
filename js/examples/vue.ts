@@ -40,6 +40,9 @@ const random = query.has("random");
 // `value-revision`; the locks of the first line name the file as loaded.
 const revisions = query.has("revisions");
 const resetEarly = query.has("reset-early");
+// `?keep-alive` hides the editor inside `<KeepAlive>` (the component kept,
+// not unmounted) instead of a plain `v-if` (a new component).
+const keepAlive = query.has("keep-alive");
 const initialExtra = JSON.parse(query.get("props") ?? "{}") as Record<string, unknown>;
 const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
@@ -157,7 +160,7 @@ const App = defineComponent({
 
     return {
       value, revision, revisions, baseline, dirty, saves, conflicts, fileName, editAs, theme, readOnly, editing, changes, path,
-      hostProblems, lockAddress, lockFirstLine, themeNames, shown, editor, extra, uncontrolled, initialText,
+      hostProblems, lockAddress, lockFirstLine, themeNames, shown, editor, extra, uncontrolled, initialText, keepAlive,
       onModel, setPort, own, discard, toggleHostProblems, onSave, onChangeSummary, onPathChange,
       revert: () => own(previous),
       secrets: { hint: "Keeps the stored secret" },
@@ -197,6 +200,7 @@ const App = defineComponent({
       <span id="changes">{{ changes }}</span>
       <code id="breadcrumb">{{ path }}</code>
     </header>
+    <KeepAlive :include="keepAlive ? undefined : []">
     <ConfigEditor
       v-if="shown"
       ref="editor"
@@ -227,6 +231,7 @@ const App = defineComponent({
       show-footer
       v-bind="extra"
     />
+    </KeepAlive>
     <pre id="saved">{{ value }}</pre>
   `,
 });

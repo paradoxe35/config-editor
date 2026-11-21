@@ -870,13 +870,13 @@ mod repros {
         }
     }
 
-    /// Open (qa39 39b), a v0.1.0 host: the gone editor's late echo is the
-    /// same text the new editor sent after a hide and show; taken for that
-    /// copy's echo, the copy's own echo then reads as the host's text. The
-    /// class is the open finding's, not `TypingLost`.
+    /// P4, a v0.1.0 host: the gone editor's late echo is the same text
+    /// the new editor sent after a hide and show. The binding handed the
+    /// gone editor's texts on their way to the new one, so each echo takes
+    /// its own copy, and neither reads as the host's text (qa39 39b).
     #[test]
     fn repro_documents_a_gone_editors_echo_takes_a_new_copy() {
-        assert_class(
+        assert_ok(
             Setup {
                 view: Documents,
                 base: 2,
@@ -897,16 +897,15 @@ mod repros {
                 Act::Enter { at: 21527 },
                 Act::Type { at: 2704, ch: ' ' },
             ],
-            Class::TypingLostAfterHideShow,
         );
     }
 
     /// The same with a reset's listing: the gone editor's `setValue`
-    /// report takes the copy of the new editor's reset to that text, and
-    /// the reset's listing then reads as the host's text.
+    /// report and the new editor's reset to that text each take their own
+    /// copy, and the reset's listing never reads as the host's text.
     #[test]
     fn repro_editor_a_gone_editors_echo_takes_a_resets_copy() {
-        assert_class(
+        assert_ok(
             Setup {
                 view: Editor,
                 base: 1,
@@ -960,7 +959,138 @@ mod repros {
                     anchor: Anchor::Text,
                 },
             ],
-            Class::TypingLostAfterHideShow,
+        );
+    }
+
+    /// P4, a v0.1.0 host: shown again on the text the gone editor's reset
+    /// gave (its report still on its way), then typing, then the gone
+    /// editor's echoes: the report is the reset's copy, handed on with the
+    /// rest, and keeps the typing.
+    #[test]
+    fn a_gone_resets_report_after_a_hide_and_show_keeps_the_typing() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 2,
+                other: 3,
+                form: Lines,
+                revisions: false,
+            },
+            &[
+                Act::Type { at: 27496, ch: ':' },
+                Act::Type { at: 56894, ch: 'a' },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 0,
+                    dup: false,
+                    ranges: false,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+                Act::Reset {
+                    doc: 0,
+                    kind: LastListed,
+                    same_task: true,
+                    via: Via::SetValue,
+                },
+                Act::FreshMount { doc: 0 },
+                Act::Type { at: 15981, ch: ' ' },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 0,
+                    dup: false,
+                    ranges: false,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::Revision,
+                },
+            ],
+        );
+    }
+
+    /// A host keeping revisions, shown again on an older revision than one
+    /// the gone editor heard back (a reset given back before the host's
+    /// store took an older echo): the newer text, given then, is the host
+    /// catching up and applies; the host and the editor agree.
+    #[test]
+    fn shown_on_an_older_revision_the_newer_one_given_then_applies() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 1,
+                other: 0,
+                form: Lines,
+                revisions: true,
+            },
+            &[
+                Act::Own {
+                    doc: 0,
+                    edit: 3880,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Type { at: 37713, ch: 'b' },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 49138,
+                    dup: false,
+                    ranges: false,
+                    same_task: true,
+                    anchor: Anchor::Text,
+                },
+                Act::Type { at: 19671, ch: ':' },
+                Act::Delete { at: 46921, len: 0 },
+                Act::MoveLine { line: 4563 },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: true,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::Text,
+                },
+                Act::Type { at: 25723, ch: 'b' },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 55026,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+                Act::Type { at: 56714, ch: ':' },
+                Act::Delete { at: 64450, len: 1 },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 34637,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+                Act::Reset {
+                    doc: 1,
+                    kind: Twice(14062),
+                    same_task: false,
+                    via: Via::Both,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 41828,
+                    dup: false,
+                    ranges: true,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+                Act::FreshMount { doc: 0 },
+            ],
         );
     }
 }

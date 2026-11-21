@@ -469,6 +469,8 @@ typed next. With `valueRevision` the editor tells them apart exactly.
 
 With revisions there is no pause: `onChange(text, revision)` gives each text a revision. Store it beside the text and pass it back as the `valueRevision` prop (keep only the newest revision you were given, never go back to an older one; leave it out for a text of your own); `bind:value` carries the value alone, so pass `value` one way. The echo is then matched exactly, and the editor never sends a text again by itself: a parent that loses one (a save that failed) passes the newest text `onChange` gave again, with its revision. See [Hosts that echo](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#hosts-that-echo).
 
+A component `{#if}` makes new knows only the texts it sends: without `valueRevision`, a late value for a text the editor that is gone sent is your own text for it, and replaces what was typed since. Pass `valueRevision`, or drop those values when you show the editor again.
+
 ```svelte
 <ConfigEditor
   value={stored.text}

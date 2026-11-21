@@ -655,12 +655,22 @@ An editor a framework creates again (a new `language` or `fileName`) takes
 over the echoes of the one it replaces: pass the old editor's `channel` as
 the new one's `channel` option; given no `readOnlyRanges`, it also holds the
 old editor's ranges where they are now. The framework components do it for you.
-An editor hidden and shown again (a new component, no `channel`) knows only
-the texts it sent itself: without revisions, an answer still to come for a
-text the editor that is gone sent is your own text for the new one, and
-replaces what was typed since. Drop those answers when you show the editor
-again, or keep revisions (below): an answer older than a text the new
-editor sent then keeps the typing.
+An editor hidden and shown again where the editor knows it shows the same
+document takes over the texts the one that is gone sent and you have not
+handed back: a `ConfigEditor` made in the element another was destroyed in
+(`destroy()`, then `new ConfigEditor(element, …)` on that element; a
+framework component unmounted and mounted again, as React's `<Activity>`
+does), and a `ConfigDocuments` document listed again with its
+id after a list left it out. A late answer for one of those texts then
+keeps what is typed in the new editor; one newer than the `value` it was
+made with, coming before anything is typed there, brings the gone editor's
+typing back. An editor made anywhere else (another element, a component a
+conditional render made new, `{shown && <ConfigEditor />}`) knows only the
+texts it sent itself: without revisions, an answer still to come for a text
+the editor that is gone sent is your own text for the new one, and replaces
+what was typed since. Drop those answers when you show the editor again, or
+keep revisions (below): an answer older than a text the new editor sent
+then keeps the typing.
 
 With revisions there is no pause. `onChange(text, revision)` gives each text
 a revision; store it beside the text, keep only the newest revision you were

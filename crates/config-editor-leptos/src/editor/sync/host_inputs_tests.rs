@@ -63,7 +63,7 @@ const LOADED: &str = "a: 1\nb: 2\n";
 
 /// A document `LOADED` with `b: 2` locked, read in it.
 fn loaded() -> Link {
-    let mut link = Link::new(true, LOADED, None);
+    let mut link = Link::new(true, LOADED, None, None);
     take(
         &mut link,
         HostUpdate {
@@ -119,7 +119,7 @@ fn the_same_ranges_rendered_with_an_echo_are_no_news() {
 
 #[test]
 fn ranges_worked_out_on_an_older_revision_land_on_their_text() {
-    let mut link = Link::new(true, LOADED, None);
+    let mut link = Link::new(true, LOADED, None, None);
     let (_, first) = typed_and_sent(&mut link, 0, 0, "top: 0\n");
     let (second, _) = typed_and_sent(&mut link, 0, 0, "#\n");
     // A server check of the first revision locks its line 3, `b: 2`.
@@ -210,7 +210,7 @@ fn ranges_for_the_file_as_loaded_land_on_their_text_after_a_hide_and_show() {
     // `r`): a fresh editor shows it, the locks given for the file as
     // loaded.
     let state = "top: 0\na: 1\nb: 2\n";
-    let mut link = Link::new(true, state, Some(7));
+    let mut link = Link::new(true, state, Some(7), None);
     let update = HostUpdate {
         value: Some(state.to_string()),
         value_revision: Some(7),
@@ -225,7 +225,7 @@ fn ranges_for_the_file_as_loaded_land_on_their_text_after_a_hide_and_show() {
     take(&mut link, update, state);
     assert_eq!(locked(&link), ["b: 2"]);
     // With the revision instead: the numbers are in the state's text.
-    let mut link = Link::new(true, state, Some(7));
+    let mut link = Link::new(true, state, Some(7), None);
     take(
         &mut link,
         HostUpdate {
@@ -259,7 +259,7 @@ fn a_text_of_the_hosts_own_with_no_ranges_carries_the_locks() {
 
 #[test]
 fn ranges_named_by_a_revision_the_host_confirms_past_stay_on_their_text() {
-    let mut link = Link::new(true, LOADED, None);
+    let mut link = Link::new(true, LOADED, None, None);
     let (typed, first) = typed_and_sent(&mut link, 0, 0, "top: 0\n");
     take(
         &mut link,
@@ -306,7 +306,7 @@ fn ranges_named_by_a_revision_the_host_confirms_past_stay_on_their_text() {
 /// read in the new text where the loaded one had it).
 #[test]
 fn ranges_named_by_the_loaded_text_follow_it_into_a_text_of_the_hosts_own() {
-    let mut link = Link::new(true, LOADED, None);
+    let mut link = Link::new(true, LOADED, None, None);
     let given = |value: Option<&str>| HostUpdate {
         value: value.map(str::to_string),
         ranges: ranges(vec![on(2, 1, 5)]),
@@ -327,7 +327,7 @@ fn ranges_named_by_the_loaded_text_follow_it_into_a_text_of_the_hosts_own() {
 #[test]
 fn a_crlf_hosts_record_works_in_the_editors_line_breaks() {
     let host = "a: 1\r\nb: 2\r\nc: 3\r\n";
-    let channel = super::HostChannel::new(true, host, None);
+    let channel = super::HostChannel::new(true, host, None, None);
     assert_eq!(&*channel.document(), "a: 1\nb: 2\nc: 3\n");
     channel
         .take_unmounted(
@@ -376,7 +376,7 @@ fn a_reset_names_the_list_whose_locks_it_carried() {
 /// long as the editor lived.
 #[test]
 fn a_host_that_hears_nothing_keeps_no_version_per_text_sent() {
-    let mut link = Link::new(false, "a: 1\n", None);
+    let mut link = Link::new(false, "a: 1\n", None, None);
     for _ in 0..200 {
         typed_and_sent(&mut link, 4, 4, "9");
         link.untold();
@@ -396,7 +396,7 @@ fn a_host_that_hears_nothing_keeps_no_version_per_text_sent() {
 /// positions still map to the document.
 #[test]
 fn a_text_no_host_heard_stays_while_a_list_names_it() {
-    let mut link = Link::new(false, "a: 1\nb: 2\n", None);
+    let mut link = Link::new(false, "a: 1\nb: 2\n", None, None);
     let (document, revision) = typed_and_sent(&mut link, 0, 0, "# top\n");
     link.untold();
     take(

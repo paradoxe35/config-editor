@@ -476,6 +476,8 @@ typed next. With `valueRevision` the editor tells them apart exactly.
 
 With revisions there is no pause: `@update:model-value` gives each text a revision as its second argument. Store it beside the text and pass it back as the `valueRevision` prop (keep only the newest revision you were given, never go back to an older one; leave it out for a text of your own); `v-model` keeps the value alone, so bind `modelValue` and the event yourself. The echo is then matched exactly, and the editor never sends a text again by itself: a parent that loses one (a save that failed) passes the newest text it was given again, with its revision. See [Hosts that echo](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#hosts-that-echo).
 
+Kept by `<KeepAlive>`, a hidden component keeps its editor, and the values still on their way are told apart as ever. A component `v-if` makes new knows only the texts it sends: without `valueRevision`, a late value for a text the editor that is gone sent is your own text for it, and replaces what was typed since. Pass `valueRevision`, or drop those values when you show the editor again.
+
 ```vue
 <ConfigEditor
   :model-value="stored.text"

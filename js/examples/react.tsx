@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useRef, useState } from "react";
+import { Activity, StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import * as core from "@pngwasi/config-editor";
 import * as tools from "@pngwasi/config-editor/tools";
@@ -42,6 +42,12 @@ const random = new URLSearchParams(location.search).has("random");
 // as `valueRevision`, and the locks of the first line name the file as
 // loaded (`rangesFor`).
 const revisions = new URLSearchParams(location.search).has("revisions");
+// `?activity` hides the editor with `<Activity mode="hidden">` (the same
+// component: its effects unmount and mount again) instead of a conditional
+// render (a new component).
+const activity = new URLSearchParams(location.search).has("activity");
+const hideable = (shown: boolean, editor: ReactNode) =>
+  activity ? <Activity mode={shown ? "visible" : "hidden"}>{editor}</Activity> : shown && editor;
 // `?reset-early` calls `ref.setValue` from an effect, before the editor has
 // mounted (it mounts once the wasm is ready).
 const resetEarly = new URLSearchParams(location.search).has("reset-early");
@@ -206,7 +212,7 @@ function App({ schema }: { schema: string }) {
         <span id="changes">{changes}</span>
         <code id="breadcrumb">{path}</code>
       </header>
-      {shown && (
+      {hideable(shown, (
       <ConfigEditor
         ref={handle}
         language="yaml"
@@ -258,7 +264,7 @@ function App({ schema }: { schema: string }) {
         showFooter
         {...extra}
       />
-      )}
+      ))}
       <pre id="saved">{value}</pre>
     </>
   );

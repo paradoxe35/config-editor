@@ -1309,3 +1309,98 @@ test.describe(() => {
     expect(page.errors).toEqual([]);
   });
 });
+
+// A v0.1.0 host (no `valueRevision`) handing every text back late, its
+// editor hidden and shown again where the editor knows it shows the same
+// document: a `ConfigEditor` made in the element one was destroyed in, a
+// `ConfigDocuments` document listed again with its id. The new editor
+// takes over the texts the gone one sent: their late answers keep what is
+// typed in it, and with nothing typed there they bring the gone editor's
+// typing back. Before, an answer still to come was the host's own text for
+// the new editor and replaced the typing.
+test.describe('shown again where the editor was, with answers still to come', () => {
+  test.skip(!built, 'js packages not built: run `npm run build` in js/');
+  for (const host of ['editor', 'documents']) {
+    for (const typed of [true, false]) {
+      test(`${host}: ${typed ? 'the typing in the new editor is kept' : "the gone editor's typing comes back"}`, async ({ page }) => {
+        await open(page);
+        await page.evaluate((host) => {
+          const element = window.mountPoint();
+          window.held = [];
+          window.store = { a: 'name: x\n', b: 'other: 1\n' };
+          const list = (ids) => ids.map((id) => ({ id, fileName: `${id}.yaml`, value: window.store[id] }));
+          const answer = (apply) => window.held.push(apply);
+          // Hands back every text held, in order, until none is left; the
+          // editor's text after each.
+          window.answerAll = async () => {
+            const seen = [];
+            while (window.held.length) {
+              window.held.shift()();
+              seen.push(window.textOf());
+              await window.pause(20);
+              if (!window.held.length) await window.pause(400);
+            }
+            return seen;
+          };
+          if (host === 'editor') {
+            const make = () =>
+              new window.module.ConfigEditor(element, {
+                value: window.store.a,
+                echoes: true,
+                onChange: (text) =>
+                  answer(() => {
+                    window.store.a = text;
+                    window.shown.update({ value: text });
+                  }),
+              });
+            window.shown = make();
+            window.textOf = () => window.shown.value;
+            window.hideAndShow = () => {
+              window.shown.destroy();
+              window.shown = make();
+            };
+            return;
+          }
+          let ids = ['a', 'b'];
+          const view = new window.module.ConfigDocuments(element, {
+            documents: list(ids),
+            echoes: true,
+            onChange: (id, text) =>
+              answer(() => {
+                window.store[id] = text;
+                view.update({ documents: list(ids) });
+              }),
+          });
+          window.textOf = () => view.editor('a').value;
+          window.hideAndShow = async () => {
+            ids = ['b'];
+            view.update({ documents: list(ids) });
+            await window.pause(100);
+            ids = ['a', 'b'];
+            view.update({ documents: list(ids) });
+            view.select('a');
+          };
+        }, host);
+        const typeAtEnd = async (text) => {
+          const input = page.locator('.config-editor__input:visible');
+          await input.focus();
+          await input.evaluate((element) => element.setSelectionRange(element.value.length, element.value.length));
+          await page.keyboard.type(text, { delay: 20 });
+        };
+        await page.waitForTimeout(300);
+        await typeAtEnd('ab');
+        await page.evaluate(() => window.hideAndShow());
+        await page.waitForTimeout(300);
+        // The host's text when it was shown again: its answers are still to come.
+        expect(await page.evaluate(() => window.textOf())).toBe('name: x\n');
+        if (typed) await typeAtEnd('c');
+        const seen = await page.evaluate(() => window.answerAll());
+        const expected = typed ? 'name: x\nc' : 'name: x\nab';
+        // Typed in the new editor, no answer ever replaces it, not even for a while.
+        if (typed) expect(seen.filter((text) => text !== expected)).toEqual([]);
+        expect(await page.evaluate(() => [window.textOf(), window.store.a])).toEqual([expected, expected]);
+        expect(page.errors).toEqual([]);
+      });
+    }
+  }
+});

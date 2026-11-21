@@ -29,7 +29,7 @@ mod host_inputs;
 mod host_log;
 mod session;
 
-pub use echoes::{Echo, Echoes, SETTLE_MS, clock as echo_clock};
+pub use echoes::{Echo, Echoes, Handoff, SETTLE_MS, clock as echo_clock};
 pub(crate) use gate::{Held, Made, Route};
 pub(crate) use host_changes::apply_host_changes;
 pub use host_changes::{ChangeError, HostChange, HostEdits};
@@ -224,7 +224,7 @@ impl SyncState {
                     .unwrap_or_default(),
             ),
             channel: StoredValue::new_local(
-                channel.unwrap_or_else(|| HostChannel::new(false, &host_text, None)),
+                channel.unwrap_or_else(|| HostChannel::new(false, &host_text, None, None)),
             ),
             settles: StoredValue::new(0),
             synced: Trigger::new(),

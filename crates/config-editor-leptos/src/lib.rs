@@ -136,8 +136,9 @@ pub use editor::{
 pub mod js_support {
     pub use crate::editor::text::lines::{TextLines, document};
     pub use crate::editor::{
-        AnchorError, ChangeError, Echo, Echoes, HostChannel, HostEdits, HostUpdate, List, Listed,
-        Reading, SETTLE_MS, Taken, echo_clock, flush_pending_input, is_web_url, statement_of,
+        AnchorError, ChangeError, Echo, Echoes, Handoff, HostChannel, HostEdits, HostUpdate, List,
+        Listed, Reading, SETTLE_MS, Taken, echo_clock, flush_pending_input, is_web_url,
+        statement_of,
     };
 
     /// A timer [`after`] set, to [`cancel`](Self::cancel) it.

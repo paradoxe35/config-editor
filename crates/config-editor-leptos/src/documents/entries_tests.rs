@@ -332,7 +332,7 @@ fn a_closed_document_lets_go_of_its_host_record() {
     owner.set();
     let (documents, _) = view(&files(), true, false);
     for document in files() {
-        let channel = crate::editor::HostChannel::new(false, &document.value, None);
+        let channel = crate::editor::HostChannel::new(false, &document.value, None, None);
         documents.bind_channel(&document.id, channel);
     }
     hold(|| {

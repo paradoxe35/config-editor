@@ -58,8 +58,8 @@ pub use input::flush_pending_input;
 pub(crate) use line_endings::same_document;
 pub use sync::flush_pending_edits;
 pub use sync::{
-    AnchorError, ChangeError, Echo, Echoes, HostChange, HostChannel, HostEdits, HostUpdate, List,
-    Listed, RangesFor, Reading, SETTLE_MS, Taken, echo_clock, statement_of,
+    AnchorError, ChangeError, Echo, Echoes, Handoff, HostChange, HostChannel, HostEdits,
+    HostUpdate, List, Listed, RangesFor, Reading, SETTLE_MS, Taken, echo_clock, statement_of,
 };
 mod keyboard;
 mod keys;

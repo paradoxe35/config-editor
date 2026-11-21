@@ -45,12 +45,10 @@ pub(crate) struct DocSim {
     /// replaced brought back (no typing of this editor's): a newer text of
     /// the host's replacing it loses nothing typed here.
     brought_back: bool,
-    /// A late text of the editor a hide and show replaced came back (the
-    /// fresh editor cannot know it for an echo: shown as the host's own,
-    /// or taken for the echo of the same text the fresh editor sent, whose
-    /// own echo then reads as the host's): until every text on its way
-    /// came back, what replaces typing then is that same open finding
-    /// (qa39 39b), whatever text does it.
+    /// A late text of the editor a hide and show replaced came back: until
+    /// every text on its way came back, typing replaced then is told as
+    /// lost after the hide and show (the record the binding handed on
+    /// tells those texts apart), whatever text replaces it.
     gone_text_seen: bool,
 }
 
@@ -59,7 +57,7 @@ impl DocSim {
         let mut sim = Self {
             core: Core {
                 text: base.to_string(),
-                channel: HostChannel::new(true, base, None),
+                channel: HostChannel::new(true, base, None, None),
             },
             host: HostDoc::new(base, revisions),
             form,
@@ -395,14 +393,18 @@ impl DocSim {
     }
 
     /// A hide and show: a fresh editor on the host's store (with its
-    /// revision), its list worked out on that text.
+    /// revision), its list worked out on that text. The binding knows it
+    /// shows the same document again (the element the editor was in, the
+    /// document's id): it hands the gone editor's texts on their way to
+    /// the new one.
     fn fresh_mount(&mut self) -> Outcome {
         self.host.fresh_mount();
         let store = self.host.store.clone();
         let revision = self.host.store_revision.filter(|_| self.host.revisions);
+        let handed = self.core.channel.handoff();
         self.core = Core {
             text: store.clone(),
-            channel: HostChannel::new(true, &store, revision),
+            channel: HostChannel::new(true, &store, revision, handed),
         };
         self.settle_armed = false;
         self.typed_since_fresh = false;

@@ -35,6 +35,15 @@
 //! passes the store's text again while it lags behind the typing.
 //! A reset to it then is `replaceValue`'s.
 //!
+//! An editor made again for a document a binding showed before (a
+//! framework re-mounting its component takes the whole record over; an
+//! editor made in the element one was destroyed in, or a document listed
+//! again with its id, takes the texts still on their way, see
+//! [`Echoes::handed`]) tells the late echoes of the editor that is gone
+//! apart too: a known fact, not a match of texts. Those newer than the
+//! text it was made with bring the gone editor's typing back while
+//! nothing was sent since; after that they are echoes.
+//!
 //! Texts are told apart as the editor reads them (see `Print`): an echo a
 //! store wrote another way (the byte order mark dropped, LF for CRLF) is
 //! still the echo, and one that is the document written another way keeps
@@ -139,7 +148,7 @@ impl Print {
 }
 
 /// A copy of a text sent and not handed back yet.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Sent {
     /// When it was sent (see [`clock`]).
     serial: u64,
@@ -177,8 +186,63 @@ enum Kind {
     Again,
     /// A copy the editor sent.
     Copy,
+    /// A copy an editor that is gone sent after the text this one was made
+    /// with, while this one has sent nothing: the host catching up to
+    /// typing made before the editor was made again (see
+    /// [`Echoes::handed`]).
+    Gone,
     /// The host's own text.
     Own,
+}
+
+/// The copies an editor that is gone sent and the host has not handed
+/// back yet, as a binding hands them to the editor it makes next for the
+/// same document (see [`Echoes::handed`]): a print per copy, never the
+/// text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Handoff {
+    /// Each copy on its way, oldest first.
+    sent: Vec<(Print, Sent)>,
+}
+
+impl Handoff {
+    /// The record as numbers, for a binding that keeps it outside the
+    /// module (on the element the editor was in).
+    pub fn to_words(&self) -> Vec<u64> {
+        self.sent
+            .iter()
+            .flat_map(|(Print(length, hash, raw), sent)| {
+                let flags = u64::from(sent.counted_out) | u64::from(sent.doubted) << 1;
+                [sent.serial, *length as u64, *hash, *raw as u64, flags]
+            })
+            .collect()
+    }
+
+    /// The record [`Handoff::to_words`] wrote; `None` for numbers it did
+    /// not write.
+    pub fn from_words(words: &[u64]) -> Option<Self> {
+        let (copies, []) = words.as_chunks::<5>() else {
+            return None;
+        };
+        if copies.is_empty() {
+            return None;
+        }
+        let size = |word: u64| usize::try_from(word).ok();
+        let sent = copies
+            .iter()
+            .map(|&[serial, length, hash, raw, flags]| {
+                Some((
+                    Print(size(length)?, hash, size(raw)?),
+                    Sent {
+                        serial,
+                        counted_out: flags & 1 != 0,
+                        doubted: flags & 2 != 0,
+                    },
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self { sent })
+    }
 }
 
 /// The texts one document sent that the host has not handed back yet.
@@ -218,6 +282,11 @@ pub struct Echoes {
     reset: Option<u64>,
     /// The revision of the text sent last (with or without the option).
     last_sent: Option<u64>,
+    /// Made from a record an editor that is gone handed on, while this
+    /// one has sent nothing: the copies it sent from this serial on (after
+    /// the text this editor was made with) bring back typing the host had
+    /// not given yet (see [`Kind::Gone`]).
+    catch_up: Option<u64>,
 }
 
 impl Echoes {
@@ -243,6 +312,64 @@ impl Echoes {
             self.last_given = Some(print);
             self.document = Some(print);
         }
+    }
+
+    /// The copies on their way, for the editor a binding makes next for the
+    /// same document (see [`Echoes::handed`]); `None` when none is.
+    pub fn handoff(&self) -> Option<Handoff> {
+        if !self.on || self.order.is_empty() {
+            return None;
+        }
+        let mut sent: Vec<(Print, Sent)> = self
+            .copies
+            .iter()
+            .flat_map(|(print, copies)| copies.iter().map(|sent| (*print, *sent)))
+            .collect();
+        sent.sort_unstable_by_key(|(_, sent)| sent.serial);
+        Some(Handoff { sent })
+    }
+
+    /// The record of an editor a binding makes for a document it showed
+    /// before (the element the editor was in, a document listed again with
+    /// its id), the host giving `text` (at `revision`, when it gave one):
+    /// the copies the editor that is gone sent, `handoff`, are still
+    /// echoes, so none taken for the host's own text replaces what is
+    /// typed here (P4). Those sent after `text` (after its revision, or
+    /// its newest copy; every one when neither names it) are typing the
+    /// host had not given back when the editor was made again: they apply
+    /// while this editor has sent nothing, and the typing comes back.
+    pub fn handed(handoff: Handoff, text: &str, revision: Option<u64>) -> Self {
+        let mut echoes = Self::new(true);
+        for (print, sent) in handoff.sent {
+            echoes.order.insert(sent.serial, print);
+            echoes.copies.entry(print).or_default().push_back(sent);
+        }
+        let shown = revision.or_else(|| {
+            echoes
+                .copies
+                .get(&Print::of(text))
+                .and_then(VecDeque::back)
+                .map(|sent| sent.serial)
+        });
+        echoes.catch_up = Some(shown.map_or(0, |serial| serial + 1));
+        echoes.given(text);
+        echoes
+    }
+
+    /// Whether the newest copy of `print` is one an editor that is gone sent
+    /// after the text this one was made with, nothing sent since (see
+    /// [`Echoes::handed`]).
+    fn catches_up(&self, print: Print) -> bool {
+        self.copies
+            .get(&print)
+            .and_then(VecDeque::back)
+            .is_some_and(|sent| self.catches_up_at(sent.serial))
+    }
+
+    /// The same for the copy sent at `serial`.
+    fn catches_up_at(&self, serial: u64) -> bool {
+        self.catch_up.is_some_and(|from| serial >= from)
+            && self.came_back.is_none_or(|back| serial > back)
     }
 
     /// The host gave `text` of its own as the document (`replaceValue`).
@@ -321,15 +448,20 @@ impl Echoes {
     /// The copy sent at `revision` reached no host (no `onChange`): it is
     /// no echo to wait for, and the host was not told the document.
     pub fn untold(&mut self, revision: u64) {
-        if let Some(print) = self.order.remove(&revision)
+        self.drop_copy(revision);
+        self.document = None;
+    }
+
+    /// Forgets the copy sent at `serial`, if it is on its way.
+    fn drop_copy(&mut self, serial: u64) {
+        if let Some(print) = self.order.remove(&serial)
             && let Some(copies) = self.copies.get_mut(&print)
         {
-            copies.retain(|sent| sent.serial != revision);
+            copies.retain(|sent| sent.serial != serial);
             if copies.is_empty() {
                 self.copies.remove(&print);
             }
         }
-        self.document = None;
     }
 
     /// The document changed and the host was not told (no `onChange`).
@@ -338,6 +470,8 @@ impl Echoes {
     }
 
     fn send(&mut self, print: Print) -> u64 {
+        // The copies from before are older than this one: echoes.
+        self.catch_up = None;
         let serial = tick();
         self.order.insert(serial, print);
         self.copies.entry(print).or_default().push_back(Sent {
@@ -482,6 +616,12 @@ impl Echoes {
                 self.came(print);
                 true
             }
+            // Typing from before the editor was made again, coming back.
+            Kind::Gone => {
+                self.came(print);
+                self.document = Some(print);
+                return Echo::Apply;
+            }
             Kind::Own => {
                 // The host's own text. When it replaces the document, the
                 // texts sent before belong to the text it replaced (another
@@ -492,6 +632,7 @@ impl Echoes {
                 if !same {
                     self.forget_before(flushed);
                     self.reset = None;
+                    self.catch_up = None;
                 }
                 self.document = Some(print);
                 return Echo::Apply;
@@ -526,6 +667,8 @@ impl Echoes {
     fn kind(&self, print: Print) -> Kind {
         if self.last_listed == Some(print) {
             Kind::Again
+        } else if self.catches_up(print) {
+            Kind::Gone
         } else if self.copies.contains_key(&print) {
             Kind::Copy
         } else {
@@ -568,6 +711,7 @@ impl Echoes {
         if !self.on || self.order.get(&revision) != Some(&print) {
             return self.received(value, current, flushed);
         }
+        let catching_up = self.catches_up_at(revision);
         self.last_given = Some(print);
         self.last_listed = Some(print);
         let confirmed: Vec<u64> = self
@@ -576,20 +720,18 @@ impl Echoes {
             .map(|(serial, _)| *serial)
             .collect();
         for serial in confirmed {
-            if let Some(print) = self.order.remove(&serial)
-                && let Some(copies) = self.copies.get_mut(&print)
-            {
-                copies.retain(|sent| sent.serial != serial);
-                if copies.is_empty() {
-                    self.copies.remove(&print);
-                }
-            }
+            self.drop_copy(serial);
         }
         if self.reset.is_some_and(|reset| reset <= revision) {
             self.reset = None;
         }
         if self.came_back.is_none_or(|back| revision > back) {
             self.came_back = Some(revision);
+        }
+        // Typing from before the editor was made again, coming back.
+        if catching_up {
+            self.document = Some(print);
+            return Echo::Apply;
         }
         if self.same(value, print, current) {
             self.document = Some(print);
@@ -633,6 +775,12 @@ impl Echoes {
         }
         let print = Print::of(value);
         if let Some(revision) = revision
+            && self.order.get(&revision) == Some(&print)
+            && self.catches_up_at(revision)
+        {
+            return true;
+        }
+        if let Some(revision) = revision
             && (self.order.get(&revision) == Some(&print)
                 || self.behind(revision)
                 || !self.order.contains_key(&revision)
@@ -640,7 +788,7 @@ impl Echoes {
         {
             return false;
         }
-        self.kind(print) == Kind::Own
+        matches!(self.kind(print), Kind::Own | Kind::Gone)
     }
 
     /// The revision of the text sent last, on its way or not.
@@ -669,7 +817,8 @@ impl Echoes {
     /// with it are read in it only then (see `crate::host_locks`).
     pub fn replaces(&mut self, value: &str, current: &str) -> bool {
         let print = Print::of(value);
-        !self.same(value, print, current) && (!self.on || self.kind(print) == Kind::Own)
+        !self.same(value, print, current)
+            && (!self.on || matches!(self.kind(print), Kind::Own | Kind::Gone))
     }
 
     /// Whether [`Echoes::received_at`] would take `value`, given with
@@ -687,7 +836,7 @@ impl Echoes {
             return false;
         }
         if self.order.get(&revision) == Some(&print) {
-            return false;
+            return self.catches_up_at(revision) && !self.same(value, print, current);
         }
         self.replaces(value, current)
     }
@@ -754,7 +903,7 @@ mod work {
 #[cfg(test)]
 mod tests {
     use super::work::{Work, counted};
-    use super::{Echo, Echoes, Print, SETTLE_MS};
+    use super::{Echo, Echoes, Handoff, Print, SETTLE_MS};
 
     /// No text sent while the update is handled.
     const NONE: u64 = u64::MAX;
@@ -1346,6 +1495,107 @@ mod tests {
         assert_eq!(echoes.received("x2", "x2d", NONE), Echo::Apply);
     }
 
+    /// The record of an editor made again for the same document, from the
+    /// one the gone editor (`gone`) hands on, the host giving `text`.
+    fn made_again(gone: &Echoes, text: &str) -> Echoes {
+        Echoes::handed(gone.handoff().expect("texts on their way"), text, None)
+    }
+
+    /// P4, a v0.1.0 host (qa39 39b): hidden and shown again, the new
+    /// editor sends a text the gone one sent too, and types on. The gone
+    /// editor's late echo of it and the new one's own each take a copy:
+    /// neither reads as the host's text over the typing.
+    #[test]
+    fn a_gone_editors_echo_of_a_text_sent_again_here_keeps_the_typing() {
+        let mut gone = Echoes::new(true);
+        gone.given("s");
+        gone.sent("a");
+        let mut fresh = made_again(&gone, "s");
+        fresh.sent("a");
+        fresh.sent("ax");
+        fresh.sent("axy");
+        assert_ne!(checked(&mut fresh, "a", "axy"), Echo::Apply);
+        assert_ne!(checked(&mut fresh, "ax", "axy"), Echo::Apply);
+        assert_ne!(checked(&mut fresh, "a", "axy"), Echo::Apply);
+        assert_eq!(checked(&mut fresh, "axy", "axy"), Echo::Apply);
+        assert_eq!(waiting(&fresh), 0);
+    }
+
+    /// P4: shown again on the newest text the gone editor sent (a
+    /// framework's component keeps the document), its older texts still to
+    /// come are echoes and keep it.
+    #[test]
+    fn a_gone_editors_older_text_keeps_the_text_shown_again() {
+        let mut gone = Echoes::new(true);
+        gone.given("s");
+        gone.sent("s1");
+        gone.sent("s12");
+        let mut fresh = made_again(&gone, "s12");
+        assert_ne!(checked(&mut fresh, "s1", "s12"), Echo::Apply);
+        assert_eq!(checked(&mut fresh, "s12", "s12"), Echo::Apply);
+    }
+
+    /// Shown again on the host's older text, nothing typed since: the gone
+    /// editor's typing comes back, newest last; one older than a text that
+    /// came back keeps the newer one (the host hears it again).
+    #[test]
+    fn a_gone_editors_typing_comes_back_with_nothing_typed_here() {
+        let mut gone = Echoes::new(true);
+        gone.given("s");
+        gone.sent("s1");
+        gone.sent("s12");
+        let mut fresh = made_again(&gone, "s");
+        assert_eq!(checked(&mut fresh, "s1", "s"), Echo::Apply);
+        assert_eq!(checked(&mut fresh, "s12", "s1"), Echo::Apply);
+        let mut fresh = made_again(&gone, "s");
+        assert_eq!(checked(&mut fresh, "s12", "s"), Echo::Apply);
+        assert_eq!(checked(&mut fresh, "s1", "s12"), Echo::Resend);
+        // Once this editor sends, the gone editor's texts are older.
+        let mut fresh = made_again(&gone, "s");
+        fresh.sent("s3");
+        assert_ne!(checked(&mut fresh, "s12", "s3"), Echo::Apply);
+    }
+
+    /// With revisions, the handed copies are matched by revision: older
+    /// than a text sent here, they keep it; with nothing sent here, they
+    /// apply.
+    #[test]
+    fn a_handed_record_matches_revisions_too() {
+        let mut gone = Echoes::new(true);
+        gone.given("s");
+        let late = gone.sent("s1");
+        let mut fresh = made_again(&gone, "s");
+        let typed = fresh.sent("s2");
+        assert!(!fresh.replaces_at("s1", late, "s2"));
+        assert_eq!(fresh.received_at("s1", late, "s2", NONE), Echo::Skip);
+        assert_eq!(fresh.received_at("s2", typed, "s2", NONE), Echo::Apply);
+        assert_eq!(waiting(&fresh), 0);
+        let mut fresh = made_again(&gone, "s");
+        assert!(fresh.replaces_at("s1", late, "s"));
+        assert!(fresh.is_own("s1", Some(late)));
+        assert_eq!(fresh.received_at("s1", late, "s", NONE), Echo::Apply);
+    }
+
+    /// A record handed on is the copies on their way, read back as
+    /// written; nothing on its way hands nothing on, and numbers it did not
+    /// write read as no record.
+    #[test]
+    fn a_handoff_reads_back_as_written() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("s");
+        assert!(echoes.handoff().is_none());
+        echoes.sent("a");
+        echoes.sent("b");
+        echoes.sent("a");
+        assert_eq!(echoes.received("b", "a", NONE), Echo::Settle);
+        let handoff = echoes.handoff().expect("texts on their way");
+        assert_eq!(Handoff::from_words(&handoff.to_words()), Some(handoff));
+        assert_eq!(Handoff::from_words(&[]), None);
+        assert_eq!(Handoff::from_words(&[0, 1, 2]), None);
+        assert_eq!(Handoff::from_words(&[0, 1, 2, 3, 4, 5]), None);
+        assert!(Echoes::new(false).handoff().is_none());
+    }
+
     /// P4: hidden and shown again, a host keeping revisions hands back a
     /// text the editor that is gone sent, late. Older than a text the new
     /// editor sent that is on its way, it keeps the typing (that text still
@@ -1480,6 +1730,7 @@ mod tests {
             document: echoes.document,
             reset: echoes.reset,
             last_sent: echoes.last_sent,
+            catch_up: echoes.catch_up,
         }
     }
 

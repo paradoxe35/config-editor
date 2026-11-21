@@ -134,7 +134,8 @@ pub(crate) enum Act {
     /// goes on, the props are rendered again.
     Remount { doc: u8 },
     /// The component is hidden and shown: a fresh editor on the parent's
-    /// state, no channel.
+    /// state, no channel; the binding hands it the gone editor's texts on
+    /// their way (`HostChannel::handoff`).
     FreshMount { doc: u8 },
 }
 
@@ -190,8 +191,8 @@ pub(crate) enum Class {
     AnchorRefused,
     /// A text the host handed back replaced newer typing.
     TypingLost,
-    /// The same, after a hide and show: a late echo of the editor that is
-    /// gone is the host's own text for the fresh one.
+    /// The same, after a hide and show, by a late text of the editor that
+    /// is gone.
     TypingLostAfterHideShow,
     /// The same, the text a listing of one the host reset to.
     RevertedByListing,

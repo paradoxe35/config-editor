@@ -31,7 +31,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use super::echoes::{Echo, Echoes, Print, issue};
+use super::echoes::{Echo, Echoes, Handoff, Print, issue};
 use super::host_log::{HostLog, Named, Rewrite};
 use crate::editor::host_diagnostics::{DiagnosticTarget, HostDiagnostic};
 use crate::editor::paths;
@@ -268,10 +268,23 @@ pub(crate) struct Link {
 
 impl Link {
     /// A document the host gave as `value` (at `revision`, when it gave
-    /// one); `echoing`: the host hands every `on_change` text back.
-    pub(crate) fn new(echoing: bool, value: &str, revision: Option<u64>) -> Self {
-        let mut echoes = Echoes::new(echoing);
-        echoes.given(value);
+    /// one); `echoing`: the host hands every `on_change` text back;
+    /// `handed`: the copies an editor that showed this document before
+    /// sent and the host has not handed back (see [`Echoes::handed`]).
+    pub(crate) fn new(
+        echoing: bool,
+        value: &str,
+        revision: Option<u64>,
+        handed: Option<Handoff>,
+    ) -> Self {
+        let echoes = match handed.filter(|_| echoing) {
+            Some(handed) => Echoes::handed(handed, value, revision),
+            None => {
+                let mut echoes = Echoes::new(echoing);
+                echoes.given(value);
+                echoes
+            }
+        };
         let revision = revision.unwrap_or_else(issue);
         let mut log = HostLog::new(Arc::from(value), revision, echoing);
         log.printed_as(revision, Print::of(value));
@@ -879,12 +892,25 @@ pub struct HostChannel(Rc<RefCell<Link>>);
 impl HostChannel {
     /// A channel for a document the host gave as `value` (at `revision`,
     /// its `value_revision`, when it gave one); `echoing`: the host hands
-    /// every `on_change` text back.
-    pub fn new(echoing: bool, value: &str, revision: Option<u64>) -> Self {
+    /// every `on_change` text back. `handed`: the
+    /// [`HostChannel::handoff`] of the editor that showed this document
+    /// last, when the binding knows it shows the same document again (the
+    /// element that editor was in, a document listed again with its id):
+    /// the late echoes of that editor are told apart here too.
+    pub fn new(echoing: bool, value: &str, revision: Option<u64>, handed: Option<Handoff>) -> Self {
         // The record works in the editor's text (LF breaks, no byte order
         // mark), whatever form the host writes.
         let value = crate::editor::line_endings::editor_text(value.to_string());
-        Self(Rc::new(RefCell::new(Link::new(echoing, &value, revision))))
+        Self(Rc::new(RefCell::new(Link::new(
+            echoing, &value, revision, handed,
+        ))))
+    }
+
+    /// The texts sent that the host has not handed back yet, for the
+    /// editor a binding makes next for the same document (see
+    /// [`HostChannel::new`]); `None` when none is on its way.
+    pub fn handoff(&self) -> Option<Handoff> {
+        self.with(|link| link.echoes.handoff())
     }
 
     /// Runs `apply` on the record.

@@ -4,7 +4,9 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use js_sys::{Array, Object};
-use leptos_config_editor::js_support::{HostChannel, HostUpdate, Listed as ListedItems, TextLines};
+use leptos_config_editor::js_support::{
+    Handoff, HostChannel, HostUpdate, Listed as ListedItems, TextLines,
+};
 use leptos_config_editor::{
     Document, EditorSettings, Language, Schema, SecretOptions, TextPosition, TextRange,
 };
@@ -80,6 +82,11 @@ pub(crate) struct Kept {
     /// Each document's record of its host (the core's), shared with its
     /// editor once it mounts.
     pub(crate) channels: HashMap<String, HostChannel>,
+    /// The texts still on their way of the documents no longer listed, by
+    /// id: a document listed again with its id (shown again) takes them
+    /// over, so their late echoes are told apart there (see the core's
+    /// `HostChannel::handoff`). They go with the view.
+    handed: HashMap<String, Handoff>,
 }
 
 impl Kept {
@@ -254,8 +261,17 @@ pub(crate) fn documents_from<'a>(
     }
     kept.secrets
         .retain(|id, _| documents.iter().any(|document| document.id == *id));
-    kept.channels
-        .retain(|id, _| documents.iter().any(|document| document.id == *id));
+    let unlisted: Vec<String> = kept
+        .channels
+        .keys()
+        .filter(|id| !documents.iter().any(|document| document.id == **id))
+        .cloned()
+        .collect();
+    for id in unlisted {
+        if let Some(handoff) = kept.channels.remove(&id).and_then(|gone| gone.handoff()) {
+            kept.handed.insert(id, handoff);
+        }
+    }
     kept.texts.finish();
     kept.schemas.last = std::mem::take(&mut kept.schemas.read);
     Ok(Listed {
@@ -310,7 +326,12 @@ fn with_protection<'a>(
     let (channel, host_text, fresh) = match before {
         Some((current, channel)) => (channel, current.to_string(), false),
         None => (
-            HostChannel::new(kept.echoing, &document.value, value_revision),
+            HostChannel::new(
+                kept.echoing,
+                &document.value,
+                value_revision,
+                kept.handed.remove(&document.id),
+            ),
             document.value.clone(),
             true,
         ),

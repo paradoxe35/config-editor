@@ -121,6 +121,41 @@ export function hostTextCases(name) {
       });
     }
 
+    // Hidden and shown again as the same component (React's `<Activity>`,
+    // Vue's `<KeepAlive>`), a v0.1.0 parent (no `valueRevision`) handing
+    // each edit back late: the late answers for the texts the editor sent
+    // before it was hidden keep what is typed after. React's component
+    // makes a new editor in its element, which takes those texts over (the
+    // first answer replaced the typing before); Vue's keeps its editor.
+    // Svelte keeps no component across a hide and show (`{#if}` makes a
+    // new one, which needs `valueRevision`).
+    const sameComponent = { 'react.html': '&activity', 'vue.html': '&keep-alive' }[name];
+    test('hidden and shown as the same component while echoes are late, a v0.1.0 parent keeps the typing', async ({ page }) => {
+      test.skip(!sameComponent, 'no way to keep a Svelte component across a hide and show');
+      const { errors } = await open(page, name, `?manual${sameComponent}`);
+      await typeAtTop(page, 'a: 1\n');
+      await typeAtTop(page, 'c: 3\n');
+      await page.evaluate(() => window.setShown(false));
+      await expect(input(page)).toBeHidden();
+      await page.evaluate(() => window.setShown(true));
+      await expect(input(page)).toBeVisible();
+      await expect(input(page)).toHaveValue(`c: 3\na: 1\n${initialText}`);
+      await typeAtTop(page, 'b: 2\n');
+      // The first text held: the editor before the hide sent it.
+      let held = await page.evaluate(() => {
+        window.releaseEchoes([0]);
+        return window.heldEchoes();
+      });
+      await page.waitForTimeout(100);
+      await expect(input(page)).toHaveValue(`b: 2\nc: 3\na: 1\n${initialText}`);
+      held = await releaseFrom(page, 1);
+      await page.waitForTimeout(400);
+      await releaseFrom(page, held);
+      await expect(saved(page)).toHaveText(`b: 2\nc: 3\na: 1\n${initialText}`);
+      await expect(input(page)).toHaveValue(`b: 2\nc: 3\na: 1\n${initialText}`);
+      expect(errors).toEqual([]);
+    });
+
     test('setValue and the parent\'s own text, with revisions and late echoes: the next typing is kept', async ({ page }) => {
       const { errors } = await open(page, name, '?manual&revisions');
       await page.evaluate(() => window.editorHandle.current.setValue('x: 1\n'));

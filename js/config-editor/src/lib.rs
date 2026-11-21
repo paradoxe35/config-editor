@@ -39,6 +39,7 @@ mod editor;
 mod editor_view;
 mod given;
 mod handle_calls;
+mod handoff;
 mod headless;
 mod host_diagnostics;
 mod languages;

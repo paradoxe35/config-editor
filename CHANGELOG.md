@@ -136,6 +136,16 @@ versions move together.
   it brought that typing back over the new typing before. Without
   `valueRevision` the new editor cannot tell such an answer from your own
   text ("Hosts that echo" in the README says what to do).
+- Hidden and shown again without `valueRevision`, a late answer for a text
+  the editor that is gone sent no longer replaces what is typed in the new
+  editor, where the editor knows it shows the same document again: an
+  editor made in the element one was destroyed in (a framework component
+  unmounted and mounted again, as React's `<Activity>` does), and a
+  `ConfigDocuments` document listed again with its id. That editor takes
+  over the texts still on their way; such an answer taking the place of
+  the same text the new editor sent made the new one's own answer read as
+  your text. An editor made anywhere else (a component a conditional
+  render made new) still needs `valueRevision`.
 - In XML, a second element of a secret's name (an empty one too) written
   beside a lone secret's element is taken and held, typed or pasted, as a
   list made beside a placeholder is in every language; typing it no longer
