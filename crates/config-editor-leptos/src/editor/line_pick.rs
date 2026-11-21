@@ -2,6 +2,8 @@
 //! number selects its line (a closed fold's line with the lines it hides), a
 //! drag over the numbers selects every line it passes, and `Shift` with a
 //! press extends the selection by whole lines to the number pressed.
+//! Held past the text's top or bottom, the drag scrolls the text on and
+//! selects the lines it brings into view, as a drag over the text does.
 //!
 //! The mouse only: a finger on the numbers scrolls the text (see
 //! `scroll_through`), and its tap selects the line through the click.
@@ -11,15 +13,23 @@ use leptos::prelude::*;
 use super::metrics::read_editor_metrics;
 use super::paths::line_start;
 use super::projection::Projection;
+use super::source_area::SourceArea;
 use super::state::{EditorState, directed_selection};
 use super::text::TextSize;
+use crate::reactive::later;
+
+/// How often a drag held past the text scrolls it, in milliseconds.
+const SCROLL_EVERY_MS: i32 = 40;
+
+/// Most lines a drag held past the text scrolls at a time.
+const MOST_LINES_PER_STEP: f64 = 8.0;
 
 /// One gutter's line picking: what the press started, for the drag and the
 /// next `Shift` press.
 #[derive(Clone, Copy)]
 pub(super) struct LinePick {
     state: StoredValue<Picked>,
-    /// The rows' container, whose top is row 0's.
+    /// The rows' container, which holds the pointer while dragging.
     rows: NodeRef<leptos::html::Div>,
 }
 
@@ -34,6 +44,10 @@ struct Picked {
     dragging: bool,
     /// The drag left the row pressed and holds the pointer.
     captured: bool,
+    /// The pointer's last window y while dragging.
+    pointer_y: f64,
+    /// A step of the scroll past the text's edge is waiting.
+    scrolling: bool,
     /// The last press on a number was the mouse's, which selected already:
     /// the click after it does nothing more.
     by_mouse: bool,
@@ -89,37 +103,64 @@ impl LinePick {
         if !picked.dragging {
             return;
         }
-        let (true, Some(anchor), Some(rows), Some(area)) = (
-            event.buttons() & 1 == 1,
-            picked.anchor,
-            self.rows.get_untracked(),
-            state.textarea(),
-        ) else {
+        let (true, Some(anchor), Some(area)) =
+            (event.buttons() & 1 == 1, picked.anchor, state.textarea())
+        else {
             return;
         };
-        let line_height = read_editor_metrics(area.element()).line_height.max(1.0);
-        let top = rows.get_bounding_client_rect().top();
-        let lines = state.doc().text.with_untracked(|text| {
-            state.view().projection.with_untracked(|projection| {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    reason = "a row from a pixel offset, clamped to the rows"
-                )]
-                let row = ((f64::from(event.client_y()) - top) / line_height)
-                    .floor()
-                    .clamp(0.0, projection.rows().saturating_sub(1) as f64)
-                    as usize;
-                row_bytes(text, projection, row)
-            })
-        });
+        let y = f64::from(event.client_y());
+        self.state.update_value(|picked| picked.pointer_y = y);
+        let lines = lines_at(state, &area, y);
         let (start, end, _) = spanned(anchor, lines);
-        if picked.made == Some((start, end)) {
+        if picked.made != Some((start, end)) {
+            // Off the row pressed the drag holds the pointer (see `hold`).
+            self.hold(event);
+            self.extend(&area, anchor, lines);
+        }
+        self.scroll_past_edge(state, &area);
+    }
+
+    /// While the drag is held past the text's top or bottom: a step of
+    /// scrolling waits, unless one already does.
+    fn scroll_past_edge(self, state: EditorState, area: &SourceArea) {
+        let picked = self.state.get_value();
+        if !picked.dragging || picked.scrolling || past_edge(area, picked.pointer_y) == 0.0 {
             return;
         }
-        // Off the row pressed the drag holds the pointer (see `hold`).
-        self.hold(event);
-        self.select(state, anchor, lines);
+        self.state.update_value(|picked| picked.scrolling = true);
+        later::after(self.state, SCROLL_EVERY_MS, move |_| {
+            self.scroll_on(state);
+        });
+    }
+
+    /// One step of the scroll past the text's edge: the text scrolls by
+    /// more lines the further past the edge the pointer is, and the lines
+    /// to the row at that edge are selected. It goes on until the pointer
+    /// is back over the text, the text can scroll no further, or the
+    /// button is let go.
+    fn scroll_on(self, state: EditorState) {
+        self.state.update_value(|picked| picked.scrolling = false);
+        let picked = self.state.get_value();
+        let (true, Some(anchor), Some(area)) = (picked.dragging, picked.anchor, state.textarea())
+        else {
+            return;
+        };
+        let past = past_edge(&area, picked.pointer_y);
+        if past == 0.0 {
+            return;
+        }
+        let line_height = read_editor_metrics(area.element()).line_height.max(1.0);
+        let before = area.scroll_top();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a scroll step of a few lines' pixels"
+        )]
+        let step = scroll_step(past, line_height).round() as i32;
+        area.set_scroll_top(before.saturating_add(step));
+        self.extend(&area, anchor, lines_at(state, &area, picked.pointer_y));
+        if area.scroll_top() != before {
+            self.scroll_past_edge(state, &area);
+        }
     }
 
     /// The pointer left the row pressed, or the gutter, while dragging: from
@@ -143,6 +184,7 @@ impl LinePick {
         self.state.update_value(|picked| {
             picked.dragging = false;
             picked.captured = false;
+            picked.scrolling = false;
         });
     }
 
@@ -161,6 +203,71 @@ impl LinePick {
                 .update_value(|picked| picked.made = Some((start, end)));
         }
     }
+
+    /// The drag reached `lines`: the selection grows to them, the text
+    /// kept where the drag scrolled it (the press revealed and focused;
+    /// revealing the selection's start again would scroll a drag past the
+    /// text back to it).
+    fn extend(self, area: &SourceArea, anchor: (TextSize, TextSize), lines: (TextSize, TextSize)) {
+        let (start, end, backward) = spanned(anchor, lines);
+        let (top, left) = (area.scroll_top(), area.scroll_left());
+        let direction = if backward { "backward" } else { "forward" };
+        if area
+            .set_selection_range_with_direction(start, end, direction)
+            .is_ok()
+        {
+            self.state
+                .update_value(|picked| picked.made = Some((start, end)));
+        }
+        area.set_scroll_top(top);
+        area.set_scroll_left(left);
+    }
+}
+
+/// The lines of the textarea row at window y `y`, kept to the rows in the
+/// text area's view (past its top or bottom, the row at that edge).
+fn lines_at(state: EditorState, area: &SourceArea, y: f64) -> (TextSize, TextSize) {
+    let element = area.element();
+    let rect = element.get_bounding_client_rect();
+    let metrics = read_editor_metrics(element);
+    let line_height = metrics.line_height.max(1.0);
+    let y = y.clamp(rect.top(), (rect.bottom() - 1.0).max(rect.top()));
+    let row = (y - rect.top() - metrics.padding_top + f64::from(area.scroll_top())) / line_height;
+    state.doc().text.with_untracked(|text| {
+        state.view().projection.with_untracked(|projection| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a row from a pixel offset, clamped to the rows"
+            )]
+            let row = row
+                .floor()
+                .clamp(0.0, projection.rows().saturating_sub(1) as f64)
+                as usize;
+            row_bytes(text, projection, row)
+        })
+    })
+}
+
+/// How far window y `y` is past the text area's top (below zero) or
+/// bottom (above zero), in pixels; zero over it.
+fn past_edge(area: &SourceArea, y: f64) -> f64 {
+    let rect = area.element().get_bounding_client_rect();
+    if y < rect.top() {
+        y - rect.top()
+    } else if y > rect.bottom() {
+        y - rect.bottom()
+    } else {
+        0.0
+    }
+}
+
+/// The pixels a drag `past` pixels past the text's edge scrolls it by in
+/// a step: a line, and one more for each line's height further, at most
+/// [`MOST_LINES_PER_STEP`]; up when `past` is below zero.
+fn scroll_step(past: f64, line_height: f64) -> f64 {
+    let lines = (past.abs() / line_height).floor() + 1.0;
+    lines.min(MOST_LINES_PER_STEP) * line_height * past.signum()
 }
 
 /// The bytes of textarea row `row` of `text` shown through `projection`:
@@ -210,6 +317,17 @@ mod tests {
         let folded = [FoldRange::new(0, 2)];
         assert_eq!(bytes(text, &folded, 0), (0, 17));
         assert_eq!(bytes(text, &folded, 1), (17, 21));
+    }
+
+    /// Held past the text, a drag scrolls a line a step, faster the
+    /// further past, up above the text and down below it.
+    #[test]
+    fn a_drag_past_the_text_scrolls_faster_the_further_past() {
+        assert_eq!(scroll_step(1.0, 20.0), 20.0);
+        assert_eq!(scroll_step(-1.0, 20.0), -20.0);
+        assert_eq!(scroll_step(45.0, 20.0), 60.0);
+        assert_eq!(scroll_step(-45.0, 20.0), -60.0);
+        assert_eq!(scroll_step(10_000.0, 20.0), MOST_LINES_PER_STEP * 20.0);
     }
 
     #[test]

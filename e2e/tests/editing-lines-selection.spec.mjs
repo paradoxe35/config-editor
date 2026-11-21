@@ -141,6 +141,48 @@ test.describe('yaml: whole lines and selections', () => {
     expect((await selected(e)).text).toBe('a: 1\nb: 2\nc: 3\n');
   });
 
+  test('a drag over the line numbers past the text scrolls it, down and up', async ({ page }) => {
+    const lines = Array.from({ length: 200 }, (_, index) => `k${index + 1}: ${index + 1}\n`);
+    const e = await at(page, `|${lines.join('')}`);
+    const area = await e.input.boundingBox();
+    const start = await numberAt(page, 2);
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    // Held still below the text: the text scrolls on, the selection with it.
+    await page.mouse.move(start.x, area.y + area.height + 40, { steps: 6 });
+    await expect.poll(() => e.input.evaluate((element) => element.scrollTop)).toBeGreaterThan(200);
+    await page.mouse.up();
+    const down = await selected(e);
+    expect(down.direction).toBe('forward');
+    expect(down.text.startsWith('k2: 2\n')).toBe(true);
+    // The last line selected is the one in view at the bottom.
+    const shownLast = await page.evaluate(() => {
+      const input = document.querySelector('.config-editor__input');
+      const bottom = input.getBoundingClientRect().bottom;
+      const numbers = [...document.querySelectorAll('.config-editor__gutter-content > div[data-line]')];
+      return Math.max(...numbers.filter((row) => row.getBoundingClientRect().top < bottom - 4).map((row) => Number(row.dataset.line)));
+    });
+    expect(down.text.split('\n').length - 1).toBeGreaterThan(20);
+    expect(Math.abs(down.text.split('\n').length - 1 - (shownLast - 1))).toBeLessThanOrEqual(1);
+    // And up again, above the text, from a line far down.
+    const scrolled = await e.input.evaluate((element) => element.scrollTop);
+    const from = await page.evaluate(() => {
+      const input = document.querySelector('.config-editor__input');
+      const bottom = input.getBoundingClientRect().bottom;
+      const numbers = [...document.querySelectorAll('.config-editor__gutter-content > div[data-line]')];
+      return numbers.filter((row) => row.getBoundingClientRect().bottom < bottom - 4).pop().dataset.line;
+    });
+    const low = await numberAt(page, Number(from));
+    await page.mouse.move(low.x, low.y);
+    await page.mouse.down();
+    await page.mouse.move(low.x, Math.max(1, area.y - 40), { steps: 6 });
+    await expect.poll(() => e.input.evaluate((element) => element.scrollTop)).toBeLessThan(scrolled - 200);
+    await page.mouse.up();
+    const up = await selected(e);
+    expect(up.direction).toBe('backward');
+    expect(up.text.endsWith(lines[Number(from) - 1])).toBe(true);
+  });
+
   test('Shift+click on a line number extends the selection by whole lines', async ({ page }) => {
     const e = await at(page, 'a: 1\nb: 2\nc: 3\nd: 4\ne: 5\n');
     const click = async (line, shift) => {
