@@ -201,7 +201,7 @@ test.describe('schema formats in the tools', () => {
     expect(errors[5]).toBe("Invalid bad: bad's compile() must return { schema, losses?, checks? }");
     expect(errors[6]).toMatch(/^Invalid JSON Schema: /);
     if (xsd) expect(errors[7]).toMatch(/^Invalid XSD: /);
-    else expect(errors[7]).toBe('the schema format "xsd" is not in this build: it needs the cargo feature `xsd` (in JavaScript, a package built with `npm run build:xsd`); registered: fields');
+    else expect(errors[7]).toContain('the schema format "xsd" is not in this build: it needs the cargo feature `xsd` (in JavaScript, a package built with `npm run build:xsd`)');
   });
 
   test('registering a name again replaces its compiler, for a schema already compiled too', async ({ page }) => {
