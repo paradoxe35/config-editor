@@ -5,6 +5,53 @@ use super::ops::{Op, Put, Take};
 use super::{replay, saved_after};
 use crate::editor::languages::Language;
 
+/// P2: an HCL conditional's line cut in an XML view, the view coming back
+/// to a text it had, saves the host's text back, not a list.
+#[test]
+fn an_hcl_conditional_back_to_its_text_in_an_xml_view_saves_the_host_text() {
+    replay(
+        Language::HCL,
+        Language::XML,
+        "alpha {\n  k1 {\n  }\n  k2 = var.on ? 1 : 2\n}\n",
+        &[
+            Op::CopyLine {
+                line: 2,
+                down: false,
+            },
+            Op::Switch { to: 1 },
+            Op::Cut {
+                line: 4,
+                how: Take::Text,
+            },
+            Op::Switch { to: 4 },
+        ],
+    );
+}
+
+/// P2: an empty TOML multi-line string cut, the view switched and typed
+/// into, saves the host's text back when the view comes back to it.
+#[test]
+fn an_empty_toml_host_back_to_its_text_in_a_json_view_saves_the_host_text() {
+    replay(
+        Language::TOML,
+        Language::JSON,
+        "k9 = '''\n'''\n",
+        &[
+            Op::Cut {
+                line: 54,
+                how: Take::Entry,
+            },
+            Op::Pause,
+            Op::Switch { to: 2 },
+            Op::Enter {
+                line: 16,
+                column: 11,
+            },
+            Op::Switch { to: 1 },
+        ],
+    );
+}
+
 /// P3: a TOML octal number copied in an XML view (a list of two, saved)
 /// and one copy cut and pasted into another table keeps its host form.
 #[test]

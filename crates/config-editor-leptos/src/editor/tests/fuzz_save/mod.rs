@@ -105,8 +105,9 @@ fn run(case: &Case) -> Result<bool, Broke> {
         let mut time = 0.0;
         for (step, op) in case.ops.iter().enumerate() {
             let before = state.doc().text.get_untracked();
+            let language_before = state.sync().edit_language.get_untracked();
             if op.saves() {
-                start.note(state.sync().edit_language.get_untracked(), &before);
+                start.note(language_before, &before);
             }
             ops::apply(state, case.host, op, &mut clipboard, &mut time);
             if trace {
@@ -120,7 +121,10 @@ fn run(case: &Case) -> Result<bool, Broke> {
                 );
             }
             if op.saves() {
-                checks::check(state, &start, &held).map_err(|failure| Broke { step, failure })?;
+                let switched_from =
+                    matches!(op, Op::Switch { .. }).then_some((language_before, before.as_str()));
+                checks::check(state, &start, &held, switched_from)
+                    .map_err(|failure| Broke { step, failure })?;
             }
             let language = state.sync().edit_language.get_untracked();
             let text = state.doc().text.get_untracked();
@@ -133,7 +137,7 @@ fn run(case: &Case) -> Result<bool, Broke> {
             }
         }
         ops::pause(state);
-        checks::check(state, &start, &held).map_err(|failure| Broke {
+        checks::check(state, &start, &held, None).map_err(|failure| Broke {
             step: case.ops.len(),
             failure,
         })

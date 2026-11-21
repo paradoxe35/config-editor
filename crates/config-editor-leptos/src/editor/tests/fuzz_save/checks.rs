@@ -610,13 +610,16 @@ fn anchors(form: &str) -> Vec<&str> {
 pub(super) static WRITTEN: AtomicUsize = AtomicUsize::new(0);
 pub(super) static WAITING: AtomicUsize = AtomicUsize::new(0);
 
-/// The save promise after a save, or what it broke.
+/// The save promise after a save, or what it broke. `switched_from`: on a
+/// switch, the view the save was written in (its language and text), not
+/// the one the switch built from the host.
 pub(super) fn check(
     state: EditorState,
     start: &Start,
     held: &HostCopy,
+    switched_from: Option<(Language, &str)>,
 ) -> Result<(), Box<Failure>> {
-    check_save(state, start, held).map_err(|mut failure| {
+    check_save(state, start, held, switched_from).map_err(|mut failure| {
         failure.view = Some(state.sync().edit_language.get_untracked());
         failure.view_text = state.doc().text.get_untracked();
         failure.saved = held.lock().unwrap().clone();
@@ -624,7 +627,12 @@ pub(super) fn check(
     })
 }
 
-fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), Box<Failure>> {
+fn check_save(
+    state: EditorState,
+    start: &Start,
+    held: &HostCopy,
+    switched_from: Option<(Language, &str)>,
+) -> Result<(), Box<Failure>> {
     start
         .written
         .borrow_mut()
@@ -651,14 +659,19 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
     }
     let saved = held.lock().unwrap().clone();
     // GetPut: a view back to a text it showed or saved (an undo) saves
-    // the host text that text stood for, exactly.
-    if view != host {
+    // the host text that text stood for, exactly. On a switch, that is the
+    // view the user wrote in before it: the one the switch builds is the
+    // host's text shown, which saves nothing, and may read as an earlier
+    // text of its language that stood for another host (an XML element
+    // left of a list of two, a blank line typed in the host's language).
+    let (written_in, written) = switched_from.unwrap_or((view, view_text.as_str()));
+    if written_in != host {
         let stood_for = start
             .synced
             .borrow()
             .iter()
             .rev()
-            .find(|(language, text, _)| *language == view && *text == view_text)
+            .find(|(language, text, _)| *language == written_in && *text == written)
             .map(|(_, _, host_text)| host_text.clone());
         if let Some(stood_for) = stood_for
             && stood_for != saved
@@ -674,7 +687,7 @@ fn check_save(state: EditorState, start: &Start, held: &HostCopy) -> Result<(), 
         start
             .synced
             .borrow_mut()
-            .push((view, view_text.clone(), saved.clone()));
+            .push((written_in, written.to_string(), saved.clone()));
     }
     let Ok(now) = host.parse(&saved) else {
         // Typed in the host's language: the user's own text; or the empty
