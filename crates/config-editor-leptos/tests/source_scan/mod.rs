@@ -48,6 +48,20 @@ pub fn test_cfgs(source: &str) -> impl Iterator<Item = (usize, &str)> {
     })
 }
 
+/// The `#[path = "…"]` among the attributes that start `rest`, if any.
+fn path_attribute(rest: &str) -> Option<&str> {
+    let mut rest = rest.trim_start();
+    while rest.starts_with("#[") {
+        let end = rest.find(']')?;
+        if let Some(value) = rest[2..end].trim().strip_prefix("path") {
+            let value = value.trim_start().strip_prefix('=')?.trim();
+            return value.strip_prefix('"')?.strip_suffix('"');
+        }
+        rest = rest[end + 1..].trim_start();
+    }
+    None
+}
+
 /// A file declared as `mod name;` under a test cfg: the path it lives at.
 pub fn test_files(files: &[PathBuf]) -> HashSet<PathBuf> {
     let mut found = HashSet::new();
@@ -61,6 +75,12 @@ pub fn test_files(files: &[PathBuf]) -> HashSet<PathBuf> {
         };
         for (_, rest) in test_cfgs(&source) {
             if let Some((name, false)) = test_module(rest) {
+                // `#[path = "…"]` names the file outright, relative to the
+                // declaring file's folder.
+                if let Some(path) = path_attribute(rest) {
+                    found.insert(file.parent().unwrap().join(path));
+                    continue;
+                }
                 found.insert(base.join(format!("{name}.rs")));
                 found.insert(base.join(&name));
             }

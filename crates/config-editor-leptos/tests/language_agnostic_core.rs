@@ -198,6 +198,12 @@ fn the_check_catches_a_named_language() {
         "fn y() { Language::YAML; }\n",
     )
     .unwrap();
+    fs::write(
+        editor.join("sync.rs"),
+        "fn s() {}\n#[cfg(all(test, feature = \"yaml\"))]\n#[path = \"sync_tests.rs\"]\nmod tests;\n",
+    )
+    .unwrap();
+    fs::write(editor.join("sync_tests.rs"), "fn t() { Language::YAML; }\n").unwrap();
     let found = offenders(&dir);
     fs::remove_dir_all(&dir).unwrap();
     assert_eq!(found.len(), 1, "{found:#?}");
