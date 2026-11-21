@@ -12,9 +12,7 @@ crate-type = ["cdylib", "rlib"]
 console_error_panic_hook = "0.1.7"
 js-sys = "0.3"
 leptos = { version = "0.8.23", features = ["csr"] }
-# `xsd`: XML Schema as a schema format (+72 KB gzip, measured by
-# scripts/wasm-sizes.sh), shipped in the one npm wasm.
-config-editor-leptos = { path = "../../crates/config-editor-leptos", features = ["xsd"] }
+config-editor-leptos = { path = "../../crates/config-editor-leptos" }
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 serde_path_to_error = "0.1"
@@ -25,3 +23,8 @@ web-sys = { version = "0.3", features = ["console", "css", "HtmlElement"] }
 [features]
 # Heap statistics for hunting leaks (see src/alloc_stats.rs); never published.
 alloc-stats = []
+# XML Schema as a schema format (`schemaFormat: "xsd"`): opt-in, as in the
+# crate, because it adds more than 60 KB gzip (scripts/wasm-sizes.sh prices
+# it); the published package leaves it out, `npm run build:xsd` builds one
+# with it.
+xsd = ["config-editor-leptos/xsd"]

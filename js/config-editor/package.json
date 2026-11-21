@@ -43,7 +43,8 @@
   "sideEffects": false,
   "scripts": {
     "build": "node build.mjs",
-    "build:alloc-stats": "node build.mjs --alloc-stats"
+    "build:alloc-stats": "node build.mjs --alloc-stats",
+    "build:xsd": "node build.mjs --xsd"
   },
   "keywords": [
     "config",

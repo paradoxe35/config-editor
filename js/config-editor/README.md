@@ -981,12 +981,12 @@ compiled into JSON Schema first; the format is given with `schemaFormat`,
 never guessed from the text (`schemaFormatForFile` names a file's format by
 its extension).
 
-| `schemaFormat`  | The schema is                                                                                                                                                                                                                                                                                                                                                 |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"json-schema"` | JSON Schema as JSON or YAML text (the default; Kubernetes CRDs and many repos write it in YAML).                                                                                                                                                                                                                                                              |
-| `"openapi"`     | An OpenAPI 3.x or Swagger 2.0 document (JSON or YAML): `schemaOptions: { schema: "Name" }` names the schema of `components.schemas` (or `definitions`) the document follows, the others its references.                                                                                                                                                       |
-| `"xsd"`         | XML Schema (XSD 1.0) in the [XML mapping](#xml-mapping): options `root` (the one top element), `configRoot` (an element whose content is the document) and `lax` (open content models). Element order, choices, wildcards' namespaces and `xs:key`/`xs:keyref`/`xs:unique` are checked beside the JSON Schema; what it cannot check is a loss, with its line. |
-| your own        | compiled by a format you register with `registerSchemaFormat`                                                                                                                                                                                                                                                                                                 |
+| `schemaFormat`  | The schema is                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"json-schema"` | JSON Schema as JSON or YAML text (the default; Kubernetes CRDs and many repos write it in YAML).                                                                                                                                                                                                                                                                                 |
+| `"openapi"`     | An OpenAPI 3.x or Swagger 2.0 document (JSON or YAML): `schemaOptions: { schema: "Name" }` names the schema of `components.schemas` (or `definitions`) the document follows, the others its references.                                                                                                                                                                          |
+| `"xsd"`         | XML Schema (XSD 1.0) in the [XML mapping](#xml-mapping): options `root` (the one top element), `configRoot` (an element whose content is the document) and `lax` (open content models). Element order, choices, wildcards' namespaces and `xs:key`/`xs:keyref`/`xs:unique` are checked beside the JSON Schema; what it cannot check is a loss, with its line. Opt-in: see below. |
+| your own        | compiled by a format you register with `registerSchemaFormat`                                                                                                                                                                                                                                                                                                                    |
 
 ```js
 new ConfigEditor(element, {
@@ -996,8 +996,17 @@ new ConfigEditor(element, {
 });
 ```
 
+XSD is opt-in: it adds about 72 KB (gzip) to the WebAssembly module, so
+the published package leaves it out, and `schemaFormat: "xsd"` throws
+saying so. To have it, build the package from the
+[repository](https://github.com/paradoxe35/config-editor) with
+`npm run build:xsd` in `js/config-editor` (the crate's `xsd` feature), or
+compile the XSD at build time with the Rust crate and ship its JSON Schema
+(`Schema::json`; its element order and identity checks then do not run).
+
 ```js
-// A pom.xml checked, completed and documented by Maven's XSD, in every view.
+// With a package built with `npm run build:xsd`: a pom.xml checked,
+// completed and documented by Maven's XSD, in every view.
 new ConfigEditor(element, {
   language: "xml",
   value: pomXml,

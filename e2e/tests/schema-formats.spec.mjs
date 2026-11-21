@@ -8,7 +8,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // (`registerSchemaFormat`) with the files it refers to and its options, in
 // the tools (`compileSchema`, `schemaImports`, `validate`, `convert`,
 // `schemaWarnings`), a `ConfigEditor` and a `ConfigDocuments` view. Build
-// the packages first with `npm run build` in js/.
+// the packages first with `npm run build` in js/. XSD is opt-in (the
+// published package leaves it out): its tests run on a package built with
+// `npm run build:xsd` in js/config-editor, and the published build says how
+// to get it.
 
 const js = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'js');
 const built = existsSync(join(js, 'config-editor', 'pkg', 'config_editor_bg.wasm'));
@@ -57,6 +60,9 @@ async function open(page) {
     window.fieldsName = window.core.registerSchemaFormat(new Function(`return ${fields}`)());
   }, FIELDS);
 }
+
+/** Whether the package was built with XSD (`npm run build:xsd`). */
+const hasXsd = (page) => page.evaluate(() => window.core.schemaFormats().some((format) => format.name === 'xsd'));
 
 /** What `run` (a function of `core`, `tools`) returns, or the message it throws. */
 const attempt = (page, run) =>
@@ -158,14 +164,15 @@ test.describe('schema formats in the tools', () => {
       formats: core.schemaFormats().map((format) => [format.name, format.label, format.extensions]),
       files: ['a/app.schema.yaml', 'crd.yml', 'app.json', 'app.schema.fields', 'x.fields', 'x.xsdx', 'fields', 'pom.xsd'].map((path) => core.schemaFormatForFile(path)),
     }));
+    const xsd = await hasXsd(page);
     expect(result.name).toBe('fields');
     expect(result.formats).toEqual([
       ['json-schema', 'JSON Schema', ['json', 'schema.json', 'yaml', 'yml', 'schema.yaml', 'schema.yml']],
       ['openapi', 'OpenAPI', ['openapi.json', 'openapi.yaml', 'openapi.yml', 'swagger.json', 'swagger.yaml']],
-      ['xsd', 'XSD', ['xsd']],
+      ...(xsd ? [['xsd', 'XSD', ['xsd']]] : []),
       ['fields', 'Fields schema', ['fields', 'schema.fields']],
     ]);
-    expect(result.files).toEqual(['json-schema', 'json-schema', 'json-schema', 'fields', 'fields', null, null, 'xsd']);
+    expect(result.files).toEqual(['json-schema', 'json-schema', 'json-schema', 'fields', 'fields', null, null, xsd ? 'xsd' : null]);
     const errors = await attempt(page, (core, tools) => {
       const message = (run) => {
         try {
@@ -183,15 +190,18 @@ test.describe('schema formats in the tools', () => {
         message(() => core.registerSchemaFormat({ name: 'nothing' })),
         message(() => core.registerSchemaFormat({ name: 'bad', compile: () => 5 }) && tools.compileSchema('', { format: 'bad' })),
         message(() => core.registerSchemaFormat({ name: 'typo', compile: () => ({ schema: { type: 5 } }) }) && tools.compileSchema('', { format: 'typo' })),
+        message(() => tools.compileSchema('<xs:schema/>', { format: 'xsd' })),
       ];
     });
     expect(errors[0]).toBe('Invalid Fields schema: no resource gone.fields');
     expect(errors[1]).toMatch(/^Invalid JSON Schema: /);
-    expect(errors[2]).toBe('unknown schema format "jtd" (expected json-schema, openapi, xsd); registered: fields');
+    expect(errors[2]).toBe(`unknown schema format "jtd" (expected json-schema, openapi${xsd ? ', xsd' : ''}); registered: fields`);
     expect(errors[3]).toBe('"json-schema" is a built-in schema format');
     expect(errors[4]).toBe('a schema format needs compile(text, resources, options)');
     expect(errors[5]).toBe("Invalid bad: bad's compile() must return { schema, losses?, checks? }");
     expect(errors[6]).toMatch(/^Invalid JSON Schema: /);
+    if (xsd) expect(errors[7]).toMatch(/^Invalid XSD: /);
+    else expect(errors[7]).toBe('the schema format "xsd" is not in this build: it needs the cargo feature `xsd` (in JavaScript, a package built with `npm run build:xsd`); registered: fields');
   });
 
   test('registering a name again replaces its compiler, for a schema already compiled too', async ({ page }) => {
@@ -208,7 +218,10 @@ test.describe('schema formats in the tools', () => {
 });
 
 test.describe('XML Schema', () => {
-  test.beforeEach(async ({ page }) => open(page));
+  test.beforeEach(async ({ page }) => {
+    await open(page);
+    test.skip(!(await hasXsd(page)), 'built without XSD: run `npm run build:xsd` in js/config-editor');
+  });
 
   const XSD = `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="server">
@@ -258,7 +271,9 @@ test.describe('schemas in several files', () => {
   test.beforeEach(async ({ page }) => open(page));
 
   test('an XSD include and a JSON $ref read their files from the resources', async ({ page }) => {
+    const xsd = await hasXsd(page);
     const result = await attempt(page, (core, tools) => {
+      const xsd = core.schemaFormats().some((format) => format.name === 'xsd');
       const xs = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"';
       const main = `<xs:schema ${xs}><xs:include schemaLocation="common.xsd"/><xs:element name="port" type="portType"/></xs:schema>`;
       const common = `<xs:schema ${xs}><xs:simpleType name="portType"><xs:restriction base="xs:int"><xs:maxInclusive value="65535"/></xs:restriction></xs:simpleType></xs:schema>`;
@@ -266,23 +281,25 @@ test.describe('schemas in several files', () => {
       const defs = '{"port":{"type":"integer","maximum":10}}';
       let missing;
       try {
-        tools.compileSchema(main, { format: 'xsd' });
+        if (xsd) tools.compileSchema(main, { format: 'xsd' });
       } catch (error) {
         missing = error.message;
       }
       return {
-        imports: tools.schemaImports(main, 'xsd'),
+        imports: xsd ? tools.schemaImports(main, 'xsd') : undefined,
         jsonImports: tools.schemaImports(json),
         missing,
-        xsd: tools.validate('xml', '<port>70000</port>', main, { schemaFormat: 'xsd', schemaResources: { 'common.xsd': common } }).map((p) => p.message),
+        xsd: xsd ? tools.validate('xml', '<port>70000</port>', main, { schemaFormat: 'xsd', schemaResources: { 'common.xsd': common } }).map((p) => p.message) : undefined,
         json: tools.validate('json', '{"port": 11}', json, { schemaResources: { 'defs.json': defs } }).map((p) => p.message),
       };
     });
-    expect(result.imports).toEqual(['common.xsd']);
     expect(result.jsonImports).toEqual(['defs.json']);
-    expect(result.missing).toContain('"common.xsd" is not among the schema\'s resources');
-    expect(result.xsd).toEqual(['/port: 70000 is greater than the maximum of 65535']);
     expect(result.json).toEqual(['/port: 11 is greater than the maximum of 10']);
+    if (xsd) {
+      expect(result.imports).toEqual(['common.xsd']);
+      expect(result.missing).toContain('"common.xsd" is not among the schema\'s resources');
+      expect(result.xsd).toEqual(['/port: 70000 is greater than the maximum of 65535']);
+    }
   });
 });
 

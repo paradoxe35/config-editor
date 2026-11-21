@@ -44,7 +44,9 @@ step_fmt() {
 step_clippy() {
   # The defaults and the opt-in `xsd` schema format.
   cargo clippy --all-targets --features config-editor-leptos/xsd -- -D warnings
+  # The npm wasm as published (no `xsd`), and as `npm run build:xsd` builds it.
   cargo clippy -p config-editor-js --target wasm32-unknown-unknown -- -D warnings
+  cargo clippy -p config-editor-js --target wasm32-unknown-unknown --features xsd -- -D warnings
   (cd crates/config-editor-leptos &&
     cargo clippy --all-targets --no-default-features --features yaml,json,toml,hcl,xml -- -D warnings)
   # Text offsets stay typed: no file gains a plain `usize` offset.

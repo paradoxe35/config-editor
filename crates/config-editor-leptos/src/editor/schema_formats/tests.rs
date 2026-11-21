@@ -416,6 +416,49 @@ fn external_refs_are_bundled_from_the_resources() {
     }
 }
 
+/// The bundle reads a schema's schemas as every walk does: a property
+/// named like a data keyword (`enum`, `default`, `xml`) is a schema whose
+/// `$ref` is bundled, and data that looks like a reference is left as
+/// written.
+#[test]
+fn bundling_reads_properties_named_like_keywords_as_schemas_and_data_as_data() {
+    let main = r#"{"properties":{"enum":{"$ref":"common.json"},"default":{"$ref":"common.json"},"xml":{"$ref":"common.json"}},"default":{"$ref":"other.json"},"examples":[{"$ref":"other.json"}]}"#;
+    let resources = SchemaResources::new()
+        .with("common.json", r#"{"type":"integer"}"#)
+        .with("other.json", r#"{"type":"string"}"#);
+    let schema = Schema::compile_as(
+        SchemaFormat::JSON_SCHEMA,
+        &SchemaInput::new(main).resources(&resources),
+    )
+    .expect("bundled");
+    let json = schema.json();
+    for name in ["enum", "default", "xml"] {
+        assert_eq!(
+            json["properties"][name]["$ref"],
+            json!("#/$defs/common.json"),
+            "{name}"
+        );
+    }
+    assert_eq!(json["default"], json!({"$ref": "other.json"}));
+    assert_eq!(json["examples"], json!([{"$ref": "other.json"}]));
+    assert!(
+        json["$defs"].get("other.json").is_none(),
+        "data refers to nothing"
+    );
+}
+
+/// XSD is opt-in: a build without the feature knows no `xsd` and says how
+/// to get it.
+#[cfg(not(feature = "xsd"))]
+#[test]
+fn a_build_without_xsd_says_which_feature_brings_it() {
+    let error = "XSD".parse::<SchemaFormat>().unwrap_err().to_string();
+    assert!(error.contains("cargo feature `xsd`"), "{error}");
+    assert!(error.contains("npm run build:xsd"), "{error}");
+    let other = "relax-ng".parse::<SchemaFormat>().unwrap_err().to_string();
+    assert!(other.starts_with("unknown schema format"), "{other}");
+}
+
 /// A `$ref` to a file the resources do not have is refused as before,
 /// saying where to pass it.
 #[cfg(feature = "schema-validation")]

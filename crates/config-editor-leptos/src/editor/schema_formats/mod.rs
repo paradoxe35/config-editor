@@ -610,6 +610,13 @@ pub struct UnknownSchemaFormat(pub String);
 
 impl std::fmt::Display for UnknownSchemaFormat {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // XSD is opt-in: a build without it says how to get it.
+        if !cfg!(feature = "xsd") && self.0.trim().eq_ignore_ascii_case("xsd") {
+            return formatter.write_str(
+                "the schema format \"xsd\" is not in this build: it needs the cargo feature \
+                 `xsd` (in JavaScript, a package built with `npm run build:xsd`)",
+            );
+        }
         let known: Vec<&str> = SchemaFormat::ALL
             .iter()
             .map(|format| format.name())

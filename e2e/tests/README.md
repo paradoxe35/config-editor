@@ -32,6 +32,9 @@ Timed specs (latency budgets) are listed in `TIMED` in
 - `completion-list`: the list itself (Ctrl+Space, keys, wheel, wrapping).
 - `completion-window`, `completion-caret-keys`, `suggestions`.
 - `schema-assist`, `schema-help`, `schema-warnings`, `yaml-schema`.
+- `schema-formats`: schemas in other formats (`registerSchemaFormat`,
+  OpenAPI, XSD on a package built with `npm run build:xsd`) in the tools,
+  an editor and a documents view.
 
 ## Problems, hover and popups
 

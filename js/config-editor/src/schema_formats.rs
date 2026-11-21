@@ -25,7 +25,7 @@ use crate::values::{
 
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = r#"
-/** A built-in schema format (`"json-schema"`, `"openapi"`, `"xsd"`) or one from `registerSchemaFormat`. */
+/** A built-in schema format (`"json-schema"`, `"openapi"`; `"xsd"` in a package built with `npm run build:xsd`) or one from `registerSchemaFormat`. */
 export type SchemaFormatName = string;
 
 /** A schema format, as `schemaFormats()` lists it. */
