@@ -30,7 +30,15 @@ pub(crate) use open_uses::{DocumentUses, NoOpenUses, OpenUses};
 pub(crate) use property_names::key_branches;
 pub(crate) use use_types::UsesReply;
 pub use use_types::{FindUses, FoundUse, GoToUse, Use};
-#[cfg(test)]
+// Only the language matrix, which needs every built-in language, reads it.
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 pub(crate) use uses::UsePart;
 pub(crate) use uses::{NameRef, UseHit, uses_in, uses_in_language};
 
