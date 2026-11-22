@@ -64,6 +64,9 @@ function targets(page) {
     for (const element of document.querySelectorAll('.config-editor *, .config-editor-documents *')) {
       if (!element.getClientRects().length || !isTarget(element) || exempt(element)) continue;
       if (element.parentElement.closest('button, a[href], [role="tab"], [role="option"]')) continue;
+      // A part of a clickable text (a problem's message that opens its docs) is that target's.
+      const control = element.matches('button, a[href], input, select, [role="tab"], [role="option"]');
+      if (!control && getComputedStyle(element.parentElement).cursor === 'pointer') continue;
       // A line number's parts are the number's (exempt), but for its
       // change markers, buttons of their own.
       if (element.parentElement.closest('.config-editor__gutter-content > div') && !element.matches('button')) continue;
@@ -218,6 +221,29 @@ test.describe(() => {
       const [width, height] = await size(dismiss);
       expect(width).toBeGreaterThanOrEqual(24);
       expect(height).toBeGreaterThanOrEqual(24);
+      expect(errors).toEqual([]);
+    });
+
+    // Measured in the browser: every target of the problem tip and of a
+    // card with a docs link, and of the Edit-as notice.
+    test('every target of the popups with links and of the Edit-as notice', async ({ page }) => {
+      const port = { type: 'integer', description: 'The port.', 'x-docs-url': 'https://example.com/port' };
+      const schema = JSON.stringify({ type: 'object', properties: { port } });
+      const errors = await open(page, { value: '# a comment\nport: eighty\n', schema, editAs: 'json' });
+      await expect(page.locator('.config-editor__edit-as-notice')).toBeVisible();
+      await expectSized(page, 'Edit-as notice');
+      await page.goto('about:blank');
+      errors.push(...(await open(page, { value: 'port: eighty\n', schema })));
+      await input(page).focus();
+      await page.keyboard.press('F8');
+      await expect(page.locator('.config-editor__problem-tip-link')).toBeVisible();
+      await expectSized(page, 'problem tip');
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.press('Control+k');
+      await page.keyboard.press('Control+i');
+      await expect(page.locator('.config-editor__hover-link')).toBeVisible();
+      await expectSized(page, 'hover card with a link');
       expect(errors).toEqual([]);
     });
 

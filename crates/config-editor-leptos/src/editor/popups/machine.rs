@@ -1,14 +1,14 @@
 //! The pointer's phase for the popup it can reach (the hover card, the
 //! problem tip): one state machine, as Floating UI's `useHover` with
-//! `safePolygon`.
+//! `restMs` and `safePolygon`.
 //!
-//! closed → pending (the hover pause, the open timer) → open (which popup,
-//! how the pointer stands to it) → leaving (the safe polygon: the way to the
-//! popup, and the close timer) → closed. Each phase names the one timer it
-//! runs ([`Phase::timer`]); entering a phase cancels the timer of the phase
-//! before it, so a timer from an earlier phase never lands. Pure: the editor
-//! tells it what the pointer did and where the popup is (see `pointer`), and
-//! carries out what it answers.
+//! closed → pending (the pointer at rest, the open timer) → open (which
+//! popup, how the pointer stands to it) → leaving (the safe polygon: the way
+//! to the popup, and the close timer) → closed. Each phase names the one
+//! timer it runs ([`Phase::timer`]); entering a phase cancels the timer of
+//! the phase before it, so a timer from an earlier phase never lands. Pure:
+//! the editor tells it what the pointer did, where the popup is and what
+//! time it is, and carries out what it answers.
 
 use super::path::{
     Point, Rect, Spot, Way, beside, gets_closer, gets_farther, on_covered_lines, spot, way_after,
@@ -16,14 +16,27 @@ use super::path::{
 use super::under::{SETTLE_MS, Under, under};
 use crate::reactive::later::Timeout;
 
-/// The pause before the pointer resting on a key shows its card, in
-/// milliseconds, so moving across keys does not flash cards; the card
-/// stays as long after the pointer leaves its key.
-pub(crate) const HOVER_DELAY_MS: i32 = 350;
+/// How long a card stays after the pointer leaves its key, in
+/// milliseconds: time to reach it. Not the host's `hover_delay`, so a
+/// quick hover setting still leaves the card reachable.
+const CARD_GRACE_MS: i32 = 350;
 
 /// How long the problem tip stays after the pointer leaves its underline,
 /// in milliseconds: time to reach it.
 const TIP_GRACE_MS: i32 = 200;
+
+/// The rest before the next popup shows while one shows, or within
+/// [`WARM_WINDOW_MS`] after one closed, in milliseconds: moving from popup
+/// to popup, the hand has already shown what it wants.
+const WARM_REST_MS: i32 = 100;
+
+/// How long after a popup closed the next one still shows after the short
+/// rest, in milliseconds.
+const WARM_WINDOW_MS: f64 = 300.0;
+
+/// How far, in pixels, the pointer may drift and still be at rest: a hand
+/// resting on a mouse or a trackpad still shakes a little.
+const REST_SLOP_PX: f64 = 4.0;
 
 /// A popup the pointer can reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,7 +49,7 @@ impl Kind {
     /// How long the popup stays after the pointer leaves what it is for.
     fn grace_ms(self) -> i32 {
         match self {
-            Kind::Card => HOVER_DELAY_MS,
+            Kind::Card => CARD_GRACE_MS,
             Kind::Tip => TIP_GRACE_MS,
         }
     }
@@ -112,16 +125,30 @@ pub(crate) enum At {
     Inside,
 }
 
-/// The pointer's phase. `K` is what a pending card will show.
+/// The rest a pending popup waits for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Rest {
+    /// Where the pointer came to rest: a move farther than
+    /// [`REST_SLOP_PX`] from here starts the wait again.
+    at: Point,
+    /// How long it rests, in milliseconds.
+    ms: i32,
+}
+
+/// The pointer's phase. `K` is what a pending popup will show.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Phase<K> {
     Closed,
-    /// The pointer rests on a key: its card shows when the pause is over.
-    /// A popup shown meanwhile (the problem tip under the pointer) keeps
-    /// its own phase `behind`, without its timer: the card replaces it.
+    /// The pointer rests on a key or an underline: what it shows (`K`)
+    /// opens when the rest is over. A popup shown meanwhile keeps its own
+    /// phase `behind`, without its timer: what opens replaces it.
     Pending {
         key: K,
         behind: Option<Box<Phase<K>>>,
+        /// The rest it waits for; none once it is over with nothing to
+        /// show (the pointer moving on the same key waits for nothing
+        /// more).
+        rest: Option<Rest>,
     },
     Open {
         kind: Kind,
@@ -143,7 +170,7 @@ impl<K> Phase<K> {
     /// The phase's timer, in milliseconds.
     pub(crate) fn timer(&self) -> Option<i32> {
         match self {
-            Phase::Pending { .. } => Some(HOVER_DELAY_MS),
+            Phase::Pending { rest, .. } => rest.map(|rest| rest.ms),
             Phase::Leaving { kind, .. } => Some(kind.grace_ms()),
             Phase::Open {
                 at: At::Under { .. },
@@ -164,7 +191,7 @@ impl<K> Phase<K> {
 /// What a phase's timer does when it fires.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Fire<K> {
-    /// The pause is over: the card for `K` opens.
+    /// The rest is over: what `K` names opens.
     Open(K),
     /// The popup's moment is over.
     Close { kind: Kind, then: Then },
@@ -214,6 +241,9 @@ pub(crate) struct Machine<K> {
     timer: Timeout,
     /// `phase` was entered since the editor last started its timer.
     restart: bool,
+    /// When the last popup shown closed, in milliseconds on the editor's
+    /// clock: a rest starting soon after is short.
+    closed_at: Option<f64>,
 }
 
 impl<K> Default for Machine<K> {
@@ -224,11 +254,12 @@ impl<K> Default for Machine<K> {
             on_text: false,
             timer: Timeout::default(),
             restart: false,
+            closed_at: None,
         }
     }
 }
 
-impl<K: Clone> Machine<K> {
+impl<K: Clone + PartialEq> Machine<K> {
     #[cfg(test)]
     pub(crate) fn phase(&self) -> &Phase<K> {
         &self.phase
@@ -252,14 +283,6 @@ impl<K: Clone> Machine<K> {
     /// Whether the pointer is in the popup.
     pub(crate) fn inside(&self) -> bool {
         matches!(self.shown(), Some(Phase::Open { at: At::Inside, .. }))
-    }
-
-    /// The card waiting out the pause.
-    pub(crate) fn pending(&self) -> Option<&K> {
-        match &self.phase {
-            Phase::Pending { key, .. } => Some(key),
-            _ => None,
-        }
     }
 
     /// The timer of the phase before, to cancel, and the delay of the
@@ -336,8 +359,12 @@ impl<K: Clone> Machine<K> {
         });
     }
 
-    /// The popup shown closed (a card waiting out its pause still waits).
-    pub(crate) fn closed(&mut self) {
+    /// The popup shown closed at `now` (a popup waiting for its rest
+    /// still waits).
+    pub(crate) fn closed(&mut self, now: f64) {
+        if self.shown().is_some() {
+            self.closed_at = Some(now);
+        }
         match &mut self.phase {
             Phase::Pending { behind, .. } => *behind = None,
             Phase::Closed => {}
@@ -345,17 +372,49 @@ impl<K: Clone> Machine<K> {
         }
     }
 
-    /// The pointer rests on a key: its card `key` shows after the pause.
-    pub(crate) fn pend(&mut self, key: K) {
+    /// The pointer is at `at`, at `now`, on what shows `key` after it
+    /// rests `rest_ms` (the host's hover delay). Drifting no farther than
+    /// [`REST_SLOP_PX`] from where it came to rest, it is still at rest
+    /// (what shows is what it is on when the rest is over); a farther move
+    /// starts the wait again. While a popup shows, or soon after one
+    /// closed, the rest is short.
+    pub(crate) fn pend(&mut self, key: K, at: Point, now: f64, rest_ms: i32) {
+        if let Phase::Pending {
+            key: waiting, rest, ..
+        } = &mut self.phase
+        {
+            match rest {
+                // Its rest is over, with nothing to show: nothing more here.
+                None if *waiting == key => return,
+                Some(rest) if (at.0 - rest.at.0).hypot(at.1 - rest.at.1) <= REST_SLOP_PX => {
+                    *waiting = key;
+                    return;
+                }
+                _ => {}
+            }
+        }
         let behind = match std::mem::replace(&mut self.phase, Phase::Closed) {
             Phase::Closed => None,
             Phase::Pending { behind, .. } => behind,
             phase => Some(Box::new(phase)),
         };
-        self.enter(Phase::Pending { key, behind });
+        let warm = behind.is_some()
+            || self
+                .closed_at
+                .is_some_and(|closed| now - closed <= WARM_WINDOW_MS);
+        let ms = if warm {
+            WARM_REST_MS.min(rest_ms)
+        } else {
+            rest_ms
+        };
+        self.enter(Phase::Pending {
+            key,
+            behind,
+            rest: Some(Rest { at, ms }),
+        });
     }
 
-    /// The pause over `key` is over, but there was nothing to show: it
+    /// The rest over `key` is over, but there was nothing to show: it
     /// stays pending without a timer, so the pointer moving on the same
     /// field waits for nothing more (the popup shown meanwhile goes on).
     pub(crate) fn pend_quietly(&mut self, key: K) {
@@ -365,11 +424,15 @@ impl<K: Clone> Machine<K> {
             phase => Some(Box::new(phase)),
         };
         // Entered without a restart: no timer runs.
-        self.phase = Phase::Pending { key, behind };
+        self.phase = Phase::Pending {
+            key,
+            behind,
+            rest: None,
+        };
     }
 
-    /// The card waiting out its pause does not show after all; the popup
-    /// shown meanwhile goes on (its timer again).
+    /// What waits for its rest does not show after all; the popup shown
+    /// meanwhile goes on (its timer again).
     pub(crate) fn cancel_pending(&mut self) {
         if let Phase::Pending { behind, .. } = &mut self.phase {
             let behind = behind.take().map_or(Phase::Closed, |phase| *phase);
@@ -765,11 +828,11 @@ impl<K: Clone> Machine<K> {
         self.hold();
     }
 
-    /// The phase's timer fired: what it does. A card's pause ends here
-    /// (the popup shown meanwhile goes on until the card replaces it).
+    /// The phase's timer fired: what it does. A rest ends here (the popup
+    /// shown meanwhile goes on until what opens replaces it).
     pub(crate) fn fired(&mut self) -> Option<Fire<K>> {
         match &mut self.phase {
-            Phase::Pending { key, behind } => {
+            Phase::Pending { key, behind, .. } => {
                 let key = key.clone();
                 let behind = behind.take().map_or(Phase::Closed, |phase| *phase);
                 self.enter(behind);

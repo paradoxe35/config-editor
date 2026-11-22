@@ -82,6 +82,12 @@ pub struct EditorSettings {
     /// hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen
     /// readers), or on a tap on a touch screen.
     pub hover_docs: bool,
+    /// How long, in milliseconds, the pointer rests on a key or a problem's
+    /// underline before its hover card or problem tip shows; a move of more
+    /// than a few pixels starts the wait again. While one shows, or just
+    /// after one closed, another shows after 100 ms (or this, if shorter).
+    /// `Ctrl+K Ctrl+I`, `F8` and taps show them at once.
+    pub hover_delay: u32,
     /// Syntax colors.
     pub highlighting: bool,
     /// Auto-close quotes and brackets, wrap selections, and delete empty
@@ -131,6 +137,7 @@ impl Default for EditorSettings {
             completions: true,
             auto_trigger_completions: true,
             hover_docs: true,
+            hover_delay: 300,
             highlighting: true,
             auto_closing: true,
             search: true,
@@ -218,6 +225,7 @@ mod tests {
         ];
         assert!(on.iter().all(|on| *on), "{on:?}");
         assert_eq!(settings.sticky_scroll_max_lines.get(), 5);
+        assert_eq!(settings.hover_delay, 300);
     }
 
     #[test]

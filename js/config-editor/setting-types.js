@@ -13,6 +13,7 @@ export const SETTING_TYPES = Object.freeze({
   completions: "boolean",
   autoTriggerCompletions: "boolean",
   hoverDocs: "boolean",
+  hoverDelay: "number",
   highlighting: "boolean",
   autoClosing: "boolean",
   search: "boolean",

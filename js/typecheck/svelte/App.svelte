@@ -114,6 +114,7 @@
   showDiff={false}
   completions={false}
   hoverDocs={false}
+  hoverDelay={500}
   strings={{ find: "Suchen" }}
   class="editor"
   style="height: 20rem"

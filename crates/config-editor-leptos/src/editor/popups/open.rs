@@ -5,10 +5,11 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use super::super::components::HoverCard;
+use super::super::paths::split_line;
 use super::super::problem_hit::covering;
 use super::super::state::EditorState;
 use super::machine::{Fire, Kind, Opener, Settled, Then};
-use super::{PendingCard, Popup};
+use super::{PendingCard, PendingHover, Popup, now};
 
 impl EditorState {
     /// Opens `card`, shown at the caret (`Ctrl+K Ctrl+I`, a tap): the
@@ -19,7 +20,7 @@ impl EditorState {
         self.open_card(card, Opener::Caret);
     }
 
-    /// The pointer's pause over `pending` is over: its card shows its
+    /// The pointer's rest over `pending` is over: its card shows its
     /// field's docs. A field the schema says nothing of stays pending: the
     /// pointer moving on it waits for nothing more.
     fn open_pending_card(&self, pending: PendingCard) {
@@ -33,11 +34,15 @@ impl EditorState {
             .text
             .with_untracked(|text| self.field_docs(text, &field))
         else {
+            let card = PendingCard {
+                line,
+                field,
+                anchor,
+            };
             self.step(|machine| {
-                machine.pend_quietly(PendingCard {
-                    line,
-                    field,
-                    anchor,
+                machine.pend_quietly(PendingHover {
+                    card: Some(card),
+                    tip: None,
                 });
             });
             return;
@@ -63,8 +68,8 @@ impl EditorState {
     }
 
     /// Hides the card after a moment, unless the pointer gets there (to
-    /// select its text, follow a link, scroll it); a card waiting out its
-    /// pause goes now. One shown at the caret stays.
+    /// select its text, follow a link, scroll it); what waits for the
+    /// pointer's rest goes now. One shown at the caret stays.
     pub(crate) fn leave_hover(&self) {
         if self.popups().with_card(|card| card.is_some()) {
             self.step(|machine| machine.leave(Kind::Card));
@@ -79,7 +84,7 @@ impl EditorState {
         self.step(|machine| machine.hold());
     }
 
-    /// Hides the card now, and one waiting out its pause.
+    /// Hides the card now, and what waits for the pointer's rest.
     pub(crate) fn hide_hover(&self) {
         self.step(|machine| machine.cancel_pending());
         if self.popups().with_card(|card| card.is_none()) {
@@ -172,6 +177,37 @@ impl EditorState {
         }
     }
 
+    /// Whether the problems covering one-based `place` show already: in the
+    /// tip open (for the same problems), or in the card documenting their
+    /// line (which lists any problem there). The pointer moving on them
+    /// updates that popup at once.
+    pub(super) fn problems_shown_at(&self, place: (usize, usize)) -> bool {
+        let tip = self.popups().open.with_untracked(|open| match open {
+            Some(Popup::Tip { place }) => Some(Some(*place)),
+            Some(Popup::Card { card, .. }) if card.line + 1 == place.0 => Some(None),
+            _ => None,
+        });
+        match tip {
+            Some(Some(shown)) => self.same_problems(shown, place),
+            Some(None) => true,
+            None => false,
+        }
+    }
+
+    /// Whether problems cover one-based `here`, the same as cover
+    /// one-based `there`.
+    pub(super) fn same_problems(&self, here: (usize, usize), there: (usize, usize)) -> bool {
+        self.doc().text.with_untracked(|text| {
+            let line_text = |line: usize| split_line(text, line - 1).unwrap_or("");
+            self.problems().diagnostics.with_untracked(|problems| {
+                let now: Vec<_> = covering(problems, here.0, here.1, line_text(here.0)).collect();
+                let then: Vec<_> =
+                    covering(problems, there.0, there.1, line_text(there.0)).collect();
+                !now.is_empty() && now == then
+            })
+        })
+    }
+
     /// The pointer is over character `column` (zero-based) of zero-based
     /// `line`: the tip shows the problems covering it, or closes (a moment
     /// later) where none does.
@@ -220,7 +256,7 @@ impl EditorState {
             self.problems().current.set(None);
             if !self.popups().is_open() {
                 // The pointer had the caret's tip to reach.
-                self.step(|machine| machine.closed());
+                self.step(|machine| machine.closed(now()));
                 self.popups().focused.set(false);
             }
             if focused && let Some(element) = self.textarea() {
@@ -252,7 +288,14 @@ impl EditorState {
             return;
         };
         match fire {
-            Fire::Open(pending) => self.open_pending_card(pending),
+            Fire::Open(PendingHover { card, tip }) => {
+                if let Some(place) = tip {
+                    self.hover_problem(place);
+                }
+                if let Some(card) = card {
+                    self.open_pending_card(card);
+                }
+            }
             Fire::Close {
                 kind: Kind::Card,
                 then,

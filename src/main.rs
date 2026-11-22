@@ -121,7 +121,7 @@ fn query_flags() -> Vec<String> {
 }
 
 /// The settings both demos start from: the footer on, and the `styled`,
-/// `colors` and `folding` flags.
+/// `colors`, `folding` and `hoverDelay` flags.
 fn initial_settings(flags: &[String]) -> EditorSettings {
     let colors = if query_value(flags, "colors").as_deref() == Some("custom") {
         ThemeColors::new()
@@ -136,6 +136,9 @@ fn initial_settings(flags: &[String]) -> EditorSettings {
         folding: query_value(flags, "folding").as_deref() != Some("0"),
         styled: query_value(flags, "styled").as_deref() != Some("0"),
         colors,
+        hover_delay: query_value(flags, "hoverDelay")
+            .and_then(|ms| ms.parse().ok())
+            .unwrap_or(EditorSettings::default().hover_delay),
         ..EditorSettings::default()
     }
 }

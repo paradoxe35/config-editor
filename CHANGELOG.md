@@ -5,6 +5,26 @@ All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
+## Unreleased
+
+### Hover
+
+- The hover card and the problem tip show once the pointer rests on a key
+  or an underline (300 ms by default, the new setting `hoverDelay`, Rust
+  `hover_delay`), not a fixed time after it came onto it: a move of more
+  than a few pixels starts the wait again, so a hand on its way across the
+  text opens nothing. The problem tip waits too, instead of showing at
+  once; on a documented field the card listing its problems shows
+  directly, without the tip before it. While one shows, or within 300 ms after it closed, the next shows
+  after 100 ms. `Ctrl+K Ctrl+I`, `F8` and taps still show them at once,
+  and a card still stays 350 ms after the pointer leaves its key, so it
+  can be reached whatever the delay.
+- The card and the tip fade in over 100 ms (none with
+  `prefers-reduced-motion`); they take the pointer from the first frame.
+- With `prefers-contrast: more`, the popups' borders take their text's
+  color and the focus rings on them and on the footer's buttons are
+  thicker.
+
 ## 0.2.1 — 2026-11-22
 
 ### Key names

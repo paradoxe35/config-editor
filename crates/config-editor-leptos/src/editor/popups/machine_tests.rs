@@ -19,6 +19,9 @@ const KEY: Point = (66.0, 150.0);
 
 type Pointer = Machine<&'static str>;
 
+/// The host's hover delay, the default.
+const REST_MS: i32 = 300;
+
 fn seen(on_anchor: bool) -> Sight {
     Sight {
         popup: Some(CARD),
@@ -42,8 +45,12 @@ fn card_open() -> Pointer {
         ),
         Over::Answers
     );
-    machine.pend("port");
-    assert_eq!(restarted(&mut machine), Some(Some(350)), "the pause runs");
+    machine.pend("port", KEY, 0.0, REST_MS);
+    assert_eq!(
+        restarted(&mut machine),
+        Some(Some(REST_MS)),
+        "the rest runs"
+    );
     assert_eq!(machine.fired(), Some(Fire::Open("port")));
     machine.opened(Kind::Card, Opener::Pointer);
     restarted(&mut machine);
@@ -148,7 +155,7 @@ fn a_pointer_stopped_on_the_way_lets_the_card_go() {
             then: Then::CloseAndPointAgain
         })
     );
-    machine.closed();
+    machine.closed(0.0);
     assert_eq!(machine.phase(), &Phase::Closed);
     assert!(machine.point_again(), "over the text: what is there shows");
 }
@@ -313,8 +320,12 @@ fn a_pending_card_keeps_the_tip_behind_it() {
     );
     machine.opened(Kind::Tip, Opener::Pointer);
     restarted(&mut machine);
-    machine.pend("port");
-    assert_eq!(restarted(&mut machine), Some(Some(350)));
+    machine.pend("port", KEY, 0.0, REST_MS);
+    assert_eq!(
+        restarted(&mut machine),
+        Some(Some(100)),
+        "short: the tip shows"
+    );
     // The pointer leaves the problems: the tip would leave, but the
     // pause runs the one timer.
     machine.leave(Kind::Tip);
@@ -330,7 +341,7 @@ fn a_pending_card_keeps_the_tip_behind_it() {
     assert_eq!(restarted(&mut machine), Some(Some(200)), "the tip's moment");
 
     machine.hold();
-    machine.pend("port");
+    machine.pend("port", KEY, 0.0, REST_MS);
     assert_eq!(machine.fired(), Some(Fire::Open("port")));
     assert!(matches!(
         machine.phase(),
@@ -408,8 +419,109 @@ fn each_new_phase_hands_back_the_timer_before_it() {
     let first = machine.restart().expect("entered");
     assert_eq!(first.1, Some(350));
     machine.set_timer(Timeout::default());
-    machine.closed();
+    machine.closed(0.0);
     let (_, next) = machine.restart().expect("entered");
     assert_eq!(next, None, "closed: no timer");
     assert_eq!(machine.restart(), None, "once per entry");
+}
+
+/// The card opens once the pointer rests, not a fixed time after it came
+/// onto the key: a hand drifting a few pixels is at rest (the wait goes
+/// on, and what it drifts onto shows), a farther move starts the wait
+/// again from there.
+#[test]
+fn the_card_opens_once_the_pointer_rests() {
+    let mut machine = Pointer::default();
+    machine.pend("port", KEY, 0.0, REST_MS);
+    assert_eq!(restarted(&mut machine), Some(Some(REST_MS)));
+    machine.pend("port", (KEY.0 + 3.0, KEY.1 - 2.0), 50.0, REST_MS);
+    assert_eq!(restarted(&mut machine), None, "drifting: still at rest");
+    machine.pend("host", (KEY.0 + 2.0, KEY.1 + 3.0), 80.0, REST_MS);
+    assert_eq!(restarted(&mut machine), None, "drifting onto the next key");
+    machine.pend("host", (KEY.0 + 8.0, KEY.1), 120.0, REST_MS);
+    assert_eq!(
+        restarted(&mut machine),
+        Some(Some(REST_MS)),
+        "moving: the wait starts again"
+    );
+    // Drifting is measured from where the pointer came to rest again.
+    machine.pend("host", (KEY.0 + 11.0, KEY.1), 150.0, REST_MS);
+    assert_eq!(restarted(&mut machine), None);
+    assert_eq!(machine.fired(), Some(Fire::Open("host")));
+    assert_eq!(machine.phase(), &Phase::Closed);
+}
+
+/// The host's hover delay sets the rest, a zero one too.
+#[test]
+fn the_rest_is_the_host_hover_delay() {
+    for rest in [0, 120, 1500] {
+        let mut machine = Pointer::default();
+        machine.pend("port", KEY, 0.0, rest);
+        assert_eq!(restarted(&mut machine), Some(Some(rest)));
+    }
+}
+
+/// A rest over with nothing to show waits for nothing more on the same
+/// key, wherever the pointer moves on it; another key waits again.
+#[test]
+fn a_rest_with_nothing_to_show_waits_no_more_on_its_key() {
+    let mut machine = Pointer::default();
+    machine.pend("port", KEY, 0.0, REST_MS);
+    restarted(&mut machine);
+    assert_eq!(machine.fired(), Some(Fire::Open("port")));
+    restarted(&mut machine);
+    machine.pend_quietly("port");
+    assert_eq!(restarted(&mut machine), None);
+    machine.pend("port", (KEY.0 + 30.0, KEY.1), 400.0, REST_MS);
+    assert_eq!(restarted(&mut machine), None, "the same key");
+    machine.pend("host", (KEY.0 + 60.0, KEY.1), 450.0, REST_MS);
+    assert_eq!(restarted(&mut machine), Some(Some(REST_MS)));
+}
+
+/// Moving from popup to popup is quick: while one shows, or within a
+/// moment after it closed, the next shows after a short rest (never
+/// longer than the host's delay); later, after the full rest again.
+#[test]
+fn the_next_popup_after_one_shows_after_a_short_rest() {
+    // While the card shows.
+    let mut machine = card_open();
+    machine.pend("host", (KEY.0, KEY.1 + 20.0), 1000.0, REST_MS);
+    assert_eq!(restarted(&mut machine), Some(Some(100)));
+
+    // Just after it closed: short; long after, the full rest.
+    for (rest_at, ms) in [(1200.0, 100), (1300.0, 100), (1301.0, REST_MS)] {
+        let mut machine = card_open();
+        machine.closed(1000.0);
+        restarted(&mut machine);
+        machine.pend("host", (KEY.0, KEY.1 + 20.0), rest_at, REST_MS);
+        assert_eq!(restarted(&mut machine), Some(Some(ms)), "at {rest_at}");
+    }
+
+    // A host delay shorter than the short rest stays shorter.
+    let mut machine = card_open();
+    machine.pend("host", (KEY.0, KEY.1 + 20.0), 1000.0, 40);
+    assert_eq!(restarted(&mut machine), Some(Some(40)));
+
+    // Nothing shown before: nothing closed, the full rest.
+    let mut machine = Pointer::default();
+    machine.closed(1000.0);
+    machine.pend("host", KEY, 1100.0, REST_MS);
+    assert_eq!(restarted(&mut machine), Some(Some(REST_MS)));
+}
+
+/// The card stays its moment after the pointer leaves its key whatever
+/// the host's hover delay, so a quick (or zero) delay still leaves it
+/// reachable.
+#[test]
+fn the_card_stays_its_moment_whatever_the_hover_delay() {
+    for rest in [0, 50, 2000] {
+        let mut machine = Pointer::default();
+        machine.pend("port", KEY, 0.0, rest);
+        restarted(&mut machine);
+        assert_eq!(machine.fired(), Some(Fire::Open("port")));
+        machine.opened(Kind::Card, Opener::Pointer);
+        restarted(&mut machine);
+        machine.leave(Kind::Card);
+        assert_eq!(restarted(&mut machine), Some(Some(350)), "delay {rest}");
+    }
 }

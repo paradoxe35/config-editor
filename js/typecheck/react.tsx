@@ -41,7 +41,7 @@ export function Viewer({ text }: { text: string }) {
   const info: LanguageInfo | undefined = languages()[0]; const theme: ThemeInfo | undefined = themes().find((one) => one.dark);
   void [onScreen, folds, info, theme, changeSummary("a", "b"), parse("yaml", text), serialize("json", {}), rangeOf("yaml", text, "/a"), pathAt("yaml", text, 0), languageForFile("a.tf"), presetCss()];
   return (<ConfigEditor ref={ref} value={text} readOnly highlighting={false} showDiff={false} completions={false}
-    autoTriggerCompletions={false} hoverDocs={false} showDiagnostics={false} autoClosing={false} styled={false} saveShortcut={false} />);
+    autoTriggerCompletions={false} hoverDocs={false} hoverDelay={500} showDiagnostics={false} autoClosing={false} styled={false} saveShortcut={false} />);
 }
 // Several documents.
 import { ConfigDocuments, type ConfigDocumentsHandle, type DocumentSpec } from "@pngwasi/config-editor-react";

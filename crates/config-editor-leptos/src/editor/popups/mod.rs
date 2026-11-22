@@ -7,8 +7,9 @@
 //!   is (see `card_problems`). The lock tip is a note beside them, at its
 //!   place in the text (a read-only key shows its docs and says why);
 //! - the pointer's phase is one state machine (`machine`): closed →
-//!   pending → open → leaving → closed, with hover intent and a safe
-//!   polygon (`path`), as Floating UI's `useHover`/`safePolygon`;
+//!   pending → open → leaving → closed, opening when the pointer rests and
+//!   with a safe polygon (`path`), as Floating UI's `useHover` (`restMs`)
+//!   and `safePolygon`;
 //! - each timer belongs to the phase or popup that runs it: entering a new
 //!   one cancels it.
 
@@ -42,14 +43,35 @@ pub(super) use pointer::{back_on_text, enter_popup, list_wheel, popup_wheel};
 
 use machine::{Machine, Opener};
 
-/// A card waiting out the pointer's pause: the field under the pointer on
-/// zero-based `line` (its docs are read when the pause is over) and where
+/// A card waiting for the pointer to rest: the field under the pointer on
+/// zero-based `line` (its docs are read when the rest is over) and where
 /// the card would point.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PendingCard {
     pub(crate) line: usize,
     pub(crate) field: FieldHit,
     pub(crate) anchor: CardAnchor,
+}
+
+/// What shows once the pointer rests where it is: the problem tip for the
+/// problems at one-based `tip`, then the card, which takes its place when
+/// the key has docs (listing those problems).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PendingHover {
+    pub(crate) card: Option<PendingCard>,
+    pub(crate) tip: Option<(usize, usize)>,
+}
+
+/// The time now, in milliseconds: when popups close and rests start.
+#[cfg(target_arch = "wasm32")]
+fn now() -> f64 {
+    web_sys::js_sys::Date::now()
+}
+
+/// Native builds (the unit tests) have no clock: their timers run at once.
+#[cfg(not(target_arch = "wasm32"))]
+fn now() -> f64 {
+    0.0
 }
 
 /// The popup open.
@@ -68,7 +90,7 @@ pub(crate) struct PopupState {
     /// The one popup open.
     open: RwSignal<Option<Popup>>,
     /// The pointer's phase and its timer.
-    machine: RwSignal<Machine<PendingCard>>,
+    machine: RwSignal<Machine<PendingHover>>,
     /// A field the card open shows the docs of, and its line: the one it
     /// was shown for, or another part of its line found to have the same
     /// docs (looked up once).
@@ -127,8 +149,8 @@ impl PopupState {
     }
 
     /// Opens `popup` in place of the one open. Without one in its place,
-    /// the pointer has no popup to reach: its phase closes (a card waiting
-    /// out its pause still waits).
+    /// the pointer has no popup to reach: its phase closes (what waits for
+    /// the pointer's rest still waits).
     fn replace(&self, popup: Option<Popup>) {
         let closes = popup.is_none();
         let Some(old) = self.open.try_update(|open| std::mem::replace(open, popup)) else {
@@ -140,7 +162,7 @@ impl PopupState {
         match old {
             Some(_) if closes => {
                 self.machine.update(|machine| {
-                    machine.closed();
+                    machine.closed(now());
                     // Closed runs no timer.
                     if let Some((before, _)) = machine.restart() {
                         before.cancel();
@@ -214,7 +236,7 @@ impl PopupState {
 impl EditorState {
     /// Runs `change` on the pointer's phase, then starts the timer of a
     /// phase it entered (the one before's cancelled).
-    fn step<R>(&self, change: impl FnOnce(&mut Machine<PendingCard>) -> R) -> Option<R> {
+    fn step<R>(&self, change: impl FnOnce(&mut Machine<PendingHover>) -> R) -> Option<R> {
         let machine = self.popups().machine;
         let (result, restart) = machine.try_update(|machine| {
             let result = change(machine);
@@ -234,7 +256,7 @@ impl EditorState {
     }
 
     /// The pointer's phase, read.
-    fn with_machine<R>(&self, read: impl FnOnce(&Machine<PendingCard>) -> R) -> R {
+    fn with_machine<R>(&self, read: impl FnOnce(&Machine<PendingHover>) -> R) -> R {
         self.popups().machine.with_untracked(read)
     }
 }

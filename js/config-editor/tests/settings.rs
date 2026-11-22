@@ -192,7 +192,7 @@ fn ts_type(rust_type: &str) -> &'static str {
         "ThemeColors" => "ThemeColorMap",
         "ThemeChrome" => "ThemeChromeMap",
         "EditorStrings" => "EditorStrings",
-        "StickyScrollLines" => "number",
+        "StickyScrollLines" | "u32" => "number",
         other => panic!("no TypeScript type for `{other}`: add it to ts_type in tests/settings.rs"),
     }
 }
