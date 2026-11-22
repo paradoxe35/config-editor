@@ -998,7 +998,8 @@ impl Bridge {
     /// scalar is named as the view's text writes it, and the reading may
     /// hold it as a list's only item (`<k3>3</k3>` where the schema wants
     /// a list reads `[3]`): moved or copied there, the host value goes in
-    /// that item.
+    /// that item, unless the schemas there prefer the view's reading (see
+    /// `schema_readings::prefers`), the one the save then proposes.
     fn host_values(
         &self,
         view: &DataReading,
@@ -1048,9 +1049,25 @@ impl Bridge {
             } else {
                 &read
             };
-            let slot = edited.pointer_mut(at);
-            if let (Some(held), Some(slot)) = (held, slot) {
-                *slot = held.clone();
+            let Some(held) = held else {
+                continue;
+            };
+            let Some(slot) = edited.pointer_mut(at) else {
+                continue;
+            };
+            let read_as = std::mem::replace(slot, held.clone());
+            // Elsewhere than its source (a host scalar the view now holds
+            // as a list's item, or copied there), other schemas judge it:
+            // the view's reading stays where they take it and refuse the
+            // host's value (the host's `0` as an item of a list of text).
+            let moved = scalar.from != *at;
+            if moved
+                && let Some(schema) = self.shape()
+                && !spellings::same(held, &read_as)
+                && schema_readings::prefers(&edited, at, &read_as, schema)
+                && let Some(slot) = edited.pointer_mut(at)
+            {
+                *slot = read_as;
             }
         }
         edited

@@ -166,3 +166,51 @@ fn a_lone_element_an_object_option_takes_once_its_text_is_read_is_no_list() {
         }
     }
 }
+
+/// The items of a list written by repeating its element read as the items'
+/// schema wants their text, wherever the schema gives that: through
+/// `anyOf`, `oneOf`, `allOf`, `$ref` or `prefixItems`. Text no reading of
+/// the item's type spells stays as parsed.
+#[cfg(feature = "xml")]
+#[test]
+fn list_items_read_as_each_way_of_giving_items_wants_them() {
+    use super::super::plain_scalar;
+    let ways = |item: Value| {
+        let items = json!({"items": item});
+        [
+            json!({"properties": {"d": {"anyOf": [items]}}}),
+            json!({"properties": {"d": {"oneOf": [items]}}}),
+            json!({"properties": {"d": {"allOf": [items]}}}),
+            json!({"$defs": {"l": items}, "properties": {"d": {"$ref": "#/$defs/l"}}}),
+            json!({"properties": {"d": {"prefixItems": [item, item, item]}}}),
+        ]
+    };
+    // Each item type and each text's reading under it.
+    let kinds = [
+        (
+            "string",
+            [json!("0"), json!("1.50"), json!("true"), json!("x")],
+        ),
+        ("number", [json!(0), json!(1.5), json!(true), json!("x")]),
+        (
+            "boolean",
+            [json!(0), json!("1.50"), json!(true), json!("x")],
+        ),
+    ];
+    let texts = ["0", "1.50", "true", "x"];
+    for (kind, readings) in kinds {
+        for schema in ways(json!({"type": kind})) {
+            for (text, reading) in texts.iter().zip(&readings) {
+                for count in 2..=3 {
+                    let parsed = json!({"d": vec![plain_scalar(text); count]});
+                    let expected = json!({"d": vec![reading.clone(); count]});
+                    assert_eq!(
+                        read(&schema, parsed),
+                        expected,
+                        "{schema} {text:?} x{count}"
+                    );
+                }
+            }
+        }
+    }
+}
