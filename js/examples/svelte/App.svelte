@@ -44,6 +44,9 @@
   // The revision `value` came with (`?revisions`); none for a text of the
   // parent's own.
   let revision: number | undefined = $state(undefined);
+  // The newest revision heard, which a text of the parent's own does not
+  // forget: an older echo still on its way after one is dropped too.
+  let newest: number | undefined;
   // The version the host last saved; saves and other clients move it.
   let baseline = $state(initialText);
   let dirty = $state(false);
@@ -120,7 +123,8 @@
   function apply(next: string, sent: number) {
     if (revisions) {
       // The newest revision wins: a late, older one is ignored.
-      if (revision !== undefined && sent < revision) return;
+      if (newest !== undefined && sent < newest) return;
+      newest = sent;
       revision = sent;
     }
     previous = value;

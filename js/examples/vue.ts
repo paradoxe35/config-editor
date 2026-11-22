@@ -74,6 +74,9 @@ const App = defineComponent({
     // The revision `value` came with (`?revisions`); none for a text of the
     // parent's own.
     const revision = ref<number | undefined>(undefined);
+    // The newest revision heard, which a text of the parent's own does not
+    // forget: an older echo still on its way after one is dropped too.
+    let newest: number | undefined;
     // The version the host last saved; saves and other clients move it.
     const baseline = ref(initialText);
     const dirty = ref(false);
@@ -119,7 +122,8 @@ const App = defineComponent({
     const apply = (next: string, sent?: number) => {
       if (revisions && sent !== undefined) {
         // The newest revision wins: a late, older one is ignored.
-        if (revision.value !== undefined && sent < revision.value) return;
+        if (newest !== undefined && sent < newest) return;
+        newest = sent;
         revision.value = sent;
       }
       previous = value.value;

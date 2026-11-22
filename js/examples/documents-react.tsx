@@ -24,6 +24,10 @@ const initialFiles: DocumentSpec[] = [
 // (`valueRevision`), as the README shows: the newest revision wins (a late,
 // older one is ignored).
 const revisions = new URLSearchParams(location.search).has("revisions");
+// The newest revision heard for each file, which a text of the host's own
+// (a `valueRevision` left out) does not forget: an older echo still on its
+// way after one is dropped too.
+const newest = new Map<string, number>();
 
 function App() {
   const [files, setFilesState] = useState(initialFiles);
@@ -78,13 +82,9 @@ function App() {
           note(`change ${id}`);
           later(() => {
             if (!revisions) return update(id, { value });
-            setFiles((list) =>
-              list.map((file) =>
-                file.id !== id || (file.valueRevision !== undefined && revision < file.valueRevision)
-                  ? file
-                  : { ...file, value, valueRevision: revision },
-              ),
-            );
+            if (revision < (newest.get(id) ?? revision)) return;
+            newest.set(id, revision);
+            update(id, { value, valueRevision: revision });
           });
         }}
         onSave={(id, value, language) => {

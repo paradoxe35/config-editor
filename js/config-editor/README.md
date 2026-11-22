@@ -685,7 +685,8 @@ text the new editor sent then keeps the typing.
 
 With revisions there is no pause. `onChange(text, revision)` gives each text
 a revision; store it beside the text, keep only the newest revision you were
-given (never go back to an older one), and pass it back:
+given (never go back to an older one, even after a text of your own), and
+pass it back:
 `update({ value, valueRevision })`. The echo is then matched exactly: that
 revision and every earlier one are confirmed, an older value given back means
 a newer one is still on its way, and nothing is sent again. Give a text of

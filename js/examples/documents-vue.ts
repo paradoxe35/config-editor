@@ -20,6 +20,10 @@ const schema = await (await fetch("../../schema.json")).text();
 // (`valueRevision`), as the README shows: the newest revision wins (a late,
 // older one is ignored).
 const revisions = new URLSearchParams(location.search).has("revisions");
+// The newest revision heard for each file, which a text of the host's own
+// (a `valueRevision` left out) does not forget: an older echo still on its
+// way after one is dropped too.
+const newest = new Map<string, number>();
 
 const App = defineComponent({
   components: { ConfigDocuments },
@@ -60,9 +64,9 @@ const App = defineComponent({
         note(`change ${id}`);
         later(() => {
           if (!revisions) return update(id, { value });
-          const file = files.value.find((candidate) => candidate.id === id);
-          if (file && (file.valueRevision === undefined || revision >= file.valueRevision))
-            update(id, { value, valueRevision: revision });
+          if (revision < (newest.get(id) ?? revision)) return;
+          newest.set(id, revision);
+          update(id, { value, valueRevision: revision });
         });
       },
       onSave: (id: string, value: string, language: LanguageName) => {

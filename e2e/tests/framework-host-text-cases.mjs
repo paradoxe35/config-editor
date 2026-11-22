@@ -218,6 +218,26 @@ export function hostTextCases(name) {
       expect(errors).toEqual([]);
     });
 
+    // The parent sets its own text (here the one it holds) between two
+    // late echoes: it still keeps only the newest revision it was given, so
+    // the older echo coming after is dropped and the parent stays on the
+    // document.
+    test('an older echo coming after the parent\'s own text is dropped: the parent stays on the document', async ({ page }) => {
+      const { errors } = await open(page, name, '?manual&revisions');
+      await input(page).click();
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type('ab');
+      await page.evaluate(() => window.releaseEchoes([1]));
+      await expect(saved(page)).toHaveText(`${initialText}ab`);
+      await page.evaluate(() => window.setParentValue(window.parentState().text));
+      await page.evaluate(() => window.releaseEchoes([0]));
+      // The pause after a value given (250 ms), with a margin.
+      await page.waitForTimeout(600);
+      await expect(saved(page)).toHaveText(`${initialText}ab`);
+      await expect(input(page)).toHaveValue(`${initialText}ab`);
+      expect(errors).toEqual([]);
+    });
+
     test('late problems for an older revision land on the text they name', async ({ page }) => {
       const { errors } = await open(page, name, '?revisions');
       await input(page).click();

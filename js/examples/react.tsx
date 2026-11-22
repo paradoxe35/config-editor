@@ -63,12 +63,13 @@ const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address
 
 function App({ schema }: { schema: string }) {
   const [value, setText] = useState(initialText);
-  // The revision `value` came with (`?revisions`), and the newest one heard.
+  // The revision `value` came with (`?revisions`), and the newest one heard,
+  // which a text of the parent's own does not forget: an older echo still
+  // on its way after one is dropped too.
   const [revision, setRevision] = useState<number | undefined>(undefined);
   const newest = useRef<number | undefined>(undefined);
   // A text of the parent's own: no revision.
   const setValue = (next: string | ((current: string) => string)) => {
-    newest.current = undefined;
     setRevision(undefined);
     setText(next);
   };

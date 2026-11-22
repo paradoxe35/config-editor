@@ -1110,6 +1110,27 @@ test.describe(() => {
           expect(page.errors).toEqual([]);
         });
       }
+
+      // The parent lists its own text (here the one it holds) between two
+      // late echoes: it still keeps only the newest revision it was given
+      // for the file, so the older echo coming after is dropped.
+      test('with revisions, an older echo coming after the parent\'s own text is dropped', async ({ page }) => {
+        await open(page, name, '?manual&revisions');
+        await page.locator('.config-editor__input').first().click();
+        await page.keyboard.press('Control+Home');
+        await page.keyboard.type('ab', { delay: 60 });
+        await page.evaluate(() => window.releaseEchoes([1]));
+        await expect.poll(() => main(page)).toEqual({ text: 'ablisten: 7835', parent: 'ablisten: 7835' });
+        await page.evaluate(() => {
+          const file = window.currentFiles().find((candidate) => candidate.id === 'main');
+          window.updateFile('main', { value: file.value, valueRevision: undefined });
+        });
+        await page.evaluate(() => window.releaseEchoes([0]));
+        // The pause after a value given (250 ms), with a margin.
+        await page.waitForTimeout(600);
+        expect(await main(page)).toEqual({ text: 'ablisten: 7835', parent: 'ablisten: 7835' });
+        expect(page.errors).toEqual([]);
+      });
     });
   }
 });
