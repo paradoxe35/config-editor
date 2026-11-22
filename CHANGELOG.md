@@ -257,6 +257,11 @@ versions move together.
   reads the element as a list of one list (`<d>null</d>` read as
   `[[null]]`), saves as the view reads it; the save kept the host's
   string before.
+- A number typed in another view of an XML host, where the schema reads
+  that text as a string (`3` would match two options of a `oneOf`),
+  is saved in a spelling the host reads as the number, or the save
+  waits; an HCL view saved the text `3`, which the host read as the
+  string `"3"`.
 
 ## 0.1.2 — 2026-11-21
 

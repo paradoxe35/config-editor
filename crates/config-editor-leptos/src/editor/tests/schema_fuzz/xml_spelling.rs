@@ -230,18 +230,20 @@ fn in_host_type(sides: &Sides<'_>, at: &str, view: &Value) -> Option<&'static st
     let as_viewed = errors_about(sides, at, Some(view));
     let as_saved = errors_about(sides, at, Some(saved));
     let without = errors_about(sides, at, None);
-    // A reading is refused by an error at the value (or inside it), or by
-    // one above it (options of an object holding it) that the other
-    // reading does not have, or that goes with the value.
+    // A reading is refused by an error at the value (or inside it), by one
+    // anywhere that the other reading does not have (the two documents
+    // differ only in the value: an `if` beside it reading it), or by one
+    // above it (options of an object holding it) that goes with the value.
     let refused = |errors: &Errors, other: &Errors| {
         errors.iter().any(|error| {
             let (place, _) = error;
-            place == at
-                || place.starts_with(&format!("{at}/"))
-                || !other.contains(error)
-                || without
-                    .as_ref()
-                    .is_some_and(|without| !without.contains(error))
+            !other.contains(error)
+                || about(at, place)
+                    && (place == at
+                        || place.starts_with(&format!("{at}/"))
+                        || without
+                            .as_ref()
+                            .is_some_and(|without| !without.contains(error)))
         })
     };
     let (as_viewed, as_saved) = (as_viewed.unwrap_or_default(), as_saved.unwrap_or_default());
@@ -261,9 +263,17 @@ fn in_host_type(sides: &Sides<'_>, at: &str, view: &Value) -> Option<&'static st
 /// Errors as place and keyword.
 type Errors = HashSet<(String, String)>;
 
+/// Whether an error at `place` is about the value at `at`: at it, inside
+/// it or above it.
+fn about(at: &str, place: &str) -> bool {
+    place == at
+        || place.starts_with(&format!("{at}/"))
+        || at.starts_with(&format!("{place}/"))
+        || place.is_empty()
+}
+
 /// The reference's errors for the saved document with `value` at `at`
-/// (`None`: without the value, where an object holds it), at the value,
-/// inside it or above it.
+/// (`None`: without the value, where an object holds it).
 fn errors_about(sides: &Sides<'_>, at: &str, value: Option<&Value>) -> Option<Errors> {
     let mut document = sides.saved.clone();
     match value {
@@ -276,17 +286,10 @@ fn errors_about(sides: &Sides<'_>, at: &str, value: Option<&Value>) -> Option<Er
             map.shift_remove(&unescaped_key(key))?;
         }
     }
-    let about = |place: &str| {
-        place == at
-            || place.starts_with(&format!("{at}/"))
-            || at.starts_with(&format!("{place}/"))
-            || place.is_empty()
-    };
     let errors = sides
         .both
         .reference
         .iter_errors(&document)
-        .filter(|error| about(error.instance_path().as_str()))
         .map(|error| {
             let place = error.instance_path().as_str().to_string();
             (place, error.kind().keyword().to_string())

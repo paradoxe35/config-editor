@@ -144,9 +144,12 @@ pub(in crate::editor::bridge) fn kept(
     let (Some(mut read), Some(before)) = (reads(&spelled), reads(&saved)) else {
         return Spelled::as_saved(saved);
     };
-    // Each number kept as typed text reads as that text: else the same.
+    // Each number kept as typed text reads as that text, where the host
+    // holds the text as the number: else the same.
     for (pointer, text) in &as_text {
-        if let (Some(slot), Some(was)) = (read.pointer_mut(pointer), before.pointer(pointer))
+        if let Some(was) = before.pointer(pointer)
+            && text_holds_number(text, was, (&before, pointer), shape)
+            && let Some(slot) = read.pointer_mut(pointer)
             && slot.as_str() == Some(text.as_str())
         {
             *slot = was.clone();
@@ -376,11 +379,31 @@ fn unquoted<'a>(edit: &dyn ConfigLanguage, typed: &'a str) -> Option<&'a str> {
     plain.then_some(inner)
 }
 
+/// Whether a host whose values are all text holds `text`, read back as
+/// that text at `pointer` in `document`, as `number`: the text is the
+/// number in decimal ([`text_reads_as_number`]) and the schema (`shape`)
+/// takes the number the reader reads the text as there. Where it does
+/// not, its reader takes the text for the text (`3` where the number
+/// would match two options of a `oneOf`), another value than the view's.
+pub(in crate::editor::bridge) fn text_holds_number(
+    text: &str,
+    number: &Value,
+    (document, pointer): (&Value, &str),
+    shape: Option<&Value>,
+) -> bool {
+    text_reads_as_number(text, number)
+        && shape.is_none_or(|schema| {
+            crate::editor::data_reading::text_literal(text).is_some_and(|read| {
+                super::super::schema_readings::takes(document, pointer, &read, schema)
+            })
+        })
+}
+
 /// Whether `text`, a value of a host whose values are all text, is
 /// `number` written in decimal (`4.10`, `1e3`): what a reader takes for
 /// it where a number is wanted. Another language's spelling (`47_2`,
 /// `0x1F`) is other text there.
-pub(in crate::editor::bridge) fn text_reads_as_number(text: &str, number: &Value) -> bool {
+fn text_reads_as_number(text: &str, number: &Value) -> bool {
     let Some(number) = number.as_number() else {
         return false;
     };

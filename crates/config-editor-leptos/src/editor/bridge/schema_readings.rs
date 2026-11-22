@@ -84,6 +84,16 @@ pub(super) fn keep(value: &mut Value, retyped: Vec<(String, Value)>, schema: &Va
     }
 }
 
+/// Whether the schemas at `pointer` in `document` take `candidate` there
+/// (`schema`: the document's), as the reader of a host whose values are
+/// all text judges which reading of a text it takes.
+pub(super) fn takes(document: &Value, pointer: &str, candidate: &Value, schema: &Value) -> bool {
+    let whole = || Some(document);
+    let applies = Applies::for_types(schema, false, &whole);
+    let here = applies.at(&path_in(document, pointer));
+    here.entry().accepts(candidate, schema) != Some(false)
+}
+
 /// The pointer `up` levels above `pointer`.
 fn parent_pointer(pointer: &str, up: usize) -> &str {
     (0..up).fold(pointer, |pointer, _| {

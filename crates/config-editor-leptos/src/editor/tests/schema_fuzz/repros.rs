@@ -34,19 +34,33 @@ fn holds_everywhere_but_known(
     doc: Value,
     other: Value,
 ) {
+    holds_but_known(property, check, (schema, doc, other), 1);
+}
+
+/// [`holds_everywhere_but_known`] for each of the first `picks` second
+/// languages a check picks (an Edit-as view of an XML host in each other
+/// language).
+fn holds_but_known(
+    property: &str,
+    check: fn(&Case) -> Verdict,
+    (schema, doc, other): (Value, Value, Value),
+    picks: usize,
+) {
     let mut failed = Vec::new();
     for &language in Language::ALL {
-        let case = Case {
-            language,
-            pick: 0,
-            schema: schema.clone(),
-            doc: doc.clone(),
-            other: other.clone(),
-        };
-        if let Verdict::Fails(failure) = check(&case)
-            && super::known::excused(property, &failure.class, &case).is_none()
-        {
-            failed.push(format!("{}\n{}", failure.class, failure.detail));
+        for pick in 0..picks {
+            let case = Case {
+                language,
+                pick,
+                schema: schema.clone(),
+                doc: doc.clone(),
+                other: other.clone(),
+            };
+            if let Verdict::Fails(failure) = check(&case)
+                && super::known::excused(property, &failure.class, &case).is_none()
+            {
+                failed.push(format!("{}\n{}", failure.class, failure.detail));
+            }
         }
     }
     assert!(failed.is_empty(), "{}", failed.join("\n\n"));
@@ -1361,5 +1375,42 @@ fn an_unchanged_lone_element_the_schema_reads_as_a_list_saves_nothing() {
         json!({"properties": {"a": {"type": "array", "items": {"type": "string"}}}}),
         json!({"a": false}),
         json!({"a": false}),
+    );
+}
+
+/// A value typed in a view of an XML host that the host can write only
+/// as text its schema reads as another value (`3` where an option taking
+/// any text and an `enum` of numbers make `3` match both options of a
+/// `oneOf`, so the text reads as the string `"3"`) waits: the save would
+/// read back otherwise than the view, in every view.
+#[test]
+fn a_value_an_xml_host_reads_back_as_another_waits() {
+    holds_but_known(
+        "edit_as",
+        super::edit_as::check,
+        (
+            json!({"properties": {"mode": {"oneOf": [
+                {"properties": {"d": {"type": "boolean"}}},
+                {"enum": [1, 2, 3]}]}}}),
+            json!({"mode": 2.5}),
+            json!({"mode": 3}),
+        ),
+        4,
+    );
+}
+
+/// XML text the schema refuses in both readings, where the refusal of
+/// the view's reading is an `if` beside it typing another value (`a: 1`
+/// makes `b` a string), keeps the host's type: the documented kept type.
+#[test]
+fn text_an_if_beside_it_refuses_in_the_views_reading_keeps_the_hosts_type() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"properties": {"a": {"enum": ["a", 1]}, "b": {"type": "integer"}},
+            "if": {"properties": {"a": {"const": 1}}, "required": ["a"]},
+            "then": {"properties": {"b": {"type": "string"}}}}),
+        json!({"a": "a", "b": 5}),
+        json!({"a": 1, "b": 5}),
     );
 }
