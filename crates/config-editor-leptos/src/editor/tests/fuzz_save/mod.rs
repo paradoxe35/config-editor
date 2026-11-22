@@ -27,6 +27,7 @@
 
 mod checks;
 mod docs;
+mod dotted_keys;
 mod known;
 mod ops;
 mod repros;

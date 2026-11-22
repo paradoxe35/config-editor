@@ -365,14 +365,38 @@ impl Bridge {
         });
         // A view whose links name no item of the host's last text is an
         // edit of the text they name (see `links::Told::base`): saved over
-        // it, which holds their forms and comments.
+        // it, which holds their forms and comments. What a later save
+        // wrote and this edit left as the last text holds it keeps the
+        // last text's form (see `moved_forms::kept_since_base`).
         if let Some(told) = told
             && let Some(base) = told.base.as_deref()
         {
             let told =
                 links::Told::listed(told.items().clone(), None, told.earlier.clone(), Vec::new());
             let base = byte_order_mark::split(base).0;
-            return self.to_unmarked_host(edit_text, base, origin, Some(&told), untouched);
+            let saved = self.to_unmarked_host(edit_text, base, origin, Some(&told), untouched)?;
+            let host = self.host.behavior();
+            let read = |text: &str| codec::read(host, text, self.shape()).ok();
+            let (Some(last), Some(base), Some(intended)) =
+                (read(previous_host), read(base), read(&saved.text))
+            else {
+                return Ok(saved);
+            };
+            let text = moved_forms::kept_since_base(
+                host,
+                saved.text,
+                &intended,
+                (
+                    moved_forms::Source {
+                        text: previous_host,
+                        value: &last,
+                    },
+                    &base,
+                ),
+                self.shape(),
+                SaveTold::new(None).with_schema(self.shape()),
+            );
+            return Ok(Conversion { text, ..saved });
         }
         let items = told.zip(earlier.as_deref());
         // The host's last text as it was given, whose comments the save

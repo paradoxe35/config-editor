@@ -356,6 +356,70 @@ pub(super) fn kept(
     ))
 }
 
+/// `saved` (a save made over `base`, an earlier host text the view's
+/// links name, reading `base_value`; it reads `intended`) with each value
+/// a later save wrote (the host's last text, `last`, holds it otherwise
+/// than `base`) and this edit left as `last` holds it written back as
+/// `last` writes it: the save over `base` wrote it anew (a map a TOML
+/// dotted key made, which the last save put on lines of its own), though
+/// the edit did not touch it. The outermost such values, each whole.
+pub(super) fn kept_since_base(
+    host: &dyn ConfigLanguage,
+    saved: String,
+    intended: &Value,
+    (last, base_value): (Source<'_>, &Value),
+    shape: Option<&Value>,
+    told: SaveTold<'_>,
+) -> String {
+    fn walk<'a>(
+        now: &Value,
+        pointer: String,
+        (last, base): (Source<'a>, &Value),
+        out: &mut Vec<Moved<'a>>,
+    ) {
+        if !pointer.is_empty() {
+            let held = last.value.pointer(&pointer);
+            if held == Some(now) {
+                if base.pointer(&pointer) != held {
+                    out.push(Moved {
+                        to: pointer.clone(),
+                        from: pointer,
+                        source: last,
+                    });
+                }
+                return;
+            }
+        }
+        match now {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    walk(
+                        child,
+                        format!("{pointer}/{}", pointer_key(key)),
+                        (last, base),
+                        out,
+                    );
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    walk(child, format!("{pointer}/{index}"), (last, base), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut later = Vec::new();
+    walk(intended, String::new(), (last, base_value), &mut later);
+    if later.is_empty() {
+        return saved;
+    }
+    let Some(before) = codec::read(host, &saved, shape).ok() else {
+        return saved;
+    };
+    whole::kept(host, (saved, last.text), &before, &later, shape, told)
+}
+
 /// Whether `saved` is `previous` (which reads `old`) with nothing but the
 /// text of one scalar the save changed (by `intended`) rewritten: every
 /// byte before and after that scalar's written text is the same. Each

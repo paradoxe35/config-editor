@@ -346,6 +346,11 @@ versions move together.
   line (`logging: {driver: json-file}`), and a value left alone in the
   anchor that the same save moved values next to lost its quotes too
   (`driver: "json-file"` saved as `driver: json-file` from a TOML view).
+- A value an Edit-as edit leaves alone keeps the form the last save wrote
+  it in when an undo takes the view back past that save: a map a TOML
+  dotted key made (`n.ode = ">=18"`), which the save had put on lines of
+  its own in a JSON host, was written on one line by the next save of a
+  line deleted elsewhere.
 
 ## 0.1.2 — 2026-11-21
 

@@ -3060,6 +3060,38 @@ fn a_yaml_merge_written_out_beside_moved_values_keeps_quotes_in_a_toml_view() {
     );
 }
 
+/// P2: a TOML dotted key typed in a JSON host's table (`n.ode`), then a
+/// line move, a switch, Enter and undos, and a line deleted elsewhere:
+/// the map the dot made, left alone, keeps the form the host wrote it in.
+#[test]
+fn a_dotted_key_map_from_a_toml_view_keeps_its_json_form_through_undos() {
+    replay(
+        Language::JSON,
+        Language::TOML,
+        "{\n  \"name\": \"web-app\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"vite build\",\n    \"test\": \"vitest run\"\n  },\n  \"dependencies\": {\"react\": \"^18.3.1\", \"react-dom\": \"^18.3.1\"},\n  \"engines\": {\n    \"node\": \">=18\"\n  },\n  \"files\": [\"dist\", \"src\"],\n  \"ratio\": 1.50,\n  \"size\": 1e3\n}\n",
+        &[
+            Op::Type {
+                line: 33,
+                column: 1,
+                text: ".",
+            },
+            Op::MoveLine {
+                line: 23,
+                down: true,
+            },
+            Op::Switch { to: 1 },
+            Op::Enter {
+                line: 7,
+                column: 1000,
+            },
+            Op::Undo,
+            Op::Undo,
+            Op::Undo,
+            Op::DeleteLine { line: 29 },
+        ],
+    );
+}
+
 /// P3: a YAML merge written out in a TOML view, its anchor's map written
 /// in block style, writes the merged map in block style too.
 #[test]
