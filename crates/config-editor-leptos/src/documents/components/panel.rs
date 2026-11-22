@@ -147,6 +147,7 @@ fn editor(
     let changed = move |text: String| {
         if value.with_untracked(|current| *current != text) {
             value.set(text.clone());
+            id.with_value(|id| documents.text_changed(id));
         }
         if let Some(callback) = callbacks.on_change {
             callback.run((id.get_value(), text));
@@ -174,6 +175,9 @@ fn editor(
         .handle
         .open_with(opening.filter(|_| entry.edit_as.get_untracked().is_some()));
     entry.handle.share_placeholders(follows.placeholders.read());
+    entry
+        .handle
+        .give_key_names(documents.key_names_input(&entry));
     entry
         .handle
         .share_clipboard(documents.clipboard_for(entry.setup.language));

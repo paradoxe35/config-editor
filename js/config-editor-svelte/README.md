@@ -189,7 +189,7 @@ pairs, `…One` for 1 and `…Other` otherwise.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (240 texts)</summary>
+<summary>Every text and its default (243 texts)</summary>
 
 | Key                         | Default                                                                                                                                                                         |                                                                                                                                                                                                                                                                                                                                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -373,6 +373,9 @@ pairs, `…One` for 1 and `…Other` otherwise.
 | `referenceType`             | `"reference"`                                                                                                                                                                   | The type column of a reference suggestion.                                                                                                                                                                                                                                                                                                      |
 | `closesTag`                 | `"Closes <{name}>"`                                                                                                                                                             | The detail of the end tag XML suggests.                                                                                                                                                                                                                                                                                                         |
 | `endTag`                    | `"end tag"`                                                                                                                                                                     | Its type column.                                                                                                                                                                                                                                                                                                                                |
+| `keyNameThisDocument`       | `"this document"`                                                                                                                                                               | The source of a suggested name (`x-config-editor-keys`) that is a key of the document itself.                                                                                                                                                                                                                                                   |
+| `keyNameDetail`             | `"{source} · {detail}"`                                                                                                                                                         | The detail of a suggested name with both a source and a detail of its own.                                                                                                                                                                                                                                                                      |
+| `keyNameDefinedIn`          | `"defined in {source}"`                                                                                                                                                         | The hover card's line on a value that is a known name: where it is defined.                                                                                                                                                                                                                                                                     |
 | `noSuggestions`             | `"No suggestions"`                                                                                                                                                              | Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.                                                                                                                                                                                   |
 | `keyNotAllowed`             | `"\"{key}\" is not allowed here"`                                                                                                                                               | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                                                                                                                      |
 | `textNotAllowed`            | `"text is not allowed here, only elements"`                                                                                                                                     | Text in an element the schema wants elements in (XML); the element's pointer goes before it.                                                                                                                                                                                                                                                    |
@@ -601,6 +604,27 @@ every [setting](#settings). Exported functions: `select(id)`, `isDirty(id)`,
 `rangeOf`, `fold`, `unifiedDiff`, …). See
 the [`@pngwasi/config-editor` README](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#several-documents).
 Per document, `onEditAsChange(id, language)` says the language on screen (once when its editor mounts, then on each change: a switch made, one that waited, undo or redo across a switch) and `onSyncChange(id, inSync)` whether the text on screen is written back to its `value`. A prop that did not change is not sent again, so after an undo stepped back across a switch, `editAs(id, language)` (an exported function) asks for it again. A document's `editAsText` (with `editAs`) opens its editor with the text the user had on screen (kept from `editor(id).text`), converted back once it is valid; `readOnlyReason` shows why a read-only document is read-only (its tab's tooltip, the notice when the user types, the accessible descriptions). See the [`@pngwasi/config-editor` README](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#several-documents).
+Names across documents: a field whose schema says its value names a key
+defined elsewhere (`x-config-editor-keys`, such as a route's `client`
+naming a key of `/clients`) is offered the keys of every other open document
+of the schemas it names, live (unsaved edits included), then the names you
+give in `keyNames` for the files that are not open (read once with `keysAt`
+from `@pngwasi/config-editor/tools`). A name whose `source` is an open
+document's id is replaced by that document's live names. Go to definition
+(`F12`, `Ctrl`+click) moves the caret to a key in the same document, shows
+another open document with the caret on its key, and else calls
+`onGoToDefinition({ schema, pointer, name, source })`. A document's own
+`keyNames` add to the view's; `<ConfigEditor>` takes `keyNames` and
+`onGoToDefinition` too. See the [`@pngwasi/config-editor` README](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#names-across-documents).
+
+```svelte
+<ConfigDocuments
+  documents={files}
+  {keyNames}
+  onGoToDefinition={({ source }) => source && openFile(source)}
+/>
+```
+
 To fill a set height (the component's element, styled through its class), give
 the view `height: 100%`
 (`.config-editor-documents { height: 100%; }`): the tab strip keeps its height
@@ -622,14 +646,14 @@ they take and return: `EditorSettings`, `EditorStrings`, `ThemeName`,
 `ThemeColorMap`, `LanguageName`, `DocumentSpec`, `CloseRequest`,
 `ChangeSummary`, `BaselineConflict`, `FieldPath`, `EditorPath`,
 `EditorRange`, `LineRange`, `EditorView` (what `editor(id)` returns),
-`HostDiagnostic`, `Diagnostic` (a problem the editor reports), `Severity`, `SecretOptions`, `TextRangeInput`, `TextChange` and `ApplyChangesOptions` (what `applyChanges` takes), `SchemaFormatName` (a `schemaFormat`).
+`HostDiagnostic`, `Diagnostic` (a problem the editor reports), `Severity`, `SecretOptions`, `TextRangeInput`, `TextChange` and `ApplyChangesOptions` (what `applyChanges` takes), `SchemaFormatName` (a `schemaFormat`), and `KeyNames`, `KeyName` and `GoToDefinition` (the `keyNames` and `onGoToDefinition` props).
 
 The helpers come from `@pngwasi/config-editor`, a peer dependency:
 `loadConfigEditor`, `languages()`, `themes()`, `languageForFile`,
 `registerLanguage`, `registerSchemaFormat`, `schemaFormats()` and
 `schemaFormatForFile` from its main entry, and the tools (`validate`,
 `convert`, `parse`, `serialize`, `unifiedDiff`, `changeSummary`, `rangeOf`, `rangesOf`,
-`pathAt`, `schemaWarnings`, `compileSchema`, `schemaImports`, `presetCss`) from
+`pathAt`, `keysAt`, `schemaWarnings`, `compileSchema`, `schemaImports`, `presetCss`) from
 `@pngwasi/config-editor/tools`, called after `loadConfigEditor()` has
 resolved; see the [`@pngwasi/config-editor` README](https://github.com/paradoxe35/config-editor/tree/main/js/config-editor#pngwasiconfig-editortools).
 

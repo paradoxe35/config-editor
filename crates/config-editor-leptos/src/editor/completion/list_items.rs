@@ -99,6 +99,7 @@ pub(super) fn root_values(
     branches: &[&Value],
     applies: &Applies<'_, '_>,
     behavior: &dyn ConfigLanguage,
+    names: &ValueNames<'_>,
 ) -> Option<Vec<Completion>> {
     let (open, close) = context.root_value.filter(|_| context.value_key.is_none())?;
     let root = applies.root();
@@ -118,6 +119,7 @@ pub(super) fn root_values(
         "",
         true,
         behavior,
+        names,
     );
     for option in &mut options {
         option.insert = format!("{open}{}{close}", option.insert);

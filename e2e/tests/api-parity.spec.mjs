@@ -85,6 +85,8 @@ const PROPS = {
   read_only_ranges_for: { option: 'rangesFor', update: 'rangesFor' },
   host_diagnostics_for: { option: 'diagnosticsFor', update: 'diagnosticsFor' },
   secrets: { option: 'secrets', fixed: 'the placeholder patterns build the editor (`isPlaceholder` is called live)' },
+  key_names: { option: 'keyNames', update: 'keyNames' },
+  on_go_to_definition: { option: 'onGoToDefinition', update: 'onGoToDefinition' },
 };
 
 // Binding props (so every component's) with no JS option of their own.
@@ -313,6 +315,8 @@ const DOCUMENTS_PROPS = {
   class: { option: 'className', prop: 'viewClassName', fixed: 'a class of the view\'s root, read once' },
   label: { option: 'label', fixed: 'the tab list\'s name, read once' },
   handle: { exempt: 'the `ConfigDocuments` instance (a component: its instance API) is the handle' },
+  key_names: { option: 'keyNames', update: 'keyNames' },
+  on_go_to_definition: { option: 'onGoToDefinition', update: 'onGoToDefinition' },
 };
 
 const DOCUMENTS_BINDING_ONLY_PROPS = {
@@ -354,6 +358,7 @@ const DOCUMENT = {
   host_diagnostics_for: { type: 'DocumentSpec' },
   value_revision: { type: 'DocumentSpec' },
   secrets: { type: 'DocumentSpec' },
+  key_names: { type: 'DocumentSpec' },
   resolved_language: { main: 'languageForFile' },
 };
 
@@ -381,6 +386,9 @@ const CRATE_EXPORTS = {
   HostDiagnostic: { type: 'HostDiagnostic' },
   HostChange: { type: 'TextChange' },
   RangesFor: { exempt: 'a revision (a number) or a text (a string) in JS: `rangesFor`, `diagnosticsFor`' },
+  GoToDefinition: { type: 'GoToDefinition' },
+  KeyName: { type: 'KeyName' },
+  KeyNames: { type: 'KeyNames' },
   HoverDocs: { exempt: 'what `Schema::hover` returns, a Rust-only check' },
   Language: { type: 'LanguageName' },
   PRESET_CSS: { tool: 'presetCss' },
@@ -419,6 +427,7 @@ const CRATE_EXPORTS = {
   string_value: { exempt: 'JS strings are plain strings: `serialize` takes them as written' },
   flush_pending_edits: { exempt: 'every JS member that reads or replaces the document flushes first' },
   unified_diff: { tool: 'unifiedDiff' },
+  'tools::keys_at': { tool: 'keysAt' },
 };
 
 // Options of `ConfigEditor` / `ConfigDocuments` that no Rust prop maps to
@@ -534,6 +543,8 @@ function crateExports() {
     names.push(...list.split(',').map((name) => name.trim()).filter(Boolean));
   }
   for (const [, name] of source.matchAll(/^pub use (?:editor|documents|settings|strings)::(\w+);/gm)) names.push(name);
+  // The `tools` module's functions, by their path.
+  for (const [, name] of crate('tools.rs').matchAll(/^pub fn (\w+)/gm)) names.push(`tools::${name}`);
   return names;
 }
 

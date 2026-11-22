@@ -56,6 +56,7 @@ fn listed_with_reason(
             behavior,
             false,
             &[],
+            (&crate::editor::key_names::NoKeyNames, None),
         );
         let protected = protect(
             behavior,

@@ -19,6 +19,7 @@ use super::{
     stop_ranges,
 };
 use crate::EditorStrings;
+use crate::editor::key_names::{KeptKeys, KeyNamesInput};
 use crate::editor::text::{TextRange, TextSize, utf16_of};
 use crate::strings::fill;
 
@@ -79,6 +80,12 @@ pub(crate) struct Sources {
     pub(crate) string_bodies: Memo<Vec<std::ops::Range<usize>>>,
     /// The built-in texts (reasons, reference and end-tag details).
     pub(crate) strings: Memo<EditorStrings>,
+    /// Where the names of `x-config-editor-keys` fields come from beyond
+    /// the document.
+    pub(crate) key_names: StoredValue<KeyNamesInput>,
+    /// The document's keys at the keyword's pointers from its last text
+    /// that parsed (see `problems`).
+    pub(crate) kept_keys: StoredValue<KeptKeys>,
 }
 
 impl CompletionState {
@@ -93,6 +100,8 @@ impl CompletionState {
             protect,
             string_bodies,
             strings,
+            key_names,
+            kept_keys,
         } = sources;
         let mode = RwSignal::new(ListMode::Closed);
         // Only what the options depend on: the rest of the mode changing
@@ -112,6 +121,12 @@ impl CompletionState {
             let behavior = edit_language.get_untracked().behavior();
             let at = caret.get();
             text.with(|text| {
+                let source = key_names.with_value(|input| Arc::clone(&input.source));
+                // A text known not to parse offers the keys of the last
+                // that did, read without parsing it again.
+                let broken =
+                    crate::editor::parse_cache::known_to_parse(behavior, text) == Some(false);
+                let kept = broken.then(|| kept_keys.get_value());
                 let options = string_bodies.with(|bodies| {
                     completions_in(
                         text,
@@ -122,6 +137,7 @@ impl CompletionState {
                         behavior,
                         replace_word,
                         bodies,
+                        (&*source, kept.as_ref()),
                     )
                 });
                 strings.with(|strings| {
@@ -143,6 +159,7 @@ impl CompletionState {
                         )
                     };
                     word_end_tags(&mut options, strings);
+                    word_key_origins(&mut options, strings);
                     options
                 })
             })
@@ -296,6 +313,17 @@ impl EditorState {
 }
 
 /// The end tag XML suggests, worded: "Closes <server>", "end tag".
+/// Words the detail of each name offered (`x-config-editor-keys`) with
+/// its source: the document itself, a file, or the name's own detail.
+pub(crate) fn word_key_origins(options: &mut [Completion], strings: &EditorStrings) {
+    for option in options.iter_mut() {
+        if let Some(origin) = &option.key_origin {
+            let own = std::mem::take(&mut option.detail);
+            option.detail = origin.detail(Some(&own), strings);
+        }
+    }
+}
+
 fn word_end_tags(options: &mut [Completion], strings: &EditorStrings) {
     for option in options.iter_mut().filter(|option| option.closes_tag) {
         option.detail = fill(&strings.closes_tag, &[("name", &option.label)]);

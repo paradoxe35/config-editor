@@ -25,6 +25,7 @@ use super::schema::SchemaBundle;
 use super::state::EditorState;
 use super::sync::SyncState;
 use crate::EditorStrings;
+use crate::editor::key_names::KeptKeys;
 use crate::editor::text::TextSize;
 
 /// The problems part of the editor state.
@@ -52,6 +53,9 @@ pub(super) struct ProblemsState {
     /// The edits made since `diagnosed_text` was checked, composed: what
     /// moves the problems found on it onto the text on screen.
     since_check: StoredValue<Option<SinceCheck>>,
+    /// The keys at the schema's `x-config-editor-keys` pointers in the last
+    /// text checked that parsed (see `key_names`).
+    pub(super) kept_keys: StoredValue<KeptKeys>,
 }
 
 /// The change from the text last checked to the text on screen.
@@ -100,6 +104,11 @@ impl ProblemsState {
         let line_endings = sync.line_endings;
         let (synced, session) = (sync.synced, sync.session);
         let host_schema = schema.clone();
+        let kept_keys = StoredValue::new(KeptKeys::default());
+        let key_pointers = schema
+            .as_deref()
+            .map(|bundle| bundle.key_pointers.clone())
+            .unwrap_or_default();
         let checked = Memo::new(move |_| {
             let enabled = enabled.get();
             // The host's placeholders stand for the current secrets.
@@ -121,6 +130,17 @@ impl ProblemsState {
                         strings,
                     )
                 });
+                // The keys the document names stand for while a later
+                // text does not parse: from the parse the check just read.
+                if !key_pointers.is_empty() {
+                    diagnosed_text.with(|text| {
+                        if let Some(parsed) = crate::editor::parse_cache::kept(behavior, text)
+                            && let Ok(document) = parsed.as_ref()
+                        {
+                            kept_keys.update_value(|kept| kept.remember(document, &key_pointers));
+                        }
+                    });
+                }
                 // A line break the host's language does not read (a lone
                 // CR in TOML) fails its reader as the host saves the text.
                 if enabled
@@ -307,6 +327,7 @@ impl ProblemsState {
             walked: RwSignal::new(None),
             underlines_cut: RwSignal::new(false),
             since_check,
+            kept_keys,
         }
     }
 }

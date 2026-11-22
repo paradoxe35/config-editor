@@ -189,6 +189,10 @@ const ELSEWHERE = {
   referenceType: "as envReference",
   closesTag: "XML end tags: completion tests",
   endTag: "as closesTag",
+  keyNameThisDocument:
+    "names a field takes from keys elsewhere (x-config-editor-keys): key_names_matrix and key_names tests",
+  keyNameDetail: "as keyNameThisDocument",
+  keyNameDefinedIn: "the hover of a known name: key_names tests",
   keyNotAllowed: "diagnostics tests",
   textNotAllowed: "diagnostics tests",
   keyDeprecated: "schema help tests",

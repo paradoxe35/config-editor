@@ -13,7 +13,9 @@ import {
   type EditorSettings,
   type EditorView,
   type FieldPath,
+  type GoToDefinition,
   type HostDiagnostic,
+  type KeyNames,
   type LanguageName,
   type LineRange,
   type SchemaFormatName,
@@ -58,6 +60,10 @@ export interface EditorBindingProps extends EditorSettings {
   rangesFor?: number | string;
   /** The text `hostDiagnostics` name places in; left out, `rangesFor`. */
   diagnosticsFor?: number | string;
+  /** The host's names for `x-config-editor-keys` fields. Updates live. */
+  keyNames?: KeyNames[];
+  /** Go to definition of a name the document does not define. */
+  onGoToDefinition?: (target: GoToDefinition) => void;
   secrets?: SecretOptions;
   schema?: string;
   /** The format `schema` is written in (default `"json-schema"`). Changing it re-mounts. */
@@ -154,6 +160,10 @@ export interface DocumentsBindingProps extends EditorSettings {
   onProblems?: (id: string, problems: Diagnostic[]) => void;
   onEditAsChange?: (id: string, language: LanguageName) => void;
   onSyncChange?: (id: string, inSync: boolean) => void;
+  /** The host's names for every document's `x-config-editor-keys` fields. Updates live. */
+  keyNames?: KeyNames[];
+  /** Go to definition of a name no open document defines. */
+  onGoToDefinition?: (target: GoToDefinition) => void;
   label?: string;
   viewClassName?: string;
   onError?: (error: unknown) => void;

@@ -306,6 +306,8 @@ export class EditorBinding extends Binding {
       onSave: props.onSave ? this.#save : undefined,
       onDirtyChange: (dirty) => this.props.onDirtyChange?.(dirty),
       onBaselineConflict: (event) => this.props.onBaselineConflict?.(event),
+      keyNames: props.keyNames ?? [],
+      onGoToDefinition: (target) => this.props.onGoToDefinition?.(target),
       onSchemaWarning: (message) => {
         const warn = this.props.onSchemaWarning;
         if (warn) warn(message);
@@ -424,6 +426,9 @@ export class EditorBinding extends Binding {
     // `Ctrl+S` is the editor's only while `onSave` is set.
     const saves = props.onSave !== undefined;
     if (changed("saves", saves)) update.onSave = saves ? this.#save : null;
+    // The names by JSON: a parent builds a new list on each render.
+    const keyNames = JSON.stringify(props.keyNames ?? []);
+    if (changed("keyNames", keyNames) && !force) update.keyNames = JSON.parse(keyNames);
     for (const [key, given] of Object.entries(update)) {
       this.guard((editor) => editor.update({ [key]: given }));
     }
@@ -559,6 +564,8 @@ export class DocumentsBinding extends Binding {
       onProblems: (id, problems) => this.props.onProblems?.(id, problems),
       onEditAsChange: (id, language) => this.props.onEditAsChange?.(id, language),
       onSyncChange: (id, inSync) => this.props.onSyncChange?.(id, inSync),
+      keyNames: props.keyNames ?? [],
+      onGoToDefinition: (target) => this.props.onGoToDefinition?.(target),
     });
   }
 
@@ -591,6 +598,11 @@ export class DocumentsBinding extends Binding {
     const documents = props.documents ?? [];
     this.guard((view) => view.update({ documents }));
     if ("onSave" in update) this.guard((view) => view.update({ onSave: update.onSave }));
+    // The names by JSON: a parent builds a new list on each render.
+    const keyNames = JSON.stringify(props.keyNames ?? []);
+    if (changed("keyNames", keyNames) && !force) {
+      this.guard((view) => view.update({ keyNames: JSON.parse(keyNames) }));
+    }
     // A new `activeId` shows that document (the mount took the first one).
     const activeId = props.activeId ?? null;
     if (changed("activeId", activeId) && !force && activeId !== null) {

@@ -6,6 +6,7 @@ use std::ops::Range;
 use super::elsewhere::OtherPlaces;
 use super::placed::Placed;
 use super::*;
+use crate::editor::key_names::{KeptKeys, KeyNameSource, NameLookup};
 use crate::editor::text::text_size;
 
 /// Schemas often give a port a string example (`"7835"`) next to an integer
@@ -20,6 +21,20 @@ pub(super) fn numeric_example_as_number(value: Value, numeric_allowed: bool) -> 
     value
 }
 
+/// What finds the names a value may take (`x-config-editor-keys`): the
+/// schema's identity and the names beyond the document, the document
+/// around the caret (read only for a field with the keyword), and the
+/// items its list holds already, which are not offered again.
+pub(super) struct ValueNames<'a> {
+    pub(super) lookup: NameLookup<'a>,
+    pub(super) document: &'a dyn Fn() -> Option<&'a Value>,
+    pub(super) taken: HashSet<String>,
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one suggestion run's place, schema and language, passed as they are read"
+)]
 pub(super) fn value_completions(
     here: &Here<'_>,
     typed: &str,
@@ -28,6 +43,7 @@ pub(super) fn value_completions(
     leading: &str,
     open: bool,
     behavior: &dyn ConfigLanguage,
+    names: &ValueNames<'_>,
 ) -> Vec<Completion> {
     let query = unquoted(behavior, typed);
     let mut candidates = Vec::new();
@@ -40,6 +56,48 @@ pub(super) fn value_completions(
     let numeric_allowed = branches
         .iter()
         .any(|branch| type_includes(branch, "integer") || type_includes(branch, "number"));
+    // The names first, before the values the schema lists.
+    let named = branches
+        .iter()
+        .find(|branch| branch.get(crate::editor::key_names::KEYWORD).is_some());
+    if let Some(&named) = named {
+        let type_label = schema_type_label(named, root, "value");
+        for offered in names.lookup.offered(&branches, || (names.document)()) {
+            let value = Value::String(offered.name);
+            let label = value_label(&value);
+            if (names.taken.contains(&label) && label != query)
+                || !seen.insert(label.clone())
+                || here.accepts(&value) == Some(false)
+            {
+                continue;
+            }
+            let Some(score) = match_score(&label, query) else {
+                continue;
+            };
+            let insert = format!("{leading}{}", behavior.write_value(&value));
+            candidates.push((
+                score,
+                Completion {
+                    matched: match_ranges(&label, query),
+                    label,
+                    detail: offered.detail.unwrap_or_default(),
+                    type_label: type_label.clone(),
+                    cursor_offset: TextSize::of(insert.as_str()),
+                    insert,
+                    start: replace.start(),
+                    end: replace.end(),
+                    selected: TextSize::default(),
+                    is_value: true,
+                    renames: false,
+                    deprecated: false,
+                    fills: Vec::new(),
+                    closes_tag: false,
+                    key_origin: Some(offered.origin),
+                    read_only: false,
+                },
+            ));
+        }
+    }
     {
         for &branch in &branches {
             let description = branch
@@ -83,6 +141,7 @@ pub(super) fn value_completions(
                             deprecated: false,
                             fills: Vec::new(),
                             closes_tag: false,
+                            key_origin: None,
                             read_only: false,
                         },
                     ));
@@ -473,6 +532,7 @@ pub(super) fn property_completions(
                     deprecated: is_deprecated(property, root),
                     fills,
                     closes_tag: false,
+                    key_origin: None,
                     read_only: false,
                 },
             ));
@@ -520,6 +580,7 @@ pub(crate) fn completions_for(
         behavior,
         replace_word,
         &bodies,
+        (&crate::editor::key_names::NoKeyNames, None),
     )
 }
 
@@ -540,6 +601,7 @@ pub(crate) fn completions_in(
     behavior: &dyn ConfigLanguage,
     replace_word: bool,
     string_bodies: &[Range<usize>],
+    names: (&dyn KeyNameSource, Option<&KeptKeys>),
 ) -> Vec<Completion> {
     if !enabled {
         return Vec::new();
@@ -580,6 +642,7 @@ pub(crate) fn completions_in(
             behavior,
             replace_word,
             string_bodies,
+            names,
         );
     }
     let mut context = super::super::parse_cache::completion_context(behavior, source, cursor);
@@ -596,6 +659,7 @@ pub(crate) fn completions_in(
             detail: String::new(),
             type_label: String::new(),
             closes_tag: true,
+            key_origin: None,
             read_only: false,
             cursor_offset: TextSize::of(insert.as_str()),
             insert,
@@ -663,6 +727,7 @@ pub(crate) fn completions_in(
         force,
         bundle,
         behavior,
+        names,
     );
     let replaces_word =
         replace_word || (!entry_of_table && replaces_word_after_caret(&context, bundle, behavior));
@@ -1031,6 +1096,7 @@ pub(super) fn completions_for_context(
     force: bool,
     bundle: &SchemaBundle,
     behavior: &dyn ConfigLanguage,
+    (names, kept): (&dyn KeyNameSource, Option<&KeptKeys>),
 ) -> Vec<Completion> {
     let around = Around {
         read: std::cell::OnceCell::new(),
@@ -1038,6 +1104,11 @@ pub(super) fn completions_for_context(
         cursor_byte,
         placed,
         behavior,
+        names: NameLookup {
+            identity: &bundle.identity,
+            source: names,
+            kept,
+        },
     };
     // Read only where a step of the path is decided by the document (a
     // conditional, `oneOf`/`anyOf` options), see `applies`.
@@ -1060,6 +1131,8 @@ struct Around<'s> {
     /// The places the run's context names, as bytes.
     placed: &'s Placed,
     behavior: &'s dyn ConfigLanguage,
+    /// Where the names of `x-config-editor-keys` fields come from.
+    names: NameLookup<'s>,
 }
 
 impl Around<'_> {
@@ -1089,9 +1162,21 @@ fn completions_around(
     let placed = around.placed;
     let here = applies.at(&context.path);
     let branches = here.branches();
+    let read = || around.document();
+    let names = |taken: HashSet<String>| ValueNames {
+        lookup: around.names,
+        document: &read,
+        taken,
+    };
     // An empty document under a schema whose root is a list: its first
     // entry opens the list's first item.
-    if let Some(options) = root_values((context, placed), &branches, applies, behavior) {
+    if let Some(options) = root_values(
+        (context, placed),
+        &branches,
+        applies,
+        behavior,
+        &names(HashSet::new()),
+    ) {
         return options;
     }
     if let Some((open, close, indent)) = context.root_item
@@ -1141,6 +1226,7 @@ fn completions_around(
             leading,
             force || typed_value.is_empty(),
             behavior,
+            &names(HashSet::new()),
         );
         if !force && unquoted(behavior, &context.typed).is_empty() {
             options.retain(|option| option.label != "null");
@@ -1157,7 +1243,12 @@ fn completions_around(
         }
         return options;
     }
-    if context.is_array_item {
+    // An element of a list written by repeating it (XML's `<members>|`)
+    // is an item of the list, as a list's marked item is.
+    let repeated_item = behavior.repetition() == Repetition::Elements
+        && context.value_key.is_none()
+        && matches!(context.path.last(), Some(SchemaPathSegment::ArrayItem(_)));
+    if context.is_array_item || repeated_item {
         let has_object_properties = branches.iter().any(|branch| {
             branch.get("properties").is_some()
                 || branch.get("patternProperties").is_some()
@@ -1172,6 +1263,7 @@ fn completions_around(
                 "",
                 force || unquoted(behavior, &context.typed).is_empty(),
                 behavior,
+                &names(list_items_written(applies, &context.path)),
             );
             separate_from_next_item(
                 &mut options,
@@ -1258,6 +1350,26 @@ fn completions_around(
         );
     }
     options
+}
+
+/// The text items the list holding the item at `path` has written (its
+/// last step an index), compared as text: a name already in the list is
+/// not offered for another of its items.
+fn list_items_written(applies: &Applies<'_, '_>, path: &[SchemaPathSegment]) -> HashSet<String> {
+    let Some((SchemaPathSegment::ArrayItem(_), list)) = path.split_last() else {
+        return HashSet::new();
+    };
+    applies
+        .value_at(list)
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| !item.is_object() && !item.is_array())
+                .map(crate::editor::applies::scalar_text)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Accepting a key keeps the list open so its child keys can be suggested. Accepting

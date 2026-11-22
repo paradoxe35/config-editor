@@ -93,6 +93,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         || navigation::smart_home(state, event)
         || navigation::keep_placeholder(state, event)
         || super::changes::go_to_change(state, event)
+        || go_to_definition(state, event)
     {
         return;
     }
@@ -125,6 +126,17 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         }
         _ => {}
     }
+}
+
+/// `F12`: to the definition of the known name at the caret (see
+/// `key_names`); the key is left to the browser where there is none.
+fn go_to_definition(state: EditorState, event: &KeyboardEvent) -> bool {
+    let plain = !event.ctrl_key() && !event.meta_key() && !event.alt_key() && !event.shift_key();
+    if event.key() != "F12" || !plain || !state.go_to_definition() {
+        return false;
+    }
+    event.prevent_default();
+    true
 }
 
 /// The editing commands of keys the browser types nothing for (typing,

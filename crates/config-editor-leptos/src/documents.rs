@@ -28,6 +28,10 @@ mod conflicts;
 mod entries;
 mod handle;
 mod kept_focus;
+mod key_lookup;
+mod key_names;
+#[cfg(all(test, feature = "yaml", feature = "json"))]
+mod key_names_tests;
 mod keys;
 #[cfg(all(
     test,
@@ -51,7 +55,7 @@ pub use model::{CloseRequest, Document};
 
 use crate::cssom::cssom;
 use crate::reactive::KeyedList;
-use crate::{Diagnostic, EditorSettings, Language, SaveRequest};
+use crate::{Diagnostic, EditorSettings, GoToDefinition, KeyNames, Language, SaveRequest};
 use components::{DocumentPanel, TabStrip};
 use entries::{Callbacks, Documents, Entry};
 
@@ -206,6 +210,23 @@ pub fn ConfigDocuments(
     /// their editors; see [`DocumentsHandle`].
     #[prop(optional)]
     handle: Option<DocumentsHandle>,
+    /// The host's names for every document's fields that name a key
+    /// defined elsewhere (`x-config-editor-keys`), for the files that are
+    /// not open; a [`Document::key_names`] adds a document's own. A
+    /// document's fields are offered the keys of every other open document
+    /// of the schemas they name, live (unsaved edits included), then these;
+    /// a name whose `source` is an open document's id is replaced by that
+    /// document's live names, so a host can give every file's names once.
+    /// May be a signal: a new list counts at once.
+    #[prop(optional, into)]
+    key_names: Signal<Vec<KeyNames>>,
+    /// Called when the user asks to go to the definition of a name
+    /// (`F12`, `Ctrl`+click) that no open document defines: open its
+    /// `source` (within your own tab rules). A name defined in the same
+    /// document moves the caret to its key; one defined in another open
+    /// document shows that document with the caret on the key.
+    #[prop(optional, into)]
+    on_go_to_definition: Option<Callback<GoToDefinition>>,
 ) -> impl IntoView {
     let documents_view = Documents::new(
         Callbacks {
@@ -218,10 +239,12 @@ pub fn ConfigDocuments(
             on_problems,
             on_edit_as_change,
             on_sync_change,
+            on_go_to_definition,
             echoes,
         },
         settings,
     );
+    documents_view.give_key_names(key_names);
     if let Some(id) = initial_active {
         documents_view.active.set(Some(id));
     }

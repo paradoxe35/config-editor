@@ -89,6 +89,9 @@ pub(crate) struct State {
     pub(crate) follows_path: RwSignal<bool>,
     pub(crate) handle: EditorHandle,
     pub(crate) read_only_paths: RwSignal<Vec<FieldPath>>,
+    /// The names the host knows (`keyNames`).
+    pub(crate) key_names: RwSignal<Vec<leptos_config_editor::KeyNames>>,
+    pub(crate) on_go_to_definition: StoredValue<Option<Function>, LocalStorage>,
     /// What the state callbacks last reported (see `told`).
     pub(crate) told: StoredValue<Told, LocalStorage>,
     /// The editor's channel to its host (the core's record: the texts
@@ -117,6 +120,7 @@ impl State {
             self.on_dirty_change,
             self.on_baseline_conflict,
             self.on_schema_warning,
+            self.on_go_to_definition,
         ] {
             let _ = callback.try_set_value(None);
         }
@@ -231,6 +235,15 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
     };
     follow_path(state);
     let read_only_paths = Signal::derive(move || state.read_only_paths.get());
+    let key_names = Signal::derive(move || state.key_names.get());
+    let go_to_definition = move |target: leptos_config_editor::GoToDefinition| {
+        if let Some(callback) = state.on_go_to_definition.try_get_value().flatten() {
+            call_host(
+                &callback,
+                &crate::key_names::go_to_definition_to_js(&target),
+            );
+        }
+    };
     let schema_warning =
         move |message: String| match state.on_schema_warning.try_get_value().flatten() {
             Some(callback) => call_host(&callback, &JsValue::from_str(&message)),
@@ -265,6 +278,8 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             on_schema_warning=schema_warning
             read_only_paths=read_only_paths
             secrets=setup.secrets
+            key_names=key_names
+            on_go_to_definition=go_to_definition
         />
     }
     .into_any()

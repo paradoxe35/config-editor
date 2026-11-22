@@ -1,6 +1,7 @@
 //! What the host describes for each open document, and what the component
 //! asks of the host.
 
+use crate::KeyNames;
 use crate::{
     EditorSettings, FieldPath, HostDiagnostic, Language, RangesFor, SchemaSource, SecretOptions,
     TextRange,
@@ -106,6 +107,11 @@ pub struct Document {
     /// mounts (the first time the document is shown, or at once when it
     /// is listed with an [`edit_as_text`](Self::edit_as_text)).
     pub secrets: Option<SecretOptions>,
+    /// The host's names for this document's fields that name a key
+    /// defined elsewhere (`x-config-editor-keys`), besides the view's
+    /// `key_names`; update live. A name whose `source` is an open
+    /// document's id is replaced by that document's live names.
+    pub key_names: Vec<KeyNames>,
 }
 
 impl Document {
@@ -137,6 +143,7 @@ impl Document {
             host_diagnostics_for: None,
             value_revision: None,
             secrets: None,
+            key_names: Vec::new(),
         }
     }
 
@@ -258,6 +265,14 @@ impl Document {
     #[must_use]
     pub fn secrets(mut self, secrets: SecretOptions) -> Self {
         self.secrets = Some(secrets);
+        self
+    }
+
+    /// Sets the host's names for this document's fields (see
+    /// [`key_names`](Self::key_names)).
+    #[must_use]
+    pub fn key_names(mut self, names: Vec<KeyNames>) -> Self {
+        self.key_names = names;
         self
     }
 

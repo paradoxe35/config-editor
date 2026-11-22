@@ -6,10 +6,12 @@ use leptos::html::Div;
 use leptos::prelude::*;
 
 use super::adding::Adding;
+use super::key_names::NamesIndex;
 use super::model::{CloseRequest, Document};
 use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use super::tab_names::TabNames;
 use crate::EditorStrings;
+use crate::KeyNames;
 use crate::editor::{Clipboard, DocumentPlaceholders, Handoff, HostChannel, same_document};
 use crate::reactive::{Relay, detached_owner, later};
 use crate::{
@@ -56,6 +58,8 @@ pub(super) struct Entry {
     pub(super) value_revision: RwSignal<Option<u64>>,
     /// Taken when the editor mounts.
     pub(super) secrets: SecretOptions,
+    /// The host's names for its fields (see `Document::key_names`).
+    pub(super) key_names: RwSignal<Vec<KeyNames>>,
     /// The text differs from the baseline: from the editor once mounted,
     /// from the host's text before.
     pub(super) dirty: RwSignal<bool>,
@@ -105,6 +109,7 @@ impl Entry {
             host_diagnostics_for: RwSignal::new(document.host_diagnostics_for.clone()),
             value_revision: RwSignal::new(document.value_revision),
             secrets: document.secrets.clone().unwrap_or_default(),
+            key_names: RwSignal::new(document.key_names.clone()),
             dirty: RwSignal::new(dirty),
             conflicted: RwSignal::new(false),
             visited: RwSignal::new(edited),
@@ -159,6 +164,10 @@ impl Entry {
         // A host lists every document again after each keystroke: only one
         // whose text or baseline changed is compared again for being dirty.
         let mut changed = set_if_changed(self.value, &document.value);
+        if changed {
+            documents.text_changed(&self.id);
+        }
+        set_if_changed(self.key_names, &document.key_names);
         if let Some(baseline) = &document.baseline {
             changed |= set_if_changed(self.baseline, baseline);
         }
@@ -269,6 +278,7 @@ pub(super) struct Callbacks {
     pub(super) on_problems: Option<Callback<(String, Vec<Diagnostic>)>>,
     pub(super) on_edit_as_change: Option<Callback<(String, Language)>>,
     pub(super) on_sync_change: Option<Callback<(String, bool)>>,
+    pub(super) on_go_to_definition: Option<Callback<crate::GoToDefinition>>,
     /// The host lists every `on_change` text back (the `echoes` prop).
     pub(super) echoes: bool,
 }
@@ -350,6 +360,11 @@ pub(super) struct Documents {
     /// the view. A binding that keeps a document's record (`channels`)
     /// hands it on itself.
     handed: StoredValue<std::collections::HashMap<String, Handoff>>,
+    /// The keys of each open document at the pointers its fields asked
+    /// (see `key_names`).
+    pub(super) names: StoredValue<NamesIndex, LocalStorage>,
+    /// The host's names for every document (the `key_names` prop).
+    pub(super) host_names: StoredValue<Signal<Vec<KeyNames>>>,
 }
 
 thread_local! {
@@ -398,6 +413,8 @@ impl Documents {
             clipboards: StoredValue::new(Vec::new()),
             channels: StoredValue::new_local(std::collections::HashMap::new()),
             handed: StoredValue::new(std::collections::HashMap::new()),
+            names: StoredValue::new_local(NamesIndex::default()),
+            host_names: StoredValue::new(Signal::stored(Vec::new())),
             callbacks,
             follows: Follows {
                 active: Relay::new(move || active.get()),
@@ -645,6 +662,7 @@ impl Documents {
             });
         }
         let ids: Vec<String> = entries.iter().map(|entry| entry.id.clone()).collect();
+        self.list_names(&entries);
         self.relabel(&entries);
         self.entries.set(entries);
         for entry in &added {

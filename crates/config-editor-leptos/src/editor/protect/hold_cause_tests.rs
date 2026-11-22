@@ -193,6 +193,7 @@ fn a_key_renamed_by_an_undo_is_named() {
         on_save: None,
         on_baseline_conflict: None,
         clipboard: None,
+        key_names: Default::default(),
     });
     crate::editor::sync::follow_lists(
         state,
@@ -281,6 +282,7 @@ fn a_field_the_text_no_longer_has_is_named_removed() {
         on_save: None,
         on_baseline_conflict: None,
         clipboard: None,
+        key_names: Default::default(),
     });
     change(state, "port: 80\n", "");
     // The host names the path after the line was cut.
@@ -386,6 +388,7 @@ fn a_field_changed_before_the_host_locked_it_is_named() {
         on_save: None,
         on_baseline_conflict: None,
         clipboard: None,
+        key_names: Default::default(),
     });
     change(state, "port: 80", "port: 81");
     paths.set(vec![FieldPath::from("/port")]);

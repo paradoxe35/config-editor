@@ -26,6 +26,12 @@ pub(crate) struct SchemaBundle {
     /// share this compiled schema (a documents view's, of one schema text)
     /// say them there once.
     pub(crate) warned_console: std::sync::atomic::AtomicBool,
+    /// Which schema it is, for matching the names a field may take
+    /// (`x-config-editor-keys`): its `$id`, else its text.
+    pub(crate) identity: crate::editor::key_names::SchemaIdentity,
+    /// The pointers its `x-config-editor-keys` name: the maps whose keys an
+    /// editor keeps from the last text that parsed.
+    pub(crate) key_pointers: Vec<String>,
     /// Some schema is `deprecated`: documents are checked for its key.
     pub(crate) has_deprecated: bool,
     /// Some schema is `readOnly`, `writeOnly` or `x-secret`: documents are
@@ -51,7 +57,7 @@ pub(crate) fn build_schema(schema_text: &str) -> Result<SchemaBundle, String> {
         return Err(String::new());
     }
     let schema = crate::editor::languages::read_schema_text(schema_text)?;
-    build_compiled(schema, Vec::new(), Vec::new())
+    build_compiled(schema, schema_text, Vec::new(), Vec::new())
 }
 
 /// The bundle of `input` in `format`.
@@ -70,17 +76,24 @@ pub(crate) fn build_formatted(
             format: format.label(),
             error: error.0,
         })?;
-    build_compiled(compiled.schema, compiled.losses, compiled.checks)
-        .map_err(SchemaFailure::JsonSchema)
+    build_compiled(
+        compiled.schema,
+        input.text,
+        compiled.losses,
+        compiled.checks,
+    )
+    .map_err(SchemaFailure::JsonSchema)
 }
 
 /// The bundle of a compiled JSON Schema and the losses of its format, or why
 /// it is no JSON Schema.
 fn build_compiled(
     mut schema: Value,
+    text: &str,
     losses: Vec<SchemaLoss>,
     checks: Vec<std::sync::Arc<dyn SchemaCheck>>,
 ) -> Result<SchemaBundle, String> {
+    let identity = crate::editor::key_names::SchemaIdentity::of(&schema, text);
     super::empty_refs::to_root(&mut schema);
     #[cfg(feature = "schema-validation")]
     let validation = crate::editor::diagnostics::Validation::build(&schema)?;
@@ -95,6 +108,7 @@ fn build_compiled(
     facts
         .warnings
         .extend(losses.iter().map(SchemaLoss::to_string));
+    let key_pointers = crate::editor::key_names::pointers_in(&schema);
     let has_marks = crate::editor::protect::mentions_marks(&schema);
     let has_secrets = has_marks && crate::editor::protect::mentions_secrets(&schema);
     Ok(SchemaBundle {
@@ -104,6 +118,8 @@ fn build_compiled(
         losses,
         checks,
         warned_console: std::sync::atomic::AtomicBool::new(false),
+        identity,
+        key_pointers,
         has_deprecated: facts.has_deprecated,
         has_marks,
         has_secrets,

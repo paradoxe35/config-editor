@@ -15,6 +15,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::anchors::{anchor_of, revision_of, with_lists};
 use crate::handle_calls;
+use crate::key_names::key_names_from;
 use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host, shared_with};
 use crate::options::{
@@ -255,6 +256,8 @@ impl ConfigEditor {
         let diagnostics_for = anchor_of(&options, "diagnosticsFor")?;
         let on_schema_warning = function_option(&options, "onSchemaWarning")?;
         let read_only_paths = paths_from(&field(&options, "readOnlyPaths"), "readOnlyPaths")?;
+        let key_names = key_names_from(&field(&options, "keyNames"), "keyNames")?;
+        let on_go_to_definition = function_option(&options, "onGoToDefinition")?;
         warn_unknown_options(&options, EDITOR_OPTIONS);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -328,6 +331,8 @@ impl ConfigEditor {
             on_schema_warning: StoredValue::new_local(on_schema_warning),
             handle,
             read_only_paths: RwSignal::new(read_only_paths),
+            key_names: RwSignal::new(key_names),
+            on_go_to_definition: StoredValue::new_local(on_go_to_definition),
             told: StoredValue::new_local(Told::default()),
             channel: StoredValue::new_local(channel.clone()),
         });
@@ -517,6 +522,10 @@ impl ConfigEditor {
         let read_only_paths = given(&options, "readOnlyPaths")
             .map(|list| paths_from(&list, "readOnlyPaths"))
             .transpose()?;
+        let key_names = given(&options, "keyNames")
+            .map(|list| key_names_from(&list, "keyNames"))
+            .transpose()?;
+        let on_go_to_definition = callback_change(&options, "onGoToDefinition")?;
         let state = self.state;
         let mut callbacks = Vec::new();
         for (name, slot) in [
@@ -565,6 +574,12 @@ impl ConfigEditor {
         }
         if let Some(paths) = read_only_paths {
             let _ = state.read_only_paths.try_set(paths);
+        }
+        if let Some(names) = key_names {
+            let _ = state.key_names.try_set(names);
+        }
+        if let Some(callback) = on_go_to_definition {
+            let _ = state.on_go_to_definition.try_set_value(callback);
         }
         let added = told::added(callbacks.iter().map(|(name, change, slot)| {
             (

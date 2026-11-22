@@ -499,6 +499,12 @@ pub struct EditorStrings {
     pub closes_tag: String,
     /// Its type column.
     pub end_tag: String,
+    /// The source of a suggested name (`x-config-editor-keys`) that is a key of the document itself.
+    pub key_name_this_document: String,
+    /// The detail of a suggested name with both a source and a detail of its own.
+    pub key_name_detail: String,
+    /// The hover card's line on a value that is a known name: where it is defined.
+    pub key_name_defined_in: String,
     /// Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
     pub no_suggestions: String,
 
@@ -921,6 +927,9 @@ impl Default for EditorStrings {
             reference_type: text("reference"),
             closes_tag: text("Closes <{name}>"),
             end_tag: text("end tag"),
+            key_name_this_document: text("this document"),
+            key_name_detail: text("{source} · {detail}"),
+            key_name_defined_in: text("defined in {source}"),
             no_suggestions: text("No suggestions"),
             key_not_allowed: text("\"{key}\" is not allowed here"),
             text_not_allowed: text("text is not allowed here, only elements"),

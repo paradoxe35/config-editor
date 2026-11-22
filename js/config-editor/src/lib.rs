@@ -42,6 +42,7 @@ mod handle_calls;
 mod handoff;
 mod headless;
 mod host_diagnostics;
+mod key_names;
 mod languages;
 mod mount;
 mod options;

@@ -1,0 +1,179 @@
+//! Hover and go to definition on a known name, in one mounted editor: a
+//! name the document defines says so and goes to its key; a host's name
+//! says its source and goes to the host; any other value is no name.
+
+use std::sync::Arc;
+
+use leptos::prelude::*;
+
+use super::go_to::Definition;
+use super::{GoToDefinition, KeyName, KeyNames, KeyNamesInput};
+use crate::editor::completion::field_at;
+use crate::editor::languages::Language;
+use crate::editor::schema::build_schema;
+use crate::editor::state::EditorState;
+use crate::editor::test_state::TestEditor;
+use crate::editor::text::text_size;
+
+const SCHEMA: &str = r#"{
+  "properties": {
+    "clients": {"type": "object"},
+    "default_client": {"type": "string", "x-config-editor-keys": "/clients"},
+    "port": {"type": "integer"}
+  }
+}"#;
+
+const TEXT: &str = "clients:\n  home: {}\n  work: {}\ndefault_client: home\nport: 80\n";
+
+/// An editor of `text` under the schema, the host giving `remote`, and
+/// what `on_go_to_definition` heard.
+fn mounted(text: &str) -> (Owner, EditorState, RwSignal<Vec<GoToDefinition>>) {
+    mounted_as(Language::YAML, text)
+}
+
+/// [`mounted`], in `language`.
+fn mounted_as(
+    language: Language,
+    text: &str,
+) -> (Owner, EditorState, RwSignal<Vec<GoToDefinition>>) {
+    let mut editor = TestEditor::new(language, text);
+    editor.schema = Some(Arc::new(build_schema(SCHEMA).expect("the schema compiles")));
+    let heard = RwSignal::new(Vec::new());
+    editor.key_names = KeyNamesInput {
+        source: Arc::new(vec![KeyNames::new(
+            "/clients",
+            [KeyName::new("remote").with_source("server.d/remote.yaml")],
+        )]),
+        on_go_to_definition: Some(Callback::new(move |target| {
+            heard.update(|heard: &mut Vec<GoToDefinition>| heard.push(target));
+        })),
+    };
+    let (owner, state) = editor.mount();
+    (owner, state, heard)
+}
+
+/// The hover card's value line over the value `value` on zero-based `line`.
+fn value_line(state: EditorState, text: &str, line: usize, value: &str) -> Option<String> {
+    let column = text.lines().nth(line)?.find(value)? + 1;
+    let field = field_at(text, line, column, state.behavior())?;
+    let hover = state.field_docs(text, &field)?;
+    hover.value?.doc.description
+}
+
+#[test]
+fn hover_on_a_known_name_says_where_it_is_defined() {
+    let (_owner, state, _) = mounted(TEXT);
+    assert_eq!(
+        value_line(state, TEXT, 3, "home").as_deref(),
+        Some("defined in this document")
+    );
+    let remote = TEXT.replace("default_client: home", "default_client: remote");
+    assert_eq!(
+        value_line(state, &remote, 3, "remote").as_deref(),
+        Some("defined in server.d/remote.yaml")
+    );
+    let unknown = TEXT.replace("default_client: home", "default_client: nobody");
+    assert_eq!(value_line(state, &unknown, 3, "nobody"), None);
+    assert_eq!(value_line(state, TEXT, 4, "80"), None);
+}
+
+#[test]
+fn go_to_definition_moves_to_the_key_or_tells_the_host() {
+    let (_owner, state, heard) = mounted(TEXT);
+    let on_value = TEXT.find("default_client: home").unwrap() + "default_client: ho".len();
+    state.doc().caret.set(text_size(on_value));
+    assert_eq!(
+        state.definition_at_caret(),
+        Some(Definition::Key(text_size(TEXT.find("home").unwrap())))
+    );
+    let remote = TEXT.replace("default_client: home", "default_client: remote");
+    let (_owner, state, heard_remote) = mounted(&remote);
+    let past_value = remote.find("remote\n").unwrap() + "remote".len();
+    state.doc().caret.set(text_size(past_value));
+    assert!(state.go_to_definition());
+    assert_eq!(
+        heard_remote.get_untracked(),
+        [GoToDefinition {
+            schema: None,
+            pointer: "/clients".into(),
+            name: "remote".into(),
+            source: Some("server.d/remote.yaml".into()),
+        }]
+    );
+    // No name at the caret: the key is left alone.
+    state.doc().caret.set(text_size(remote.find("80").unwrap()));
+    assert!(!state.go_to_definition());
+    assert_eq!(heard_remote.get_untracked().len(), 1);
+    assert!(heard.get_untracked().is_empty());
+}
+
+#[test]
+fn a_suggestion_shows_its_source_with_its_own_detail() {
+    use super::KeyOrigin;
+    let strings = crate::strings::default_strings();
+    let source = KeyOrigin::Source("a.yaml".into());
+    assert_eq!(
+        source.detail(Some("the home box"), strings),
+        "a.yaml · the home box"
+    );
+    assert_eq!(source.detail(None, strings), "a.yaml");
+    assert_eq!(
+        KeyOrigin::ThisDocument.detail(Some(""), strings),
+        "this document"
+    );
+    assert_eq!(KeyOrigin::Unnamed.detail(Some("d"), strings), "d");
+    assert_eq!(KeyOrigin::Unnamed.defined_in(strings), None);
+}
+
+/// Replaces the document with `text`, as typing would, the caret at the end
+/// of `caret_after`, and lets the typing pause's check read it.
+fn retype(state: EditorState, text: &str, caret_after: &str) {
+    let before = state.doc().text.get_untracked().to_string();
+    let end = before.encode_utf16().count();
+    let caret = text.find(caret_after).expect("the caret's place") + caret_after.len();
+    state.commit(crate::editor::edit::Edit::new_units(
+        before,
+        (0, end),
+        text.to_string(),
+        text[..caret].encode_utf16().count(),
+    ));
+    state.problems().diagnosed_text.set(text.to_string());
+    let _ = state.problems().diagnostics.get_untracked();
+}
+
+/// The names suggested at the caret, as `Ctrl+Space` lists them.
+fn suggested(state: EditorState) -> Vec<String> {
+    state.set_list_mode(crate::editor::completion::ListMode::Asked {
+        replace_word: false,
+        heeded: false,
+    });
+    state
+        .completion()
+        .suggestions
+        .get_untracked()
+        .into_iter()
+        .map(|option| option.label)
+        .collect()
+}
+
+/// A document that does not parse keeps the names of its last text that
+/// did; once it parses again, its own keys are the names.
+#[cfg(feature = "json")]
+#[test]
+fn a_document_that_does_not_parse_keeps_its_last_good_names() {
+    crate::editor::parse_cache::hold();
+    let caret = r#""default_client": ""#;
+    let added = r#"{"clients": {"home": {}, "added": {}}, "default_client": "", "port": 80}"#;
+    let (_owner, state, _) = mounted_as(Language::JSON, added);
+    retype(state, added, caret);
+    assert_eq!(suggested(state), ["home", "added", "remote"]);
+    // A comma missing in the map: no reading of the text has `clients`.
+    let broken = r#"{"clients": {"home": {} "added": {}}, "default_client": "", "port": 80}"#;
+    retype(state, broken, caret);
+    assert_eq!(suggested(state), ["home", "added", "remote"]);
+    // Fixed, `added` removed: gone.
+    let fixed = r#"{"clients": {"home": {}}, "default_client": "", "port": 80}"#;
+    retype(state, fixed, caret);
+    assert_eq!(suggested(state), ["home", "remote"]);
+    crate::editor::parse_cache::release();
+}

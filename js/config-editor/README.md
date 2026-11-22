@@ -35,6 +35,7 @@ which build on this package.
   - [Read-only fields](#read-only-fields)
   - [Secrets](#secrets)
   - [Paths](#paths)
+  - [Key names](#key-names)
 - [Languages and themes](#languages-and-themes)
   - [Schema formats](#schema-formats)
   - [XML mapping](#xml-mapping)
@@ -46,6 +47,7 @@ which build on this package.
   - [Sticky scroll](#sticky-scroll)
 - [Saving and unsaved edits](#saving-and-unsaved-edits)
 - [Several documents](#several-documents)
+  - [Names across documents](#names-across-documents)
 - [Reviewing changes](#reviewing-changes)
 - [Custom languages](#custom-languages)
   - [Schema completion and hover](#schema-completion-and-hover)
@@ -153,6 +155,8 @@ document and its callbacks (below) and every [setting](#settings) (`theme`,
 | `onSave`             | `(value: string, language: string) => void` | —                | Called on `Ctrl+S` / `Cmd+S` (the browser's dialog prevented) and `save()`, with the document in `language`. Nothing saves by itself. Without it, `Ctrl+S` is the browser's.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `onDirtyChange`      | `(dirty: boolean) => void`                  | —                | Called with whether the document differs from `baseline`: once on mount, then each time that changes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `onBaselineConflict` | `(event: BaselineConflict) => void`         | —                | Called when a new `baseline` arrives under unsaved edits (`"opened"`) and when that is settled (`"reloaded"`, `"kept-mine"`, `"settled"`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `keyNames`           | `KeyNames[]`                                | —                | Names you know for fields that name a key defined elsewhere (`x-config-editor-keys`), from files that are not open. See [Key names](#key-names).                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `onGoToDefinition`   | `(target: GoToDefinition) => void`          | —                | Called on `F12` / `Ctrl`+click on such a name that the document does not define, for you to open its source.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 An unknown language, theme or color token, or an invalid schema, throws an
 `Error` saying which.
@@ -264,7 +268,7 @@ with that reason.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (240 texts)</summary>
+<summary>Every text and its default (243 texts)</summary>
 
 | Key                         | Default                                                                                                                                                                         |                                                                                                                                                                                                                                                                                                                                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -448,6 +452,9 @@ with that reason.
 | `referenceType`             | `"reference"`                                                                                                                                                                   | The type column of a reference suggestion.                                                                                                                                                                                                                                                                                                      |
 | `closesTag`                 | `"Closes <{name}>"`                                                                                                                                                             | The detail of the end tag XML suggests.                                                                                                                                                                                                                                                                                                         |
 | `endTag`                    | `"end tag"`                                                                                                                                                                     | Its type column.                                                                                                                                                                                                                                                                                                                                |
+| `keyNameThisDocument`       | `"this document"`                                                                                                                                                               | The source of a suggested name (`x-config-editor-keys`) that is a key of the document itself.                                                                                                                                                                                                                                                   |
+| `keyNameDetail`             | `"{source} · {detail}"`                                                                                                                                                         | The detail of a suggested name with both a source and a detail of its own.                                                                                                                                                                                                                                                                      |
+| `keyNameDefinedIn`          | `"defined in {source}"`                                                                                                                                                         | The hover card's line on a value that is a known name: where it is defined.                                                                                                                                                                                                                                                                     |
 | `noSuggestions`             | `"No suggestions"`                                                                                                                                                              | Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.                                                                                                                                                                                   |
 | `keyNotAllowed`             | `"\"{key}\" is not allowed here"`                                                                                                                                               | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                                                                                                                      |
 | `textNotAllowed`            | `"text is not allowed here, only elements"`                                                                                                                                     | Text in an element the schema wants elements in (XML); the element's pointer goes before it.                                                                                                                                                                                                                                                    |
@@ -1020,6 +1027,42 @@ it, scrolls it into view inside the editor and focuses the editor, leaving
 the page where it is. A range past the end is clamped to it; `false` before
 the editor mounts and for an empty document.
 
+### Key names
+
+A string field whose value names a key defined elsewhere says so in its
+schema with `x-config-editor-keys`: the JSON pointer of the map whose keys
+it takes (`"/clients"`), a list of them, or
+`{ pointer, from: ["<$id>"] }` (other schemas' documents count too). The
+editor suggests the document's own keys there, live, then the names you
+give in `keyNames`, then the schema's `enum` and `examples`, each once with
+its source. A name already in a list is not offered for another item. It
+is a suggestion only: an unknown name is never a problem.
+
+```js
+import { keysAt } from "@pngwasi/config-editor/tools";
+
+const editor = new ConfigEditor(element, {
+  schema,
+  keyNames: [
+    {
+      pointer: "/clients",
+      names: (keysAt(homeText, "yaml", "/clients") ?? []).map((name) => ({
+        name,
+        source: "server.d/home.yaml",
+      })),
+    },
+  ],
+  onGoToDefinition: ({ schema, pointer, name, source }) => openFile(source),
+});
+editor.update({ keyNames: freshNames }); // after a save
+```
+
+An entry with `schema` (an `$id`) applies to documents of that schema; one
+without applies to documents whose schema has no `$id`. Hovering a known
+name says where it is defined; `F12` or `Ctrl`+click (`Cmd`+click) moves the
+caret to its key when the document defines it, else calls
+`onGoToDefinition`.
+
 ## Languages and themes
 
 The main entry also lists what the editor accepts, for pickers and file
@@ -1224,6 +1267,7 @@ JSON Schema as JSON or YAML text, as the editor's `schema` option takes.
 | `schemaWarnings(schema, source?)`                        | `string[]`                | What the editor cannot use in a schema, then what its format loses (the messages `onSchemaWarning` receives). Throws on an invalid schema.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `compileSchema(text, { format?, resources?, options? })` | `{ schema, losses }`      | A schema in another format compiled to JSON Schema (`schema`, as JSON text) with what the format loses (`SchemaLoss[]`): compile at build time and ship plain JSON Schema. Throws on an invalid schema.                                                                                                                                                                                                                                                                                                                                                                       |
 | `schemaImports(text, format?)`                           | `string[]`                | The locations a schema refers to, to fetch into `schemaResources` (call it again on each fetched text).                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `keysAt(text, language, pointer)`                        | `string[] \| null`        | The keys of the map at a JSON pointer, in order (`[]` when none is there; `null` when the text does not parse): the names to give in `keyNames` for a file that is not open.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `presetCss()`                                            | `string`                  | The stylesheet the editor injects (layout and every theme), for `styled: false`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ```ts
@@ -1370,6 +1414,7 @@ ConfigEditor` and `update()`.
 - `Alt+C` / `Alt+W` / `Alt+R` in find: match case / whole word / regular expression
 - `Ctrl+G`: go to a line (`line` or `line:column`)
 - `F8` / `Shift+F8`: next / previous problem
+- `F12` (or `Ctrl`+click): go to the definition of a [key name](#key-names) at the caret
 - `Alt+Enter`: open the documentation of the problem at the caret (a problem with a docs link), else the hover card's Documentation link
 - `F6`: while the "file changed outside the editor" notice is open, move to its choices and back
 - `Ctrl+K Ctrl+I`: show the schema docs of the key at the caret (read to
@@ -1773,6 +1818,121 @@ view.update({ documents: files, showFooter: true }); // every editor; limits kee
 view.update({ activeId: "limits" }); // shows it, the focus stays where it is
 view.editor("main").reveal("/public_address");
 ```
+
+### Names across documents
+
+A field whose value names a key defined elsewhere (a route's `client`, the
+name of a client defined under `/clients`) says so in its schema with
+`x-config-editor-keys`: `"/clients"`, a list of pointers, or
+`{ pointer, from }` naming other schemas by `$id`. In a `ConfigDocuments`, such a field is offered
+the keys of every open document of the schemas it names, live: a client
+typed in one tab, unsaved, is suggested in another at once. Names are only
+suggestions, never a problem.
+
+For example, a server file and its drop-ins, two schemas, each with an
+`$id`. Both define clients under `/clients`, and a field naming a client
+takes the names of either kind of file through `from`:
+
+```js
+import { ConfigDocuments } from "@pngwasi/config-editor";
+import { keysAt } from "@pngwasi/config-editor/tools";
+
+const SERVER = "https://example.com/server";
+const DROP_IN = "https://example.com/drop-in";
+const client = {
+  type: "string",
+  // A reserved word, not a key: an `examples` value.
+  examples: ["self"],
+  "x-config-editor-keys": { pointer: "/clients", from: [SERVER, DROP_IN] },
+};
+const clients = { type: "object", additionalProperties: { type: "object" } };
+const serverSchema = JSON.stringify({
+  $id: SERVER,
+  type: "object",
+  properties: { clients, default_client: client },
+});
+const dropInSchema = JSON.stringify({
+  $id: DROP_IN,
+  type: "object",
+  properties: {
+    clients,
+    routes: {
+      type: "array",
+      items: { type: "object", properties: { client } },
+    },
+  },
+});
+
+// Every file's names, once: on load, and again after each save. A text
+// that does not parse (`keysAt` gives null) keeps the names it had.
+let names = new Map();
+const keyNames = () =>
+  [...names].map(([path, { schema, clients }]) => ({
+    schema,
+    pointer: "/clients",
+    names: clients.map((name) => ({ name, source: path })),
+  }));
+const readNames = (path, text, language, schema) => {
+  const clients = keysAt(text, language, "/clients");
+  if (clients) names.set(path, { schema, clients });
+};
+for (const file of allFiles) {
+  readNames(
+    file.path,
+    file.text,
+    file.language,
+    file.dropIn ? DROP_IN : SERVER,
+  );
+}
+
+const view = new ConfigDocuments(element, {
+  // The names' `source` is a document's id: an open document's live names
+  // replace the host's for it, and the list shows its file name.
+  documents: openFiles.map((file) => ({
+    id: file.path,
+    fileName: file.path,
+    value: file.text,
+    schema: file.dropIn ? dropInSchema : serverSchema,
+  })),
+  keyNames: keyNames(),
+  // A name no open file defines: open its file (your own tab rules).
+  onGoToDefinition: ({ source }) => openFile(source),
+  onSave: (id, value, language) => {
+    saveFile(id, value);
+    readNames(id, value, language, isDropIn(id) ? DROP_IN : SERVER);
+    view.update({ keyNames: keyNames() });
+  },
+});
+```
+
+- Which documents count is never guessed: a field of a document with schema
+  S, naming the pointer P and the schemas F (`from`, by `$id`), takes the
+  keys at P of the open documents whose schema is S or one of F. Two
+  documents have the same schema when they have the same `$id`, or, with no
+  `$id`, the same schema text. A document with no schema gives no names.
+- The open documents' names are read from the text each editor holds,
+  unsaved edits included. A keystroke reads again only the document typed
+  in; one that does not parse keeps the names of its last text that did. A
+  closed document's names go.
+- `keyNames` gives the host's names, for the files that are not open:
+  `{ schema, pointer, names }` entries, a name a string or
+  `{ name, source, detail }`. An entry with no `schema` applies only to the
+  documents whose schema has no `$id`. On the view it serves every
+  document; a document's own `keyNames` (in its entry of `documents`) add
+  to it for that document. Both update live.
+- Live replaces host: a name whose `source` is the id of an open document
+  is left out, as that document's live names stand for it. So the host
+  gives the names of all its files once, and the view keeps the open ones
+  current.
+- The list shows the document's own names first, then the other open
+  documents', in tab order, then the host's, then the schema's `enum` and
+  `examples`; each name once, with its source beside it: an open
+  document's file name, as its tab shows it, or the host's `source`.
+- Go to definition (`F12`, `Ctrl`+click on a value): a name the document
+  defines moves the caret to its key; a name another open document defines
+  shows that document with the caret on its key; any other name calls
+  `onGoToDefinition({ schema, pointer, name, source })` (`schema`: the
+  `$id`, or null), for you to open.
 
 ## Reviewing changes
 

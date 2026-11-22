@@ -80,6 +80,7 @@ fn mount(language: Language, text: &str, host: &Host) -> EditorState {
         on_save: None,
         on_baseline_conflict: None,
         clipboard: None,
+        key_names: Default::default(),
     })
     .0;
     crate::editor::sync::follow_lists(

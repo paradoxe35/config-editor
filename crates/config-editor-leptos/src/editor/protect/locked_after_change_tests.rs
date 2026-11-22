@@ -59,6 +59,7 @@ fn mount(language: Language, text: &str) -> (Owner, EditorState, RwSignal<Vec<Fi
         on_save: None,
         on_baseline_conflict: None,
         clipboard: None,
+        key_names: Default::default(),
     });
     (owner, state, paths)
 }

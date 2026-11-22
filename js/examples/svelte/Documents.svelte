@@ -11,6 +11,7 @@
     type LanguageName,
   } from "@pngwasi/config-editor-svelte";
   import { later } from "../echo-delay";
+  import { keys, keyFiles, keyNames } from "../key-names.js";
 
   let { schema }: { schema: string } = $props();
   // `?revisions`: each file keeps the revision `onChange` gave its value
@@ -29,7 +30,7 @@
 
   // The schema is fixed for the page: read once.
   const documentSchema = untrack(() => schema);
-  let files: DocumentSpec[] = $state([
+  let files: DocumentSpec[] = $state(keys ? keyFiles : [
     { id: "main", fileName: "tunnel.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema: documentSchema, closable: false },
     { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema: documentSchema },
     { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema: documentSchema, readOnly: true },
@@ -112,5 +113,7 @@
   onSyncChange={(id, inSync) => note(`sync ${id} ${inSync}`)}
   {onAdd}
   {onClose}
+  keyNames={keys ? keyNames : undefined}
+  onGoToDefinition={keys ? ({ name, source }) => note(`goto ${source} ${name}`) : undefined}
 />
 <pre id="log">{log.join("\n")}</pre>

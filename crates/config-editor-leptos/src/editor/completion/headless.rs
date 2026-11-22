@@ -95,7 +95,7 @@ pub(crate) fn schema_suggestions(
     cursor: usize,
 ) -> Vec<Suggestion> {
     let bodies = super::super::parse_cache::string_bodies(behavior, source);
-    completions_in(
+    let mut options = completions_in(
         source,
         byte_of(source, cursor),
         true,
@@ -104,10 +104,10 @@ pub(crate) fn schema_suggestions(
         behavior,
         false,
         &bodies,
-    )
-    .into_iter()
-    .map(Suggestion)
-    .collect()
+        (&crate::editor::key_names::NoKeyNames, None),
+    );
+    word_key_origins(&mut options, crate::strings::default_strings());
+    options.into_iter().map(Suggestion).collect()
 }
 
 /// The hover card's docs for the key at `position`.

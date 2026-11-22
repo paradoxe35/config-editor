@@ -444,6 +444,11 @@ pub(super) fn click(state: EditorState, event: &web_sys::MouseEvent) {
         state.completion().active.set(0);
         state.close_suggestions();
         state.hide_hover();
+        // Ctrl+click (Cmd+click) on a known name goes to its definition,
+        // from the caret the click placed.
+        if (event.ctrl_key() || event.meta_key()) && state.go_to_definition() {
+            return;
+        }
         if from_touch(event) {
             super::a11y::show_at_caret(state);
         } else {

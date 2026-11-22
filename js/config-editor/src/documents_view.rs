@@ -8,7 +8,7 @@ use js_sys::Function;
 use leptos::prelude::*;
 use leptos_config_editor::{
     CloseRequest, ConfigDocuments as DocumentsView, Diagnostic, Document, DocumentsHandle,
-    EditorSettings, Language, SaveRequest,
+    EditorSettings, GoToDefinition, KeyNames, Language, SaveRequest,
 };
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -17,6 +17,7 @@ use crate::catalog::language_name;
 use crate::documents_list::{Kept, Listed, documents_from};
 use crate::editor::{MOUNTED, Mounted, NEXT_ID, replace_editors_in};
 use crate::editor_view::DocumentEditorView;
+use crate::key_names::{go_to_definition_to_js, key_names_from};
 use crate::languages::{language_named, writable_edit_as};
 use crate::mount::{IN_CALLBACK, call_host, call_host_with, saving_settings};
 use crate::options::{bool_option, function_option, string_option, warn_unknown_options};
@@ -44,6 +45,8 @@ pub(crate) const DOCUMENTS_OPTIONS: &[&str] = &[
     "onProblems",
     "onEditAsChange",
     "onSyncChange",
+    "keyNames",
+    "onGoToDefinition",
 ];
 
 /// The options the view is built from, which `update` refuses.
@@ -77,6 +80,9 @@ pub(crate) struct State {
     on_problems: StoredValue<Option<Function>, LocalStorage>,
     on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
     on_sync_change: StoredValue<Option<Function>, LocalStorage>,
+    on_go_to_definition: StoredValue<Option<Function>, LocalStorage>,
+    /// The host's names for every document (`keyNames`).
+    key_names: RwSignal<Vec<KeyNames>>,
     /// Whether the view was mounted with `onClose`: closable documents'
     /// tabs have close buttons.
     closes: bool,
@@ -121,6 +127,7 @@ impl State {
             self.on_problems,
             self.on_edit_as_change,
             self.on_sync_change,
+            self.on_go_to_definition,
         ] {
             let _ = callback.try_set_value(None);
         }
@@ -371,6 +378,11 @@ fn view(state: State, setup: Setup) -> AnyView {
             );
         }
     };
+    let go_to_definition = move |target: GoToDefinition| {
+        if let Some(callback) = host(state.on_go_to_definition) {
+            call_host(&callback, &go_to_definition_to_js(&target));
+        }
+    };
     let add = setup.adds.then(|| {
         Callback::new(move |()| {
             if let Some(callback) = host(state.on_add) {
@@ -404,6 +416,8 @@ fn view(state: State, setup: Setup) -> AnyView {
             on_problems=problems_changed
             on_edit_as_change=language_changed
             on_sync_change=sync_changed
+            key_names=state.key_names
+            on_go_to_definition=go_to_definition
             settings=settings
             class=setup.class
             nostrip:label=setup.label
@@ -485,6 +499,8 @@ impl ConfigDocuments {
         let on_problems = function_option(&options, "onProblems")?;
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_sync_change = function_option(&options, "onSyncChange")?;
+        let on_go_to_definition = function_option(&options, "onGoToDefinition")?;
+        let key_names = key_names_from(&field(&options, "keyNames"), "keyNames")?;
         let setup = Setup {
             active: string_option(&options, "activeId")?,
             class: string_option(&options, "className")?.unwrap_or_default(),
@@ -519,6 +535,8 @@ impl ConfigDocuments {
             on_problems: StoredValue::new_local(on_problems),
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
             on_sync_change: StoredValue::new_local(on_sync_change),
+            on_go_to_definition: StoredValue::new_local(on_go_to_definition),
+            key_names: RwSignal::new(key_names),
             closes: setup.closes,
             adds: setup.adds,
             texts: StoredValue::new_local(HashMap::new()),
@@ -857,6 +875,7 @@ impl ConfigDocuments {
             ("onProblems", self.state.on_problems),
             ("onEditAsChange", self.state.on_edit_as_change),
             ("onSyncChange", self.state.on_sync_change),
+            ("onGoToDefinition", self.state.on_go_to_definition),
         ] {
             callbacks.push((name, callback_change(&options, name)?, slot));
         }
@@ -873,6 +892,9 @@ impl ConfigDocuments {
             ));
         }
         let on_save = callback_change(&options, "onSave")?;
+        let key_names = given(&options, "keyNames")
+            .map(|names| key_names_from(&names, "keyNames"))
+            .transpose()?;
         let current = self.state.settings.try_get_untracked().unwrap_or_default();
         let settings = settings_change(&current, &options)?;
         let view = settings.clone().unwrap_or(current);
@@ -928,6 +950,9 @@ impl ConfigDocuments {
         // Everything checked: apply.
         if let Some(settings) = settings {
             let _ = self.state.settings.try_set(settings);
+        }
+        if let Some(names) = key_names {
+            let _ = self.state.key_names.try_set(names);
         }
         let mut refused = Vec::new();
         if let Some(mut listed) = listed {

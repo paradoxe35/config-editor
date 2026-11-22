@@ -40,6 +40,8 @@ pub(super) struct TestEditor {
     pub(super) foreign: Option<Signal<std::sync::Arc<Vec<super::protect::DocumentPlaceholders>>>>,
     /// A clipboard shared with other editors (a documents view's).
     pub(super) clipboard: Option<StoredValue<super::bridge::links::Clipboard>>,
+    /// The `key_names` and `on_go_to_definition` props.
+    pub(super) key_names: super::key_names::KeyNamesInput,
 }
 
 impl TestEditor {
@@ -62,6 +64,7 @@ impl TestEditor {
             read_only_reason: None,
             foreign: None,
             clipboard: None,
+            key_names: Default::default(),
         }
     }
 
@@ -96,6 +99,7 @@ impl TestEditor {
             on_save: self.on_save,
             on_baseline_conflict: None,
             clipboard: self.clipboard,
+            key_names: self.key_names,
         });
         super::sync::take_lists(
             state,

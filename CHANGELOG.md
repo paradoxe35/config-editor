@@ -42,6 +42,23 @@ versions move together.
   id, as the JavaScript one does: listed again after a list left it out,
   or re-mounted for a new language or schema.
 
+### Key names
+
+- `x-config-editor-keys` on a string schema: the field names a key of the
+  map at a JSON pointer (`"/clients"`, a list, or `{ pointer, from }` with
+  other schemas' `$id`s). Its suggestions are the document's own keys
+  there, live, then names the host gives, then the schema's `enum` and
+  `examples`, each once with its source; a list's item skips names the
+  list holds. Never a problem for an unknown name.
+- `keyNames` (JavaScript `ConfigEditor`, updatable with `update`) and
+  `key_names` (Leptos `ConfigEditor`): names of files that are not open,
+  `[{ schema?, pointer, names }]`.
+- Hover on a known name says where it is defined (`keyNameDefinedIn`);
+  `F12` and `Ctrl`/`Cmd`+click go to its key, or call `onGoToDefinition`
+  (Leptos `on_go_to_definition`) with `{ schema, pointer, name, source }`.
+- `keysAt(text, language, pointer)` in `@pngwasi/config-editor/tools` and
+  `leptos_config_editor::tools::keys_at`: a file's keys at a pointer.
+
 ### Changed
 
 - **Breaking (Rust):** `Document::read_only_ranges_version` is removed:
@@ -142,6 +159,27 @@ versions move together.
   for a custom language's `write_insert`).
 - A list key written by repeating its element is suggested again when the
   items written read as valid by the schema (an XSD boolean written `1`).
+
+### Key names across documents
+
+- `ConfigDocuments` (JavaScript, every framework component, Leptos)
+  offers a field marked `x-config-editor-keys` the keys of every other
+  open document of the schemas it names, live: a key typed in one tab,
+  unsaved, is suggested in another at once. The same schema is the same
+  `$id`, else the same schema text; `from` names other schemas by `$id`.
+  A keystroke reads again only the document typed in; a document that
+  does not parse keeps its last good names; a closed one's names go.
+- `keyNames` on the view and on each document (`key_names` on the Leptos
+  `ConfigDocuments` and `Document::key_names`): the host's names for the
+  files that are not open. A name whose `source` is an open document's id
+  is replaced by that document's live names, so a host gives every file's
+  names once.
+- Go to definition of a name another open document defines shows that
+  document with the caret on its key; one no open document defines calls
+  `onGoToDefinition({ schema, pointer, name, source })` (Leptos
+  `on_go_to_definition`).
+- `keyNames` and `onGoToDefinition` props on the React, Vue (`:key-names`,
+  `@go-to-definition`) and Svelte `ConfigEditor` and `ConfigDocuments`.
 
 ### Fixes
 

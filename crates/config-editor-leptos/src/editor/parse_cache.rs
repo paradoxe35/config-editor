@@ -229,10 +229,6 @@ pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Val
 
 /// Whether `text` parses as `language`, when one of the last parses was of
 /// it: read without parsing.
-#[cfg_attr(
-    not(feature = "protect"),
-    allow(dead_code, reason = "only the placeholders' check asks")
-)]
 pub(crate) fn known_to_parse(language: &dyn ConfigLanguage, text: &str) -> Option<bool> {
     let label = language.info().label;
     LAST.with(|last| {
@@ -245,10 +241,6 @@ pub(crate) fn known_to_parse(language: &dyn ConfigLanguage, text: &str) -> Optio
 
 /// The parse of `text` as `language`, when one of the last parses was of
 /// it: read without parsing.
-#[cfg_attr(
-    not(feature = "protect"),
-    allow(dead_code, reason = "only the placeholders' check asks")
-)]
 pub(crate) fn kept(
     language: &dyn ConfigLanguage,
     text: &str,
@@ -390,6 +382,20 @@ fn at_place<T: Clone + 'static>(
         slot.with(|last| *last.borrow_mut() = Some((label, key(text), cursor, made.clone())));
     }
     made
+}
+
+/// `text` parsed as `language` for a reader beside the editors (the
+/// documents view's key names): the parse an editor keeps of it when there
+/// is one, else parsed on the side, so the editors' own parses stay kept.
+pub(crate) fn kept_or_aside(
+    language: super::Language,
+    text: &str,
+) -> Rc<Result<Value, ParseError>> {
+    let behavior = language.behavior();
+    kept(behavior, text).unwrap_or_else(|| {
+        note_many(Work::ParsedBytes, text.len());
+        Rc::new(behavior.parse(text))
+    })
 }
 
 /// [`parsed`], as an owned document.

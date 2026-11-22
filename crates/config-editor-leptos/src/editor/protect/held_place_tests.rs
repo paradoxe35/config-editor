@@ -36,6 +36,7 @@ fn mount(text: &str, paths: RwSignal<Vec<FieldPath>>) -> EditorState {
         on_save: None,
         on_baseline_conflict: None,
         clipboard: None,
+        key_names: Default::default(),
     })
     .0
 }

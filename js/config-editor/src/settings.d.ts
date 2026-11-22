@@ -1210,6 +1210,24 @@ export interface EditorStrings {
    */
   endTag?: string;
   /**
+   * The source of a suggested name (`x-config-editor-keys`) that is a key of the document itself.
+   *
+   * @default "this document"
+   */
+  keyNameThisDocument?: string;
+  /**
+   * The detail of a suggested name with both a source and a detail of its own.
+   *
+   * @default "{source} · {detail}"
+   */
+  keyNameDetail?: string;
+  /**
+   * The hover card's line on a value that is a known name: where it is defined.
+   *
+   * @default "defined in {source}"
+   */
+  keyNameDefinedIn?: string;
+  /**
    * Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
    *
    * @default "No suggestions"

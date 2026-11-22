@@ -58,6 +58,10 @@ pub struct EditorHandle {
     /// documents view's document listed again with its id), taken when the
     /// editor mounts.
     handed: StoredValue<Option<super::sync::Handoff>>,
+    /// Where the editor mounting next reads the names of its
+    /// `x-config-editor-keys` fields and sends go to definition (a
+    /// documents view's, over its open documents), taken when it mounts.
+    key_names: StoredValue<Option<super::key_names::KeyNamesInput>>,
 }
 
 impl Default for EditorHandle {
@@ -86,6 +90,7 @@ impl EditorHandle {
             clipboard: StoredValue::new(None),
             channel: StoredValue::new_local(None),
             handed: StoredValue::new(None),
+            key_names: StoredValue::new(None),
         }
     }
 
@@ -168,6 +173,18 @@ impl EditorHandle {
     ) -> Option<Result<super::sync::Taken, super::sync::AnchorError>> {
         let state = self.editor()?;
         Some(untrack(|| super::sync::take_raw_host_update(state, update)))
+    }
+
+    /// The editor mounting next with this handle reads the names of its
+    /// `x-config-editor-keys` fields from `input` (in place of its
+    /// `key_names` and `on_go_to_definition` props).
+    pub(crate) fn give_key_names(self, input: super::key_names::KeyNamesInput) {
+        let _ = self.key_names.try_set_value(Some(input));
+    }
+
+    /// The names' input to take over, once.
+    pub(super) fn take_key_names(self) -> Option<super::key_names::KeyNamesInput> {
+        self.key_names.try_update_value(std::mem::take).flatten()
     }
 
     /// The clipboard to share, once.

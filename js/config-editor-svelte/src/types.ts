@@ -7,7 +7,9 @@ import type {
   EditorPath,
   EditorSettings,
   FieldPath,
+  GoToDefinition,
   HostDiagnostic,
+  KeyNames,
   LanguageName,
   SchemaFormatName,
   SecretOptions,
@@ -54,6 +56,10 @@ export interface ConfigEditorProps extends EditorSettings {
   rangesFor?: number | string;
   /** The text `hostDiagnostics` name places in, as `rangesFor`; left out, `rangesFor`. */
   diagnosticsFor?: number | string;
+  /** The host's names for fields whose value names a key defined elsewhere (`x-config-editor-keys`): `{ schema?, pointer, names }` entries, for the files that are not open, offered after the document's own keys. Updates live. */
+  keyNames?: KeyNames[];
+  /** Called when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) the document does not define, with `{ schema, pointer, name, source }`: open its `source`. A name the document defines moves the caret to its key. */
+  onGoToDefinition?: (target: GoToDefinition) => void;
   /** How secret placeholders are matched, described and completed. Changing `placeholder`, `hint` or `referencePrefixes`, or adding or removing `isPlaceholder`, re-mounts; a new `isPlaceholder` function in its place does not. */
   secrets?: SecretOptions;
   /** JSON Schema as JSON or YAML text. Changing it re-mounts. */
@@ -118,6 +124,10 @@ export interface ConfigDocumentsProps extends EditorSettings {
   onEditAsChange?: (id: string, language: LanguageName) => void;
   /** Called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes. */
   onSyncChange?: (id: string, inSync: boolean) => void;
+  /** The host's names for every document's fields whose value names a key defined elsewhere (`x-config-editor-keys`), for the files that are not open; a document's own `keyNames` add to them. Each field is offered the keys of the other open documents of the schemas it names first, live; a name whose `source` is an open document's id is replaced by that document's live names. Updates live. */
+  keyNames?: KeyNames[];
+  /** Called when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) no open document defines, with `{ schema, pointer, name, source }`: open its `source`. A name another open document defines shows that document with the caret on its key. */
+  onGoToDefinition?: (target: GoToDefinition) => void;
   /** The tab list's accessible name. Default `"Open files"`. Changing it re-mounts. */
   label?: string;
   /** Class on the view's root (inside the container). Changing it re-mounts. */

@@ -9,6 +9,7 @@ import {
 } from "@pngwasi/config-editor-vue";
 import { loadConfigEditor } from "@pngwasi/config-editor";
 import { later } from "./echo-delay";
+import { keys, keyFiles, keyNames } from "./key-names.js";
 
 // The same page as documents-react.html, for the same tests. The documents
 // live in a reactive array the handlers change in place, as Vue apps do.
@@ -33,7 +34,7 @@ const forgetNewest = new URLSearchParams(location.search).has("forget-newest");
 const App = defineComponent({
   components: { ConfigDocuments },
   setup() {
-    const files = ref<DocumentSpec[]>([
+    const files = ref<DocumentSpec[]>(keys ? keyFiles : [
       { id: "main", fileName: "tunnel.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema, closable: false },
       { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema },
       { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema, readOnly: true },
@@ -65,6 +66,12 @@ const App = defineComponent({
     });
     return {
       files,
+      // `?keys`: the host's names of every file; a name no open file
+      // defines goes to the host.
+      keyNames: keys ? keyNames : undefined,
+      onGoToDefinition: keys
+        ? ({ name, source }: { name: string; source: string | null }) => note(`goto ${source} ${name}`)
+        : undefined,
       log,
       tabs,
       settings,
@@ -104,6 +111,8 @@ const App = defineComponent({
       ref="tabs"
       v-bind="settings"
       :documents="files"
+      :key-names="keyNames"
+      @go-to-definition="onGoToDefinition"
       @change="onChange"
       @save="onSave"
       @select="onSelect"

@@ -56,6 +56,7 @@ mod ui_refs;
 pub(crate) use bridge::links::Clipboard;
 pub use input::flush_pending_input;
 pub(crate) use line_endings::same_document;
+pub(crate) use parse_cache::kept_or_aside;
 #[cfg(all(test, feature = "yaml", feature = "json"))]
 pub(crate) use sync::echo_record_tests::EchoingEditor;
 pub use sync::flush_pending_edits;
@@ -63,6 +64,7 @@ pub use sync::{
     AnchorError, ChangeError, Echo, Echoes, Handoff, HostChange, HostChannel, HostEdits,
     HostUpdate, List, Listed, RangesFor, Reading, SETTLE_MS, Taken, echo_clock, statement_of,
 };
+pub(crate) mod key_names;
 mod keyboard;
 mod keys;
 pub mod language;
@@ -115,6 +117,7 @@ pub use diagnostics::{Diagnostic, DiagnosticOrigin, Severity, check_syntax};
 pub use handle::EditorHandle;
 pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic, is_web_url};
 pub use host_editing::{BaselineConflict, SaveRequest};
+pub use key_names::{GoToDefinition, KeyName, KeyNames};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
@@ -365,6 +368,19 @@ pub fn ConfigEditor(
     /// notice opens, and again when it closes; see [`BaselineConflict`].
     #[prop(optional, into)]
     on_baseline_conflict: Option<Callback<BaselineConflict>>,
+    /// Names the host knows for fields whose schema says they name a key
+    /// defined elsewhere (`x-config-editor-keys`), from files that are not
+    /// open: suggested after the document's own keys there, before the
+    /// schema's `enum` and `examples`. May be a signal, updated any time
+    /// (after a save, say). See [`KeyNames`].
+    #[prop(optional, into)]
+    key_names: Option<Signal<Vec<KeyNames>>>,
+    /// Called when the user asks for the definition of such a name (`F12`,
+    /// `Ctrl`/`Cmd`+click) that the document does not define itself (one it
+    /// defines moves the caret to its key), for the host to open its
+    /// source. See [`GoToDefinition`].
+    #[prop(optional, into)]
+    on_go_to_definition: Option<Callback<GoToDefinition>>,
 ) -> impl IntoView {
     let (schema, schema_error) = match schema.map(SchemaSource::resolve) {
         Some(Ok(schema)) => (Some(schema), None),
@@ -421,6 +437,15 @@ pub fn ConfigEditor(
         on_save,
         on_baseline_conflict,
         clipboard: handle.and_then(EditorHandle::take_clipboard),
+        key_names: handle
+            .and_then(EditorHandle::take_key_names)
+            .unwrap_or_else(|| key_names::KeyNamesInput {
+                source: match key_names {
+                    Some(names) => std::sync::Arc::new(names),
+                    None => std::sync::Arc::new(key_names::NoKeyNames),
+                },
+                on_go_to_definition,
+            }),
     });
     // After the editor is made, not while: the host has its handle (a
     // JavaScript `new ConfigEditor` has returned) when it hears them.
@@ -654,4 +679,4 @@ mod tests;
 // The timing tests' helper. Declared after the code, as every `#[cfg(test)]`
 // item is: strings/usage_tests.rs reads a file only up to its first one.
 #[cfg(test)]
-mod test_timing;
+pub(crate) mod test_timing;

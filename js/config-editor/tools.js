@@ -7,6 +7,7 @@ export {
   changeSummary,
   compileSchema,
   convert,
+  keysAt,
   parse,
   pathAt,
   presetCss,

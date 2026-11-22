@@ -46,6 +46,7 @@ const DOCUMENT_KEYS: &[&str] = &[
     "diagnosticsFor",
     "valueRevision",
     "secrets",
+    "keyNames",
 ];
 
 /// What a list from JavaScript reads into: the documents, and each one's
@@ -77,6 +78,9 @@ pub(crate) struct Kept {
     secrets: HashMap<String, SecretOptions>,
     pub(crate) texts: Given<String>,
     schemas: KeptSchemas,
+    /// Each document's `keyNames` as the last list gave them, read: read
+    /// again only when the host gives another array.
+    key_names: HashMap<String, (JsValue, Vec<leptos_config_editor::KeyNames>)>,
     /// Whether the host lists every text `onChange` gives back (`echoes`).
     pub(crate) echoing: bool,
     /// Each document's record of its host (the core's), shared with its
@@ -214,6 +218,7 @@ pub(crate) fn documents_from<'a>(
         if let Some(schema) = schema {
             document = document.schema(schema);
         }
+        document.key_names = key_names_of(kept, &document.id, &item, &name("keyNames"))?;
         if let Some(edit_as) = optional_text(&field(&item, "editAs"), &name("editAs"))? {
             let edit_as =
                 writable_edit_as(document.resolved_language(), language_named(&edit_as)?)?;
@@ -260,6 +265,8 @@ pub(crate) fn documents_from<'a>(
         documents.push(document);
     }
     kept.secrets
+        .retain(|id, _| documents.iter().any(|document| document.id == *id));
+    kept.key_names
         .retain(|id, _| documents.iter().any(|document| document.id == *id));
     let unlisted: Vec<String> = kept
         .channels
@@ -527,4 +534,24 @@ fn prefixed(name: &str, error: JsError) -> JsError {
     let message = JsValue::from(error);
     let text = field(&message, "message").as_string().unwrap_or_default();
     JsError::new(&format!("{name}: {text}"))
+}
+
+/// Document `id`'s `keyNames` (`name` in errors): the ones read from the
+/// same array last time, else read.
+fn key_names_of(
+    kept: &mut Kept,
+    id: &str,
+    item: &JsValue,
+    name: &str,
+) -> Result<Vec<leptos_config_editor::KeyNames>, JsError> {
+    let given = field(item, "keyNames");
+    if let Some((known, names)) = kept.key_names.get(id)
+        && Object::is(known, &given)
+    {
+        return Ok(names.clone());
+    }
+    let names = crate::key_names::key_names_from(&given, name)?;
+    kept.key_names
+        .insert(id.to_string(), (given, names.clone()));
+    Ok(names)
 }

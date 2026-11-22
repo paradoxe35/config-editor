@@ -23,6 +23,7 @@
     </main>
     <script type="module">
       import { ConfigDocuments, loadConfigEditor } from "../config-editor/index.js";
+      import { keys, keyFiles, keyNames } from "./key-names.js";
 
       await loadConfigEditor();
       const schema = await (await fetch("../../schema.json")).text();
@@ -32,7 +33,7 @@
       // (`valueRevision`), as the README shows.
       const revisions = new URLSearchParams(location.search).has("revisions");
       // The host owns the list: edits, saves and closes come back as calls.
-      let files = [
+      let files = keys ? keyFiles : [
         { id: "main", fileName: "tunnel.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema, closable: false },
         { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema },
         { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema, readOnly: true },
@@ -63,6 +64,9 @@
         onEditAsChange: (id, language) => log(`language ${id} ${language}`),
         onSyncChange: (id, inSync) => log(`sync ${id} ${inSync}`),
         onAdd: add,
+        // `?keys`: the host's names of every file, and the names no open
+        // file defines go to the host.
+        ...(keys ? { keyNames, onGoToDefinition: ({ name, source }) => log(`goto ${source} ${name}`) } : {}),
         onClose: ({ id, dirty }) => {
           if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
           files = files.filter((file) => file.id !== id);

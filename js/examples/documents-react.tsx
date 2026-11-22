@@ -8,13 +8,14 @@ import {
 } from "@pngwasi/config-editor-react";
 import { loadConfigEditor } from "@pngwasi/config-editor";
 import { later } from "./echo-delay";
+import { keys, keyFiles, keyNames } from "./key-names.js";
 
 // The bundle does not sit next to the package's wasm, so say where it is.
 await loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });
 const schema = await (await fetch("../../schema.json")).text();
 
 
-const initialFiles: DocumentSpec[] = [
+const initialFiles: DocumentSpec[] = keys ? keyFiles : [
   { id: "main", fileName: "tunnel.yaml", value: "listen: 7835\npublic_address: tunnel.example.com\n", schema, closable: false },
   { id: "limits", fileName: "conf.d/limits.toml", value: "[limits]\nmax_pending = 512\n", schema },
   { id: "clients", fileName: "conf.d/clients.json", value: '{\n  "clients": {}\n}\n', schema, readOnly: true },
@@ -103,6 +104,9 @@ function App() {
         onEditAsChange={(id, language) => note(`language ${id} ${language}`)}
         onSyncChange={(id, inSync) => note(`sync ${id} ${inSync}`)}
         onAdd={add}
+        // `?keys`: the host's names of every file; a name no open file
+        // defines goes to the host.
+        {...(keys ? { keyNames, onGoToDefinition: ({ name, source }) => note(`goto ${source} ${name}`) } : {})}
         onClose={({ id, dirty }) => {
           if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
           setFiles((list) => list.filter((file) => file.id !== id));

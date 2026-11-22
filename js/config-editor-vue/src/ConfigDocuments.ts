@@ -1,4 +1,11 @@
-import type { CloseRequest, Diagnostic, DocumentSpec, LanguageName } from "@pngwasi/config-editor";
+import type {
+  CloseRequest,
+  Diagnostic,
+  DocumentSpec,
+  GoToDefinition,
+  KeyNames,
+  LanguageName,
+} from "@pngwasi/config-editor";
 import { DocumentsBinding, type DocumentsBindingProps } from "@pngwasi/config-editor/binding";
 import {
   type ExtractPublicPropTypes,
@@ -43,6 +50,10 @@ const documentsProps = {
   onEditAsChange: listener<(id: string, language: LanguageName) => void>(),
   /** `@sync-change`: called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes. */
   onSyncChange: listener<(id: string, inSync: boolean) => void>(),
+  /** The host's names for every document's fields whose value names a key defined elsewhere (`x-config-editor-keys`), for the files that are not open; a document's own `keyNames` add to them. Each field is offered the keys of the other open documents of the schemas it names first, live; a name whose `source` is an open document's id is replaced by that document's live names. Updates live. */
+  keyNames: optional(Array as PropType<KeyNames[]>),
+  /** `@go-to-definition`: when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) no open document defines, with `{ schema, pointer, name, source }`: open its `source`. A name another open document defines shows that document with the caret on its key. */
+  onGoToDefinition: listener<(target: GoToDefinition) => void>(),
   /** The tab list's accessible name. Default `"Open files"`. Changing it re-mounts. */
   label: optional(String),
   /** Class on the view's root (inside the component's `<div>`). Changing it re-mounts. */

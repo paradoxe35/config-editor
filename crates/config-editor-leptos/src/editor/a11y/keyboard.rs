@@ -127,6 +127,11 @@ pub(super) const KEYS: &[Row] = &[
     ),
     row("`F8` / `Shift+F8`", "Next / previous problem", &[Problems]),
     row(
+        "`F12`",
+        "Go to the definition of the name at the caret (a field's `x-config-editor-keys`; `Ctrl+click` too): its key, else the host opens its source",
+        &[Always],
+    ),
+    row(
         "`Alt+Enter` on a problem with a docs link",
         "Open its documentation in a new tab (else the hover card's Documentation link)",
         &[Always],

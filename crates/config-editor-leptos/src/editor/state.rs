@@ -72,6 +72,9 @@ pub(super) struct Config {
     pub(super) read_only_reason: Signal<Option<String>>,
     /// The `settings` prop, one memo per setting (see `live_settings`).
     pub(super) settings: LiveSettings,
+    /// Where the names of `x-config-editor-keys` fields come from beyond
+    /// the document, and where go to definition goes (see `key_names`).
+    pub(super) key_names: StoredValue<super::key_names::KeyNamesInput>,
 }
 
 /// What the component hands over to build the state.
@@ -106,6 +109,8 @@ pub(super) struct Init {
     /// The clipboard records the editor shares with others (a documents
     /// view's editors of one host language), else its own.
     pub(super) clipboard: Option<StoredValue<Clipboard>>,
+    /// The names of `x-config-editor-keys` fields beyond the document's.
+    pub(super) key_names: super::key_names::KeyNamesInput,
 }
 
 /// The editor's state, shared by every handler: one handle to its
@@ -229,6 +234,7 @@ impl EditorState {
             on_save,
             on_baseline_conflict,
             clipboard,
+            key_names,
         } = init;
         let settings = LiveSettings::new(settings, schema.is_some());
         let config = Config {
@@ -237,6 +243,7 @@ impl EditorState {
             read_only,
             read_only_reason,
             settings,
+            key_names: StoredValue::new(key_names),
         };
         // What reaches the host is remembered: a baseline equal to it is the
         // user's own work coming back (see `host_editing`).
@@ -308,6 +315,8 @@ impl EditorState {
             protect,
             string_bodies,
             strings: settings.strings,
+            key_names: config.key_names,
+            kept_keys: problems.kept_keys,
         });
         let editing = HostEditing::new(
             host_editing::Init {

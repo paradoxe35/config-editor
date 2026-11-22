@@ -217,6 +217,15 @@ mod item_start_tests;
     feature = "hcl",
     feature = "xml"
 ))]
+mod key_names_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
 mod key_writing_matrix;
 #[cfg(all(
     test,

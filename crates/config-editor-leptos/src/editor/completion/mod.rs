@@ -49,7 +49,7 @@ pub use kept::{kept_const, kept_default, language_keeps};
 use key_info::{ObjectAt, key_info, names_only};
 use list_items::{root_values, separate_from_next_item};
 pub(crate) use list_mode::ListMode;
-pub(crate) use live::{CompletionState, Sources, SuggestionPlace};
+pub(crate) use live::{CompletionState, Sources, SuggestionPlace, word_key_origins};
 pub(crate) use matching::*;
 pub(crate) use patterns::compiles;
 pub(crate) use popup::*;
@@ -115,6 +115,10 @@ pub(super) struct Completion {
     /// The key is read-only (listed while browsing a read-only region):
     /// its `detail` is the reason, which accepting it says.
     pub(super) read_only: bool,
+    /// A name a field may take (`x-config-editor-keys`), from here: its
+    /// `detail` is the name's own until worded with its source
+    /// ([`word_key_origins`]).
+    pub(super) key_origin: Option<super::key_names::KeyOrigin>,
 }
 
 #[cfg(test)]

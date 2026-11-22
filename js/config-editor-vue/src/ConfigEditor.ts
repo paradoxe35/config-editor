@@ -4,7 +4,9 @@ import type {
   Diagnostic,
   EditorPath,
   FieldPath,
+  GoToDefinition,
   HostDiagnostic,
+  KeyNames,
   LanguageName,
   SchemaFormatName,
   SecretOptions,
@@ -62,6 +64,10 @@ const editorProps = {
   rangesFor: optional([Number, String] as PropType<number | string>),
   /** The text `hostDiagnostics` name places in, as `rangesFor`; left out, `rangesFor`. */
   diagnosticsFor: optional([Number, String] as PropType<number | string>),
+  /** The host's names for fields whose value names a key defined elsewhere (`x-config-editor-keys`): `{ schema?, pointer, names }` entries, for the files that are not open, offered after the document's own keys. Updates live. */
+  keyNames: optional(Array as PropType<KeyNames[]>),
+  /** `@go-to-definition`: when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) the document does not define, with `{ schema, pointer, name, source }`: open its `source`. A name the document defines moves the caret to its key. */
+  onGoToDefinition: listener<(target: GoToDefinition) => void>(),
   /** The `revision` `@update:model-value` gave the value with (its second argument), when the parent stores it beside the value and never goes back to an older one: a late echo is then matched exactly, with no pause. `v-model` keeps the value alone. */
   valueRevision: optional(Number),
   /** A name for the place this component shows its document in, unique on the page, for a parent that hides it and shows a new one for the same document (a conditional render): the texts the editor sent that have not come back yet are kept under it when it unmounts, and the next component made with the same name takes them over, so a late value for one of them never replaces what is typed there. Changing it re-mounts. Without it (and without `valueRevision`), a late value for a text the editor that is gone sent replaces the typing. */

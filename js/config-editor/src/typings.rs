@@ -12,6 +12,36 @@ export interface TextChange {
   insert: string;
 }
 
+/** A name a field may take (a key of the map its schema's `x-config-editor-keys` points at), with where it is defined. */
+export interface KeyName {
+  name: string;
+  /** Where it is defined (a file name, a document id): shown beside it, and given to `onGoToDefinition`. */
+  source?: string;
+  /** A word about it, shown with its source. */
+  detail?: string;
+}
+
+/** The names the host knows for the map at `pointer` of the documents of one schema (files that are not open). */
+export interface KeyNames {
+  /** The `$id` of the schema of the documents the names are keys of. Left out: documents whose schema has no `$id`. */
+  schema?: string;
+  /** The JSON pointer of the map (`"/clients"`). */
+  pointer: string;
+  /** The names, in the order offered. */
+  names: (string | KeyName)[];
+}
+
+/** What `onGoToDefinition` is called with: a name the document does not define itself, for the host to open its source. */
+export interface GoToDefinition {
+  /** The `$id` of the schema of the documents the name is a key of; `null`: the document's own schema, which has none. */
+  schema: string | null;
+  /** The JSON pointer of the map the name is a key of. */
+  pointer: string;
+  name: string;
+  /** Where it is defined, as its `KeyName` says. */
+  source: string | null;
+}
+
 /** What `applyChanges` takes beside the changes. */
 export interface ApplyChangesOptions {
   /** The revision of the text the changes were made on (`onChange` gave it); left out, the host's text now. One the editor can no longer name, or never sent, throws and changes nothing. */
@@ -75,6 +105,10 @@ export interface EditorOptions extends EditorSettings {
   onDirtyChange?: (dirty: boolean) => void;
   /** Called when a new `baseline` arrives under unsaved edits (the editor asks the user to reload or keep their text), and when that is settled. */
   onBaselineConflict?: (event: BaselineConflict) => void;
+  /** Names for fields whose schema says they name a key defined elsewhere (`x-config-editor-keys`), from files that are not open: suggested after the document's own keys there, before the schema's `enum` and `examples`. `update` replaces them; `keysAt` reads them from a file. */
+  keyNames?: KeyNames[];
+  /** Called when the user asks for the definition of such a name (`F12`, `Ctrl`/`Cmd`+click) that the document does not define itself (one it defines moves the caret to its key), for the host to open its source. */
+  onGoToDefinition?: (target: GoToDefinition) => void;
   /** Fields the user cannot change (each with everything inside it), on top of those the schema marks `readOnly`. They hold while editing as another language too; `update` replaces them. */
   readOnlyPaths?: FieldPath[];
   /** Stretches of the document (in `language`) the user cannot change; they follow the text through edits; `update` replaces them. */
@@ -187,6 +221,9 @@ export interface EditorUpdate extends SettingsUpdate {
   onSave?: ((value: string, language: LanguageName) => void) | null;
   onDirtyChange?: ((dirty: boolean) => void) | null;
   onBaselineConflict?: ((event: BaselineConflict) => void) | null;
+  /** Replaces the names the host knows; `null` or `[]` clears them. */
+  keyNames?: KeyNames[] | null;
+  onGoToDefinition?: ((target: GoToDefinition) => void) | null;
   /** The editor is built from it: create a new one to change it. */
   language?: never;
   /** The editor is built from it: create a new one to change it. */
@@ -437,6 +474,8 @@ export interface DocumentSpec {
   valueRevision?: number;
   /** Secret placeholders, as `ConfigEditor`'s `secrets`. Read when the document's editor mounts (the first time it is shown, or at once when it is listed with `editAsText`). */
   secrets?: SecretOptions;
+  /** The host's names for this document's `x-config-editor-keys` fields, besides the view's `keyNames`; update live. */
+  keyNames?: KeyNames[];
 }
 
 /** What `onClose` receives: the user asked to close a document. Nothing closes by itself: remove it from the list (asking first when `dirty`). */
@@ -476,6 +515,10 @@ export interface DocumentsOptions extends EditorSettings {
   onEditAsChange?: (id: string, language: LanguageName) => void;
   /** Called with a document's id and whether the text on screen is written back to its `value`: once when its editor mounts, then each time that changes (see `ConfigEditor`'s `onSyncChange`). */
   onSyncChange?: (id: string, inSync: boolean) => void;
+  /** The host's names for every document's fields that name a key defined elsewhere (`x-config-editor-keys`), for the files that are not open; a document's own `keyNames` add to them. Each field is offered the keys of the other open documents of the schemas it names first, live (unsaved edits included); a name whose `source` is an open document's id is replaced by that document's live names. */
+  keyNames?: KeyNames[];
+  /** Called when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) no open document defines: open its `source`. A name the document defines moves the caret to its key; one another open document defines shows that document with the caret on its key. */
+  onGoToDefinition?: (target: GoToDefinition) => void;
 }
 
 /**
@@ -501,6 +544,9 @@ export interface DocumentsUpdate extends SettingsUpdate {
   onProblems?: ((id: string, problems: Diagnostic[]) => void) | null;
   onEditAsChange?: ((id: string, language: LanguageName) => void) | null;
   onSyncChange?: ((id: string, inSync: boolean) => void) | null;
+  /** Replaces the host's names; `null` removes them. */
+  keyNames?: KeyNames[] | null;
+  onGoToDefinition?: ((target: GoToDefinition) => void) | null;
   /** The view is built from it: create a new one to change it. */
   className?: never;
   /** The view is built from it: create a new one to change it. */
@@ -545,6 +591,8 @@ extern "C" {
     pub type RangeResults;
     #[wasm_bindgen(typescript_type = "EditorPath | null")]
     pub type PathResult;
+    #[wasm_bindgen(typescript_type = "string[] | null")]
+    pub type KeysResult;
     #[wasm_bindgen(typescript_type = "ChangeSummary")]
     pub type ChangeSummaryResult;
     #[wasm_bindgen(typescript_type = "LineRange[]")]

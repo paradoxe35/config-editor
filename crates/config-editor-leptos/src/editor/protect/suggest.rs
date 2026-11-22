@@ -195,6 +195,7 @@ fn references(
                 deprecated: false,
                 fills: Vec::new(),
                 closes_tag: false,
+                key_origin: None,
                 read_only: false,
                 label,
             })

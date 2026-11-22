@@ -287,6 +287,10 @@ pub(crate) enum Work {
     /// markup, its name's prefix, its attributes; `kept_markup`).
     #[cfg_attr(not(feature = "xml"), allow(dead_code, reason = "only XML notes it"))]
     MarkupRead,
+    /// An open document's keys read again for the names a field of the
+    /// documents view suggests (`documents::key_names`): a keystroke reads
+    /// the document typed in, not every open one.
+    KeyNamesRead,
 }
 
 impl Work {
@@ -351,6 +355,7 @@ impl Work {
             Self::SaveItemJudged => 55,
             Self::TokenSearch => 56,
             Self::MarkupRead => 57,
+            Self::KeyNamesRead => 58,
         }
     }
 
@@ -415,12 +420,13 @@ impl Work {
         Self::SaveItemJudged,
         Self::TokenSearch,
         Self::MarkupRead,
+        Self::KeyNamesRead,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 58;
+const KINDS: usize = 59;
 
 #[cfg(test)]
 thread_local! {
