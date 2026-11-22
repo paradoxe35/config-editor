@@ -1861,11 +1861,13 @@
 :not(#\#):not(#\#) .config-editor__diagnostic-count-hint { color: var(--config-editor-status-hint); }
 
 /* On a phone (no hint) the summary takes the row's free width, left of
-   the line count: one row while it fits, else wrapped rather than cut
-   (an unplaced problem's message), never with an empty half. */
+   the change and line counts: a long message wraps inside its own box
+   rather than being cut (an unplaced problem's message), and the counts
+   stay on the first row beside it, never pushed to a row of their own. */
 @media (max-width: 540px) {
-  :not(#\#):not(#\#) .config-editor__status-meta { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 0 8px; }
-  :not(#\#):not(#\#) .config-editor__diagnostic-status { flex: 1 1 auto; max-width: none; white-space: normal; }
+  :not(#\#):not(#\#) .config-editor__status-meta { flex: 1 1 auto; flex-wrap: nowrap; justify-content: flex-end; gap: 0 8px; }
+  :not(#\#):not(#\#) .config-editor__status-meta > * { flex: none; }
+  :not(#\#):not(#\#) .config-editor__status-meta > .config-editor__diagnostic-status { flex: 1 1 0; min-width: 0; max-width: none; white-space: normal; }
 }
 
 /* "Tab moves focus" while Ctrl+M is on; clicking it turns it off. */

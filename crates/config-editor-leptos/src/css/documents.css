@@ -134,7 +134,10 @@
 :not(#\#):not(#\#) .config-editor-documents__name-kept { flex: none; }
 :not(#\#):not(#\#) .config-editor-documents__name-kept + .config-editor-documents__name-start { min-width: 1em; }
 
-:not(#\#):not(#\#) .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; }
+/* Italic letters lean past their box: the name keeps room on its right
+   for the last letter's slant, which `overflow: hidden` would cut. */
+:not(#\#):not(#\#) .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; padding-inline-end: 0.15em; }
+:not(#\#):not(#\#) .config-editor-documents__tab-readonly .config-editor-documents__name-start:last-child { padding-inline-end: 0.15em; }
 
 /* A tab that cannot be closed keeps no room for the button: only its
    unsaved dot, while it has one. */

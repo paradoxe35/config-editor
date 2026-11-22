@@ -196,6 +196,19 @@ test.describe('documents as tabs', () => {
     await page.locator('.demo__toggle-read-only').click();
     await expect(panel(page, 'limits').locator('.config-editor')).toHaveClass(/config-editor__readonly/);
     await expect(tab(page, 'limits')).toHaveClass(/tab-readonly/);
+    // The italic name's last letter leans past its box: the clipped name
+    // keeps at least that much room on its right, so it is not cut.
+    const room = await tab(page, 'limits')
+      .locator('.config-editor-documents__name')
+      .evaluate((name) => {
+        const style = getComputedStyle(name);
+        const context = document.createElement('canvas').getContext('2d');
+        context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        const text = name.textContent;
+        const measured = context.measureText(text);
+        return { overhang: measured.actualBoundingBoxRight - measured.width, padding: parseFloat(style.paddingRight) };
+      });
+    expect(room.padding).toBeGreaterThanOrEqual(room.overhang - 0.5);
   });
 
   test('the tab list takes arrows, Home, End and Enter; Alt+PageDown switches from inside an editor', async ({ page }) => {

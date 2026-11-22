@@ -541,6 +541,30 @@ test.describe(() => {
         await context.close();
       });
     }
+
+    test('at 320 px a long problem wraps in its own box, the counts stay on its first row', async ({ browser }) => {
+      const context = await browser.newContext({ viewport: { width: 320, height: 500 } });
+      const page = await context.newPage();
+      await open(page, {
+        value: 'listen: 7835\nflag_with_a_rather_long_name: nope\n',
+        schema: JSON.stringify({ properties: { flag_with_a_rather_long_name: { type: 'boolean' } } }),
+      });
+      await expect(footer(page)).toContainText('1 error');
+      await input(page).click();
+      await page.keyboard.press('End');
+      await page.keyboard.type('x');
+      await expect(page.locator('.config-editor__status-meta')).toContainText('change');
+      const rows = await page.locator('.config-editor__status-meta').evaluate((meta) => {
+        const summary = meta.querySelector('.config-editor__diagnostic-status').getBoundingClientRect();
+        const lines = meta.querySelector('.config-editor__line-count').getBoundingClientRect();
+        return { summaryBottom: summary.bottom, lines: lines.top, right: Math.round(lines.right) };
+      });
+      // The line count sits beside the summary (it may wrap to two lines),
+      // not on a row of its own below it, and inside the window.
+      expect(rows.lines).toBeLessThan(rows.summaryBottom);
+      expect(rows.right).toBeLessThanOrEqual(320);
+      await context.close();
+    });
   });
 });
 
