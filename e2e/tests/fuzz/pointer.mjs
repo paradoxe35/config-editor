@@ -100,6 +100,10 @@ export async function f8(run, action) {
   const { page } = run;
   await focusText(page);
   for (let press = 0; press < action.n; press += 1) {
+    // Where the press finds the caret: a problem with no place keeps it.
+    await page.evaluate(() => {
+      window.__fz.caretBefore = window.__fz.caret()?.offset ?? null;
+    });
     await page.keyboard.press(action.shift ? 'Shift+F8' : 'F8');
     let wrong = null;
     for (const started = Date.now(); Date.now() - started < 1200; ) {

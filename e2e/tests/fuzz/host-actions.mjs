@@ -122,8 +122,10 @@ export async function lateDiagnostics(run, { at, by, wait }) {
       // hide and show that is a text, not the value (see `hideShow`).
       const alone = fz.extra?.rangesFor === undefined ? { hostDiagnostics } : { hostDiagnostics, diagnosticsFor: state.text };
       const props = fz.revisions ? { hostDiagnostics, diagnosticsFor: named } : alone;
-      // F8 also walks onto the host's problem (at a line start).
+      // F8 also walks onto the host's problem (at a line start, or in the
+      // footer once the text has no such line).
       fz.hostDiagnosed = true;
+      fz.hostMessage = hostDiagnostics[0].message;
       if (fz.kind === 'single' && window.editor) window.editor.update(props);
       else if (fz.kind === 'single') {
         fz.extra = { ...fz.extra, ...props };

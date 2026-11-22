@@ -292,6 +292,10 @@ export function installProbe({ kind, vanilla }) {
     const said = fz.root()?.querySelector('.config-editor__announcement')?.textContent ?? '';
     const unplaced = (fz.problems[fz.activeId() ?? ''] ?? []).filter((problem) => !problem.line);
     if (unplaced.some((problem) => problem.message && said.replace(/ +$/, '').endsWith(problem.message))) return null;
+    // A host problem is unplaced when the text no longer has its line
+    // (edits since it came do not move it): reached so, the caret stays
+    // where the press found it (`caretBefore`, see `f8`).
+    if (fz.hostDiagnosed && caret.offset === fz.caretBefore && said.replace(/ +$/, '').endsWith(fz.hostMessage)) return null;
     const places = listed.map((problem) => [problem.line, problem.column, problem.endLine ?? null, problem.endColumn ?? null]);
     return `caret at ${caret.line}:${caret.column}, problems at ${JSON.stringify(places).slice(0, 200)}`;
   };

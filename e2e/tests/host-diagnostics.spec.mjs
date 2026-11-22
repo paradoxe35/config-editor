@@ -93,6 +93,26 @@ test.describe('vanilla.html', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a host problem on a line the text no longer has shows in the footer, and F8 reaches it there with the caret staying', async ({
+    page: browserPage,
+  }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    await setHost(browserPage, [{ range: { startLine: 4, startColumn: 1 }, severity: 'warning', message: 'checked by the host' }]);
+    await expect(markers(browserPage)).toHaveCount(1);
+    // The whole text replaced by two lines, wide characters in them.
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+A');
+    await browserPage.keyboard.type('#é😀\n4');
+    await expect(footer(browserPage)).toContainText('checked by the host');
+    const caret = () => input(browserPage).evaluate((element) => [element.selectionStart, element.selectionEnd]);
+    const before = await caret();
+    await browserPage.keyboard.press('F8');
+    await expect(browserPage.locator('.config-editor__announcement')).toContainText('from host: checked by the host');
+    expect(await caret()).toEqual(before);
+    await expect(browserPage.locator('.config-editor__diagnostic-marker-host')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('a new list replaces the old one without re-rendering the lines', async ({ page: browserPage }) => {
     await open(browserPage, 'vanilla.html');
     // Tag every rendered line: a re-render would replace the elements.
