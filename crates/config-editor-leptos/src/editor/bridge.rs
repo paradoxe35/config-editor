@@ -18,6 +18,7 @@
 use super::Language;
 use super::byte_order_mark;
 use super::codec::{self, Conversion, ConvertError};
+use super::data_reading::DataReading;
 use super::diagnostics::{Diagnostic, Severity};
 use super::edit_as::{EditAsProblem, EditAsText, SaveError};
 use super::item_sources::{ItemSource, ItemSources, Pairing, SaveTold};
@@ -162,9 +163,10 @@ impl Bridge {
         untouched: Option<&[links::Untouched]>,
     ) -> Result<Conversion, ConvertError> {
         let edit = self.edit.behavior();
-        let value = codec::read(edit, edit_text, self.shape()).map_err(ConvertError::Parse)?;
+        let reading = super::data_reading::read(edit, edit_text, self.shape())
+            .map_err(ConvertError::Parse)?;
         codec::convertible(edit, edit_text)?;
-        let value = self.host_values(value, untouched.unwrap_or_default(), None);
+        let value = self.host_values(&reading, untouched.unwrap_or_default(), None);
         let conversion = codec::render(&value, next.behavior(), None, self.shape())?;
         codec::convertible(next.behavior(), &conversion.text)?;
         Ok(conversion)
@@ -411,7 +413,7 @@ impl Bridge {
         // as (the merge keeps the rest as the host writes them).
         let host_reading = super::data_reading::read(host, previous_host, self.shape()).ok();
         let edited = self.host_values(
-            view_reading.value().clone(),
+            &view_reading,
             untouched.unwrap_or_default(),
             host_reading
                 .as_ref()
@@ -977,15 +979,20 @@ impl Bridge {
         ConvertError::Unsupported(message).into()
     }
 
-    /// `edited` (the view's value) with each of `untouched` the value it
-    /// stands for in its host text (`known`: a host text read already, and
-    /// its value, which is not read again).
+    /// The view's value (`view`, its reading) with each of `untouched` the
+    /// value it stands for in its host text (`known`: a host text read
+    /// already, and its value, which is not read again). An untouched
+    /// scalar is named as the view's text writes it, and the reading may
+    /// hold it as a list's only item (`<k3>3</k3>` where the schema wants
+    /// a list reads `[3]`): moved or copied there, the host value goes in
+    /// that item.
     fn host_values(
         &self,
-        mut edited: serde_json::Value,
+        view: &DataReading,
         untouched: &[links::Untouched],
         known: Option<(&str, &serde_json::Value)>,
     ) -> serde_json::Value {
+        let mut edited = view.value().clone();
         let mut read: Vec<(&Arc<str>, Option<std::borrow::Cow<'_, serde_json::Value>>)> =
             Vec::new();
         for scalar in untouched {
@@ -1013,7 +1020,18 @@ impl Bridge {
                 .as_deref()
                 .and_then(|value| value.pointer(&scalar.from))
                 .filter(|value| !value.is_object() && !value.is_array());
-            if let (Some(held), Some(slot)) = (held, edited.pointer_mut(&scalar.pointer)) {
+            // A scalar standing where its source stands (as written, or as
+            // the reading's list item) is the host's value there, the list
+            // the reading makes of it included: the merge keeps the host's
+            // shape for it, so an unchanged view saves nothing.
+            let read = view.read_pointer(&scalar.pointer);
+            let at = if scalar.from == scalar.pointer || scalar.from == read {
+                &scalar.pointer
+            } else {
+                &read
+            };
+            let slot = edited.pointer_mut(at);
+            if let (Some(held), Some(slot)) = (held, slot) {
                 *slot = held.clone();
             }
         }

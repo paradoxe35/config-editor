@@ -62,3 +62,53 @@ fn a_renamed_key_keeps_a_list_the_host_writes_as_one() {
         "c {\n  x = 1\n}\nb = 1\n"
     );
 }
+
+/// P2 (the save reads back as the view): a scalar left as the editor
+/// wrote it, moved into an element the schema reads as a list of one
+/// (`<k3>3</k3>` read as `[3]`), stands for its host value inside that
+/// list, in a save and in a switch to another view, in every host; so
+/// does a scalar inside an element read as a list of one map.
+#[test]
+fn an_untouched_scalar_in_a_lone_element_read_as_a_list_keeps_the_list() {
+    use crate::editor::bridge::links::Untouched;
+    use std::sync::Arc;
+    let schema = Arc::new(
+        build_schema(
+            r#"{"properties":{"alpha":{"properties":{
+                "k3":{"type":"array","items":{"type":"integer"}},
+                "m":{"type":"array","items":{"type":"object"}}}}}}"#,
+        )
+        .unwrap(),
+    );
+    let view = "<alpha>\n  <k3>3</k3>\n  <m>\n    <x>8</x>\n  </m>\n</alpha>\n";
+    let wanted = serde_json::json!({"alpha": {"k3": [3], "m": [{"x": "8"}]}});
+    for (language, host) in [
+        (Language::JSON, "{\"k3\": 3, \"m\": {\"x\": \"8\"}}\n"),
+        (Language::YAML, "k3: 3\nm:\n  x: \"8\"\n"),
+        (Language::TOML, "k3 = 3\n[m]\nx = \"8\"\n"),
+        (Language::HCL, "k3 = 3\nm = { x = \"8\" }\n"),
+    ] {
+        let untouched = |pointer: &str, from: &str| Untouched {
+            pointer: pointer.to_string(),
+            host: Arc::from(host),
+            from: from.to_string(),
+            copied: false,
+        };
+        let untouched = [
+            untouched("/alpha/k3", "/k3"),
+            untouched("/alpha/m/x", "/m/x"),
+        ];
+        let bridge = Bridge::new(language, Language::XML, Some(schema.clone())).unwrap();
+        let saved = bridge
+            .to_host_linked(view, host, host, None, Some(&untouched))
+            .unwrap();
+        let read = crate::editor::codec::read(language.behavior(), &saved, Some(&schema.schema));
+        assert_eq!(read.unwrap(), wanted, "{language:?} host saved:\n{saved}");
+        let json = bridge
+            .to_other_view(view, Language::JSON, Some(&untouched))
+            .unwrap()
+            .text;
+        let read: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(read, wanted, "{language:?} host, JSON view:\n{json}");
+    }
+}

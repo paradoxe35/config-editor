@@ -330,14 +330,20 @@ fn saved_as_typed(sides: &Sides<'_>, at: &str, saved: &Value) -> bool {
     }
 }
 
-/// The item of a list of one scalar (the view's reading of a lone element
-/// the schema wants a list of), else `value`.
+/// The scalar of a list of one scalar, through nested lists of one (the
+/// view's reading of a lone element the schema wants a list, or a list of
+/// lists, of), else `value`.
 fn lone_item(value: &Value) -> &Value {
-    match value {
-        Value::Array(items) if matches!(&items[..], [item] if !item.is_object() && !item.is_array()) => {
-            &items[0]
-        }
-        other => other,
+    let mut at = value;
+    while let Value::Array(items) = at
+        && let [item] = &items[..]
+    {
+        at = item;
+    }
+    if at.is_object() || at.is_array() {
+        value
+    } else {
+        at
     }
 }
 

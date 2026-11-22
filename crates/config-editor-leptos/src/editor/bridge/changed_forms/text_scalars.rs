@@ -241,16 +241,17 @@ fn read_otherwise(
             }
         }
         // A host scalar the view reads as a list's one item (a lone element
-        // where the schema wants a list), whose item the user wrote: the
-        // view's list, which the host holds no other way.
-        (scalar, Value::Array(items))
+        // where the schema wants a list, or a list of one list of one…),
+        // whose item the user wrote: the view's list, which the host holds
+        // no other way.
+        (scalar, Value::Array(_))
             if !scalar.is_object()
                 && !scalar.is_array()
-                && matches!(items.as_slice(), [item] if !item.is_object() && !item.is_array()) =>
+                && let Some((depth, leaf)) = lone_leaf(edited) =>
         {
-            let item = format!("{at}/0");
+            let item = format!("{at}{}", "/0".repeat(depth));
             if record.wrote(&item)? {
-                if let Some(text) = record.respelled(&item, scalar, &items[0]) {
+                if let Some(text) = record.respelled(&item, scalar, leaf) {
                     typed.push((at.clone(), text));
                 }
                 readings.push((at.clone(), edited.clone()));
@@ -266,6 +267,21 @@ fn read_otherwise(
         _ => {}
     }
     Ok(())
+}
+
+/// The scalar `value` holds as a list of one, through nested lists of one
+/// (`[[null]]`), and how many lists deep; `None` for anything else.
+fn lone_leaf(value: &Value) -> Option<(usize, &Value)> {
+    let mut depth = 0;
+    let mut at = value;
+    while let Value::Array(items) = at {
+        let [item] = items.as_slice() else {
+            return None;
+        };
+        at = item;
+        depth += 1;
+    }
+    (depth > 0 && !at.is_object()).then_some((depth, at))
 }
 
 /// Values the host's type changed: each one's pointer and the view's

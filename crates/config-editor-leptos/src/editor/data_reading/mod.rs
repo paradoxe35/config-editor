@@ -225,6 +225,28 @@ impl DataReading {
         (written != pointer).then_some(written)
     }
 
+    /// `written` (a pointer as the text writes it, in the language's own
+    /// parse) in the value read: with a `/0` after each list of one (the
+    /// inverse of [`Self::written`]).
+    pub(crate) fn read_pointer(&self, written: &str) -> String {
+        let mut read = String::with_capacity(written.len());
+        let lone = |read: &mut String| {
+            while self.lists_of_one.contains(read.as_str()) {
+                read.push_str("/0");
+            }
+        };
+        if self.lists_of_one.is_empty() {
+            return written.to_string();
+        }
+        lone(&mut read);
+        for segment in written.split('/').skip(1) {
+            read.push('/');
+            read.push_str(segment);
+            lone(&mut read);
+        }
+        read
+    }
+
     /// The language's parse this reading was made from (each scalar read
     /// otherwise put back, each list of one read as its item), `None` when
     /// the reading is the parse.

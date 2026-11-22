@@ -2987,3 +2987,37 @@ fn a_toml_hex_number_changed_saved_then_moved_back_to_its_value_in_a_yaml_view_s
         ],
     );
 }
+
+/// P2: a JSON list cut to one item in an XML view, under a schema wanting
+/// a list there, saves as that list of one (the view reads it so), lines
+/// moved around it after a save.
+#[test]
+fn a_json_list_cut_to_one_item_in_an_xml_view_under_a_list_schema_saves_the_list() {
+    super::replay_typed(
+        Language::JSON,
+        Language::XML,
+        285180008,
+        "{\n  \"alpha\": {\n    \"k1\": \"plain\",\n    \"k2\": \"a\\u0041\",\n    \"k3\": [1, 2, 3]\n  },\n  \"beta\": {\n    \"k4\": 1e3,\n    \"k5\": \"plain\",\n    \"k6\": \"a\\u0041\"\n  },\n  \"gamma\": {\n    \"k7\": \"a\\u0041\",\n    \"k8\": 1.50\n  }\n}\n",
+        &[
+            Op::Cut {
+                line: 25,
+                how: Take::Entry,
+            },
+            Op::DeleteLine { line: 19 },
+            Op::DeleteLine { line: 16 },
+            Op::MoveLine {
+                line: 16,
+                down: true,
+            },
+            Op::Cut {
+                line: 54,
+                how: Take::Text,
+            },
+            Op::Pause,
+            Op::MoveLine {
+                line: 62,
+                down: true,
+            },
+        ],
+    );
+}

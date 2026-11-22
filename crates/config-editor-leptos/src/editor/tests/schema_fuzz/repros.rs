@@ -1315,3 +1315,51 @@ fn a_host_scalar_typed_as_two_elements_saves_as_the_schema_reads_them() {
         json!({"d": [0, "0"]}),
     );
 }
+
+/// A host string typed over in an XML view where the schema reads the
+/// element as a list of one list of one item (`<d>null</d>` read as
+/// `[[null]]`) saves as the view reads it: the user wrote it.
+#[test]
+fn a_string_typed_over_where_the_schema_reads_nested_lists_of_one_saves_as_read() {
+    let nested = |items: Value| {
+        json!({"allOf": [{"properties": {"d": {"type": "array",
+            "items": {"type": "array", "items": items}}}}]})
+    };
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        nested(json!({"enum": [null]})),
+        json!({"d": ""}),
+        json!({"d": "null"}),
+    );
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        nested(json!({"type": "integer"})),
+        json!({"d": "a"}),
+        json!({"d": "7"}),
+    );
+    // Refused read either way (too few items), it keeps the host's type.
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"allOf": [{"properties": {"d": {"type": "array",
+            "items": {"type": "array", "items": {"enum": [null]}, "minItems": 2}}}}]}),
+        json!({"d": ""}),
+        json!({"d": "null"}),
+    );
+}
+
+/// An XML view left as shown, where the schema reads a host scalar's
+/// element as a list of one (`<a>false</a>` where `a` is a list of
+/// strings), saves nothing: the scalar stands where its source stands.
+#[test]
+fn an_unchanged_lone_element_the_schema_reads_as_a_list_saves_nothing() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"properties": {"a": {"type": "array", "items": {"type": "string"}}}}),
+        json!({"a": false}),
+        json!({"a": false}),
+    );
+}

@@ -248,6 +248,15 @@ versions move together.
   typed after the parent's key) is refused, or held with the save
   waiting, in every view; the host heard the placeholder glued to the
   other items' text before.
+- A value left as written in an XML view, inside an element the
+  schema reads as a list of one (`<k3>3</k3>` where `k3` is a list),
+  saves and switches views as that list (`"k3": [3]`); it was saved as
+  the lone value, which the schema then marked as a problem the view did
+  not show, and a host string inside such an element lost its type.
+- A value typed in an XML view over a host string, where the schema
+  reads the element as a list of one list (`<d>null</d>` read as
+  `[[null]]`), saves as the view reads it; the save kept the host's
+  string before.
 
 ## 0.1.2 — 2026-11-21
 
