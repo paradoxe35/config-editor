@@ -266,7 +266,7 @@ says so. A version already on a registry is skipped, so a release that failed
 halfway is finished by re-running the workflow on the same tag.
 
 ```sh
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.2.1 && git push origin v0.2.1
 ```
 
 </details>
