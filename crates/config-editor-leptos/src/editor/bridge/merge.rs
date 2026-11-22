@@ -34,6 +34,7 @@ pub(super) fn merge_changes(
     let merged = merge_at(host, seen, edited, "", view).map(|merged| Paired {
         merged,
         renames: view.renames.take(),
+        moved: view.moved.to_vec(),
     });
     #[cfg(test)]
     paired::record(merged.as_ref().ok());
@@ -49,13 +50,24 @@ pub(crate) struct Renamed {
     pub(crate) from: String,
 }
 
-/// A merge: the value it made, and the keys it took as renamed (the one
-/// fact the value does not tell: every other value stays at its host
-/// pointer).
+/// A host scalar the save put elsewhere than its host pointer: a scalar
+/// the user left as the editor wrote it, now at `at` of the view's value
+/// (an item typed before it moved it to another index), holds the host's
+/// value at `from`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Moved {
+    pub(crate) at: String,
+    pub(crate) from: String,
+}
+
+/// A merge: the value it made, the keys it took as renamed and the host
+/// scalars it holds elsewhere (the facts the value does not tell: every
+/// other value stays at its host pointer).
 #[derive(Clone, Debug)]
 pub(crate) struct Paired {
     pub(crate) merged: Value,
     pub(crate) renames: Vec<Renamed>,
+    pub(crate) moved: Vec<Moved>,
 }
 
 /// What the edit language could show of the host value.
@@ -75,6 +87,8 @@ pub(super) struct View<'a> {
     pub(super) told: Option<&'a ItemSources>,
     /// The keys the merge takes as renamed, as it goes.
     pub(super) renames: &'a std::cell::RefCell<Vec<Renamed>>,
+    /// The host scalars the view's value holds elsewhere (see [`Moved`]).
+    pub(super) moved: &'a [Moved],
 }
 
 /// Whether the keys `edited` holds in another order than `seen` were moved

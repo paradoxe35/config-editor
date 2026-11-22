@@ -188,6 +188,7 @@ mod tests {
                     from: from.to_string(),
                 })
                 .collect(),
+            moved: Vec::new(),
         };
         explained(&Sides {
             both: &both,

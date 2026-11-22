@@ -260,8 +260,9 @@ fn spelling(sides: &Sides<'_>, at: &str, view: &Value, listed: bool) -> Option<&
 ///
 /// Which host value that is, is the merge's own record (`paired`): a
 /// view typed whole carries no links, so only the merge knows which host
-/// key a key it renamed stands for, and every other value stays at its
-/// host pointer. Only that identity is taken from the record, and only
+/// key a key it renamed stands for, or which host scalar a scalar left as
+/// the editor wrote it at another index is, and every other value stays
+/// at its host pointer. Only that identity is taken from the record, and only
 /// where the host agrees it can be one (a renamed key's host key is in
 /// the host's map there, its new name is not, and the merged map no longer
 /// holds the old one); what the save wrote for the value is still judged
@@ -291,6 +292,16 @@ pub(crate) fn held_at(
     // list of one the merge wrote as its item (an XML host), the walk of
     // the two pairs them (see `HostPaths`).
     let (merged, _) = super::links::HostPaths::between(&paired.merged, saved).item(at);
+    // A host scalar the save put at another index (an item typed before
+    // it) is the host's value it was taken from, where the host holds a
+    // scalar there.
+    if let Some(moved) = paired.moved.iter().find(|moved| moved.at == merged)
+        && before
+            .pointer(&moved.from)
+            .is_some_and(|held| !held.is_object() && !held.is_array())
+    {
+        return moved.from.clone();
+    }
     let (mut placed, mut host) = (String::new(), String::new());
     for segment in merged.split('/').skip(1) {
         let renamed = paired.renames.iter().find(|renamed| {

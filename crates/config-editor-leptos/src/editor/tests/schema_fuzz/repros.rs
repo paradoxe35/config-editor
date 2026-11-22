@@ -1508,3 +1508,51 @@ fn a_host_scalar_written_again_as_a_list_item_keeps_its_type_where_the_schema_te
         );
     }
 }
+
+/// A host item an XML view shows as the editor wrote it, moved to another
+/// index by an item typed before it (`["true"]` typed `<a>a</a><a>true</a>`),
+/// is that host item: the save keeps its host type where the schema at its
+/// new index takes it (the view's text for it is the same either way), and
+/// writes the view's reading where the schema there refuses the host's.
+#[test]
+fn a_host_item_moved_by_an_item_typed_before_it_saves_as_the_view_reads_it() {
+    holds_everywhere_but_known(
+        "edit_as",
+        super::edit_as::check,
+        json!({"properties": {"a": {"type": "array", "prefixItems": [{"type": "string"}]}}}),
+        json!({"a": ["true"]}),
+        json!({"a": ["a", true]}),
+    );
+}
+
+/// [`a_host_item_moved_by_an_item_typed_before_it_saves_as_the_view_reads_it`]
+/// across the schemas that type an index (`prefixItems`, `items`, a tuple
+/// of two that takes or refuses the host's type, none) and scalar kinds.
+#[test]
+fn a_host_item_moved_to_another_index_saves_as_the_view_reads_it_whatever_types_the_index() {
+    let text = json!({"type": "string"});
+    for list in [
+        json!({"type": "array", "prefixItems": [text.clone()]}),
+        json!({"type": "array", "items": text.clone()}),
+        json!({"type": "array", "prefixItems": [text.clone(), text.clone()]}),
+        json!({"type": "array", "prefixItems": [text.clone(), {"type": "boolean"}]}),
+        json!({"type": "array", "prefixItems": [text.clone(), {"type": "integer"}]}),
+        json!({"type": "array"}),
+        json!({}),
+    ] {
+        for (host, typed) in [
+            (json!("true"), json!(true)),
+            (json!("8"), json!(8)),
+            (json!(true), json!(true)),
+            (json!(8), json!(8)),
+        ] {
+            holds_everywhere_but_known(
+                "edit_as",
+                super::edit_as::check,
+                json!({"properties": {"a": list.clone()}}),
+                json!({"a": [host]}),
+                json!({"a": ["a", typed]}),
+            );
+        }
+    }
+}

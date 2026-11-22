@@ -167,7 +167,7 @@ impl Bridge {
         let reading = super::data_reading::read(edit, edit_text, self.shape())
             .map_err(ConvertError::Parse)?;
         codec::convertible(edit, edit_text)?;
-        let value = self.host_values(&reading, untouched.unwrap_or_default(), None);
+        let (value, _) = self.host_values(&reading, untouched.unwrap_or_default(), None);
         let conversion = codec::render(&value, next.behavior(), None, self.shape())?;
         codec::convertible(next.behavior(), &conversion.text)?;
         Ok(conversion)
@@ -437,7 +437,7 @@ impl Bridge {
         // The host's reading notes the lists it reads a value written once
         // as (the merge keeps the rest as the host writes them).
         let host_reading = super::data_reading::read(host, previous_host, self.shape()).ok();
-        let edited = self.host_values(
+        let (edited, placed_elsewhere) = self.host_values(
             &view_reading,
             untouched.unwrap_or_default(),
             host_reading
@@ -523,6 +523,7 @@ impl Bridge {
                         host_reading: host_reading.as_deref(),
                         told: view_sources.as_ref(),
                         renames: &renames,
+                        moved: &placed_elsewhere,
                     },
                 )
                 .map_err(|pointer| {
@@ -1026,14 +1027,16 @@ impl Bridge {
     /// `schema_readings::prefers`), the one the save then proposes. So for
     /// a scalar in its place that the view showed as its host value and
     /// now reads otherwise (an edit beside it changed what the schemas
-    /// make of its text).
+    /// make of its text). With it, the host scalars of `known` it put
+    /// elsewhere than their host pointer (see [`merge::Moved`]).
     fn host_values(
         &self,
         view: &DataReading,
         untouched: &[links::Untouched],
         known: Option<(&str, &serde_json::Value)>,
-    ) -> serde_json::Value {
+    ) -> (serde_json::Value, Vec<merge::Moved>) {
         let mut edited = view.value().clone();
+        let mut moved = Vec::new();
         let mut read: Vec<(&Arc<str>, Option<std::borrow::Cow<'_, serde_json::Value>>)> =
             Vec::new();
         // The view's reading of each host text's view, read when asked.
@@ -1085,6 +1088,20 @@ impl Bridge {
                 continue;
             };
             let read_as = std::mem::replace(slot, held.clone());
+            let elsewhere = scalar.from != *at;
+            // Only an item at another index of the same list is recorded:
+            // a list of one the view shows as its item, or nested lists it
+            // shows flattened, are the host's values in another shape,
+            // which the spellings tell from the host's pointers.
+            let of_known = known
+                .is_some_and(|(known, _)| byte_order_mark::split(&scalar.host).0 == known)
+                && same_list(&scalar.from, at);
+            if elsewhere && of_known {
+                moved.push(merge::Moved {
+                    at: at.clone(),
+                    from: scalar.from.clone(),
+                });
+            }
             // Elsewhere than its source (a host scalar the view now holds
             // as a list's item, or copied there), other schemas judge it:
             // the view's reading stays where they take it and refuse the
@@ -1098,15 +1115,17 @@ impl Bridge {
             if spellings::same(held, &read_as) {
                 continue;
             }
-            let moved = scalar.from != *at;
-            if (moved || self.shown_as(&mut shown, &scalar.host, at, held))
+            if (elsewhere || self.shown_as(&mut shown, &scalar.host, at, held))
                 && schema_readings::prefers(&edited, at, &read_as, schema)
                 && let Some(slot) = edited.pointer_mut(at)
             {
                 *slot = read_as;
+                if elsewhere && of_known {
+                    moved.pop();
+                }
             }
         }
-        edited
+        (edited, moved)
     }
 
     /// Whether the view of the host text `host` read the value at `at` as
@@ -1311,6 +1330,18 @@ fn patched(
                 })
             })
     })
+}
+
+/// Whether the pointers `from` and `at` are two items of one list (`/a/0`
+/// and `/a/1`).
+fn same_list(from: &str, at: &str) -> bool {
+    fn list_of(pointer: &str) -> Option<&str> {
+        pointer
+            .rsplit_once('/')
+            .filter(|(_, index)| !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()))
+            .map(|(list, _)| list)
+    }
+    list_of(from).is_some_and(|list| list_of(at) == Some(list))
 }
 
 /// The text the user typed for the scalar at `at` of the view, as its
