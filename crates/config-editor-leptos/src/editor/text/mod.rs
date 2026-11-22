@@ -12,7 +12,9 @@
 
 pub(crate) mod lines;
 mod offset;
+mod shared;
 pub(crate) mod slice;
 
 pub(crate) use offset::{Utf16, byte_of, byte_range, checked_range, text_size, utf16_of};
+pub(crate) use shared::{SharedText, same_or_new};
 pub(crate) use text_size::{TextRange, TextSize};

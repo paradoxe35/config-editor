@@ -16,7 +16,7 @@ use wasm_bindgen::prelude::*;
 use crate::anchors::{anchor_of, revision_of, with_lists};
 use crate::handle_calls;
 use crate::languages::{language_named, writable_edit_as};
-use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host};
+use crate::mount::{self, IN_CALLBACK, Latest, Setup, State, call_host, shared_with};
 use crate::options::{
     EDITOR_OPTIONS, EDITOR_REMOUNT_OPTIONS, bool_option, function_option, string_option,
     warn_unknown_options,
@@ -140,11 +140,12 @@ fn editor_fixed(language: Language) -> Vec<Fixed> {
 
 impl ConfigEditor {
     /// The editor shows `value`, the host's document, now.
-    fn show(&self, value: String) {
+    fn show(&self, value: &str) {
         *self
             .latest
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = value;
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            shared_with(Some(self.channel.document()), value);
     }
 
     /// Takes `update` through the editor's one entry (see the core's
@@ -162,7 +163,7 @@ impl ConfigEditor {
         if taken.shown
             && let Some(value) = value
         {
-            self.show(value);
+            self.show(&value);
         }
         Ok(taken.shown)
     }
@@ -170,21 +171,26 @@ impl ConfigEditor {
     /// `text`, the document a destroyed editor answers with, kept once: the
     /// channel (kept for an editor that takes it over) holds the document
     /// too, and when it is `text` that copy is shared.
-    fn kept_once(&self, text: String) -> std::sync::Arc<str> {
+    fn kept_once(&self, text: std::sync::Arc<str>) -> std::sync::Arc<str> {
         let held = self.channel.document();
-        if *held == *text {
-            held
+        if std::sync::Arc::ptr_eq(&held, &text) || *held != *text {
+            text
         } else {
-            std::sync::Arc::from(text)
+            held
         }
+    }
+
+    /// The document as the host last saw it, shared.
+    fn latest_shared(&self) -> std::sync::Arc<str> {
+        self.latest
+            .lock()
+            .map(|text| text.clone())
+            .unwrap_or_else(|_| std::sync::Arc::from(""))
     }
 
     /// The document as the host last saw it.
     fn latest_text(&self) -> String {
-        self.latest
-            .lock()
-            .map(|text| text.clone())
-            .unwrap_or_default()
+        self.latest_shared().to_string()
     }
 }
 
@@ -254,7 +260,8 @@ impl ConfigEditor {
         replace_editors_in(&element);
         element.set_text_content(None);
 
-        let latest: Latest = std::sync::Arc::new(std::sync::Mutex::new(value.clone()));
+        let latest: Latest =
+            std::sync::Arc::new(std::sync::Mutex::new(std::sync::Arc::from(value.as_str())));
         let latest_for_view = latest.clone();
         let owner = Owner::new();
         let secrets = owner.with(|| secrets_from(&field(&options, "secrets"), "secrets"))?;
@@ -302,7 +309,7 @@ impl ConfigEditor {
         js_support::give_channel(&handle, channel.clone());
         let state = owner.with(|| State {
             language,
-            baseline: RwSignal::new(baseline),
+            baseline: RwSignal::new(std::sync::Arc::from(baseline)),
             edit_as: RwSignal::new(edit_as),
             settings: RwSignal::new(settings),
             read_only: RwSignal::new(read_only),
@@ -336,6 +343,15 @@ impl ConfigEditor {
         let mounted = owner.with(|| {
             leptos::mount::mount_to(element, move || mount::view(state, latest_for_view, setup))
         });
+        // The editor's document, shared once it holds the host's text: the
+        // host's last text and a baseline that is that text.
+        {
+            let mut held = latest.lock().unwrap_or_else(PoisonError::into_inner);
+            *held = shared_with(Some(channel.document()), &held);
+            state.baseline.update_untracked(|baseline| {
+                *baseline = shared_with(Some(held.clone()), baseline);
+            });
+        }
         let id = NEXT_ID.with(|next| {
             let id = next.get();
             next.set(id.wrapping_add(1));
@@ -436,7 +452,7 @@ impl ConfigEditor {
         // Whether `value` is the text the host was told last, before the
         // flush below sends it what the user typed since (see `echo` below).
         let told = value.as_deref().is_some_and(|value| {
-            *value == *self.latest.lock().unwrap_or_else(PoisonError::into_inner)
+            *value == **self.latest.lock().unwrap_or_else(PoisonError::into_inner)
         });
         let newer = self.reentry.flush(|| {
             if value.is_some() {
@@ -495,7 +511,7 @@ impl ConfigEditor {
                 stale: told,
                 ..HostUpdate::default()
             },
-            &self.latest_text(),
+            &self.latest_shared(),
             "",
         )?;
         let read_only_paths = given(&options, "readOnlyPaths")
@@ -525,7 +541,10 @@ impl ConfigEditor {
             self.take(host)?;
         }
         if let Some(baseline) = baseline {
-            let _ = state.baseline.try_set(baseline);
+            // The document's copy when it is the document (a save taken).
+            let _ = state
+                .baseline
+                .try_set(shared_with(Some(self.latest_shared()), &baseline));
         }
         if let Some(edit_as) = edit_as {
             let _ = state.edit_as.try_set(edit_as);
@@ -598,7 +617,7 @@ impl ConfigEditor {
             .reentry
             .flush(leptos_config_editor::flush_pending_edits);
         // A text the host gave from `onChange` meanwhile is newer.
-        if self.id.get().is_none() || newer.contains("value") || value == self.latest_text() {
+        if self.id.get().is_none() || newer.contains("value") || *value == *self.latest_shared() {
             return Ok(false);
         }
         // The host's own text: what it holds, no echo to wait for, recorded
@@ -652,7 +671,7 @@ impl ConfigEditor {
         )
         .map_err(|error| JsError::new(&error.to_string()))?;
         if let Some(text) = self.state.handle.value() {
-            self.show(text);
+            self.show(&text);
         }
         let lists = with_lists(
             &self.channel,
@@ -662,7 +681,7 @@ impl ConfigEditor {
                 diagnostics_for,
                 ..HostUpdate::default()
             },
-            &self.latest_text(),
+            &self.latest_shared(),
             "applyChanges: ",
         )?;
         if lists.ranges.is_some() || lists.diagnostics.is_some() {
@@ -695,7 +714,7 @@ impl ConfigEditor {
         let baseline = self
             .state
             .baseline
-            .try_get_untracked()
+            .try_with_untracked(|baseline| baseline.to_string())
             .unwrap_or_else(|| current.clone());
         Ok(leptos_config_editor::unified_diff(
             &baseline, &current, context,
@@ -853,7 +872,7 @@ impl ConfigEditor {
             // Called from a callback: the editor's handler is still running,
             // so it unmounts once that returns, calling nothing more.
             self.state.silence();
-            *self.final_value.borrow_mut() = Some(self.kept_once(self.latest_text()));
+            *self.final_value.borrow_mut() = Some(self.kept_once(self.latest_shared()));
             let deferred = Closure::once_into_js(move || drop(unmount()));
             if let Ok(queue) = field(&js_sys::global(), "queueMicrotask").dyn_into::<Function>() {
                 let _ = queue.call1(&JsValue::NULL, &deferred);
@@ -879,6 +898,9 @@ fn taken_channel(options: &JsValue) -> Result<Option<EditorChannel>, JsError> {
 }
 
 /// The document `latest` holds, taken out of it.
-fn take_text(latest: &Latest) -> String {
-    std::mem::take(&mut *latest.lock().unwrap_or_else(PoisonError::into_inner))
+fn take_text(latest: &Latest) -> std::sync::Arc<str> {
+    std::mem::replace(
+        &mut *latest.lock().unwrap_or_else(PoisonError::into_inner),
+        std::sync::Arc::from(""),
+    )
 }

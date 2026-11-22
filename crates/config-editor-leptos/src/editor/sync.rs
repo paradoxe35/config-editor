@@ -19,7 +19,7 @@ use super::languages::Language;
 use super::paths::TextPosition;
 use super::schema::SchemaBundle;
 use super::state::{EditorState, textarea_selection};
-use crate::editor::text::{TextRange, TextSize, byte_of, utf16_of};
+use crate::editor::text::{TextRange, TextSize, byte_of, same_or_new, utf16_of};
 use crate::reactive::later;
 
 mod echoes;
@@ -44,7 +44,11 @@ impl SyncState {
     /// Sends `text`, the document in the host's language, to `on_change`,
     /// recorded as sent: its echo is told apart when it comes back.
     pub(super) fn tell_host(&self, text: String) {
-        self.link(|link| link.sent(&text));
+        // The session's copy: it was set to the text sent just before.
+        let shared = self
+            .session
+            .with_value(|session| same_or_new(&session.host, &text));
+        self.link(|link| link.sent(&shared));
         match self.host_on_change {
             Some(on_change) => on_change.run(text),
             None => {
@@ -169,7 +173,7 @@ impl SyncState {
         host_on_change: Option<Callback<String>>,
         line_endings: LineEndings,
         channel: Option<HostChannel>,
-    ) -> (Self, String, Option<Language>) {
+    ) -> (Self, Arc<str>, Option<Language>) {
         let mut load_problems = Vec::new();
         let mut pending = None;
         let mut shown = host_text.clone();
@@ -203,12 +207,22 @@ impl SyncState {
             }
         }
         let synced = synced.unwrap_or_else(|| shown.clone());
+        // One copy for the texts that are the same: the host's, the one on
+        // screen (in the host's language) and the one it stands for.
+        let host: Arc<str> = Arc::from(host_text.as_str());
+        let shown = same_or_new(&host, &shown);
+        let synced = if *synced == *shown {
+            shown.clone()
+        } else {
+            same_or_new(&host, &synced)
+        };
         let edit_language = RwSignal::new(if pending.is_some() {
             host_language
         } else {
             edit_language
         });
-        let session = StoredValue::new(HostSession::new(&host_text, &synced));
+        let session = StoredValue::new(HostSession::shared(host.clone(), synced.clone()));
+        super::parse_cache::host_text(&host);
         let sync = Self {
             edit_language,
             host_on_change,
@@ -220,7 +234,7 @@ impl SyncState {
                 let shown_in = edit_language.get_untracked();
                 let reading = Bridge::new(host_language, shown_in, schema.get_value())
                     .map(|bridge| bridge.reading());
-                Links::fresh(&host_text, &synced, reading)
+                Links::fresh_shared(host.clone(), synced.clone(), reading)
             }),
             clipboard: StoredValue::new(Clipboard::default()),
             host_text: HostTextReader(session),
@@ -231,9 +245,13 @@ impl SyncState {
                     .map(|channel| channel.with(|link| link.diagnostics.clone()))
                     .unwrap_or_default(),
             ),
-            channel: StoredValue::new_local(
-                channel.unwrap_or_else(|| HostChannel::new(false, &host_text, None, None)),
-            ),
+            channel: StoredValue::new_local({
+                let channel =
+                    channel.unwrap_or_else(|| HostChannel::new(false, &host_text, None, None));
+                // The log reads the editor's copy of the host's text.
+                channel.with(|link| link.log.share(&host));
+                channel
+            }),
             settles: StoredValue::new(0),
             synced: Trigger::new(),
             on_edit_as_change: StoredValue::new(None),
@@ -253,7 +271,8 @@ impl EditorState {
     /// `host_log`): while editing in the host's language, the text on
     /// screen is the log's document, and positions the host gave map
     /// through each edit exactly.
-    pub(super) fn note_host_log(&self, edit: &Edit) {
+    /// `after` is the text the edit made, the document's copy of it.
+    pub(super) fn note_host_log(&self, edit: &Edit, after: &Arc<str>) {
         if self.config().host_language != self.sync().edit_language.get_untracked() {
             return;
         }
@@ -262,16 +281,31 @@ impl EditorState {
             _ => "",
         };
         let mapping = edit.mapping();
-        let after = Arc::<str>::from(edit.text.as_str());
         self.sync().link(|link| {
-            // The log's own document when it is the text edited (it is,
-            // but for a text no edit made since): not a second copy.
-            let before = match link.log.document() {
-                document if **document == *edit.before => document.clone(),
-                _ => Arc::from(edit.before.as_str()),
-            };
-            link.log.edited(&mapping, kind, &before, &after);
+            // The log's document when it is the text edited (it is, but
+            // for a text no edit made since): not a second copy.
+            let before = same_or_new(link.log.document(), &edit.before);
+            link.log.edited(&mapping, kind, &before, after);
         });
+    }
+
+    /// `text` as the editor keeps it: the copy the document, or the
+    /// session's host text or text on screen, already is when it is one of
+    /// them (compared, never assumed), else a new one.
+    pub(super) fn copy_of(&self, text: &str) -> Arc<str> {
+        let document = self.doc().text.shared_untracked();
+        if *document == *text {
+            return document;
+        }
+        self.sync()
+            .session
+            .with_value(|session| {
+                [&session.view, &session.host]
+                    .into_iter()
+                    .find(|held| ***held == *text)
+                    .cloned()
+            })
+            .unwrap_or_else(|| Arc::from(text))
     }
 
     /// The edit pipeline's notify stage: `on_change` hears of the document
@@ -281,11 +315,14 @@ impl EditorState {
         if self.bridge().is_some() {
             return;
         }
-        let text = self.doc().text.get_untracked();
-        let previous = self.sync().host_text.get_value();
+        let text = self.doc().text.shared_untracked();
+        let previous = self
+            .sync()
+            .session
+            .with_value(|session| session.host.clone());
         if self.admit(&previous, &text, Made::Typed).is_ok() {
             self.sync().typed_in_host_language(&text);
-            self.sync().tell_host(text);
+            self.sync().tell_host(text.to_string());
         }
     }
 
@@ -331,7 +368,7 @@ impl EditorState {
     /// Back in the host's language by undo, the text is the host's own again
     /// (`on_change` hears it); in another, the conversion finds the host text
     /// it was saved as.
-    pub(super) fn show_language(&self, language: Language, edit: &Edit) {
+    pub(super) fn show_language(&self, language: Language, edit: &Edit, text: &Arc<str>) {
         self.sync().pending_switch.set(None);
         self.hide_hover();
         self.close_suggestions();
@@ -342,7 +379,7 @@ impl EditorState {
                     // The host's own text again: the session's text on
                     // screen; another is the host's once it reaches it.
                     if host == edit.text {
-                        self.sync().typed_in_host_language(&edit.text);
+                        self.sync().typed_in_host_language(text);
                     }
                     self.sync().load_problems.set(Vec::new());
                     self.note_in_sync(true);
@@ -356,7 +393,7 @@ impl EditorState {
             }
         }
         self.sync().edit_language.set(language);
-        self.problems().diagnosed_text.set(edit.text.clone());
+        self.problems().diagnosed_text.set(text.clone());
     }
 
     /// The links of the text on screen's items follow `edit` (see
@@ -372,9 +409,11 @@ impl EditorState {
         // the view's language, and waits when it does not read there).
         let in_view = left != self.config().host_language;
         let before = ViewState::of(
-            &edit.before,
             self.sync().links.get_value(),
-            self.sync().saved_as(&edit.before).filter(|_| in_view),
+            self.sync()
+                .session
+                .with_value(|session| session.saved_pair(&edit.before))
+                .filter(|_| in_view),
         );
         if edit.before == edit.text {
             return before;
@@ -406,7 +445,10 @@ impl EditorState {
         } else if saved {
             // A switch, or the host's text: its items, each the host's.
             let reading = self.bridge_to(language).map(|bridge| bridge.reading());
-            Links::fresh(&self.sync().host_text.get_value(), &edit.text, reading)
+            // The session's texts: the text on screen is the one it saved as.
+            self.sync().session.with_value(|session| {
+                Links::fresh_shared(session.host.clone(), session.view.clone(), reading)
+            })
         } else if *origin == Origin::Switch && left != self.config().host_language {
             // Unsaved edits converted: each item at the same pointer.
             let mut links = before.links.clone();
@@ -462,9 +504,8 @@ impl EditorState {
         let language = self.behavior();
         let own = self.bridge().is_none();
         let mut links = if own {
-            self.doc()
-                .text
-                .with_untracked(|current| Links::fresh(current, current, None))
+            let current = self.doc().text.shared_untracked();
+            Links::fresh_shared(current.clone(), current, None)
         } else {
             self.sync().links.get_value()
         };
@@ -779,7 +820,9 @@ fn show_host_value(state: EditorState, external: String) {
     state
         .sync()
         .links
-        .set_value(Links::fresh(&external, &edit, reading));
+        .set_value(state.sync().session.with_value(|session| {
+            Links::fresh_shared(session.host.clone(), session.view.clone(), reading)
+        }));
     state.note_in_sync(true);
     let current = state.doc().text.get_untracked();
     let mut change = Edit::replacing(current, edit, Origin::HostValue);
@@ -800,7 +843,7 @@ fn debounce_validation(state: EditorState) {
     // The step waiting: a new text cancels it.
     let waiting = StoredValue::new(later::Timeout::default());
     Effect::new(move |_| {
-        let text = state.doc().text.get();
+        let text = state.doc().text.shared();
         let timer = later::after(state, DIAGNOSTICS_DEBOUNCE_MS, move |state| {
             // The pause in typing: the placeholders' fields first (a read
             // of the whole text), then the problems in a task of their
@@ -823,7 +866,7 @@ fn debounce_validation(state: EditorState) {
 /// of host problems held the page for over half a second).
 fn convert_edits(state: EditorState) {
     Effect::new(move |_| {
-        let text = state.problems().diagnosed_text.get();
+        let text = state.problems().diagnosed_text.shared();
         let language = state.sync().edit_language.get();
         later::after(state, 0, move |state| {
             // A text the document no longer is (the first run, after the
@@ -831,10 +874,10 @@ fn convert_edits(state: EditorState) {
             // is not an edit: converting it would send the old data under
             // the host's new text. The pause after the new text converts
             // that one; `flush_pending_edits` converts it at once.
-            let current = state.doc().text.with_untracked(|current| *current == text)
+            let current = state.doc().text.with_untracked(|current| *current == *text)
                 && state.sync().edit_language.get_untracked() == language;
             if current {
-                convert_now(state, text, language);
+                convert_now(state, text.to_string(), language);
             }
         });
     });
@@ -989,18 +1032,20 @@ pub(super) fn convert_now(state: EditorState, text: String, language: Language) 
         note_conversion_problems(state, problems);
         state.note_in_sync(result.is_ok());
         if let Ok(saved) = result {
+            // One copy of each, for the links and the session.
+            let (host, view) = (Arc::<str>::from(saved.as_str()), state.copy_of(&text));
             if on_screen {
                 let mut links = state.sync().links.get_value();
                 let links = links.saved(
                     language.behavior(),
-                    (&saved, &text),
+                    (&host, &view),
                     Some(bridge.reading()),
                     loose,
                 );
                 state.sync().links.set_value(links);
             }
             let changed = saved != previous;
-            state.sync().saved(&saved, &text);
+            state.sync().saved(host, view);
             if changed {
                 state.sync().tell_host(saved);
             }
@@ -1148,27 +1193,27 @@ impl EditorState {
     /// not on the one before the last keys.
     pub(super) fn check_text_now(&self) {
         let state = *self;
-        let text = state.doc().text.get_untracked();
+        let text = state.doc().text.shared_untracked();
         if state
             .problems()
             .diagnosed_text
-            .with_untracked(|diagnosed| *diagnosed == text)
+            .with_untracked(|diagnosed| *diagnosed == *text)
         {
             return;
         }
         state.problems().diagnosed_text.set(text);
         retry_pending_switch(state);
         // A switch made shows another text.
-        let text = state.doc().text.get_untracked();
+        let text = state.doc().text.shared_untracked();
         if state
             .problems()
             .diagnosed_text
-            .with_untracked(|diagnosed| *diagnosed != text)
+            .with_untracked(|diagnosed| *diagnosed != *text)
         {
             state.problems().diagnosed_text.set(text.clone());
         }
         let language = state.sync().edit_language.get_untracked();
-        convert_now(state, text, language);
+        convert_now(state, text.to_string(), language);
     }
 }
 
@@ -1311,7 +1356,8 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
             } else if next == state.config().host_language && !guarded {
                 // Back to the host language with an edit still waiting out
                 // the typing pause: the converted text is the host's now.
-                state.sync().saved(&converted, &converted);
+                let shared = state.copy_of(&converted);
+                state.sync().saved(shared.clone(), shared);
                 state.note_in_sync(true);
                 if converted != host_text_before {
                     state.sync().tell_host(converted.clone());

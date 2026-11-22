@@ -68,10 +68,11 @@ pub(super) struct ViewState {
 }
 
 impl ViewState {
-    /// What the view keeps of `text`: its `links`, and the host text it
-    /// was saved as, when it was.
-    pub(super) fn of(text: &str, links: Links, saved_as: Option<Arc<str>>) -> Self {
-        let saved = saved_as.as_ref().map(|_| Arc::from(text));
+    /// What the view keeps of its text: its `links`, and, when it was
+    /// saved, the host text it was saved as and the session's copy of the
+    /// text (see `HostSession::saved_pair`).
+    pub(super) fn of(links: Links, saved: Option<(Arc<str>, Arc<str>)>) -> Self {
+        let (saved_as, saved) = saved.unzip();
         Self {
             links,
             saved_as,

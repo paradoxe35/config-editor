@@ -8,6 +8,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -24,7 +25,7 @@ const KEPT: usize = 3;
 /// A document: the language's label, the text, the schema it was read
 /// with (compared by value: a schema replaced may be allocated where the
 /// one it replaces was) and the reading.
-type Entry = (&'static str, String, Value, Rc<DataReading>);
+type Entry = (&'static str, Arc<str>, Value, Rc<DataReading>);
 
 thread_local! {
     /// The latest documents, the last read first.
@@ -44,7 +45,7 @@ pub(crate) fn conformed(
     let cached = LAST.with(|last| {
         let mut last = last.borrow_mut();
         let at = last.iter().position(|(known, written, read_with, _)| {
-            *known == label && written == text && read_with == schema
+            *known == label && **written == *text && read_with == schema
         })?;
         let entry = last.remove(at);
         let reading = Rc::clone(&entry.3);
@@ -58,14 +59,35 @@ pub(crate) fn conformed(
     note_many(Work::ConformedBytes, text.len());
     let reading = Rc::new(conform(value));
     if HOLDERS.with(Cell::get) > 0 {
+        let text = super::key(text);
         LAST.with(|last| {
             let mut last = last.borrow_mut();
-            let entry = (label, text.to_string(), schema.clone(), Rc::clone(&reading));
+            let entry = (label, text, schema.clone(), Rc::clone(&reading));
             last.insert(0, entry);
             last.truncate(KEPT);
         });
     }
     Ok(reading)
+}
+
+/// Gives each document's text to `adopt` (which may share another copy).
+pub(super) fn adopt(adopt: &dyn Fn(&mut Arc<str>)) {
+    LAST.with(|last| {
+        last.borrow_mut()
+            .iter_mut()
+            .for_each(|entry| adopt(&mut entry.1))
+    });
+}
+
+/// The copy of `text` kept, when one is.
+pub(super) fn shared(text: &str) -> Option<Arc<str>> {
+    LAST.with(|last| {
+        last.try_borrow()
+            .ok()?
+            .iter()
+            .find(|entry| *entry.1 == *text)
+            .map(|entry| Arc::clone(&entry.1))
+    })
 }
 
 /// Drops what is kept (the last editor unmounted).

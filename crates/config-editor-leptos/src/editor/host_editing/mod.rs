@@ -18,6 +18,7 @@ mod tests;
 #[cfg(test)]
 mod wide_number_save_tests;
 
+use crate::editor::text::{SharedText, same_or_new};
 use std::collections::VecDeque;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -114,12 +115,12 @@ pub(super) fn decide_baseline(
 pub(super) fn shown_baseline(
     bridged: bool,
     baseline: &str,
-    synced: (&str, &str),
-    converted: impl FnOnce() -> String,
-) -> String {
+    synced: (&str, &Arc<str>),
+    converted: impl FnOnce() -> Arc<str>,
+) -> Arc<str> {
     let (host_text, synced_edit) = synced;
     if bridged && baseline == host_text {
-        return synced_edit.to_string();
+        return synced_edit.clone();
     }
     converted()
 }
@@ -159,11 +160,14 @@ pub(super) struct HostEditing {
     /// The baseline the diff and the dirty flag use, in the host's
     /// language. It follows the `baseline` prop, except while a conflict
     /// waits for the user.
-    pub(super) baseline: RwSignal<String>,
+    /// The document's or the host's text's copy while it is that text (see
+    /// `EditorState::copy_of`); else the older text the host keeps as its
+    /// baseline, a copy of its own.
+    pub(super) baseline: SharedText,
     /// `baseline` as shown, in the language on screen (the diff reads it
-    /// too).
+    /// too): `baseline` itself, shared, unless converted.
     #[cfg_attr(not(feature = "diff"), allow(dead_code))]
-    pub(super) shown_baseline: Memo<String>,
+    pub(super) shown_baseline: Memo<Arc<str>>,
     /// A new baseline waiting for the user's choice (the notice is open).
     pub(super) conflict: RwSignal<Option<PendingBaseline>>,
     /// The text on screen differs from the baseline as shown.
@@ -195,7 +199,7 @@ impl HostEditing {
     /// the host's text through `sync`.
     pub(super) fn new(
         init: Init,
-        text: RwSignal<String>,
+        text: SharedText,
         host_language: Language,
         schema: StoredValue<Option<Arc<SchemaBundle>>>,
         sync: &SyncState,
@@ -207,22 +211,36 @@ impl HostEditing {
             save_shortcut,
             on_conflict,
         } = init;
-        let baseline = RwSignal::new(editor_text(baseline));
         let SyncState {
             edit_language,
             session,
             synced,
             ..
         } = *sync;
+        // The host's text's copy when the baseline is that text (as it is
+        // unless the host gives another).
+        let baseline = editor_text(baseline);
+        let baseline =
+            SharedText::new(session.with_value(|session| same_or_new(&session.host, &baseline)));
+        // The baseline as shown last: a conversion giving that text again
+        // shares it (it was the text on screen the host's text stood for).
+        let last_shown = StoredValue::new(None::<Arc<str>>);
         // The baseline converted for the language on screen: once per
         // baseline and language, not on every conversion of an edit.
         let converted = Memo::new(move |_| {
-            let host = baseline.get();
+            let host = baseline.shared();
             let edit = edit_language.get();
             match Bridge::new(host_language, edit, schema.get_value()) {
-                Some(bridge) => bridge
-                    .to_edit(&host)
-                    .map_or_else(|_| host.clone(), |conversion| conversion.text),
+                Some(bridge) => bridge.to_edit(&host).map_or_else(
+                    |_| host.clone(),
+                    |conversion| match last_shown.get_value() {
+                        Some(shown) if *shown == *conversion.text => {
+                            super::parse_cache::adopt(&shown);
+                            shown
+                        }
+                        _ => Arc::from(conversion.text),
+                    },
+                ),
                 None => host,
             }
         });
@@ -231,16 +249,19 @@ impl HostEditing {
         // as, followed through every conversion.
         let shown_baseline = Memo::new(move |_| {
             synced.track();
-            let host = baseline.get();
+            let host = baseline.shared();
             let bridged = edit_language.get() != host_language;
-            session.with_value(|session| {
+            let shown = session.with_value(|session| {
                 shown_baseline(bridged, &host, (&session.host, &session.view), || {
                     converted.get()
                 })
-            })
+            });
+            last_shown.set_value(Some(shown.clone()));
+            shown
         });
-        let dirty =
-            Memo::new(move |_| text.with(|text| shown_baseline.with(|baseline| text != baseline)));
+        let dirty = Memo::new(move |_| {
+            text.with(|text| shown_baseline.with(|baseline| *text != **baseline))
+        });
         Self {
             baseline,
             shown_baseline,
@@ -270,7 +291,9 @@ pub(super) fn noting_sent(
 
 /// The host's side (from the component's props).
 pub(super) struct Host {
-    pub(super) baseline: Signal<String>,
+    /// The `baseline` prop; without it the baseline stays the text mounted
+    /// with.
+    pub(super) baseline: Option<Signal<String>>,
     pub(super) on_dirty_change: Option<Callback<bool>>,
 }
 
@@ -283,10 +306,12 @@ pub(super) fn connect(state: EditorState, host: Host) {
     // loading a file sets both in one task, and the text never differs
     // from its baseline in between (no dirty flag or change count for a
     // moment, `isDirty` right after).
-    leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
-        let new = editor_text(baseline.get());
-        untrack(|| state.offer_baseline(new));
-    });
+    if let Some(baseline) = baseline {
+        leptos::reactive::effect::ImmediateEffect::new_scoped(move || {
+            let new = editor_text(baseline.get());
+            untrack(|| state.offer_baseline(new));
+        });
+    }
     conflict::settle_when_text_matches(state);
     if let Some(callback) = on_dirty_change {
         // Only a change: the flag may flip and flip back in one task (read

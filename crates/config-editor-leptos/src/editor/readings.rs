@@ -15,6 +15,7 @@
 //! them first if they are due ([`EditorState::settle_readings`]), so it
 //! never acts on a stale one.
 
+use crate::editor::text::SharedText;
 use leptos::prelude::*;
 
 use super::state::EditorState;
@@ -40,7 +41,7 @@ impl Readings {
     /// else it reads): while readings are due it stays as it was.
     pub(super) fn memo<T>(
         self,
-        text: RwSignal<String>,
+        text: SharedText,
         make: impl Fn() -> T + Send + Sync + 'static,
     ) -> Memo<T>
     where

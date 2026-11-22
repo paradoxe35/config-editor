@@ -81,6 +81,7 @@ fn locks_of(
             previous: None,
             caret: None,
             change: None,
+            copy: None,
         },
     )
 }
@@ -512,6 +513,7 @@ fn a_save_changing_a_read_only_value_is_refused_in_every_language() {
             previous: None,
             caret: None,
             change: None,
+            copy: None,
         };
         let pointers = locked_pointers(language.behavior(), text, sources);
         let behavior = language.behavior();
@@ -730,6 +732,7 @@ fn random_edits_never_change_a_read_only_value() {
                         previous: None,
                         caret: None,
                         change: None,
+                        copy: None,
                     },
                 );
                 if check_save(

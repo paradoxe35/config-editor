@@ -2,7 +2,6 @@
 //! block re-indents ([`Typing::reindent_on_type`]), and markup it
 //! begins is completed ([`Typing::complete_on_type`]).
 
-use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::edit::{Change, Edit};

@@ -174,6 +174,15 @@ impl Projection {
         self.view.as_deref().unwrap_or(doc)
     }
 
+    /// [`Projection::view`] as the textarea's value keeps it: `doc`'s copy
+    /// when nothing is folded, else one of the folded text.
+    pub(crate) fn shown(&self, doc: &std::sync::Arc<str>) -> std::sync::Arc<str> {
+        match &self.view {
+            Some(view) => std::sync::Arc::from(view.as_str()),
+            None => doc.clone(),
+        }
+    }
+
     /// Whether a fold hides text inside `start..end` (UTF-16 units of the
     /// document), so the textarea's own copy of that selection would miss
     /// it.

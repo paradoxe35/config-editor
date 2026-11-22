@@ -262,7 +262,7 @@ impl EditorState {
         if let Some(clipboard) = clipboard {
             sync.clipboard = clipboard;
         }
-        let doc = DocState::new(&shown, sync.edit_language);
+        let doc = DocState::new(shown.clone(), sync.edit_language);
         let popups = PopupState::new();
         let protect = ProtectState::new(
             protect,
@@ -274,6 +274,7 @@ impl EditorState {
                 host_text: sync.host_text,
                 popups,
                 channel: sync.channel.get_value(),
+                version: doc.version,
             },
         );
         let problems = ProblemsState::new(

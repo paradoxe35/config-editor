@@ -172,6 +172,7 @@ pub(crate) fn judge(
             previous: Some(protected),
             caret: carets.written,
             change: carets.change,
+            copy: None,
         },
     );
     spans::kept(

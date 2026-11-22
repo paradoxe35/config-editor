@@ -6,6 +6,7 @@ use std::sync::Arc;
 use leptos::prelude::*;
 
 use super::SyncState;
+use crate::editor::text::same_or_new;
 
 /// A host text, shared by the records that name it.
 pub(crate) type HostText = Arc<str>;
@@ -30,19 +31,27 @@ pub(crate) struct HostSession {
 }
 
 impl HostSession {
-    /// A session on the host's `host`, shown as `view`.
-    pub(crate) fn new(host: &str, view: &str) -> Self {
-        let host = HostText::from(host);
+    /// A session on the host's `host`, shown as `view`: one copy when they
+    /// are the same text.
+    pub(crate) fn shared(host: HostText, view: HostText) -> Self {
         Self {
-            view: if *view == *host {
-                host.clone()
-            } else {
-                HostText::from(view)
-            },
+            view: if *view == *host { host.clone() } else { view },
             origin: host.clone(),
             host,
             known: None,
         }
+    }
+
+    /// The host text `view`, a text on screen, stands for, and the
+    /// session's copy of `view`, when known.
+    pub(crate) fn saved_pair(&self, view: &str) -> Option<(HostText, HostText)> {
+        if *self.view == *view {
+            return Some((self.host.clone(), self.view.clone()));
+        }
+        self.known
+            .as_ref()
+            .filter(|(known, _)| **known == *view)
+            .map(|(known, host)| (host.clone(), known.clone()))
     }
 
     /// The host text `view`, a text on screen, stands for, when known.
@@ -94,39 +103,58 @@ impl SyncState {
 
     fn set(&self, change: impl FnOnce(&mut HostSession)) {
         self.session.update_value(change);
+        self.session
+            .with_value(|session| super::super::parse_cache::host_text(&session.host));
         self.synced.notify();
     }
 
     /// The host gave `host`, shown as `view`: a new session.
     pub(crate) fn received(&self, host: &str, view: &str) {
-        self.set(|session| *session = HostSession::new(host, view));
+        let host = HostText::from(host);
+        let view = same_or_new(&host, view);
+        self.set(|session| *session = HostSession::shared(host, view));
     }
 
-    /// The text on screen `view` was saved as `host`, sent to the host.
-    pub(crate) fn saved(&self, host: &str, view: &str) {
+    /// The text on screen `view` was saved as `host`, sent to the host
+    /// (each the editor's copy, see `EditorState::copy_of`).
+    pub(crate) fn saved(&self, host: HostText, view: HostText) {
         self.set(|session| {
-            session.host = HostText::from(host);
-            session.view = HostText::from(view);
+            session.view = if *view == *host { host.clone() } else { view };
+            session.host = host;
         });
     }
 
     /// `text`, typed in the host's language, reached the host: it is the
-    /// host's own text, and a view's next save patches it.
-    pub(crate) fn typed_in_host_language(&self, text: &str) {
+    /// host's own text, and a view's next save patches it. `text` is the
+    /// document's copy: the session holds that one.
+    pub(crate) fn typed_in_host_language(&self, text: &HostText) {
         if self
             .session
-            .with_value(|session| *session.host == *text && *session.view == *text)
+            .with_value(|session| *session.host == **text && *session.view == **text)
         {
+            // The same texts: shared, no news.
+            self.session.update_value(|session| {
+                if !Arc::ptr_eq(&session.host, text) {
+                    let origin = Arc::ptr_eq(&session.origin, &session.host);
+                    session.host = text.clone();
+                    if origin {
+                        session.origin = text.clone();
+                    }
+                }
+                session.view = text.clone();
+            });
+            super::super::parse_cache::host_text(text);
             return;
         }
-        self.set(|session| *session = HostSession::new(text, text));
+        self.set(|session| *session = HostSession::shared(text.clone(), text.clone()));
     }
 
     /// A switch with nothing unsaved shows the host's text as `view`; the
     /// text it left stands for the host's text still.
     pub(crate) fn switched(&self, view: &str) {
         self.set(|session| {
-            let left = std::mem::replace(&mut session.view, HostText::from(view));
+            let view = same_or_new(&session.host, view);
+            let left = std::mem::replace(&mut session.view, view);
             session.known = Some((left, session.host.clone()));
         });
     }

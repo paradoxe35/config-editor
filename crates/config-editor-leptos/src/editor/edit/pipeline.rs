@@ -99,14 +99,17 @@ impl EditorState {
                 .sync()
                 .session
                 .with_value(|session| *session.host == *edit.text);
+        // The text the edit makes, one copy for every place that holds it
+        // (the document, the host log, validation, the host's text).
+        let after = self.copy_of(&edit.text);
         if let Some(language) = switching {
             if language_before == self.config().host_language {
                 self.leave_ranges(&edit.before);
             }
-            self.show_language(language, &edit);
+            self.show_language(language, &edit, &after);
         }
         if changed && origin.follows() {
-            self.note_host_log(&edit);
+            self.note_host_log(&edit, &after);
             self.follow_edit(&edit);
         }
         let kept = match edit.after {
@@ -134,7 +137,8 @@ impl EditorState {
         // waiting in a burst).
         let shown_kept = !matches!(edit.origin, Origin::Input { .. })
             && self.typing().input_burst.with_value(Option::is_none);
-        let rewritten = self.write_text(&mapping, edit.text.clone(), edit.folds.take(), shown_kept);
+        let rewritten = self.write_text(&mapping, after, edit.folds.take(), shown_kept);
+        self.edit_written();
         let links = self.note_view_edit(&edit, &origin, language_before);
         let rewritten = switching
             .is_some_and(|language| self.fold_fields(&folded_fields, language))
@@ -189,7 +193,7 @@ impl EditorState {
     fn write_text(
         &self,
         change: &Change,
-        text: String,
+        text: std::sync::Arc<str>,
         folds: Option<Vec<FoldRange>>,
         shown_kept: bool,
     ) -> bool {
@@ -199,10 +203,11 @@ impl EditorState {
             .with_untracked(|before| self.note_text_change(before, &text));
         self.doc().version.update_value(|version| *version += 1);
         let projection = shown_kept.then(|| self.view().projection.get_untracked());
-        let mut before = String::new();
-        self.doc()
-            .text
-            .update(|doc| before = std::mem::replace(doc, text));
+        // Those holding the same text keep this copy: the host log (a text
+        // the host gave, logged before it is shown) and the parses.
+        self.sync().link(|link| link.log.share(&text));
+        super::super::parse_cache::document(&text);
+        let before = self.doc().text.replace(text);
         let shown = projection
             .as_ref()
             .map(|projection| projection.view(&before));

@@ -9,7 +9,6 @@ use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
 use super::moved_forms::{pause, units};
 use crate::live_allocations::live;
-use leptos::prelude::*;
 
 /// A host with the key `k0` written in a form of its own, first in block
 /// `a` (before `mid`); block `b` holds `other`.

@@ -66,7 +66,7 @@ impl EditorState {
         }
         let (change, new) = self.doc().text.with_untracked(|doc| {
             let change = Change::replace(doc, TextRange::new(start, end), "");
-            let new = change.apply(doc).unwrap_or_else(|| doc.clone());
+            let new = change.apply(doc).unwrap_or_else(|| doc.to_string());
             (change, new)
         });
         let Some(moved) = self.folds_through(&change, &new) else {

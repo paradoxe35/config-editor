@@ -191,7 +191,7 @@ pub(crate) fn apply_host_changes(
     if !state.commit(edit) {
         return Ok(None);
     }
-    let text = state.doc().text.get_untracked();
+    let text = state.doc().text.shared_untracked();
     if rebased {
         // The result holds the user's newer edits: the host hears it.
         state.notify_change();

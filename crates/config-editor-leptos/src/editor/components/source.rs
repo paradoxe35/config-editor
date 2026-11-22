@@ -50,9 +50,11 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             // `readonly`, which in Chromium also stops the caret.
             aria-readonly=move || read_only.get().to_string()
             inputmode=move || read_only.get().then_some("none")
+            // Kept by the view to compare with the next: the document's
+            // copy, shared.
             prop:value=move || {
                 let projection = state.view().projection.get();
-                state.doc().text.with(|doc| projection.view(doc).to_string())
+                projection.shown(&state.doc().text.shared())
             }
             on:beforeinput=move |event| input::before_input(state, &event)
             on:input=move |event| input::input(state, &event)
@@ -67,7 +69,7 @@ pub(crate) fn SourceInput(state: EditorState) -> impl IntoView {
             // The text is there as soon as the element is: `prop:value`
             // applies a moment later, and input or a host reading the
             // textarea in between must not see it empty.
-            {state.doc().text.get_untracked()}
+            {state.doc().text.shared_untracked()}
         </textarea>
     }
 }

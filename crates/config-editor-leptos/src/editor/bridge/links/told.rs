@@ -302,7 +302,7 @@ impl Links {
     pub(crate) fn saved(
         &mut self,
         language: &dyn ConfigLanguage,
-        (host, text): (&str, &str),
+        (host, text): (&Arc<str>, &Arc<str>),
         reading: Option<HostReading>,
         loose: Option<Vec<Link>>,
     ) -> Links {
@@ -316,7 +316,7 @@ impl Links {
                 .map(|(_, loose)| of_one_host(loose))
                 .unwrap_or_default(),
         };
-        let mut links = Links::fresh(host, text, reading);
+        let mut links = Links::fresh_shared(host.clone(), text.clone(), reading);
         if let Links::Fresh { loose, .. } = &mut links {
             *loose = Arc::new(kept);
         }

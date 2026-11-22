@@ -74,10 +74,11 @@ fn dirty_follows_load_edit_and_save_in_every_language_pair() {
             };
             let dirty = |text: &str, baseline: &str, synced: (&str, &str)| {
                 let converted = || match &bridge {
-                    Some(bridge) => bridge.to_edit(baseline).unwrap().text,
-                    None => baseline.to_string(),
+                    Some(bridge) => std::sync::Arc::from(bridge.to_edit(baseline).unwrap().text),
+                    None => std::sync::Arc::from(baseline),
                 };
-                text != shown_baseline(bridge.is_some(), baseline, synced, converted)
+                let synced = (synced.0, &std::sync::Arc::<str>::from(synced.1));
+                *text != *shown_baseline(bridge.is_some(), baseline, synced, converted)
             };
             let synced = (host_text, shown.as_str());
             if dirty(&shown, host_text, synced) {

@@ -182,11 +182,32 @@ impl Source {
 
 impl Links {
     /// The view's text `text`, shown for the host's text `host` (read as
-    /// `reading` tells; `None` in the host's own language).
+    /// `reading` tells; `None` in the host's own language). The editor
+    /// gives the copies it holds (see [`Links::fresh_shared`]).
+    #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "the tests that use it need languages a build may leave out"
+    )]
     pub(crate) fn fresh(host: &str, text: &str, reading: Option<HostReading>) -> Self {
+        let host = Arc::<str>::from(host);
+        let text = if *text == *host {
+            host.clone()
+        } else {
+            Arc::from(text)
+        };
+        Self::fresh_shared(host, text, reading)
+    }
+
+    /// [`Links::fresh`] for texts the editor holds: their copies, shared.
+    pub(crate) fn fresh_shared(
+        host: Arc<str>,
+        text: Arc<str>,
+        reading: Option<HostReading>,
+    ) -> Self {
         Links::Fresh {
-            host: Arc::from(host),
-            base: Arc::from(text),
+            host,
+            base: text,
             pending: Arc::default(),
             reading,
             loose: Arc::default(),

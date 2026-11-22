@@ -3,6 +3,7 @@
 //! typing and following the edits made meanwhile; and the problem
 //! F8 moved to (its tip is a popup's, see `popups`).
 
+use crate::editor::text::SharedText;
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -30,8 +31,8 @@ use crate::editor::text::TextSize;
 #[derive(Clone, Copy)]
 pub(super) struct ProblemsState {
     /// The document after the typing pause; validation and the Edit-as
-    /// conversion read it.
-    pub(super) diagnosed_text: RwSignal<String>,
+    /// conversion read it. The document's copy (`DocState::text`), shared.
+    pub(super) diagnosed_text: SharedText,
     pub(super) diagnostics: Memo<Vec<Diagnostic>>,
     /// The editor's own problems (syntax, schema, secret placeholders,
     /// conversion), without the host's: what `on_problems` reports.
@@ -62,8 +63,8 @@ struct SinceCheck {
 
 /// What the problems are found from.
 pub(super) struct Sources {
-    pub(super) shown: String,
-    pub(super) text: RwSignal<String>,
+    pub(super) shown: std::sync::Arc<str>,
+    pub(super) text: SharedText,
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
     pub(super) schema_error: Option<super::schema::SchemaFailure>,
@@ -93,7 +94,7 @@ impl ProblemsState {
             host_diagnostics,
             strings,
         } = sources;
-        let diagnosed_text = RwSignal::new(shown);
+        let diagnosed_text = SharedText::new(shown);
         let edit_language = sync.edit_language;
         let (load_problems, conversion_problems) = (sync.load_problems, sync.conversion_problems);
         let line_endings = sync.line_endings;
@@ -253,11 +254,10 @@ impl ProblemsState {
                             // follows every conversion back); the fields its
                             // ranges start in kept while it stays the same.
                             let found = session.with_value(|session| {
-                                let host: &str = &session.host;
                                 HostTargets::cached(
                                     host_targets,
                                     host_language.behavior(),
-                                    host,
+                                    &session.host,
                                     problems,
                                 )
                             });
@@ -283,7 +283,7 @@ impl ProblemsState {
                     since_check.with_value(|since: &Option<SinceCheck>| match since {
                         Some(since)
                             if since.from_len == checked.len()
-                                && since.change.len_after() == TextSize::of(current.as_str()) =>
+                                && since.change.len_after() == TextSize::of(current) =>
                         {
                             follow_diagnostics(&since.change, checked, current, &found)
                         }

@@ -65,7 +65,9 @@ pub(crate) fn call_host_with(callback: &Function, arguments: &[JsValue]) {
 pub(crate) struct State {
     /// The host's language, which `editAs` switches from.
     pub(crate) language: Language,
-    pub(crate) baseline: RwSignal<String>,
+    /// The diff baseline: the channel's copy while it is the document
+    /// (see [`shared_with`]).
+    pub(crate) baseline: RwSignal<std::sync::Arc<str>>,
     pub(crate) edit_as: RwSignal<Option<Language>>,
     pub(crate) settings: RwSignal<EditorSettings>,
     pub(crate) read_only: RwSignal<bool>,
@@ -122,8 +124,21 @@ impl State {
 }
 
 /// The latest document, outside the reactive arena: an edit saved while the
-/// editor unmounts arrives after its signals are gone.
-pub(crate) type Latest = std::sync::Arc<std::sync::Mutex<String>>;
+/// editor unmounts arrives after its signals are gone. The channel's copy
+/// when it is that text (see [`shared_with`]).
+pub(crate) type Latest = std::sync::Arc<std::sync::Mutex<std::sync::Arc<str>>>;
+
+/// `text`, the document as the host saw it last, as `latest` keeps it: the
+/// channel's own copy (the editor's document) when it is the same text, so
+/// an open editor keeps one. A host writing other line endings than the
+/// editor's LF (or one editing as another language) sees another text,
+/// kept as well.
+pub(crate) fn shared_with(channel: Option<std::sync::Arc<str>>, text: &str) -> std::sync::Arc<str> {
+    match channel {
+        Some(document) if *document == *text => document,
+        _ => std::sync::Arc::from(text),
+    }
+}
 
 /// What the component takes once, at mount.
 pub(crate) struct Setup {
@@ -142,7 +157,8 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
     let changed = move |text: String| {
         *latest
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            shared_with(state.channel(HostChannel::document), &text);
         if let Some(callback) = state.on_change.try_get_value().flatten() {
             // Its revision goes with it (the editor recorded it as sent): a
             // host passing it back with the value (`valueRevision`) has its
@@ -221,7 +237,7 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             None => web_sys::console::warn_1(&format!("config-editor: {message}").into()),
         };
     let edit_as = Signal::derive(move || state.edit_as.get());
-    let baseline = Signal::derive(move || state.baseline.get());
+    let baseline = Signal::derive(move || state.baseline.with(|baseline| baseline.to_string()));
     let settings = saving_settings(state.settings, state.saves);
     let read_only = Signal::derive(move || state.read_only.get());
     let read_only_reason = Signal::derive(move || state.read_only_reason.get());

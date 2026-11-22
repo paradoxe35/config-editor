@@ -35,7 +35,7 @@ use super::echoes::{Echo, Echoes, Handoff, Print, issue};
 use super::host_log::{HostLog, Named, Rewrite};
 use crate::editor::host_diagnostics::{DiagnosticTarget, HostDiagnostic};
 use crate::editor::paths;
-use crate::editor::text::{TextRange, TextSize, slice, text_size};
+use crate::editor::text::{TextRange, TextSize, same_or_new, slice, text_size};
 
 pub(crate) mod carry;
 
@@ -622,8 +622,9 @@ impl Link {
         true
     }
 
-    /// The editor sent `text` to the host (`on_change`): its revision.
-    pub(crate) fn sent(&mut self, text: &str) -> u64 {
+    /// The editor sent `text` to the host (`on_change`): its revision. The
+    /// log keeps that copy.
+    pub(crate) fn sent(&mut self, text: &Arc<str>) -> u64 {
         // The text sent before, if no host heard it, is no version now,
         // unless the ranges in force name it.
         self.log
@@ -677,7 +678,8 @@ impl Link {
             && self.log.named(revision) != Named::Kept
         {
             let print = self.echoes.print_sent(revision);
-            self.log.sent(revision, text, print);
+            let text = same_or_new(self.log.document(), text);
+            self.log.sent(revision, &text, print);
         }
     }
 
@@ -1040,7 +1042,8 @@ impl HostChannel {
 
     /// The editor sent the document to its host: its revision.
     pub fn sent(&self, text: &str) -> u64 {
-        self.with(|link| link.sent(text))
+        let text = same_or_new(&self.document(), text);
+        self.with(|link| link.sent(&text))
     }
 
     /// The pause after an echo left the host on an older text is over:

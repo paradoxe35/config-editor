@@ -13,7 +13,6 @@ use super::super::keyboard::replace_selection;
 use super::super::paths::FieldPath;
 use super::super::test_state::TestEditor;
 use super::tests::documents;
-use leptos::prelude::*;
 
 /// What a key press does to the line holding `b` in `/meta`.
 #[derive(Clone, Copy, Debug)]

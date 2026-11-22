@@ -245,6 +245,7 @@ fn replaced_after_an_edit(host: Language, edit: Language, items: usize) -> (usiz
     let shown = edit.serialize(&value).expect("the view's text");
     let problems = on_every_line(&host_text);
     let cache = StoredValue::new(None);
+    let host_text = std::sync::Arc::<str>::from(host_text);
     let place_on = |shown: &str| {
         let found = HostTargets::cached(cache, host.behavior(), &host_text, &problems);
         place(

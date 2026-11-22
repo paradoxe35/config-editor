@@ -41,7 +41,7 @@ pub(crate) fn Gutter(state: EditorState, rows: LineRows) -> impl IntoView {
             // As wide as the longest line number (at least three digits);
             // the stylesheet adds the marker column and the padding.
             style:--config-editor-gutter-digits=move || {
-                state.doc().text.with(|text| line_count(text)).to_string().len().max(3).to_string()
+                state.doc().text.with(line_count).to_string().len().max(3).to_string()
             }
         >
             <div

@@ -4,8 +4,6 @@
 //! READMEs' "fast" claim rests on it: a typed value saves in work linear
 //! in the document, whatever the host and view.
 
-use leptos::prelude::*;
-
 use super::switch_work::{document, mounted, schema, switch};
 use crate::editor::edit::Edit;
 use crate::editor::languages::Language;

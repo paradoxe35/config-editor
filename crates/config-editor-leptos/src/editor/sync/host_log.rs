@@ -86,7 +86,9 @@ enum Step {
 /// One document's host log (see the module).
 #[derive(Clone, Debug)]
 pub(crate) struct HostLog {
-    /// The newest text: the document as the log knows it.
+    /// The newest text: the document as the log knows it. The editor's
+    /// copy while an editor shows it (see [`HostLog::share`]); its own only
+    /// while no editor does (a binding keeps the record between editors).
     document: Arc<str>,
     /// The versions kept, oldest first; never empty.
     versions: VecDeque<Version>,
@@ -137,6 +139,14 @@ impl HostLog {
     /// The document as the log knows it.
     pub(crate) fn document(&self) -> &Arc<str> {
         &self.document
+    }
+
+    /// Takes `text` as the document when it is that text: the editor's
+    /// copy, so the log keeps none of its own.
+    pub(crate) fn share(&mut self, text: &Arc<str>) {
+        if !Arc::ptr_eq(&self.document, text) && *self.document == **text {
+            self.document = text.clone();
+        }
     }
 
     /// The revision of the host's text now: the newest version.
@@ -306,15 +316,18 @@ impl HostLog {
     }
 
     /// `text` was sent to the host at `revision` (printed `print`, when the
-    /// echo engine read it): the document is that version now.
-    pub(crate) fn sent(&mut self, revision: u64, text: &str, print: Option<Print>) {
+    /// echo engine read it): the document is that version now, the copy
+    /// the editor sent (the host's text's).
+    pub(crate) fn sent(&mut self, revision: u64, text: &Arc<str>, print: Option<Print>) {
         self.unheard = None;
-        if *self.document != *text {
+        if *self.document != **text {
             if self.is_newest(text) {
                 self.sent_again(revision, print);
                 return;
             }
-            self.rewritten(&Arc::from(text));
+            self.rewritten(text);
+        } else {
+            self.share(text);
         }
         self.versions.push_back(Version {
             revision,

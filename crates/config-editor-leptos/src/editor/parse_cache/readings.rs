@@ -24,6 +24,7 @@
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use super::super::work_count::{Work, note_many};
 
@@ -35,7 +36,7 @@ const KEPT: usize = 2;
 /// reading.
 struct Entry {
     kind: TypeId,
-    text: Rc<str>,
+    text: Arc<str>,
     key: Box<dyn Any>,
     value: Rc<dyn Any>,
 }
@@ -80,16 +81,14 @@ pub(crate) fn reading<T: 'static, K: PartialEq + 'static>(
 /// Keeps `value` as the reading of type `T` of `text` at `key`.
 fn keep<T: 'static, K: PartialEq + 'static>(text: &str, key: K, value: Rc<T>) {
     let kind = TypeId::of::<T>();
+    // One copy of a text for all its readings, the editor's when it is
+    // its document.
+    let text = super::key(text);
     READINGS.with(|readings| {
         let mut readings = readings.borrow_mut();
-        // One copy of a text for all its readings.
-        let shared = readings
-            .iter()
-            .find(|entry| *entry.text == *text)
-            .map(|entry| Rc::clone(&entry.text));
         let entry = Entry {
             kind,
-            text: shared.unwrap_or_else(|| Rc::from(text)),
+            text,
             key: Box::new(key),
             value,
         };
@@ -100,6 +99,28 @@ fn keep<T: 'static, K: PartialEq + 'static>(text: &str, key: K, value: Rc<T>) {
             entry.kind != kind || of_kind <= KEPT
         });
     });
+}
+
+/// Gives each reading's text to `adopt` (which may share another copy).
+pub(super) fn adopt(adopt: &dyn Fn(&mut Arc<str>)) {
+    READINGS.with(|readings| {
+        readings
+            .borrow_mut()
+            .iter_mut()
+            .for_each(|entry| adopt(&mut entry.text));
+    });
+}
+
+/// The copy of `text` a reading keeps, when one does.
+pub(super) fn shared(text: &str) -> Option<Arc<str>> {
+    READINGS.with(|readings| {
+        readings
+            .try_borrow()
+            .ok()?
+            .iter()
+            .find(|entry| *entry.text == *text)
+            .map(|entry| Arc::clone(&entry.text))
+    })
 }
 
 /// Drops every reading (the last editor unmounted; a test measuring

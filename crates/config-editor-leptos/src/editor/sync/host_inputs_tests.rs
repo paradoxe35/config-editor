@@ -34,7 +34,7 @@ fn typed(link: &mut Link, start: u32, end: u32, text: &str) -> String {
 /// The user typed, and the editor sent the document: its revision.
 fn typed_and_sent(link: &mut Link, start: u32, end: u32, text: &str) -> (String, u64) {
     let document = typed(link, start, end, text);
-    let revision = link.sent(&document);
+    let revision = link.sent(&std::sync::Arc::from(document.as_str()));
     (document, revision)
 }
 

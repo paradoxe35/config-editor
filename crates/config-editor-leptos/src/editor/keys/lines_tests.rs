@@ -2,8 +2,6 @@
 //! stays closed, and so it is again when the move is undone and redone (undo
 //! used to restore the text with the fold open).
 
-use leptos::prelude::*;
-
 use super::super::fold_ranges::FoldRange;
 use super::super::languages::Language;
 use super::super::test_state::TestEditor;

@@ -370,7 +370,7 @@ impl<'r, 'a> Placer<'r, 'a> {
             || !self.reading.sources.range_fields.is_empty();
         let new_ranges = before.ranges != super::range_stretches(ranges)
             || before.range_fields != self.reading.sources.range_fields;
-        if (before.text == self.reading.text && new_ranges) || !any_range {
+        if (*before.text == *self.reading.text && new_ranges) || !any_range {
             return Vec::new();
         }
         // Its lock, followed here, inside a host range now (not one the

@@ -53,7 +53,7 @@ impl SourceArea {
         self.state.view().projection.with_untracked(|projection| {
             self.state.doc().text.with_untracked(|doc| {
                 if projection.view(doc) == current {
-                    doc.clone()
+                    doc.to_string()
                 } else {
                     projection.unproject(doc, &current, Self::byte_in(&current, caret))
                 }
@@ -95,7 +95,7 @@ impl SourceArea {
     /// The textarea's offset of byte `at` of the document.
     fn view_offset(&self, at: TextSize) -> u32 {
         let units = self.state.doc().text.with_untracked(|doc| {
-            let at = at.min(TextSize::of(doc.as_str()));
+            let at = at.min(TextSize::of(doc));
             super::paths::units_at(doc, at)
         });
         self.to_view(units)

@@ -6,6 +6,7 @@ use super::highlight::spanning::{LineStart, Spanning, tokens_after};
 use super::highlight::{Token, TokenKind, Tokens};
 use super::languages::Language;
 use super::protect::ProtectState;
+use crate::editor::text::SharedText;
 use crate::reactive::{Fanout, notify};
 use leptos::prelude::*;
 use std::ops::Range;
@@ -28,7 +29,7 @@ pub(super) struct RenderedLine {
 /// protected-text marks. Made again in place: after a keystroke only the
 /// lines it changed are new.
 pub(super) fn rendered_lines(
-    text: RwSignal<String>,
+    text: SharedText,
     diagnostics: Memo<Vec<Diagnostic>>,
     protect: ProtectState,
     strings: Memo<crate::EditorStrings>,

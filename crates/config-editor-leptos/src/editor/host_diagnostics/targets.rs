@@ -40,7 +40,8 @@ pub(super) enum Target {
 /// with the host text and the problems they were found for.
 pub(in crate::editor) struct HostTargets {
     language: &'static str,
-    text: String,
+    /// The host's text's copy (see `HostTargets::cached`).
+    text: Arc<str>,
     problems: Vec<HostDiagnostic>,
     targets: Vec<Target>,
 }
@@ -48,16 +49,30 @@ pub(in crate::editor) struct HostTargets {
 impl HostTargets {
     /// The targets of `problems`, their ranges counted in `host`'s `text`
     /// (every range's field found in one read of it).
+    #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "the tests that use it need languages a build may leave out"
+    )]
     pub(in crate::editor) fn new(
         host: &'static dyn ConfigLanguage,
         text: &str,
         problems: &[HostDiagnostic],
     ) -> Self {
+        Self::of_shared(host, Arc::from(text), problems)
+    }
+
+    /// [`HostTargets::new`] for a text the editor holds: its copy, shared.
+    fn of_shared(
+        host: &'static dyn ConfigLanguage,
+        text: Arc<str>,
+        problems: &[HostDiagnostic],
+    ) -> Self {
         HostTargets {
             language: host.info().label,
-            text: text.to_string(),
+            targets: resolve(host, &text, problems),
+            text,
             problems: problems.to_vec(),
-            targets: resolve(host, text, problems),
         }
     }
 
@@ -79,19 +94,19 @@ impl HostTargets {
     pub(in crate::editor) fn cached(
         cache: StoredValue<Option<Arc<HostTargets>>>,
         host: &'static dyn ConfigLanguage,
-        text: &str,
+        text: &Arc<str>,
         problems: &[HostDiagnostic],
     ) -> Arc<HostTargets> {
         let label = host.info().label;
         let kept = cache.with_value(|kept| {
             kept.as_ref()
                 .filter(|kept| {
-                    kept.language == label && kept.text == text && kept.problems == problems
+                    kept.language == label && *kept.text == **text && kept.problems == problems
                 })
                 .cloned()
         });
         kept.unwrap_or_else(|| {
-            let found = Arc::new(HostTargets::new(host, text, problems));
+            let found = Arc::new(HostTargets::of_shared(host, text.clone(), problems));
             cache.set_value(Some(Arc::clone(&found)));
             found
         })

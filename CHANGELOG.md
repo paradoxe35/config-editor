@@ -68,6 +68,12 @@ versions move together.
   345–468 ms, the demo's release build). The switch no longer parses the
   host's text again, and each check of a text finds the secret
   placeholders written in it in one pass, not one pass for each.
+- An open editor keeps one copy of its text in memory, not 16: the
+  document, the host's text, the value `value` answers with, the textarea's
+  value, the baseline, the locks and the parses kept share it. Typed in, it
+  keeps two (the text and the baseline it is compared with), not 19. On a
+  400 KB file that is about 0.8 MB of wasm memory instead of 7.6 MB.
+  Editing as another language keeps one copy of each of the two texts.
 
 ### Syntax messages say what they quote
 

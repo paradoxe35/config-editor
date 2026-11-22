@@ -24,7 +24,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
             && (!touch || settings.auto_trigger.get())
     };
     let line_total = move || {
-        let count = state.doc().text.with(|text| line_count(text));
+        let count = state.doc().text.with(line_count);
         state.strings(|strings| counted(&strings.lines_one, &strings.lines_other, count))
     };
     view! {

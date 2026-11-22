@@ -201,7 +201,7 @@ impl EditMade<'_> {
     /// Whether the edit replaced text inside the stretch `(start, end)` of
     /// the text before, or next to it with only whitespace between.
     fn beside(&self, (start, end): (TextSize, TextSize)) -> bool {
-        let text = self.before.text.as_str();
+        let text: &str = &self.before.text;
         let blank = |from: TextSize, to: TextSize| {
             slice::slice(text, TextRange::new(from, to))
                 .is_some_and(|between| between.chars().all(char::is_whitespace))
@@ -218,7 +218,7 @@ impl EditMade<'_> {
     /// again: the language reads a key in the text after that one of the
     /// edit's pieces wrote whole, with the same text.
     fn writes_again(&self, keys: &[&TextRange]) -> bool {
-        let before = self.before.text.as_str();
+        let before: &str = &self.before.text;
         let names: Vec<&str> = keys
             .iter()
             .filter_map(|key| slice::slice(before, **key))

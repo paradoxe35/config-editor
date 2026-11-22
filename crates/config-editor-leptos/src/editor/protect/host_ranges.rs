@@ -23,20 +23,33 @@ use super::save::range_pointers;
 use crate::editor::paths;
 use crate::editor::work_count::{Work, note};
 
-/// A host text and the host's ranges in it.
+/// The host's ranges and the host text they are in. With none, no text is
+/// kept: no range needs following. With some, the text is kept as the one
+/// they were placed in, which the host's next text (a conversion back) is
+/// not: that is what they are followed from.
 #[derive(Clone, Copy)]
 pub(super) struct HostRanges(StoredValue<(String, Vec<TextRange>)>);
+
+/// `text` as kept with `ranges`: nothing when there are none.
+fn kept(text: &str, ranges: &[TextRange]) -> String {
+    if ranges.is_empty() {
+        String::new()
+    } else {
+        text.to_string()
+    }
+}
 
 impl HostRanges {
     /// `ranges` placed in `host`.
     pub(super) fn new(host: &str, ranges: &[paths::TextRange]) -> Self {
-        HostRanges(StoredValue::new((host.to_string(), offsets(host, ranges))))
+        let ranges = offsets(host, ranges);
+        HostRanges(StoredValue::new((kept(host, &ranges), ranges)))
     }
 
     /// Takes `ranges`, already followed into `text` (the host's language on
     /// screen, left for another).
     pub(super) fn keep(self, text: &str, ranges: Vec<TextRange>) {
-        self.0.set_value((text.to_string(), ranges));
+        self.0.set_value((kept(text, &ranges), ranges));
     }
 
     /// The ranges in `host` (written in `behavior`, read with `reading`),
@@ -56,7 +69,7 @@ impl HostRanges {
         });
         match followed {
             Some(ranges) => {
-                self.0.set_value((host.to_string(), ranges.clone()));
+                self.0.set_value((kept(host, &ranges), ranges.clone()));
                 ranges
             }
             None => self.0.with_value(|(_, ranges)| ranges.clone()),

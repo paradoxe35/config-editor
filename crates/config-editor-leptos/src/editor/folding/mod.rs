@@ -54,6 +54,7 @@ mod switch_tests;
 pub(super) use components::mount_fold_layers;
 pub(super) use keys::{chord_key, shortcuts, unfold_before_edit};
 
+use crate::editor::text::SharedText;
 use leptos::prelude::*;
 
 use super::fold_ranges::FoldRange;
@@ -80,7 +81,7 @@ impl FoldState {
     /// `enabled` off (the `folding` setting) nothing can fold; the blocks
     /// are read while it or `sticky` (the `sticky_scroll` setting) is on.
     pub(crate) fn new(
-        text: RwSignal<String>,
+        text: SharedText,
         edit_language: RwSignal<super::languages::Language>,
         enabled: Memo<bool>,
         sticky: Memo<bool>,

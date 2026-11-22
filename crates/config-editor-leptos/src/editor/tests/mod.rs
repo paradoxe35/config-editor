@@ -446,6 +446,8 @@ mod switch_caret;
     feature = "xml"
 ))]
 mod switch_work;
+#[cfg(feature = "yaml")]
+mod text_copies;
 #[cfg(all(
     feature = "schema-validation",
     feature = "yaml",

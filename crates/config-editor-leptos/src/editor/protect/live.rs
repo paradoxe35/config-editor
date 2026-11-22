@@ -2,6 +2,7 @@
 //! (kept by a memo), the check every edit passes, and the tooltip saying
 //! why one was refused.
 
+use crate::editor::text::SharedText;
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -57,31 +58,37 @@ pub(crate) struct Marks {
     /// it (see `locks::Sources::caret` and `change`).
     followed: Option<Followed>,
     /// The locks the guard found for the text of the edit it took (see
-    /// `guard::judge`): the memo of locks takes them for that text instead
-    /// of finding them again, so the editor holds the spans as judged.
-    foreseen: Option<(String, Protected)>,
+    /// `guard::judge`), with the document version it was made on: the
+    /// memo of locks takes them for that text instead of finding them
+    /// again, so the editor holds the spans as judged.
+    foreseen: Option<(u64, Protected)>,
+    /// The document version the locks were last found in.
+    found_in: Option<u64>,
     /// Every token the host gave since the editor was made (see
     /// `own_placeholders`).
     pub(crate) given: std::collections::HashSet<String>,
 }
 
-/// An edit the locks follow: the text it was made on and the text it made,
-/// the caret it left there (none for an undo or redo) and what it
-/// recorded it did (`Edit::change`). It moves only the locks of
-/// its text before into its text after: locks found again on the text
-/// after (new paths or ranges from the host) are already where they are.
+/// An edit the locks follow: the document versions it was made on and
+/// made (see `DocState::version`: which text, without keeping it), the
+/// caret it left there (none for an undo or redo) and what it recorded it
+/// did (`Edit::change`). It moves only the locks of its text before into
+/// its text after: locks found again on the text after (new paths or
+/// ranges from the host) are already where they are.
 #[derive(Clone)]
 struct Followed {
-    before: Arc<str>,
-    after: Arc<str>,
+    before: u64,
+    /// Set once the edit is written (see [`EditorState::edit_written`]).
+    after: Option<u64>,
     caret: Option<TextSize>,
     change: Option<Arc<Change>>,
 }
 
 impl Followed {
-    /// Whether this edit made `text` from the text `previous` was found in.
-    fn made(&self, previous: Option<&Protected>, text: &str) -> bool {
-        *self.after == *text && previous.is_some_and(|previous| *self.before == *previous.text)
+    /// Whether this edit made the document at version `now` from the one
+    /// at `found_in`, the version the locks before were found in.
+    fn made(&self, found_in: Option<u64>, now: u64) -> bool {
+        found_in == Some(self.before) && self.after == Some(now)
     }
 }
 
@@ -123,13 +130,15 @@ pub(crate) struct ProtectState {
 
 /// What the memo of locks reads.
 pub(crate) struct Inputs {
-    pub(crate) source: RwSignal<String>,
+    pub(crate) source: SharedText,
     pub(crate) edit_language: RwSignal<Language>,
     pub(crate) host_language: Language,
     pub(crate) schema: Option<Arc<SchemaBundle>>,
     pub(crate) host_text: super::super::sync::HostTextReader,
     pub(crate) popups: PopupState,
     pub(crate) channel: HostChannel,
+    /// Which text the document is (see `DocState::version`).
+    pub(crate) version: StoredValue<u64>,
 }
 
 impl ProtectState {
@@ -149,6 +158,7 @@ impl ProtectState {
             host_text,
             popups: inputs_popups,
             channel,
+            version,
         } = inputs;
         let secrets = host_text.with_value(|host| {
             source.with_untracked(|shown| {
@@ -210,9 +220,16 @@ impl ProtectState {
                     Vec::new()
                 };
                 source.with(|text| {
+                    // The document's copy, which the locks keep.
+                    let copy = source.shared_untracked();
+                    let now = version.get_value();
+                    let found_in = marks
+                        .try_update_value(|marks| marks.found_in.replace(now))
+                        .flatten()
+                        .filter(|_| previous.is_some());
                     let followed = marks
                         .with_value(|marks| marks.followed.clone())
-                        .filter(|followed| followed.made(previous, text));
+                        .filter(|followed| followed.made(found_in, now));
                     let caret = followed.as_ref().and_then(|followed| followed.caret);
                     let change = followed
                         .as_ref()
@@ -220,8 +237,8 @@ impl ProtectState {
                     // Taken only for the text it was found for: the memo may
                     // run between the check and the write (the host's
                     // ranges followed first), on the text before.
-                    let fits = |(before, foreseen): &(String, Protected)| {
-                        previous.is_some_and(|previous| previous.text == *before)
+                    let fits = |(before, foreseen): &(u64, Protected)| {
+                        found_in == Some(*before)
                             && foreseen_fits(foreseen, previous, text, &fields, &local_ranges)
                             && foreseen.range_fields == range_fields
                             && foreseen.marking == marking.is_some()
@@ -238,6 +255,10 @@ impl ProtectState {
                         .flatten();
                     if let Some((_, mut protected)) = foreseen {
                         protected.epoch = epoch;
+                        // The document's copy of the text judged.
+                        if *protected.text == *copy {
+                            protected.text = copy.clone();
+                        }
                         return Arc::new(protected);
                     }
                     let mut protected = protect(
@@ -252,6 +273,7 @@ impl ProtectState {
                             previous,
                             caret,
                             change: change.as_deref(),
+                            copy: Some(&copy),
                         },
                     );
                     protected.epoch = epoch;
@@ -564,7 +586,7 @@ fn foreseen_fits(
         .flat_map(|lock| lock.ranges.iter().copied())
         .collect();
     let wanted: Vec<&TextRange> = ranges.iter().filter(|range| !range.is_empty()).collect();
-    foreseen.text == text
+    *foreseen.text == *text
         && foreseen.origin == previous.origin
         && foreseen.paths.len() == paths.len()
         && foreseen
@@ -704,7 +726,8 @@ impl EditorState {
             .map_err(|blocked: Blocked| {
                 self.strings_untracked(|strings| blocked.message(strings))
             })?;
-        let foreseen = followed.map(|followed| (edit.before.clone(), followed));
+        let before = self.doc().version.get_value();
+        let foreseen = followed.map(|followed| (before, followed));
         self.protect()
             .marks
             .update_value(|marks| marks.foreseen = foreseen);
@@ -829,11 +852,12 @@ impl EditorState {
         let (before, after) = (edit.before.as_str(), edit.text.as_str());
         let caret = edit.caret();
         let change = edit.change().map(Arc::new);
-        let (shared_before, shared_after) = (Arc::<str>::from(before), Arc::<str>::from(after));
+        // Before the write: the document is the text before.
+        let version = self.doc().version.get_value();
         self.protect().marks.update_value(|marks| {
             marks.followed = Some(Followed {
-                before: shared_before,
-                after: shared_after,
+                before: version,
+                after: None,
                 caret: edit.written_end(),
                 change: change.clone(),
             });
@@ -1137,6 +1161,7 @@ impl EditorState {
                     previous: None,
                     caret: None,
                     change: None,
+                    copy: None,
                 },
             );
             check_save(behavior, reading, old, new, &pointers)?;
@@ -1219,5 +1244,20 @@ impl EditorState {
         };
         self.protect().popups.hover_lock(message.clone(), offset);
         Some(message)
+    }
+}
+
+impl EditorState {
+    /// The edit pipeline wrote an edit's text: the edit followed last made
+    /// the document's version now, unless one was written since.
+    pub(crate) fn edit_written(&self) {
+        let now = self.doc().version.get_value();
+        self.protect().marks.update_value(|marks| {
+            if let Some(followed) = marks.followed.as_mut()
+                && followed.after.is_none()
+            {
+                followed.after = Some(now);
+            }
+        });
     }
 }

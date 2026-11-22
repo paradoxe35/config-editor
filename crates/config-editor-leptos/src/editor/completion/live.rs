@@ -2,6 +2,7 @@
 //! while it is asked for), accepting one, and the value slots and stops an
 //! accepted block leaves for Tab.
 
+use crate::editor::text::SharedText;
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -65,7 +66,7 @@ pub(crate) struct SuggestionPlace<'a> {
 
 /// What the list is computed from.
 pub(crate) struct Sources {
-    pub(crate) text: RwSignal<String>,
+    pub(crate) text: SharedText,
     pub(crate) caret: RwSignal<TextSize>,
     pub(crate) edit_language: RwSignal<Language>,
     pub(crate) schema: Option<Arc<SchemaBundle>>,

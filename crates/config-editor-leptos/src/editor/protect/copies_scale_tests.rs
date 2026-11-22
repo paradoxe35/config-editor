@@ -70,7 +70,7 @@ fn work(language: Language, copies: usize) -> Vec<usize> {
             false,
         );
         undo(state);
-        let end = state.doc().text.with_untracked(String::len);
+        let end = state.doc().text.with_untracked(str::len);
         paste(state, end..end, &one);
         undo(state);
         let other = if language == Language::JSON {

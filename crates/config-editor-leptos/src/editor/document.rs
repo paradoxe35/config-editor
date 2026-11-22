@@ -2,6 +2,7 @@
 //! undo history, and the indent unit. Edits reach the text only through
 //! the edit pipeline (see `edit`).
 
+use crate::editor::text::SharedText;
 use leptos::prelude::*;
 
 use super::commands::{indent_unit, offset_at};
@@ -20,8 +21,10 @@ use super::text::{TextSize, slice, text_size};
 #[derive(Clone, Copy)]
 pub(super) struct DocState {
     /// The text on screen, in the edit language, with every line (the
-    /// textarea leaves out folded ones, see `folding`).
-    pub(super) text: RwSignal<String>,
+    /// textarea leaves out folded ones, see `folding`): the one copy the
+    /// host's text, the host log and validation share while they hold the
+    /// same text.
+    pub(super) text: SharedText,
     /// The caret's byte offset in `text`.
     pub(super) caret: RwSignal<TextSize>,
     /// The caret's line, 1-based.
@@ -48,8 +51,10 @@ pub(super) struct DocState {
 
 impl DocState {
     /// The document `shown` (in `edit_language`), the caret at its start.
-    pub(super) fn new(shown: &str, edit_language: RwSignal<Language>) -> Self {
-        let text = RwSignal::new(shown.to_string());
+    pub(super) fn new(shown: std::sync::Arc<str>, edit_language: RwSignal<Language>) -> Self {
+        let indent = indent_unit(&shown);
+        super::parse_cache::document(&shown);
+        let text = SharedText::new(shown);
         let caret = RwSignal::new(TextSize::default());
         let caret_path = Memo::new(move |_| {
             let behavior = edit_language.get().behavior();
@@ -67,7 +72,7 @@ impl DocState {
             current_line: RwSignal::new(1),
             history: RwSignal::new(EditHistory::default()),
             version: StoredValue::new(0),
-            indent: StoredValue::new(indent_unit(shown)),
+            indent: StoredValue::new(indent),
             caret_path,
             spans: StoredValue::new_local(KeptSpans::default()),
             readings: Readings::new(),
@@ -78,7 +83,7 @@ impl DocState {
 impl EditorState {
     /// Detects the indent unit again, for a document loaded or replaced.
     pub(super) fn redetect_indent(&self) {
-        let unit = self.doc().text.with_untracked(|text| indent_unit(text));
+        let unit = self.doc().text.with_untracked(indent_unit);
         self.doc().indent.set_value(unit);
     }
 
@@ -91,7 +96,7 @@ impl EditorState {
         self.doc()
             .current_line
             .set(self.doc().text.with_untracked(|text| {
-                let before = slice::before(text, offset.min(TextSize::of(text.as_str())));
+                let before = slice::before(text, offset.min(TextSize::of(text)));
                 before
                     .unwrap_or(text)
                     .bytes()

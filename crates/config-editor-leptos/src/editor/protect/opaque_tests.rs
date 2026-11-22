@@ -7,8 +7,6 @@
 
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
-use leptos::prelude::*;
-
 use super::super::Language;
 use super::super::save_matrix::{ALL, report, save_value};
 use super::guarantee_tests::{

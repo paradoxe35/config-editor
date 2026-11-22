@@ -572,8 +572,6 @@ fn a_cut_of_a_list_key_copied_above_its_held_item_is_taken() {
 /// in a declared language and in XML.
 #[test]
 fn of_a_range_line_and_its_copy_only_the_copy_takes_an_entry() {
-    use leptos::prelude::*;
-
     use super::mount::mount;
     use crate::editor::edit::Edit;
 

@@ -113,8 +113,9 @@ pub(crate) struct Protected {
     /// with their reasons: still located while the text does not parse.
     pub(crate) marked: Vec<(String, Reason)>,
     /// The text the locks were found in, to move them through an edit that
-    /// leaves the next text unparseable.
-    pub(crate) text: String,
+    /// leaves the next text unparseable: the document's copy (see
+    /// `Sources::copy`).
+    pub(crate) text: Arc<str>,
     /// Which text from the host the locks follow (see
     /// `ProtectState::trust_text`): pins are carried only within one.
     pub(crate) epoch: u64,
@@ -198,6 +199,20 @@ pub(crate) struct Sources<'a> {
     /// What that edit recorded it did, when it did: the locks are
     /// moved through it.
     pub(crate) change: Option<&'a Change>,
+    /// The document's copy of the text, when it is the document: the locks
+    /// keep that one, not a copy of their own.
+    pub(crate) copy: Option<&'a Arc<str>>,
+}
+
+impl Sources<'_> {
+    /// `text` as the locks keep it: the document's copy when it is that
+    /// text.
+    fn kept(&self, text: &str) -> Arc<str> {
+        match self.copy {
+            Some(copy) if **copy == *text => copy.clone(),
+            _ => Arc::from(text),
+        }
+    }
 }
 
 /// The locks of `text`, written in `behavior`: the host's ranges, then each
@@ -216,7 +231,7 @@ pub(crate) fn protect(
     let origin = sources
         .previous
         .and_then(|previous| previous.origin.clone())
-        .or_else(|| Some(Arc::from(text)));
+        .or_else(|| Some(sources.kept(text)));
     let mut protected = Protected {
         locks: range_locks(text, sources.ranges),
         origin,
@@ -311,7 +326,7 @@ pub(crate) fn protect(
     protected.marking = sources.marking_schema.is_some();
     protected.ranges = range_stretches(&protected.locks);
     protected.range_fields = sources.range_fields.to_vec();
-    protected.text = text.to_string();
+    protected.text = sources.kept(text);
     protected
 }
 
@@ -328,7 +343,7 @@ fn carried_past(
     let previous = sources.previous?;
     // Back to the host's own text, nothing held is carried: it is read.
     let hosts_own = !previous.held.is_empty() && previous.origin.as_deref() == Some(text);
-    if !same_sources(previous, sources) || previous.text == text || hosts_own {
+    if !same_sources(previous, sources) || *previous.text == *text || hosts_own {
         return None;
     }
     let shift = out_of_reach(behavior, previous, &previous.text, text)?;
@@ -358,7 +373,7 @@ fn carried_past(
         secret: previous.secret.clone(),
         pins: previous.pins.clone(),
         marked: previous.marked.clone(),
-        text: text.to_string(),
+        text: sources.kept(text),
         epoch: previous.epoch,
         held: previous.held.clone(),
         origin: previous.origin.clone(),

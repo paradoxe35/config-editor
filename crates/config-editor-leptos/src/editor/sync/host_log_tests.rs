@@ -287,7 +287,7 @@ fn step(rng: &mut Rng, log: &mut HostLog, model: &mut Model) {
         }
         12..=15 => {
             let revision = issue();
-            log.sent(revision, &string(&model.document), None);
+            log.sent(revision, &Arc::from(string(&model.document)), None);
             model.versions.push((revision, model.document.clone()));
         }
         16 => {
@@ -298,7 +298,7 @@ fn step(rng: &mut Rng, log: &mut HostLog, model: &mut Model) {
                 newest = model.document.clone();
             }
             let revision = issue();
-            log.sent(revision, &string(&newest), None);
+            log.sent(revision, &Arc::from(string(&newest)), None);
             model.versions.push((revision, newest));
         }
         17..=18 => {

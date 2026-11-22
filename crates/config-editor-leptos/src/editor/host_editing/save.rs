@@ -82,11 +82,11 @@ impl EditorState {
     /// screen; just focuses the editor without either.
     fn show_conversion_problem(&self) {
         // Checked now, not after the typing pause, so the message is there.
-        let text = self.doc().text.get_untracked();
+        let text = self.doc().text.shared_untracked();
         if self
             .problems()
             .diagnosed_text
-            .with_untracked(|checked| *checked != text)
+            .with_untracked(|checked| *checked != *text)
         {
             self.problems().diagnosed_text.set(text.clone());
         }

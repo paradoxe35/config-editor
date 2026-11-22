@@ -1,6 +1,7 @@
 //! The change commands on the live editor: revert one, move to the next or
 //! previous, and report the count to the host.
 
+use crate::editor::text::SharedText;
 use leptos::prelude::*;
 
 use super::super::change_summary::ChangeSummary;
@@ -30,8 +31,8 @@ impl ChangesState {
     /// The changes of `text` against `baseline` (as shown); with `enabled`
     /// off (the `show_diff` setting) there are none.
     pub(in crate::editor) fn new(
-        text: RwSignal<String>,
-        baseline: Memo<String>,
+        text: SharedText,
+        baseline: Memo<std::sync::Arc<str>>,
         enabled: Memo<bool>,
         readings: Readings,
     ) -> Self {

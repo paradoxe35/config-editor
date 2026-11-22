@@ -3,8 +3,6 @@
 //! them with `--ignored`); a fix removes the `#[ignore]` and the class's
 //! entry in `known`.
 
-use leptos::prelude::*;
-
 use super::actions::Action::*;
 use crate::editor::keys::line_edit::LineCommand;
 use crate::editor::keys::lines::{Command, run_units as run};

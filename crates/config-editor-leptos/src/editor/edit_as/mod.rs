@@ -51,6 +51,7 @@ mod untouched_tests;
 pub(super) use notice::NoticeReasons;
 pub(super) use problems::{EditAsProblem, EditAsText, SaveError};
 
+use crate::editor::text::SharedText;
 use leptos::prelude::*;
 
 use super::languages::Language;
@@ -71,7 +72,7 @@ impl EditAsState {
     pub(super) fn new(
         host_language: Language,
         edit_language: RwSignal<Language>,
-        diagnosed_text: RwSignal<String>,
+        diagnosed_text: SharedText,
         host_text: super::sync::HostTextReader,
     ) -> Self {
         let reasons = Memo::new(move |_| {

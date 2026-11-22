@@ -36,7 +36,7 @@ impl EditorState {
         match decision {
             BaselineDecision::Unchanged | BaselineDecision::Take => {
                 if decision == BaselineDecision::Take {
-                    editing.baseline.set(new);
+                    editing.baseline.set(self.copy_of(&new));
                 }
                 if pending.is_some() {
                     self.close_conflict(BaselineConflict::Settled);
@@ -99,7 +99,7 @@ impl EditorState {
         let Some(pending) = self.editing().conflict.get_untracked() else {
             return;
         };
-        self.editing().baseline.set(pending.host);
+        self.editing().baseline.set(self.copy_of(&pending.host));
         self.close_conflict(BaselineConflict::KeptMine);
     }
 
@@ -189,7 +189,7 @@ pub(super) fn settle_when_text_matches(state: EditorState) {
         if matches {
             untrack(|| {
                 if let Some(pending) = state.editing().conflict.get_untracked() {
-                    state.editing().baseline.set(pending.host);
+                    state.editing().baseline.set(state.copy_of(&pending.host));
                     state.close_conflict(BaselineConflict::Settled);
                 }
             });

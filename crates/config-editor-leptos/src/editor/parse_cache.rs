@@ -24,6 +24,7 @@
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -52,18 +53,18 @@ pub(crate) use readings::reading;
 const PARSES_KEPT: usize = 2;
 
 /// A parse: the language's label (its identity), the text and the result.
-type Entry = (&'static str, String, Rc<Result<Value, ParseError>>);
+type Entry = (&'static str, Arc<str>, Rc<Result<Value, ParseError>>);
 
 /// String bodies: the language's label, the text and its body lines.
-type Bodies = (&'static str, String, Rc<Vec<Range<usize>>>);
+type Bodies = (&'static str, Arc<str>, Rc<Vec<Range<usize>>>);
 
 /// A reading at the caret: the language's label, the text, the caret and
 /// what was read there.
-type Place<T> = RefCell<Option<(&'static str, String, usize, T)>>;
+type Place<T> = RefCell<Option<(&'static str, Arc<str>, usize, T)>>;
 
 /// A line's path: the language's label, the text, the line's first UTF-16
 /// offset and the path.
-type LinePath = (&'static str, String, TextSize, Option<String>);
+type LinePath = (&'static str, Arc<str>, TextSize, Option<String>);
 
 /// How many line paths are kept: the text an edit was made on and the one
 /// it made.
@@ -78,6 +79,122 @@ thread_local! {
     static LINE_PATHS: RefCell<Vec<LinePath>> = const { RefCell::new(Vec::new()) };
     /// The editors mounted.
     static HOLDERS: Cell<usize> = const { Cell::new(0) };
+    /// The document an editor wrote last, and the host's text it stands
+    /// for (see [`document`]).
+    static DOCUMENT: RefCell<[Option<Arc<str>>; 2]> = const { RefCell::new([None, None]) };
+}
+
+/// `text`, the document an editor wrote, while one is mounted: what is
+/// kept for that text shares the editor's copy instead of making one (see
+/// [`key`]).
+pub(crate) fn document(text: &Arc<str>) {
+    known(0, text);
+}
+
+/// `text`, the host's text an editor holds (another than the document
+/// while editing as another language): as [`document`].
+pub(crate) fn host_text(text: &Arc<str>) {
+    known(1, text);
+}
+
+fn known(slot: usize, text: &Arc<str>) {
+    if HOLDERS.with(Cell::get) == 0 {
+        return;
+    }
+    DOCUMENT.with(|known| known.borrow_mut()[slot] = Some(Arc::clone(text)));
+    adopt(text);
+}
+
+/// The keys that are `text` take that copy (read before the editor held
+/// it: its host text, parsed to be shown in another language).
+pub(crate) fn adopt(text: &Arc<str>) {
+    if HOLDERS.with(Cell::get) == 0 {
+        return;
+    }
+    let adopt = |held: &mut Arc<str>| {
+        if !Arc::ptr_eq(held, text) && **held == **text {
+            *held = Arc::clone(text);
+        }
+    };
+    LAST.with(|last| {
+        last.borrow_mut()
+            .iter_mut()
+            .for_each(|entry| adopt(&mut entry.1))
+    });
+    BODIES.with(|last| {
+        last.borrow_mut()
+            .iter_mut()
+            .for_each(|entry| adopt(&mut entry.1))
+    });
+    LINE_PATHS.with(|kept| {
+        kept.borrow_mut()
+            .iter_mut()
+            .for_each(|entry| adopt(&mut entry.1))
+    });
+    CONTEXT.with(|last| {
+        last.borrow_mut()
+            .iter_mut()
+            .for_each(|entry| adopt(&mut entry.1))
+    });
+    LEXICAL.with(|last| {
+        last.borrow_mut()
+            .iter_mut()
+            .for_each(|entry| adopt(&mut entry.1))
+    });
+    readings::adopt(&adopt);
+    conformed::adopt(&adopt);
+}
+
+/// `text` as a key of what is kept: the editor's document, or a text kept
+/// already, when it is that text (compared), else a copy. One copy of a
+/// text, however many readings of it are kept.
+pub(super) fn key(text: &str) -> Arc<str> {
+    let same = |held: &Arc<str>| (**held == *text).then(|| Arc::clone(held));
+    let found = DOCUMENT
+        .with(|known| known.try_borrow().ok()?.iter().flatten().find_map(same))
+        .or_else(|| {
+            LAST.with(|last| {
+                last.try_borrow()
+                    .ok()?
+                    .iter()
+                    .find_map(|entry| same(&entry.1))
+            })
+        })
+        .or_else(|| {
+            BODIES.with(|last| {
+                last.try_borrow()
+                    .ok()?
+                    .as_ref()
+                    .and_then(|entry| same(&entry.1))
+            })
+        })
+        .or_else(|| {
+            LINE_PATHS.with(|kept| {
+                kept.try_borrow()
+                    .ok()?
+                    .iter()
+                    .find_map(|entry| same(&entry.1))
+            })
+        })
+        .or_else(|| {
+            CONTEXT.with(|last| {
+                last.try_borrow()
+                    .ok()?
+                    .as_ref()
+                    .and_then(|entry| same(&entry.1))
+            })
+        })
+        .or_else(|| {
+            LEXICAL.with(|last| {
+                last.try_borrow()
+                    .ok()?
+                    .as_ref()
+                    .and_then(|entry| same(&entry.1))
+            })
+        })
+        .or_else(|| readings::shared(text))
+        .or_else(|| conformed::shared(text));
+    found.unwrap_or_else(|| Arc::from(text))
 }
 
 /// `text` parsed as `language`, from the last parse when it was of the same
@@ -88,7 +205,7 @@ pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Val
         let mut last = last.borrow_mut();
         let at = last
             .iter()
-            .position(|(known, written, _)| *known == label && written == text)?;
+            .position(|(known, written, _)| *known == label && **written == *text)?;
         let entry = last.remove(at);
         let result = Rc::clone(&entry.2);
         last.insert(0, entry);
@@ -104,7 +221,7 @@ pub(crate) fn parsed(language: &dyn ConfigLanguage, text: &str) -> Rc<Result<Val
     }
     LAST.with(|last| {
         let mut last = last.borrow_mut();
-        last.insert(0, (label, text.to_string(), Rc::clone(&result)));
+        last.insert(0, (label, key(text), Rc::clone(&result)));
         last.truncate(PARSES_KEPT);
     });
     result
@@ -121,7 +238,7 @@ pub(crate) fn known_to_parse(language: &dyn ConfigLanguage, text: &str) -> Optio
     LAST.with(|last| {
         last.borrow()
             .iter()
-            .find(|(known, written, _)| *known == label && written == text)
+            .find(|(known, written, _)| *known == label && **written == *text)
             .map(|(_, _, result)| result.is_ok())
     })
 }
@@ -140,7 +257,7 @@ pub(crate) fn kept(
     LAST.with(|last| {
         last.borrow()
             .iter()
-            .find(|(known, written, _)| *known == label && written == text)
+            .find(|(known, written, _)| *known == label && **written == *text)
             .map(|(_, _, result)| Rc::clone(result))
     })
 }
@@ -153,7 +270,7 @@ pub(crate) fn string_bodies(language: &dyn ConfigLanguage, text: &str) -> Rc<Vec
     let cached = BODIES.with(|last| {
         last.borrow()
             .as_ref()
-            .filter(|(known, written, _)| *known == label && written == text)
+            .filter(|(known, written, _)| *known == label && **written == *text)
             .map(|(_, _, bodies)| Rc::clone(bodies))
     });
     if let Some(bodies) = cached {
@@ -162,8 +279,7 @@ pub(crate) fn string_bodies(language: &dyn ConfigLanguage, text: &str) -> Rc<Vec
     note(Work::StringBodies);
     let bodies = Rc::new(language.string_body_lines(text));
     if HOLDERS.with(Cell::get) > 0 {
-        BODIES
-            .with(|last| *last.borrow_mut() = Some((label, text.to_string(), Rc::clone(&bodies))));
+        BODIES.with(|last| *last.borrow_mut() = Some((label, key(text), Rc::clone(&bodies))));
     }
     bodies
 }
@@ -212,7 +328,7 @@ pub(crate) fn line_path(
     let known = LINE_PATHS.with(|kept| {
         kept.borrow()
             .iter()
-            .find(|(known, written, at, _)| *known == label && *at == line && written == text)
+            .find(|(known, written, at, _)| *known == label && *at == line && **written == *text)
             .map(|(_, _, _, path)| path.clone())
     });
     if let Some(path) = known {
@@ -241,8 +357,10 @@ pub(crate) fn tell_line_path(
     let label = language.info().label;
     LINE_PATHS.with(|kept| {
         let mut kept = kept.borrow_mut();
-        kept.retain(|(known, written, at, _)| !(*known == label && *at == line && written == text));
-        kept.insert(0, (label, text.to_string(), line, path));
+        kept.retain(|(known, written, at, _)| {
+            !(*known == label && *at == line && **written == *text)
+        });
+        kept.insert(0, (label, key(text), line, path));
         kept.truncate(LINE_PATHS_KEPT);
     });
 }
@@ -259,7 +377,9 @@ fn at_place<T: Clone + 'static>(
     let cached = slot.with(|last| {
         last.borrow()
             .as_ref()
-            .filter(|(known, written, at, _)| *known == label && *at == cursor && written == text)
+            .filter(|(known, written, at, _)| {
+                *known == label && *at == cursor && **written == *text
+            })
             .map(|(_, _, _, kept)| kept.clone())
     });
     if let Some(kept) = cached {
@@ -267,9 +387,7 @@ fn at_place<T: Clone + 'static>(
     }
     let made = read();
     if HOLDERS.with(Cell::get) > 0 {
-        slot.with(|last| {
-            *last.borrow_mut() = Some((label, text.to_string(), cursor, made.clone()))
-        });
+        slot.with(|last| *last.borrow_mut() = Some((label, key(text), cursor, made.clone())));
     }
     made
 }
@@ -301,5 +419,6 @@ pub(crate) fn release() {
     let _ = CONTEXT.try_with(|last| last.borrow_mut().take());
     let _ = LEXICAL.try_with(|last| last.borrow_mut().take());
     let _ = LINE_PATHS.try_with(|kept| kept.borrow_mut().clear());
+    let _ = DOCUMENT.try_with(|known| *known.borrow_mut() = [None, None]);
     conformed::forget();
 }

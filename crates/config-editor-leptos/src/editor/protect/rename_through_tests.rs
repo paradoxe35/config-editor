@@ -13,8 +13,6 @@
 
 #![allow(clippy::string_slice, reason = "the tests cut their own texts")]
 
-use leptos::prelude::*;
-
 use super::super::Language;
 use super::super::edit::Edit;
 use super::super::language::Repetition;

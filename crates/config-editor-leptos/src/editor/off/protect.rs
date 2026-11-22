@@ -5,6 +5,7 @@
 //! console warning says so when one is given). The whole-document
 //! `read_only` still works: it is the edit pipeline's own.
 
+use crate::editor::text::SharedText;
 use std::sync::Arc;
 
 use leptos::prelude::*;
@@ -40,13 +41,14 @@ pub(crate) struct DocumentPlaceholders;
 /// What protection would read.
 #[allow(dead_code, reason = "the same inputs as protection's, unread here")]
 pub(super) struct Inputs {
-    pub(super) source: RwSignal<String>,
+    pub(super) source: SharedText,
     pub(super) edit_language: RwSignal<Language>,
     pub(super) host_language: Language,
     pub(super) schema: Option<Arc<SchemaBundle>>,
     pub(super) host_text: super::sync::HostTextReader,
     pub(super) popups: super::popups::PopupState,
     pub(super) channel: super::sync::HostChannel,
+    pub(super) version: StoredValue<u64>,
 }
 
 /// Nothing protected.
@@ -194,6 +196,8 @@ impl EditorState {
     }
 
     pub(super) fn follow_edit(&self, _edit: &Edit) {}
+
+    pub(super) fn edit_written(&self) {}
 
     pub(super) fn find_protected_again(&self, _origin: &Origin) {}
 

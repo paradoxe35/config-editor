@@ -177,6 +177,68 @@ test.describe('memory', () => {
     expect(errors).toEqual([]);
   });
 
+  test('an open editor keeps one copy of its text, and typed in, one of its baseline', async ({
+    page: browserPage,
+  }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    // About 400 KB: each copy is one allocation of at least its size.
+    const head = 'head of the copied text';
+    const value = `${head}: 0\n${Array.from({ length: 25000 }, (_, index) => `key${index}: value${index}`).join('\n')}`;
+    const watching = await browserPage.evaluate(async (size) => {
+      const module = await import('../config-editor/pkg/config_editor.js');
+      if (!module.__allocCopies) return false;
+      module.__allocWatch(size);
+      return true;
+    }, value.length);
+    test.skip(!watching && !process.env.MEMORY_HEAP, 'needs a package built with alloc-stats');
+    expect(watching, 'MEMORY_HEAP=1 needs a package built with alloc-stats').toBe(true);
+    const copies = () =>
+      browserPage.evaluate(async (head) => {
+        const module = await import('../config-editor/pkg/config_editor.js');
+        return module.__allocCopies(head);
+      }, head);
+    const counts = {};
+    // A host that hears nothing, one that hears each text, and one that
+    // hands each text back.
+    for (const host of ['silent', 'onChange', 'echoes']) {
+      await browserPage.evaluate(
+        async ({ value, host }) => {
+          const { ConfigEditor } = await import('../config-editor/pkg/config_editor.js');
+          const options = { value };
+          if (host === 'onChange') options.onChange = (text) => (window.heard = text);
+          if (host === 'echoes') {
+            options.echoes = true;
+            options.onChange = (text, revision) =>
+              setTimeout(() => window.editor.update({ value: text, valueRevision: revision }), 0);
+          }
+          window.editor = new ConfigEditor(document.getElementById('editor'), options);
+        },
+        { value, host },
+      );
+      await outlastTimers(browserPage);
+      const mounted = await copies();
+      await browserPage.locator('.config-editor__input').click();
+      await browserPage.keyboard.press('Control+End');
+      for (const key of 'abc') await browserPage.keyboard.press(key);
+      await outlastTimers(browserPage);
+      counts[host] = { mounted, typed: await copies() };
+      await browserPage.evaluate(() => {
+        window.editor.destroy();
+        window.editor.free();
+        window.editor = null;
+      });
+      await outlastTimers(browserPage);
+    }
+    // Mounted: the document, which the host's text, the host log, the
+    // value the binding answers with, the textarea's value, the baseline,
+    // the locks and the parses share. Typed in: that text again, and the
+    // baseline, the text mounted with (the diff compares with it). 0.1
+    // kept 16 copies mounted and 19 typed in (about 6.4 and 7.6 MB here).
+    const once = { mounted: 1, typed: 2 };
+    expect(counts).toEqual({ silent: once, onChange: once, echoes: once });
+    expect(errors).toEqual([]);
+  });
+
   test('scrolling and folding a long document keeps memory flat', async ({ page: browserPage }) => {
     const errors = await open(browserPage, 'vanilla.html');
     await browserPage.evaluate(async () => {

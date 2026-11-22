@@ -216,7 +216,6 @@ fn a_live_editor_never_saves_a_locked_block_extended_in_any_edit_as_language() {
 
 /// Puts the shown text back as a new text from the host would.
 fn take_host_shown(state: super::super::state::EditorState, shown: &str) {
-    use leptos::prelude::*;
     let before = state.doc().text.get_untracked();
     if before != shown {
         let mut edit = Edit::new_units(before, (0, 0), shown.to_string(), 0);

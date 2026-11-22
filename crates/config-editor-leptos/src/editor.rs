@@ -390,7 +390,10 @@ pub fn ConfigEditor(
     let host_text = value
         .as_ref()
         .map_or_else(|| initial_value.clone(), Signal::get_untracked);
-    let baseline = baseline.unwrap_or_else(|| Signal::stored(host_text.clone()));
+    // Without a `baseline`, the text mounted with is the baseline: the
+    // state's copy of it, no other kept here.
+    let mounted_baseline =
+        baseline.map_or_else(|| host_text.clone(), |baseline| baseline.get_untracked());
     // The parses and schema readings are kept from the state's first reads
     // on: its secrets read the document as the first validation does.
     parse_cache::hold();
@@ -401,7 +404,7 @@ pub fn ConfigEditor(
         schema,
         schema_error,
         host_text,
-        baseline: baseline.get_untracked(),
+        baseline: mounted_baseline,
         opening: handle.and_then(EditorHandle::take_opening),
         read_only,
         read_only_reason: Signal::derive(move || read_only_reason.get()),

@@ -10,6 +10,10 @@
 //!   then `__allocSites()`: the JavaScript stack (with the wasm function
 //!   names) and the first bytes of each live allocation of those sizes,
 //!   grouped and counted.
+//! - `__allocWatch(size)`, then `__allocCopies(head)`: how many live
+//!   allocations of at least `size` bytes hold a text beginning with `head`
+//!   (a `String`'s bytes, or an `Arc<str>`'s after its two counts): the
+//!   copies of a long text kept.
 //!
 //! Build it: `npm run build:alloc-stats` here (`build.mjs --alloc-stats`:
 //! the feature, function names kept). The memory tests then also check
@@ -103,18 +107,22 @@ unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc(layout) };
         allocated(pointer, layout.size());
+        watched(pointer, layout.size());
         pointer
     }
 
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         freed(pointer, layout.size());
+        unwatched(pointer);
         unsafe { System.dealloc(pointer, layout) }
     }
 
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         freed(pointer, layout.size());
+        unwatched(pointer);
         let moved = unsafe { System.realloc(pointer, layout, new_size) };
         allocated(moved, new_size);
+        watched(moved, new_size);
         moved
     }
 }
@@ -176,4 +184,69 @@ pub fn alloc_sites() -> String {
             .join("\n");
     });
     report
+}
+
+/// How many live allocations of at least the size [`__allocWatch`] set
+/// are recorded (their addresses only: no stacks).
+const WATCHED: usize = 256;
+
+/// The size from which allocations are recorded (0: none).
+static WATCH_FROM: AtomicUsize = AtomicUsize::new(0);
+/// The live recorded allocations: address and size (0: a free slot).
+static BIG: [(AtomicUsize, AtomicUsize); WATCHED] =
+    [const { (AtomicUsize::new(0), AtomicUsize::new(0)) }; WATCHED];
+
+fn watched(pointer: *mut u8, size: usize) {
+    let from = WATCH_FROM.load(Relaxed);
+    if from == 0 || size < from || pointer.is_null() {
+        return;
+    }
+    if let Some((address, slot_size)) = BIG.iter().find(|(address, _)| address.load(Relaxed) == 0) {
+        address.store(pointer as usize, Relaxed);
+        slot_size.store(size, Relaxed);
+    }
+}
+
+fn unwatched(pointer: *mut u8) {
+    if let Some((address, _)) = BIG
+        .iter()
+        .find(|(address, _)| address.load(Relaxed) == pointer as usize)
+    {
+        address.store(0, Relaxed);
+    }
+}
+
+/// Records the live allocations of at least `size` bytes from now on (0:
+/// none), for [`alloc_copies`].
+#[wasm_bindgen(js_name = __allocWatch)]
+pub fn alloc_watch(size: u32) {
+    WATCH_FROM.store(size as usize, Relaxed);
+}
+
+/// How many live allocations recorded since `__allocWatch` hold a text
+/// that begins with `head`: at their start (a `String`, a `Box<str>`) or
+/// after an `Arc`'s two counts (an `Arc<str>`).
+#[wasm_bindgen(js_name = __allocCopies)]
+pub fn alloc_copies(head: String) -> u32 {
+    let head = head.as_bytes();
+    let counts = std::mem::size_of::<[usize; 2]>();
+    let mut copies = 0;
+    for (address, size) in &BIG {
+        let address = address.load(Relaxed);
+        if address == 0 {
+            continue;
+        }
+        // SAFETY: a live allocation of `size` bytes at `address`; only
+        // its first bytes are read, those a text holds from its start.
+        let read = size.load(Relaxed).min(counts + head.len());
+        let bytes = unsafe { std::slice::from_raw_parts(address as *const u8, read) };
+        if bytes.starts_with(head)
+            || bytes
+                .get(counts..)
+                .is_some_and(|rest| rest.starts_with(head))
+        {
+            copies += 1;
+        }
+    }
+    copies
 }

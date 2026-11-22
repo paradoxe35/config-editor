@@ -299,7 +299,6 @@ fn edit_as_problems_follow_the_strings_setting() {
 #[test]
 fn a_mounted_editor_shows_dismisses_and_reshows_the_notice() {
     use super::super::test_state::TestEditor;
-    use leptos::prelude::Set;
     let (_owner, state) = TestEditor {
         edit_as: Some(Language::TOML),
         ..TestEditor::new(Language::YAML, "# the port\nlisten: 1\n")

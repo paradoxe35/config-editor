@@ -1,6 +1,7 @@
 //! What the view is laid out from: the elements, the scroll position, the
 //! lines as rendered, and which textarea rows exist in the DOM.
 
+use crate::editor::text::SharedText;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -125,7 +126,7 @@ impl ViewState {
 /// The lines inside multi-line strings' bodies of `text` (in
 /// `edit_language`), found once per edit for the view and the suggestions.
 pub(super) fn string_bodies(
-    text: RwSignal<String>,
+    text: SharedText,
     edit_language: RwSignal<Language>,
     readings: Readings,
 ) -> Memo<Vec<Range<usize>>> {
@@ -139,7 +140,7 @@ pub(super) fn string_bodies(
 /// The comments, strings and structure `text` (in `edit_language`) writes
 /// over several lines, found once per edit for the code layer.
 pub(super) fn spanning(
-    text: RwSignal<String>,
+    text: SharedText,
     edit_language: RwSignal<Language>,
     readings: Readings,
 ) -> Memo<Spanning> {

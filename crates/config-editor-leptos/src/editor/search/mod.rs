@@ -34,6 +34,7 @@ pub(super) use components::{FindWidget, GoToLineWidget, SearchHighlights};
 pub(super) use go_to_line::GoToLine;
 pub(super) use keys::shortcuts;
 
+use crate::editor::text::SharedText;
 pub(super) use actions::replace_all;
 use actions::{
     SearchNotice, close, count_label, dismiss, replace_current, say_query_results, select_nearest,
@@ -112,7 +113,7 @@ pub(super) struct SearchState {
 }
 
 impl SearchState {
-    pub(super) fn new(source: RwSignal<String>) -> Self {
+    pub(super) fn new(source: SharedText) -> Self {
         let open = RwSignal::new(false);
         let query = RwSignal::new(String::new());
         let options = RwSignal::new(SearchOptions::default());
