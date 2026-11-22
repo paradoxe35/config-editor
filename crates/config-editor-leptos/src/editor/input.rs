@@ -639,14 +639,39 @@ pub(super) fn attach_listeners(state: EditorState) {
             let _ =
                 element.add_event_listener_with_callback(name, listener.as_ref().unchecked_ref());
         }
+        // The browser does not always tell the textarea its selection
+        // changed: a press on its resize grip collapses a selection with
+        // `selectionchange` sent to the document only. The document's
+        // event, while this text has the focus, is followed too.
+        let page = web_sys::window().and_then(|window| window.document());
+        // `:focus`, not the document's active element: in a shadow root
+        // that is the host.
+        let text: web_sys::Element = element.clone().unchecked_into();
+        let page_listener = clipboard(Box::new(move |_| {
+            if text.matches(":focus").unwrap_or(false) {
+                selection_change(state);
+            }
+        }));
+        if let Some(page) = &page {
+            let _ = page.add_event_listener_with_callback(
+                "selectionchange",
+                page_listener.as_ref().unchecked_ref(),
+            );
+        }
         // Browser objects stay on the one wasm thread.
-        let registered = StoredValue::new_local((element, listeners));
+        let registered = StoredValue::new_local((element, listeners, page, page_listener));
         on_cleanup(move || {
-            registered.with_value(|(element, listeners)| {
+            registered.with_value(|(element, listeners, page, page_listener)| {
                 for (name, listener) in listeners {
                     let _ = element.remove_event_listener_with_callback(
                         name,
                         listener.as_ref().unchecked_ref(),
+                    );
+                }
+                if let Some(page) = page {
+                    let _ = page.remove_event_listener_with_callback(
+                        "selectionchange",
+                        page_listener.as_ref().unchecked_ref(),
                     );
                 }
             });

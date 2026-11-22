@@ -21,6 +21,8 @@ Timed specs (latency budgets) are listed in `TIMED` in
 - `editing-typed-pairs`: brackets, quotes and end tags typed or closed.
 - `editing-comments`: Ctrl+/.
 - `editing-lines-selection`: whole lines, selections, the caret kept in view.
+- `caret-resize-grip`: the active line follows the caret after a press on the
+  text's resize grip (a selection change told only to the document).
 - `editing-typing`: YAML block scalars with empty lines.
 - `editing`, `editor`, `scenarios`, `formatting`, `line-commands`,
   `drag-move`, `undo-typed-pairs`, `ime-composition`, `empty-json-first-key`,
