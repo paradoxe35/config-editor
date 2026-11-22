@@ -168,7 +168,7 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
                 && !(alias_now.is_some() && alias_now == anchor_now);
             if parts {
                 let value = old.pointer(&alias.pointer)?;
-                edits.push((alias.start, alias.end, written_value(previous, anchor, value)));
+                edits.extend(alias_written_out(previous, &alias, anchor, value));
             }
             continue;
         }
@@ -182,7 +182,9 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
         };
         let entry = |key: &String, value: &Value| {
             let pointer = format!("{anchor}/{}", crate::editor::language::pointer_key(key));
-            format!("{}: {}", yaml_key(key), written_value(previous, &pointer, value))
+            let lines = block_lines(previous, &pointer, value, column);
+            let written = lines.unwrap_or_else(|| format!(" {}", written_value(previous, &pointer, value)));
+            format!("{}:{written}", yaml_key(key))
         };
         let lone = lone_merge(&previous[line_start..line_end], &alias.name);
         match merge_parting(new.pointer(&alias.pointer), new.pointer(anchor), was, &own) {
@@ -230,11 +232,13 @@ pub(super) fn detach_shared(previous: &str, old: &Value, new: &Value) -> Option<
                     }
                     edits.push((line_start, (line_end + 1).min(previous.len()), String::new()));
                 } else {
-                    // The merge line's comment stays, on the first entry.
+                    // The merge line's comment stays, on the first entry's
+                    // first line.
                     let line = &previous[line_start..line_end];
                     let comment = &line[code_before_comment(line).trim_end().len()..];
                     let mut lines = lines;
-                    lines[0].push_str(comment);
+                    let first_end = lines[0].find('\n').unwrap_or(lines[0].len());
+                    lines[0].insert_str(first_end, comment);
                     edits.push((line_start, line_end, lines.join("\n")));
                 }
             }
@@ -319,10 +323,11 @@ fn overrides_around(was: &serde_json::Map<String, Value>, own: &[String], keys: 
 }
 
 /// `value` as `previous` writes it at `pointer` (`0x1F`, `'quoted'`) when
-/// that is one line reading as it, else as YAML writes it. A map or list
-/// is written in flow style, each scalar in it as `previous` writes it
-/// (`{driver: "json-file"}`), so the scalars a written-out merge or alias
-/// holds keep their host text.
+/// that is one line reading as it (a flow map or list too), else as YAML
+/// writes it. A map or list it writes otherwise is written in flow style,
+/// each scalar in it as `previous` writes it (`{driver: "json-file"}`),
+/// so the scalars a written-out merge or alias holds keep their host
+/// text; [`block_lines`] keeps a block one on its lines.
 fn written_value(previous: &str, pointer: &str, value: &Value) -> String {
     written_in(previous, pointer, value, false)
 }
@@ -330,6 +335,15 @@ fn written_value(previous: &str, pointer: &str, value: &Value) -> String {
 /// [`written_value`], `in_flow` when it is written inside a flow map or
 /// list (where a plain `a, b` would read otherwise).
 fn written_in(previous: &str, pointer: &str, value: &Value, in_flow: bool) -> String {
+    // A map or list written on one line (`{driver: "json-file"}`) is
+    // written as that line holds it, but for an anchor in it (it would be
+    // written twice).
+    if (value.is_object() || value.is_array())
+        && let Some(text) = written_text(previous, pointer, value, in_flow)
+        && shared_of(&format!("k: {text}\n")).0.is_empty()
+    {
+        return text;
+    }
     let flow = match value {
         Value::Object(map) => {
             let pairs: Vec<String> = map
@@ -349,16 +363,16 @@ fn written_in(previous: &str, pointer: &str, value: &Value, in_flow: bool) -> St
                 .collect();
             format!("[{}]", items.join(", "))
         }
-        _ => return written_scalar(previous, pointer, value, in_flow).unwrap_or_else(|| yaml_value(value)),
+        _ => return written_text(previous, pointer, value, in_flow).unwrap_or_else(|| yaml_value(value)),
     };
     // Each scalar was checked to read as itself in a flow; the whole is
     // checked too.
     if reads_as(&flow, value) { flow } else { yaml_value(value) }
 }
 
-/// The scalar `value` as `previous` writes it at `pointer`, when that is
-/// one line reading as it (in a flow too, when `in_flow`).
-fn written_scalar(previous: &str, pointer: &str, value: &Value, in_flow: bool) -> Option<String> {
+/// `value` as `previous` writes it at `pointer`, when that is one line
+/// reading as it (in a flow too, when `in_flow`).
+fn written_text(previous: &str, pointer: &str, value: &Value, in_flow: bool) -> Option<String> {
     let (line, start, end) = yaml_value_span_for_path(previous, pointer)?;
     let text = previous.lines().nth(line.checked_sub(1)?)?;
     let characters: Vec<char> = text.chars().collect();
@@ -367,6 +381,74 @@ fn written_scalar(previous: &str, pointer: &str, value: &Value, in_flow: bool) -
     let readable = !text.is_empty() && !text.starts_with(['|', '>', '*']);
     let in_a_flow = || reads_as(&format!("[{text}]"), &Value::Array(vec![value.clone()]));
     (readable && reads_as(&text, value) && (!in_flow || in_a_flow())).then_some(text)
+}
+
+/// The edits writing out the alias `alias` of the anchor at `anchor`, as
+/// `value` it read: a map or list its anchor writes on lines of their own
+/// in block style, the alias the value of a block key (`logging: *log`),
+/// as those lines below the key; else in the alias's place.
+fn alias_written_out(previous: &str, alias: &Shared, anchor: &str, value: &Value) -> Vec<(usize, usize, String)> {
+    let line_start = previous[..alias.start].rfind('\n').map_or(0, |at| at + 1);
+    let line_end = previous[alias.start..].find('\n').map_or(previous.len(), |at| alias.start + at);
+    let before = previous[line_start..alias.start].trim_end_matches(' ');
+    let line = &previous[line_start..line_end];
+    let alone = before.ends_with(':') && code_before_comment(line).trim_end().len() == alias.end - line_start;
+    let key_column = || yaml_span_for_path(previous, &alias.pointer).map(|(_, column, _)| column - 1);
+    if alone && let Some(lines) = key_column().and_then(|column| block_lines(previous, anchor, value, column)) {
+        let colon = line_start + before.len();
+        return vec![(colon, alias.end, String::new()), (line_end, line_end, lines)];
+    }
+    vec![(alias.start, alias.end, written_value(previous, anchor, value))]
+}
+
+/// The lines a map or list `value` runs on below its key at `pointer` in
+/// `previous`, in block style (nothing but an anchor after the key's
+/// colon), each after a newline and indented from `column` as it was
+/// from its key; `None` when it is not written so, holds an anchor (it
+/// would be written twice) or reads otherwise.
+fn block_lines(previous: &str, pointer: &str, value: &Value, column: usize) -> Option<String> {
+    if !(value.is_object() || value.is_array()) {
+        return None;
+    }
+    let (line, key_column, _) = yaml_span_for_path(previous, pointer)?;
+    let lines: Vec<&str> = previous.split('\n').collect();
+    let code = code_before_comment(lines.get(line.checked_sub(1)?)?).trim_end();
+    let (_, after) = code.rsplit_once(':')?;
+    let after = after.trim();
+    if !(after.is_empty() || (after.starts_with('&') && !after.contains(' '))) {
+        return None;
+    }
+    let key_indent = key_column.checked_sub(1)?;
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let skipped = |line: &str| line.trim().is_empty() || line.trim_start().starts_with('#');
+    let mut body: Vec<&str> = lines[line..]
+        .iter()
+        .take_while(|line| {
+            skipped(line)
+                || indent(line) > key_indent
+                || (value.is_array() && indent(line) == key_indent && line.trim_start().starts_with('-'))
+        })
+        .copied()
+        .collect();
+    // Comment lines after it are the next key's.
+    while body.last().is_some_and(|line| skipped(line)) {
+        body.pop();
+    }
+    if body.is_empty() {
+        return None;
+    }
+    let indented = |pad: &str| -> String {
+        body.iter()
+            .map(|line| match line.get(key_indent..) {
+                _ if line.trim().is_empty() => "\n".to_string(),
+                Some(rest) if indent(line) >= key_indent => format!("\n{pad}{rest}"),
+                _ => format!("\n{pad}{}", line.trim_start()),
+            })
+            .collect()
+    };
+    let read = format!("k:{}\n", indented(""));
+    let reads = YamlBehavior.parse(&read).ok().is_some_and(|reads| reads.get("k") == Some(value));
+    (reads && shared_of(&read).0.is_empty()).then(|| indented(&" ".repeat(column)))
 }
 
 /// Whether `text`, written as the value of a key, reads as `value`.

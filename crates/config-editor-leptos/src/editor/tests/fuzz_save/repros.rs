@@ -3059,3 +3059,23 @@ fn a_yaml_merge_written_out_beside_moved_values_keeps_quotes_in_a_toml_view() {
         ],
     );
 }
+
+/// P3: a YAML merge written out in a TOML view, its anchor's map written
+/// in block style, writes the merged map in block style too.
+#[test]
+fn a_yaml_merge_written_out_keeps_a_merged_block_map_in_block_style() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "x-common: &common\n  restart: unless-stopped # always back\n  logging:\n    driver: \"json-file\"\nservices:\n  web:\n    <<: *common\n    image: 'nginx:1.25'\n    ports:\n      - 8443:443\n    environment:\n      MODE: production\n      DEBUG: \"false\"\n    command: >-\n  db:\n    image: postgres:16\n    volumes: [dbdata:/var/lib/postgresql/data]\n    healthcheck: {test: [CMD, pg_isready], interval: 10s}\n  dbdata: {}\n",
+        &[
+            Op::MoveLine {
+                line: 62,
+                down: true,
+            },
+            Op::Switch { to: 0 },
+            Op::Undo,
+            Op::DeleteLine { line: 6 },
+        ],
+    );
+}

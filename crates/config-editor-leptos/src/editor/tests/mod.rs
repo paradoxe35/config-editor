@@ -120,6 +120,14 @@ mod keystroke_work;
     feature = "xml"
 ))]
 mod line_breaks;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod merged_forms_written_out;
 // It uses the helpers of `moved_forms`, gated the same.
 #[cfg(all(
     feature = "yaml",

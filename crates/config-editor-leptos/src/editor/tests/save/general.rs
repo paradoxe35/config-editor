@@ -989,7 +989,8 @@ fn round_12_saves_change_only_the_edit() {
         }
     };
     // H1: anchors and aliases; an alias whose value parts from its anchor's
-    // is written out, everything else stays.
+    // is written out (in block style, as its anchor writes it), everything
+    // else stays.
     let yaml = "pool: &p\n  min_idle: 1\nudp: *p\nlisten: 1 # keep\n";
     check(
         "H1 anchor edited",
@@ -997,7 +998,7 @@ fn round_12_saves_change_only_the_edit() {
         Language::JSON,
         yaml,
         &|v| v["pool"]["min_idle"] = json!(5),
-        "pool: &p\n  min_idle: 5\nudp: {min_idle: 1}\nlisten: 1 # keep\n",
+        "pool: &p\n  min_idle: 5\nudp:\n  min_idle: 1\nlisten: 1 # keep\n",
     );
     check(
         "H1 alias edited",
@@ -1005,7 +1006,7 @@ fn round_12_saves_change_only_the_edit() {
         Language::JSON,
         yaml,
         &|v| v["udp"]["min_idle"] = json!(7),
-        "pool: &p\n  min_idle: 1\nudp: {min_idle: 7}\nlisten: 1 # keep\n",
+        "pool: &p\n  min_idle: 1\nudp:\n  min_idle: 7\nlisten: 1 # keep\n",
     );
     let yaml = "# shared\nclients:\n  acme: &client\n    secret: s1\n    max_connections: 2\n  gamma:\n    <<: *client\n    secret: s3\n";
     check(

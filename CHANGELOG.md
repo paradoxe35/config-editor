@@ -340,10 +340,12 @@ versions move together.
   string `"3"`.
 - A YAML merge (`<<: *common`) or alias whose map an Edit-as edit parts
   from its anchor is written out with each of its scalars as the host
-  wrote it (`logging: {driver: "json-file"}`); the quotes were dropped,
-  and a value left alone in the anchor that the same save moved values
-  next to lost them too (`driver: "json-file"` saved as
-  `driver: json-file` from a TOML view).
+  wrote it (`driver: "json-file"`), and each map or list in it in the
+  form its anchor writes it: a block on lines of its own, a flow as its
+  line holds it. The quotes were dropped, a block map was written on one
+  line (`logging: {driver: json-file}`), and a value left alone in the
+  anchor that the same save moved values next to lost its quotes too
+  (`driver: "json-file"` saved as `driver: json-file` from a TOML view).
 
 ## 0.1.2 — 2026-11-21
 
