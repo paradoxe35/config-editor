@@ -578,6 +578,33 @@ export function frameworkCases(name) {
       expect(errors.some((error) => error.includes('not-a-theme') || error.includes('theme'))).toBe(true);
     });
 
+    // Shown again with a list made for a longer text and naming none (the
+    // README says to name it), the new editor rejects the list and does not
+    // mount; a new list (or the text named) brings it back, whichever list
+    // it was.
+    const longText = `${'key: value\n'.repeat(40)}`;
+    for (const [list, bad] of [
+      ['hostDiagnostics', [{ range: { startLine: 39, startColumn: 1 }, severity: 'warning', message: 'checked', source: 'host' }]],
+      ['readOnlyRanges', [{ start: 380, end: 385 }]],
+    ]) {
+      for (const fix of ['an empty list', 'the text it was for']) {
+        test(`a ${list} list a mount rejects after a hide and show: ${fix} brings the editor back`, async ({ page: browserPage }) => {
+          const errors = await open(browserPage, name);
+          await browserPage.evaluate(() => window.setShown(false));
+          await expect(input(browserPage)).toHaveCount(0);
+          await browserPage.evaluate(([list, bad]) => window.setExtraProps((old) => ({ ...old, [list]: bad })), [list, bad]);
+          await browserPage.evaluate(() => window.setShown(true));
+          await expect.poll(() => errors.some((error) => error.includes(list))).toBe(true);
+          await expect(input(browserPage)).toHaveCount(0);
+          const anchor = list === 'hostDiagnostics' ? 'diagnosticsFor' : 'rangesFor';
+          const props = fix === 'an empty list' ? { [list]: [] } : { [anchor]: longText };
+          await browserPage.evaluate((props) => window.setExtraProps((old) => ({ ...old, ...props })), props);
+          await expect(input(browserPage)).toHaveCount(1);
+          await expect(input(browserPage)).toHaveValue(/^# Tunnel server configuration\n/);
+        });
+      }
+    }
+
     test('a re-mount while the parent is late keeps the newest document', async ({ page: browserPage }) => {
       await browserPage.goto(page(name) + '?late');
       await expect(browserPage.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });

@@ -88,8 +88,13 @@ export async function hideShow(run, { wait }) {
       const start = text.indexOf(locked);
       const readOnlyRanges = start < 0 ? [] : [{ start, end: start + locked.length }];
       fz.extra = { ...fz.extra, readOnlyRanges, rangesFor: text };
-      window.setExtraProps({ ...fz.extra });
     }
+    // The host's problems, given alone, name the text they were read in
+    // (else the new editor reads them in the value, or in `rangesFor`).
+    if (!fz.revisions && fz.extra.hostDiagnostics?.length && fz.diagnosedIn !== undefined) {
+      fz.extra = { ...fz.extra, diagnosticsFor: fz.diagnosedIn };
+    }
+    window.setExtraProps({ ...fz.extra });
     window.setShown(true);
     return text;
   }, locked);
@@ -129,6 +134,9 @@ export async function lateDiagnostics(run, { at, by, wait }) {
       if (fz.kind === 'single' && window.editor) window.editor.update(props);
       else if (fz.kind === 'single') {
         fz.extra = { ...fz.extra, ...props };
+        // Given alone, they are read in the value they are rendered with:
+        // the text to name when the editor is shown again (see `hideShow`).
+        fz.diagnosedIn = props.diagnosticsFor ?? window.parentState().text;
         window.setExtraProps({ ...fz.extra });
       } else window.updateFile(fz.activeId(), props);
     },

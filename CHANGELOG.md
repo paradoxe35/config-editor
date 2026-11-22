@@ -196,6 +196,11 @@ versions move together.
 
 ### Fixes
 
+- A React, Vue or Svelte component whose mount failed on a prop the editor
+  rejects (a `hostDiagnostics` or `readOnlyRanges` list naming places its
+  text lacks, the documents of `ConfigDocuments`) now mounts again once
+  any prop changes, so a fixed list brings the editor back. Before, only a
+  changed setting or `editAs` tried again, and the editor stayed gone.
 - An Edit-as save no longer guesses how the host's reader will read what
   it writes: it reads the text it would write once, with the host's own
   reader under the schema, and compares it value by value with what the

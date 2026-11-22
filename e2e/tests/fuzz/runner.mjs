@@ -271,7 +271,13 @@ async function runSteps(run, context, page, errors, kind, actions) {
         }
         touched.add(await page.evaluate(() => window.__fz.activeId()));
       } catch (error) {
-        if (error.hang) return { failure: { check: 'hang', detail: error.message }, step };
+        // A wait an action gives up on (a page that never comes back) is a
+        // hang too: shrunk and written as a repro, not an error that ends the run.
+        if (error.hang || error.name === 'TimeoutError') {
+          // What the page threw on the way (a panic) says why.
+          const thrown = errors.length ? `; ${errors.join(' | ')}` : '';
+          return { failure: { check: 'hang', detail: `${error.message.split('\n')[0]}${thrown}`.slice(0, 600) }, step };
+        }
         throw error;
       }
     }
@@ -343,7 +349,7 @@ async function runSteps(run, context, page, errors, kind, actions) {
       }
       if (errors.length) return { failure: { check: 'errors', detail: errors.join(' | ').slice(0, 300) }, step: end };
     } catch (error) {
-      if (error.hang) return { failure: { check: 'hang', detail: error.message }, step: end };
+      if (error.hang || error.name === 'TimeoutError') return { failure: { check: 'hang', detail: error.message.split('\n')[0] }, step: end };
       throw error;
     }
     return { failure: null };

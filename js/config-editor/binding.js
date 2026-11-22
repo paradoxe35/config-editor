@@ -51,6 +51,16 @@ function settingsChange(before, after) {
   return change;
 }
 
+/** The props a mount was made from, as data (callbacks left out), to tell when they change. */
+function retryKeyOf(props) {
+  try {
+    return JSON.stringify(props, (_, value) => (typeof value === "function" ? undefined : value));
+  } catch {
+    // Props that are not data (a cycle, a BigInt) count as changed each time.
+    return Symbol();
+  }
+}
+
 /** What the editor and documents bindings share: mounting, retries, errors. */
 class Binding {
   #name;
@@ -84,17 +94,18 @@ class Binding {
     this.props = props;
     if (!this.element) return;
     if (this.mountKey() !== this.#mountKey) return this.#mount();
+    // A mount that failed on a bad prop (a setting, a list naming a line the
+    // text lacks, the documents) is tried again once any prop changes: the
+    // host may have fixed the one the editor rejected.
+    if (this.failed) {
+      if (retryKeyOf(props) !== this.#retryKey) this.#mount();
+      return;
+    }
     const settings = settingsOf(props);
     if (this.#settings !== null && settings !== this.#settings) {
       const before = JSON.parse(this.#settings);
       this.#settings = settings;
-      if (this.failed) return this.#mount();
       this.guard((instance) => instance.update(settingsChange(before, JSON.parse(settings))));
-    }
-    const retryKey = this.retryKey();
-    if (retryKey !== this.#retryKey) {
-      this.#retryKey = retryKey;
-      if (this.failed) return this.#mount();
     }
     this.sync(false);
   }
@@ -155,12 +166,14 @@ class Binding {
     this.#cancelRetry();
     const generation = ++this.#generation;
     this.#mountKey = this.mountKey();
-    this.#retryKey = this.retryKey();
     loadConfigEditor().then(
       () => {
         if (generation !== this.#generation || !this.element) return;
         const settings = settingsOf(this.props);
         this.#settings = settings;
+        // The props this try is made from (they may have changed while the
+        // module loaded).
+        this.#retryKey = retryKeyOf(this.props);
         try {
           this.instance = this.create(this.element, JSON.parse(settings));
           this.failed = false;
@@ -234,10 +247,6 @@ export class EditorBinding extends Binding {
       patterns,
       echoKey ?? null,
     ]);
-  }
-
-  retryKey() {
-    return JSON.stringify(this.props.editAs ?? null);
   }
 
   create(element, settings) {
@@ -539,10 +548,6 @@ export class DocumentsBinding extends Binding {
   mountKey() {
     const { label, viewClassName, onClose, onAdd } = this.props;
     return JSON.stringify([label ?? null, viewClassName ?? null, onClose !== undefined, onAdd !== undefined]);
-  }
-
-  retryKey() {
-    return null;
   }
 
   create(element, settings) {
