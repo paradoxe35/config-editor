@@ -715,7 +715,7 @@ This package exports its components (`ConfigEditor`, `ConfigDocuments`),
 their props and handle types (`ConfigEditorProps`, `ConfigEditorHandle`,
 `ConfigDocumentsProps`, `ConfigDocumentsHandle`), and the types of what
 they take and return: `EditorSettings`, `EditorStrings`, `ThemeName`,
-`ThemeColorMap`, `LanguageName`, `DocumentSpec`, `CloseRequest`,
+`ThemeColorMap`, `ThemeChromeMap`, `LanguageName`, `DocumentSpec`, `CloseRequest`,
 `ChangeSummary`, `BaselineConflict`, `FieldPath`, `EditorPath`,
 `EditorRange`, `LineRange`, `EditorView` (what `editor(id)` returns),
 `HostDiagnostic`, `Diagnostic` (a problem the editor reports), `Severity`, `SecretOptions`, `TextRangeInput`, `TextChange` and `ApplyChangesOptions` (what `applyChanges` takes), `SchemaFormatName` (a `schemaFormat`), and `KeyNames`, `KeyName` and `GoToDefinition` (the `keyNames` and `onGoToDefinition` props).

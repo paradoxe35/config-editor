@@ -12,7 +12,10 @@
 //! footer's classes keep a class's weight for a host's own toolbar or
 //! footer (`ConfigEditorToolbar`, `ConfigEditorFooter`), whose contents are
 //! the page's; each such rule also names the built-in toolbar or footer
-//! inside the frame with the shield, which is shielded.
+//! inside the frame with the shield, which is shielded. The rules in
+//! `@layer config-editor.chrome` that set only `--config-editor-*`
+//! variables: the reset leaves variables alone, and the layer exists so a
+//! host's unlayered rule wins over them.
 
 use leptos_config_editor::PRESET_CSS;
 
@@ -54,30 +57,100 @@ fn without_comments(text: &str) -> String {
     out
 }
 
-/// The selector lists of the style rules (at-rules' preludes left out).
-fn selector_lists(css: &str) -> Vec<String> {
+/// A style rule: its selector list, its declarations, and the preludes of
+/// the at-rules around it, outermost first.
+struct Rule {
+    selectors: String,
+    body: String,
+    within: Vec<String>,
+}
+
+/// The style rules of `css`.
+fn rules(css: &str) -> Vec<Rule> {
     let css = without_comments(css);
-    let mut lists = Vec::new();
+    let mut rules = Vec::new();
+    let mut within: Vec<String> = Vec::new();
     let mut prelude = String::new();
-    let mut in_rule = false;
+    let mut rule: Option<Rule> = None;
     for character in css.chars() {
-        match character {
-            '{' if !in_rule => {
+        match (&mut rule, character) {
+            (None, '{') => {
                 let text = prelude.trim().to_string();
-                if !text.starts_with('@') {
-                    lists.push(text);
-                    in_rule = true;
+                if text.starts_with('@') {
+                    within.push(text);
+                } else {
+                    rule = Some(Rule {
+                        selectors: text,
+                        body: String::new(),
+                        within: within.clone(),
+                    });
                 }
                 prelude.clear();
             }
-            '}' if in_rule => in_rule = false,
-            '}' => prelude.clear(),
-            ';' if !in_rule => prelude.clear(),
-            _ if !in_rule => prelude.push(character),
-            _ => {}
+            (Some(_), '}') => rules.extend(rule.take()),
+            (None, '}') => {
+                within.pop();
+                prelude.clear();
+            }
+            (None, ';') => prelude.clear(),
+            (None, _) => prelude.push(character),
+            (Some(rule), _) => rule.body.push(character),
         }
     }
-    lists
+    rules
+}
+
+/// The selector lists of the style rules (at-rules' preludes left out).
+fn selector_lists(css: &str) -> Vec<String> {
+    rules(css).into_iter().map(|rule| rule.selectors).collect()
+}
+
+/// A rule in the cosmetic layer that sets only the editor's custom
+/// properties. The shield's `all: revert` leaves custom properties as they
+/// are, so it cannot undo such a rule; and the layer is there so that a
+/// host's unlayered rule wins over it, which the shield's weight would not
+/// change. A layer rule that sets a real property still needs the shield.
+fn sets_only_variables_in_the_chrome_layer(rule: &Rule) -> bool {
+    let declarations: Vec<&str> = rule
+        .body
+        .split(';')
+        .map(str::trim)
+        .filter(|declaration| !declaration.is_empty())
+        .collect();
+    rule.within
+        .iter()
+        .any(|prelude| prelude == "@layer config-editor.chrome")
+        && !declarations.is_empty()
+        && declarations
+            .iter()
+            .all(|declaration| declaration.starts_with("--config-editor-"))
+}
+
+/// The selectors of `css`'s rules that would lose to the shield's reset.
+fn unshielded(css: &str) -> Vec<String> {
+    let mut unshielded = Vec::new();
+    for rule in rules(css) {
+        if sets_only_variables_in_the_chrome_layer(&rule) {
+            continue;
+        }
+        let selectors = selectors(&rule.selectors);
+        for selector in &selectors {
+            // The id weight on an ancestor (`:not(#\#):not(#\#) .x`) or joined to
+            // the first compound (`:not(#\#)[dir="rtl"] .x`, which also
+            // matches `<html dir="rtl">`, an element with no ancestor).
+            if selector.starts_with(SHIELD.trim_end()) || exempt(selector) {
+                continue;
+            }
+            // A host's toolbar or footer: fine with its shielded twin for
+            // the built-in one.
+            let twin = format!("{BUILT_IN}{selector}");
+            if host_chrome(selector) && selectors.contains(&twin) {
+                continue;
+            }
+            unshielded.push(selector.clone());
+        }
+    }
+    unshielded
 }
 
 /// `list` split on its commas outside brackets.
@@ -136,30 +209,41 @@ fn host_chrome(selector: &str) -> bool {
 
 #[test]
 fn every_rule_inside_the_editor_carries_the_shield() {
-    let mut unshielded = Vec::new();
-    for list in selector_lists(PRESET_CSS) {
-        let selectors = selectors(&list);
-        for selector in &selectors {
-            // The id weight on an ancestor (`:not(#\#):not(#\#) .x`) or joined to
-            // the first compound (`:not(#\#)[dir="rtl"] .x`, which also
-            // matches `<html dir="rtl">`, an element with no ancestor).
-            if selector.starts_with(SHIELD.trim_end()) || exempt(selector) {
-                continue;
-            }
-            // A host's toolbar or footer: fine with its shielded twin for
-            // the built-in one.
-            let twin = format!("{BUILT_IN}{selector}");
-            if host_chrome(selector) && selectors.contains(&twin) {
-                continue;
-            }
-            unshielded.push(selector.clone());
-        }
-    }
+    let unshielded = unshielded(PRESET_CSS);
     assert!(
         unshielded.is_empty(),
         "rules without `{}` lose to the host shield's reset: {unshielded:#?}",
         SHIELD.trim()
     );
+}
+
+/// Only the cosmetic layer's rules that set nothing but the editor's
+/// variables go without the shield: a layer rule that sets a real
+/// property, a variable rule outside the layer, and a rule in another
+/// at-rule are still named.
+#[test]
+fn the_chrome_layer_is_exempt_only_for_its_variables() {
+    let rule = ".config-editor-documents__add:hover";
+    let layer = |body: &str| format!("@layer config-editor.chrome {{ {rule} {{ {body} }} }}");
+    assert!(unshielded(&layer("--config-editor-tab-add-bg: red;")).is_empty());
+    assert!(unshielded(&layer("--config-editor-a: red; --config-editor-b: blue")).is_empty());
+    for css in [
+        layer("color: red;"),
+        layer("--config-editor-tab-add-bg: red; color: red;"),
+        layer("--host-own: red;"),
+        layer(""),
+        format!("{rule} {{ --config-editor-a: red; }}"),
+        format!("@layer other {{ {rule} {{ --config-editor-a: red; }} }}"),
+        format!("@media (x) {{ {rule} {{ --config-editor-a: red; }} }}"),
+    ] {
+        assert_eq!(unshielded(&css), [rule], "{css}");
+    }
+    // A rule after the layer's block is outside it again.
+    let after = format!(
+        "{} .config-editor__x {{ --config-editor-a: red; }}",
+        layer("--config-editor-a: red;")
+    );
+    assert_eq!(unshielded(&after), [".config-editor__x"]);
 }
 
 /// An editor in a documents view is inside a root, so shielded: each rule

@@ -10,7 +10,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // rule on a chrome class wins over the editor's cosmetic rules (in
 // `@layer config-editor.chrome`); and with none of it, every computed
 // style is what it was before the variables (`e2e/fixtures/chrome-defaults.json`,
-// recorded from the build before them with `RECORD_CHROME_DEFAULTS=1`).
+// recorded from the build before them with `RECORD_CHROME_DEFAULTS=1`;
+// boxes left out, as they depend on the machine's fonts, but for the
+// fixed sizes).
 // Through the npm package (run `npm run build` in js/ first).
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -71,7 +73,7 @@ function measure(page) {
         const box = element.getBoundingClientRect();
         entry.box = [box.left - view.left, box.top - view.top, box.width, box.height].map((value) => Math.round(value * 2) / 2).join(',');
       } else {
-        entry.size = `${style.width}x${style.height}`;
+        entry.size = `${style.width} ${style.height}`;
       }
       for (const prop of props) entry[prop] = style.getPropertyValue(prop);
       out[part] = entry;
@@ -130,6 +132,33 @@ async function hovered(page, part) {
   return style;
 }
 
+/**
+ * The parts whose size the preset fixes, whatever the fonts: the close and
+ * add buttons' hit areas, and the bars' heights. Every other box depends
+ * on how wide the machine's fonts lay the text out, so the defaults test
+ * leaves it out.
+ */
+const FIXED = {
+  close: 'size',
+  'dirty close': 'size',
+  add: 'size',
+  strip: 'height',
+  tab: 'height',
+  'active tab': 'height',
+  'read-only tab': 'height',
+  'active tab bar': 'height',
+  toolbar: 'height',
+  footer: 'height',
+};
+
+/** A part's measure without its font-dependent box: its fixed size, if any, then its styles. */
+function fontFree(part, { box, size, ...styles }) {
+  const fixed = {};
+  if (FIXED[part] === 'size') fixed.size = box.split(',').slice(2).join('x');
+  if (FIXED[part] === 'height') fixed.height = box ? box.split(',')[3] : size.split(' ')[1];
+  return { ...fixed, ...styles };
+}
+
 /** Everything the defaults test compares, per width and theme. */
 async function snapshot(page) {
   const out = {};
@@ -139,8 +168,9 @@ async function snapshot(page) {
     for (const theme of THEMES) {
       await page.evaluate((theme) => window.hosted.update({ theme }), theme);
       await expect(page.locator('#host .config-editor-documents')).toHaveAttribute('data-color-theme', theme);
+      const measured = await measure(page);
       const seen = {
-        ...(await measure(page)),
+        ...Object.fromEntries(Object.entries(measured).map(([part, entry]) => [part, entry && fontFree(part, entry)])),
         'hovered close': await hovered(page, 'close'),
         'hovered add': await hovered(page, 'add'),
       };
