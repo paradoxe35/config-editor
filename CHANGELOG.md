@@ -5,7 +5,7 @@ All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-11-22
 
 ### Host lists name their text
 

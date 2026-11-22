@@ -2589,19 +2589,19 @@ headless functions) is left out by the linker, feature or not.
 
 | Build                                                           | wasm, gzip -9 |
 | --------------------------------------------------------------- | ------------- |
-| Everything (the default features)                               | 2746 KB       |
-| YAML + JSON, every optional feature, no `schema-validation`     | 1485 KB       |
-| YAML + JSON, every optional feature, with `schema-validation`   | 2306 KB       |
-| Minimal: YAML only, no optional feature, no `schema-validation` | 1184 KB       |
-| Added by `xsd` (to everything)                                  | +77 KB        |
-| XML + `xsd`, every optional feature, no `schema-validation`     | 1471 KB       |
-| Saved by leaving out `schema-validation` (from everything)      | -817 KB       |
-| Saved by leaving out `search` (from everything)                 | -41 KB        |
-| Saved by leaving out `folding` (from everything)                | -54 KB        |
-| Saved by leaving out `diff` (from everything)                   | -33 KB        |
-| Saved by leaving out `protect` (from everything)                | -159 KB       |
+| Everything (the default features)                               | 2845 KB       |
+| YAML + JSON, every optional feature, no `schema-validation`     | 1608 KB       |
+| YAML + JSON, every optional feature, with `schema-validation`   | 2399 KB       |
+| Minimal: YAML only, no optional feature, no `schema-validation` | 1310 KB       |
+| Added by `xsd` (to everything)                                  | +80 KB        |
+| XML + `xsd`, every optional feature, no `schema-validation`     | 1597 KB       |
+| Saved by leaving out `schema-validation` (from everything)      | -787 KB       |
+| Saved by leaving out `search` (from everything)                 | -39 KB        |
+| Saved by leaving out `folding` (from everything)                | -53 KB        |
+| Saved by leaving out `diff` (from everything)                   | -31 KB        |
+| Saved by leaving out `protect` (from everything)                | -154 KB       |
 
-Measured 2026-11-21 with rustc 1.100.0, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
+Measured 2026-11-22 with rustc 1.100.0, without wasm-opt (not installed), by `scripts/wasm-sizes.sh`.
 
 <!-- wasm-sizes:end -->
 

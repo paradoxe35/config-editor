@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag like `v0.1.1` to publish leptos-config-editor to crates.io and
+# Push a tag like `v0.2.0` to publish leptos-config-editor to crates.io and
 # @pngwasi/config-editor and its React, Vue and Svelte packages to npm. The tag
 # must match the version in every manifest.
 #
