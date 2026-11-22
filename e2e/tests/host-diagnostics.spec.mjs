@@ -72,11 +72,12 @@ test.describe('vanilla.html', () => {
       { text: 'insecure_plaintext', classes: ['hint', 'host'], message: 'consider TLS', detail: 'host' },
     ]);
     await expect(footer(browserPage)).toHaveText('1 error, 1 warning, 1 info, 1 hint · the server restarted');
-    // The message shows who reported it, under the message.
+    // The message shows who reported it, under the message: in the card of
+    // `listen`, a documented key, which lists its problems.
     await pointerOn(browserPage, markers(browserPage).first());
-    const tip = browserPage.locator('.config-editor__problem-tip');
-    await expect(tip).toContainText('port in use');
-    await expect(tip).toContainText('tunnel · E_PORT · Open docs ↗ (Alt+Enter)');
+    const listed = browserPage.locator('.config-editor__hover-problems');
+    await expect(listed).toContainText('port in use');
+    await expect(listed).toContainText('tunnel · E_PORT · Open docs ↗ (Alt+Enter)');
     await input(browserPage).click();
     await browserPage.keyboard.press('Control+Home');
     const caretLine = () => input(browserPage).evaluate((element) => element.value.slice(0, element.selectionStart).split('\n').length);

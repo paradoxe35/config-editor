@@ -187,7 +187,8 @@ test.describe('the npm package', () => {
 
   test('a message is as wide as the text area after the host resizes it, without a window resize', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 700 });
-    const errors = await open(page);
+    // No docs for `listen`: the tip shows its problem, not a card.
+    const errors = await open(page, { schema: '{}' });
     // The host's container starts narrow, then widens.
     await page.locator('#editor').evaluate((element) => (element.style.width = '200px'));
     await setHost(page, [{ path: '/listen', message: 'a long message '.repeat(12) }]);
