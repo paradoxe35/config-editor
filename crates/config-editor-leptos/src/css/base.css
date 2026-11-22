@@ -1211,7 +1211,15 @@
 :not(#\#):not(#\#) .config-editor__problem-tip-entry--current { background: var(--config-editor-raised-hover); }
 :not(#\#):not(#\#) .config-editor__problem-tip-message,
 :not(#\#):not(#\#) .config-editor__problem-tip-detail { margin: 0; }
-:not(#\#):not(#\#) .config-editor__problem-tip-message--docs { cursor: pointer; }
+/* A click on a message with docs opens them: a 24px target (WCAG 2.5.8)
+   on one line, taking no more room than that line. */
+:not(#\#):not(#\#) .config-editor__problem-tip-message--docs {
+  min-height: 24px;
+  box-sizing: border-box;
+  padding-block: 4px;
+  margin-block: -4px;
+  cursor: pointer;
+}
 :not(#\#):not(#\#) .config-editor__problem-tip-severity { font-weight: 600; }
 :not(#\#):not(#\#) .config-editor__problem-tip-detail { color: var(--config-editor-raised-muted); }
 :not(#\#):not(#\#) .config-editor__problem-tip-link {
@@ -1598,6 +1606,17 @@
 /* Unseen for the moment until its height is measured: it goes above its
    line when it fits there whole. */
 :not(#\#):not(#\#) .config-editor__hover--unmeasured { visibility: hidden; }
+
+/* The card and the problem tip fade in. Opacity only: each is in its
+   place, its size and takes the pointer from the first frame, so placing
+   it, reaching it and clicking it do not wait for the fade. */
+@keyframes config-editor-popup-in {
+  from { opacity: 0; }
+}
+:not(#\#):not(#\#) .config-editor__hover,
+:not(#\#):not(#\#) .config-editor__problem-tip {
+  animation: config-editor-popup-in 100ms ease-out;
+}
 
 :not(#\#):not(#\#) .config-editor__hover--scrolls {
   scrollbar-width: thin;
@@ -2343,5 +2362,39 @@
   :not(#\#):not(#\#) .config-editor__diff-marker-modified::before,
   :not(#\#):not(#\#) .config-editor__diff-deleted::before {
     transition: none;
+  }
+  :not(#\#):not(#\#) .config-editor__hover,
+  :not(#\#):not(#\#) .config-editor__problem-tip {
+    animation: none;
+  }
+}
+
+/* More contrast asked for: the popups' edges are drawn in their text's
+   color, and the focus rings on and in them, and on the footer's and the
+   notices' buttons, are twice as thick. */
+@media (prefers-contrast: more) {
+  :not(#\#):not(#\#) .config-editor__hover,
+  :not(#\#):not(#\#) .config-editor__problem-tip,
+  :not(#\#):not(#\#) .config-editor__completions,
+  :not(#\#):not(#\#) .config-editor__protect-tip,
+  :not(#\#):not(#\#) .config-editor__read-only-notice,
+  :not(#\#):not(#\#) .config-editor__diff-peek {
+    border-color: var(--config-editor-raised-text);
+  }
+  :not(#\#):not(#\#) .config-editor__hover:focus-visible,
+  :not(#\#):not(#\#) .config-editor__problem-tip:focus-visible,
+  :not(#\#):not(#\#) .config-editor__hover :focus-visible,
+  :not(#\#):not(#\#) .config-editor__problem-tip :focus-visible,
+  :not(#\#):not(#\#) .config-editor__diagnostic-status:focus-visible,
+  :not(#\#):not(#\#) .config-editor__change-status:focus-visible,
+  :not(#\#):not(#\#) .config-editor__tab-focus-status:focus-visible,
+  :not(#\#):not(#\#) .config-editor__notice-button:focus-visible,
+  :not(#\#):not(#\#) .config-editor__edit-as-notice-dismiss:focus-visible {
+    outline: 2px solid var(--config-editor-focus-ring);
+  }
+  :not(#\#):not(#\#) .config-editor__hover:focus-visible,
+  :not(#\#):not(#\#) .config-editor__problem-tip:focus-visible {
+    outline-width: 3px;
+    outline-offset: -3px;
   }
 }

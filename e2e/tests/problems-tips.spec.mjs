@@ -196,7 +196,8 @@ test.describe('problems at scale and at one place', () => {
   });
 
   test('several problems at one place each show their own source, code and docs link, the error first and in its colour', async ({ page }) => {
-    const errors = await open(page);
+    // No docs for `listen`: the tip shows its problems, not a card.
+    const errors = await open(page, { schema: '{}' });
     await setHost(page, [
       { path: '/listen', severity: 'warning', message: 'deprecated port', source: 'lint', code: 'W7' },
       { path: '/listen', severity: 'error', message: 'port in use', source: 'burrow', code: 'E_PORT', docsUrl: 'https://example.com/ports' },

@@ -83,10 +83,12 @@ for (const theme of THEMES) {
         test(`a problem's underline and tip sit on their text after ${name} text`, async ({ page }) => {
           await useTheme(page, theme);
           const e = editor(page);
-          await e.paste(`{"${fill}": "${fill}", "listen": true}\n`);
-          const marker = page.locator('.config-editor__diagnostic-marker', { hasText: 'true' });
+          // The problem is on a key the schema does not know, so its own tip
+          // shows (on a documented key, the key's card would list it).
+          await e.paste(`{"${fill}": "${fill}", "zz": true}\n`);
+          const marker = page.locator('.config-editor__diagnostic-marker', { hasText: 'zz' });
           await expect(marker).toHaveCount(1);
-          const text = await paintedNeedle(page, 0, 'true');
+          const text = await paintedNeedle(page, 0, (await marker.textContent()) ?? 'zz');
           const underline = await box(marker);
           expect(underline.left, 'underline left').toBeCloseTo(text.left, 0);
           expect(underline.right, 'underline right').toBeCloseTo(text.right, 0);
@@ -162,7 +164,9 @@ for (const theme of THEMES) {
 // until the first key.
 const WIDE = FILLS.cjk;
 const STARTS_WITH = {
-  json: `{"${WIDE}": "${WIDE}", "listen": true}\n`,
+  // The problem on a key the schema does not know: its own tip shows (on a
+  // documented key, the key's card would list it).
+  json: `{"${WIDE}": "${WIDE}", "zz": true}\n`,
   yaml: `# ${WIDE}\n"${WIDE}": "${WIDE}"\nlisten: true\n${WIDE}: x\n`,
   toml: `"${WIDE}" = "${WIDE}"\nlisten = true\n`,
 };
@@ -239,7 +243,8 @@ test.describe('overlays on wide text the editor starts with', () => {
       await expectUnderlinesOnText(page);
       if (language !== 'json') return;
       // The tip opens at the painted text under the pointer.
-      const text = await paintedNeedle(page, 0, 'true');
+      const marker = page.locator('.config-editor__diagnostic-marker', { hasText: 'zz' });
+      const text = await paintedNeedle(page, 0, (await marker.textContent()) ?? 'zz');
       await page.mouse.move((text.left + text.right) / 2, (text.top + text.bottom) / 2, { steps: 3 });
       const tip = page.locator('.config-editor__problem-tip');
       await expect(tip).toBeVisible();

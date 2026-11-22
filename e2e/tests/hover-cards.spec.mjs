@@ -127,7 +127,7 @@ test.describe(() => {
 
     for (const [language, doc] of Object.entries(DOCS)) {
       const line = lineOf(language, 2);
-      test(`${language}: hover and Ctrl+K Ctrl+I show the card with the problem; F8 and a problem without docs show the tip`, async ({ page }) => {
+      test(`${language}: hover and Ctrl+K Ctrl+I show the card with the problem; F8 shows the tip`, async ({ page }) => {
         const errors = await open(page, { value: doc.value, language, schema });
         await expect(page.locator('.config-editor__diagnostic-marker')).toHaveCount(1);
         // The pointer on the key: the card lists the problem, the tip yields.
@@ -152,14 +152,16 @@ test.describe(() => {
         await expect(tip(page)).toContainText(/deprecated/i);
         await expect(card(page)).toBeHidden();
         await page.keyboard.press('Escape');
-        // A host's problem on a key without docs: the tip, as before.
+        // A host's problem on a key with only a type: its card.
         const portLine = lineOf(language, 3);
         await setHost(page, [{ range: { startLine: portLine, startColumn: doc.column, endColumn: doc.column + 4 }, severity: 'error', message: 'port is taken' }]);
         await expect(page.locator('.config-editor__diagnostic-marker[data-message="port is taken"]')).toHaveCount(1);
         const port = await charBox(page, portLine, doc.column + 1);
         await page.mouse.move(port.x, port.y);
-        await expect(tip(page)).toBeVisible();
-        await expect(tip(page)).toContainText('port is taken');
+        // Once the pointer rests: `port` has a type to show, so its card
+        // lists the problem (no tip shows before it).
+        await expect(card(page).locator('.config-editor__problem-tip-entry')).toContainText('port is taken');
+        await expect(tip(page)).toBeHidden();
         expect(errors).toEqual([]);
       });
     }

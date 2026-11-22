@@ -524,7 +524,8 @@ test.describe(() => {
         }, schema);
         for (const [word, popup] of [
           ['listen', '.config-editor__hover'],
-          ['x', '.config-editor__problem-tip'],
+          // `port` has a schema: its card lists the problem.
+          ['x', '.config-editor__problem-tip-entry'],
         ]) {
           await page.mouse.move(990, 690);
           await focus(page);

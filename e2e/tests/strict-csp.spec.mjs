@@ -140,14 +140,23 @@ async function exerciseEditor(page) {
   const input = page.locator('.config-editor__input');
   await replaceText(page, 'listen: 7835\ninsecure_plaintext: false\nclients:\n  acme:\n    secret: c2VjcmV0\n');
   // Typing makes a schema problem (a string for a boolean); hovering its
-  // marker shows the tip.
+  // marker shows it, F8 its tip.
   await caretAtEnd(page, 1);
   await page.keyboard.type(' nope');
   const marker = page.locator('.config-editor__diagnostic-marker').first();
   await expect(marker).toBeVisible();
   await pointerOn(page, marker);
-  await expect(page.locator('.config-editor__problem-tip')).toBeVisible();
+  // The key is documented: its card lists the problem.
+  await expect(page.locator('.config-editor__hover-problems .config-editor__problem-tip-entry')).toBeVisible();
   await page.mouse.move(0, 0);
+  await expect(page.locator('.config-editor__hover')).toHaveCount(0);
+  // F8 shows the problem tip itself.
+  await input.focus();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('F8');
+  await expect(page.locator('.config-editor__problem-tip:not([hidden])')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.config-editor__problem-tip:not([hidden])')).toHaveCount(0);
   // Hover docs on a key.
   const key = await pointAt(page, 0, 2);
   await page.mouse.move(key.x, key.y, { steps: 3 });

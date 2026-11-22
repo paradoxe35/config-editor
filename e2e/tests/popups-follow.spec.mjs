@@ -16,7 +16,11 @@ const schema = JSON.stringify({
   type: 'object',
   properties: { port: { type: 'integer', description: 'The port.' }, host: { type: 'string' } },
 });
-const value = 'port: "eighty"\n' + Array.from({ length: 30 }, (_, index) => `k${index}: ${index}`).join('\n') + '\n';
+const value = 'port: 80\n' + Array.from({ length: 30 }, (_, index) => `k${index}: ${index}`).join('\n') + '\n';
+
+// The problem under the pointer is on a key the schema says nothing of:
+// its tip shows (on a documented one, the card would list it).
+const hostDiagnostics = [{ range: { startLine: 2, startColumn: 1, endColumn: 3 }, severity: 'error', message: 'k0 is taken' }];
 
 /** The boxes of `locators` at the next frame, as the user sees them. */
 async function atFrame(page, ...locators) {
@@ -48,7 +52,7 @@ async function open(page) {
   const errors = [];
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.setViewportSize({ width: 1100, height: 700 });
-  await page.goto(vanilla({ value, schema }));
+  await page.goto(vanilla({ value, schema, hostDiagnostics }));
   await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
   return errors;
 }

@@ -25,6 +25,9 @@ pub(super) struct LiveSettings {
     pub(super) auto_trigger: Memo<bool>,
     /// Hover docs, while there is a schema to read them from.
     pub(super) hover_docs: Memo<bool>,
+    /// The pointer's rest before a hover card or problem tip shows, in
+    /// milliseconds (as a timer takes them).
+    pub(super) hover_delay: Memo<i32>,
     pub(super) highlighting: Memo<bool>,
     pub(super) auto_closing: Memo<bool>,
     pub(super) search: Memo<bool>,
@@ -67,6 +70,9 @@ impl LiveSettings {
             auto_trigger: flag(|settings| settings.auto_trigger_completions),
             hover_docs: Memo::new(move |_| {
                 has_schema && settings.with(|settings| settings.hover_docs)
+            }),
+            hover_delay: Memo::new(move |_| {
+                settings.with(|settings| i32::try_from(settings.hover_delay).unwrap_or(i32::MAX))
             }),
             highlighting: flag(|settings| settings.highlighting),
             auto_closing: flag(|settings| settings.auto_closing),
