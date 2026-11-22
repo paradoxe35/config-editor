@@ -51,6 +51,8 @@ export {
   type ApplyChangesOptions,
   type ThemeColorMap,
   type ThemeColorToken,
+  type ThemeChromeMap,
+  type ThemeChromeToken,
   type ThemeInfo,
   type ThemeName,
 } from "./pkg/config_editor.js";

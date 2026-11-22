@@ -8,7 +8,9 @@ use js_sys::{Array, Function, Reflect};
 use leptos_config_editor::EditorSettings;
 use wasm_bindgen::prelude::*;
 
-use crate::settings::{is_record, merged_texts, setting_keys, settings_from, settings_to_js};
+use crate::settings::{
+    is_record, merged_texts, merges, setting_keys, settings_from, settings_to_js,
+};
 use crate::values::field;
 
 /// `options` is a plain object, else `usage` is the error.
@@ -137,8 +139,8 @@ pub(crate) fn flag_change(options: &JsValue, name: &str) -> Result<Option<bool>,
 
 /// The settings `options` changes, laid over `current`: `None` when it
 /// sets none. A setting set to `null` returns to its default; `strings`
-/// merges text by text and `colors` token by token (one set to `null`
-/// returns to its default).
+/// merges text by text, `colors` and `chrome` token by token (one set to
+/// `null` returns to its default).
 pub(crate) fn settings_change(
     current: &EditorSettings,
     options: &JsValue,
@@ -154,7 +156,7 @@ pub(crate) fn settings_change(
         let Some(value) = given(options, &key) else {
             continue;
         };
-        let value = if (key == "strings" || key == "colors") && is_record(&value) {
+        let value = if merges(&key) && is_record(&value) {
             merged_texts(&field(&merged, &key), &value)
         } else {
             value

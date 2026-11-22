@@ -7,7 +7,7 @@ use leptos::prelude::*;
 use super::state::EditorState;
 use super::{changes, folding, search};
 use crate::reactive::Relay;
-use crate::{EditorSettings, EditorStrings, EditorTheme, ThemeColors};
+use crate::{EditorSettings, EditorStrings, EditorTheme, ThemeChrome, ThemeColors};
 use std::sync::Arc;
 
 /// The settings as the editor's parts read them.
@@ -15,6 +15,7 @@ use std::sync::Arc;
 pub(super) struct LiveSettings {
     pub(super) theme: Memo<EditorTheme>,
     pub(super) colors: Memo<ThemeColors>,
+    pub(super) chrome: Memo<ThemeChrome>,
     pub(super) styled: Memo<bool>,
     pub(super) toolbar: Memo<bool>,
     pub(super) footer: Memo<bool>,
@@ -56,6 +57,7 @@ impl LiveSettings {
         Self {
             theme: Memo::new(move |_| settings.with(|settings| settings.theme)),
             colors: Memo::new(move |_| settings.with(|settings| settings.colors.clone())),
+            chrome: Memo::new(move |_| settings.with(|settings| settings.chrome.clone())),
             styled: flag(|settings| settings.styled),
             toolbar: flag(|settings| settings.show_toolbar),
             footer: flag(|settings| settings.show_footer),
@@ -81,9 +83,11 @@ impl LiveSettings {
         }
     }
 
-    /// The colors as the root's inline style (set through the CSSOM).
-    pub(super) fn color_style(&self) -> crate::cssom::Declarations {
-        self.colors.with(|colors| colors.declarations())
+    /// The colors and the chrome as the root's inline style (set through
+    /// the CSSOM).
+    pub(super) fn root_style(&self) -> crate::cssom::Declarations {
+        self.colors
+            .with(|colors| self.chrome.with(|chrome| super::root_style(colors, chrome)))
     }
 }
 

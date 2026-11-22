@@ -50,7 +50,9 @@ async function setSettings(page, name, partial) {
       // `update` merges `colors` token by token: `null` clears them, as an
       // empty map of props does.
       const update = { ...partial };
-      if (partial.colors && Object.keys(partial.colors).length === 0) update.colors = null;
+      for (const key of ['colors', 'chrome']) {
+        if (partial[key] && Object.keys(partial[key]).length === 0) update[key] = null;
+      }
       if (name === 'vanilla.html') window.editor.update(update);
       else if (!name.startsWith('documents')) window.setExtraProps((props) => ({ ...props, ...partial }));
       else if (name === 'documents.html') window.documentsView.update(update);
@@ -147,6 +149,12 @@ for (const name of PAGES) {
       await setSettings(page, name, { theme: 'github-light', colors: {} });
       await expect(root(page, name)).toHaveAttribute('data-color-theme', 'github-light');
       await expect(root(page, name)).not.toHaveAttribute('style', /--config-editor-key/);
+      // `chrome` merges token by token as `colors` does: an empty map of
+      // props drops every token.
+      await setSettings(page, name, { chrome: { 'tab-gap': '9px', 'footer-gap': '7px' } });
+      await expect(root(page, name)).toHaveAttribute('style', /--config-editor-tab-gap: 9px;.*--config-editor-footer-gap: 7px/);
+      await setSettings(page, name, { chrome: {} });
+      await expect(root(page, name)).not.toHaveAttribute('style', /--config-editor-(tab|footer)-gap/);
 
       expect(await marked(page, name)).toBe('kept');
       expect(await input(page, name).inputValue()).toBe(typed);

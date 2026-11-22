@@ -1,5 +1,5 @@
-use super::super::theme::{EditorTheme, ThemeColors};
-use crate::cssom::cssom;
+use super::super::theme::{EditorTheme, ThemeChrome, ThemeColors, root_style};
+use crate::cssom::{Declarations, cssom};
 use leptos::prelude::*;
 
 /// Toolbar container styled to match the editor.
@@ -14,13 +14,17 @@ pub fn ConfigEditorToolbar(
     /// Colors overriding the theme's, as on [`ConfigEditor`](crate::ConfigEditor).
     #[prop(optional, into)]
     colors: MaybeProp<ThemeColors>,
+    /// Fonts, spacing and borders overriding the preset's, as on
+    /// [`ConfigEditor`](crate::ConfigEditor).
+    #[prop(optional, into)]
+    chrome: MaybeProp<ThemeChrome>,
 ) -> impl IntoView {
     view! {
         <div
             class=format!("config-editor config-editor__toolbar {}", class.unwrap_or_default())
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
-            style=cssom(move || colors.with(|colors| colors.as_ref().map(ThemeColors::declarations)))
+            style=cssom(move || style(colors, chrome))
         >
             {children()}
         </div>
@@ -39,15 +43,31 @@ pub fn ConfigEditorFooter(
     /// Colors overriding the theme's, as on [`ConfigEditor`](crate::ConfigEditor).
     #[prop(optional, into)]
     colors: MaybeProp<ThemeColors>,
+    /// Fonts, spacing and borders overriding the preset's, as on
+    /// [`ConfigEditor`](crate::ConfigEditor).
+    #[prop(optional, into)]
+    chrome: MaybeProp<ThemeChrome>,
 ) -> impl IntoView {
     view! {
         <div
             class=format!("config-editor config-editor__status {}", class.unwrap_or_default())
             data-theme=move || theme.get().css_family()
             data-color-theme=move || theme.get().as_str()
-            style=cssom(move || colors.with(|colors| colors.as_ref().map(ThemeColors::declarations)))
+            style=cssom(move || style(colors, chrome))
         >
             {children()}
         </div>
     }
+}
+
+/// The root's inline style from the `colors` and `chrome` props.
+fn style(colors: MaybeProp<ThemeColors>, chrome: MaybeProp<ThemeChrome>) -> Declarations {
+    colors.with(|colors| {
+        chrome.with(|chrome| {
+            root_style(
+                colors.as_ref().unwrap_or(&ThemeColors::new()),
+                chrome.as_ref().unwrap_or(&ThemeChrome::new()),
+            )
+        })
+    })
 }

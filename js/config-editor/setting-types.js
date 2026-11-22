@@ -4,6 +4,7 @@
 export const SETTING_TYPES = Object.freeze({
   theme: "string",
   colors: "object",
+  chrome: "object",
   styled: "boolean",
   showToolbar: "boolean",
   showFooter: "boolean",

@@ -59,6 +59,19 @@ versions move together.
 - `keysAt(text, language, pointer)` in `@pngwasi/config-editor/tools` and
   `leptos_config_editor::tools::keys_at`: a file's keys at a pointer.
 
+### Theming the chrome
+
+- Added: the tabs, the toolbar and the footer take their fonts, spacing,
+  borders and radius from `--config-editor-*` variables, set with the new
+  `chrome` setting (`ThemeChrome` and `ChromeToken` in Rust, `chrome` in
+  JavaScript with the `ThemeChromeToken` type) or plain host CSS, and new
+  `colors` tokens (`toolbar-bg`, `toolbar-border`, `footer-bg`,
+  `footer-border`, `footer-text`, `tab-close-bg`, `tab-close-hover-bg`,
+  `tab-add-*`). Their layout stays protected from a page's resets
+  (Tailwind's preflight, modern-normalize), and the hover effects are in
+  `@layer config-editor.chrome`, which a host's own rule overrides. With
+  none set, the chrome looks as before.
+
 ### Changed
 
 - **Breaking (Rust):** `Document::read_only_ranges_version` is removed:

@@ -43,7 +43,8 @@
 //!   as a value or a signal that switches them live.
 //! - The toolbar and footer are opt-in; compose your own chrome with
 //!   [`ConfigEditorToolbar`] and [`ConfigEditorFooter`]. Pick a bundled
-//!   [`EditorTheme`], adjust any color of it with [`ThemeColors`], or turn
+//!   [`EditorTheme`], adjust any color of it with [`ThemeColors`] and the
+//!   chrome's fonts, spacing, borders and radius with [`ThemeChrome`], or turn
 //!   the `styled` setting off and style the semantic `config-editor__*`
 //!   markup yourself ([`PRESET_CSS`] is the preset).
 //!
@@ -119,15 +120,15 @@ pub use strings::{EditorStrings, StringsProblem};
 #[cfg(feature = "diff")]
 pub use editor::unified_diff;
 pub use editor::{
-    BaselineConflict, ChangeSummary, CheckProblem, CheckedDocument, CompiledSchema, ConfigEditor,
-    ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,
+    BaselineConflict, ChangeSummary, CheckProblem, CheckedDocument, ChromeToken, CompiledSchema,
+    ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,
     DiagnosticOrigin, DiagnosticTarget, EditorHandle, EditorTheme, FieldPath, GoToDefinition,
     HostChange, HostDiagnostic, HoverDocs, KeyName, KeyNames, Language, LossEffect, PRESET_CSS,
     ParseError, RangesFor, SaveRequest, Schema, SchemaCheck, SchemaCompiler, SchemaError,
     SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss, SchemaResources, SchemaSource,
-    SecretOptions, Severity, Suggestion, TextPosition, TextRange, ThemeColor, ThemeColors,
-    UnknownLanguage, UnknownSchemaFormat, UnknownTheme, check_syntax, float_of, float_value,
-    flush_pending_edits, string_of, string_value,
+    SecretOptions, Severity, Suggestion, TextPosition, TextRange, ThemeChrome, ThemeColor,
+    ThemeColors, UnknownLanguage, UnknownSchemaFormat, UnknownTheme, check_syntax, float_of,
+    float_value, flush_pending_edits, string_of, string_value,
 };
 
 /// What the browser bindings (`config-editor-js`, published to npm as

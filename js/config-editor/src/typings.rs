@@ -169,14 +169,16 @@ export type Severity = "error" | "warning" | "info" | "hint";
 
 /**
  * Settings to change: each key left out (or `undefined`) stays, `null`
- * returns it to its default; `strings` merges text by text and `colors`
- * token by token (a text or token set to `null` returns to its default).
+ * returns it to its default; `strings` merges text by text, `colors` and
+ * `chrome` token by token (a text or token set to `null` returns to its
+ * default).
  */
 export type SettingsUpdate = {
-  [K in Exclude<keyof EditorSettings, "strings" | "colors">]?: EditorSettings[K] | null;
+  [K in Exclude<keyof EditorSettings, "strings" | "colors" | "chrome">]?: EditorSettings[K] | null;
 } & {
   strings?: { [K in keyof EditorStrings]?: EditorStrings[K] | null } | null;
   colors?: { [K in keyof ThemeColorMap]?: ThemeColorMap[K] | null } | null;
+  chrome?: { [K in keyof ThemeChromeMap]?: ThemeChromeMap[K] | null } | null;
 };
 
 /**
@@ -485,7 +487,7 @@ export interface CloseRequest {
   dirty: boolean;
 }
 
-/** What `new ConfigDocuments` takes: the documents and callbacks, and the settings (`EditorSettings`) of every editor and of the tabs (`theme`, `colors` with the `tab-*` tokens; `styled` injects the stylesheet once for the view). A document's own `settings` override them. */
+/** What `new ConfigDocuments` takes: the documents and callbacks, and the settings (`EditorSettings`) of every editor and of the tabs (`theme`, `colors` and `chrome` with the `tab-*` tokens; `styled` injects the stylesheet once for the view). A document's own `settings` override them. */
 export interface DocumentsOptions extends EditorSettings {
   /** The open documents, in tab order. */
   documents: DocumentSpec[];

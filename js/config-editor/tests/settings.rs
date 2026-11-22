@@ -24,7 +24,7 @@
 use std::path::{Path, PathBuf};
 
 use leptos_config_editor::{
-    EditorSettings, EditorStrings, EditorTheme, Language, PRESET_CSS, ThemeColor,
+    ChromeToken, EditorSettings, EditorStrings, EditorTheme, Language, PRESET_CSS, ThemeColor,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -190,6 +190,7 @@ fn ts_type(rust_type: &str) -> &'static str {
         "String" => "string",
         "EditorTheme" => "ThemeName",
         "ThemeColors" => "ThemeColorMap",
+        "ThemeChrome" => "ThemeChromeMap",
         "EditorStrings" => "EditorStrings",
         "StickyScrollLines" => "number",
         other => panic!("no TypeScript type for `{other}`: add it to ts_type in tests/settings.rs"),
@@ -227,7 +228,7 @@ fn rust_default(rust_type: &str, value: &Value) -> String {
         ("EditorTheme", Value::String(slug)) => {
             format!("`EditorTheme::{:?}`", slug.parse::<EditorTheme>().unwrap())
         }
-        ("ThemeColors", _) => "none".to_string(),
+        ("ThemeColors" | "ThemeChrome", _) => "none".to_string(),
         ("StickyScrollLines", value) => format!("`StickyScrollLines::new({value})`"),
         ("EditorStrings", _) => "English (see below)".to_string(),
         (_, value) => code(value),
@@ -324,12 +325,13 @@ fn interface(described: &Described) -> String {
 fn typescript() -> String {
     let (settings, strings) = (settings(), strings());
     format!(
-        "// {}\n// {}\n\n{}\n{}\n{}\n{}",
+        "// {}\n// {}\n\n{}\n{}\n{}\n{}\n{}",
         header(&settings),
         header(&strings),
         interface(&settings),
         interface(&strings),
         color_tokens(),
+        chrome_tokens(),
         names()
     )
 }
@@ -386,6 +388,22 @@ fn color_tokens() -> String {
          export type ThemeColorToken =\n{};\n\n\
          /** Color overrides: a CSS color per token, e.g. `{{ bg: \"#101418\", key: \"#7dd3fc\" }}`. */\n\
          export type ThemeColorMap = Partial<Record<ThemeColorToken, string>>;\n",
+        tokens.concat().trim_end()
+    )
+}
+
+/// The `chrome` keys: one per `ChromeToken`, named as its CSS variable
+/// without the `--config-editor-` prefix.
+fn chrome_tokens() -> String {
+    let tokens: Vec<String> = ChromeToken::ALL
+        .iter()
+        .map(|token| format!("  | \"{}\"\n", token.token()))
+        .collect();
+    format!(
+        "/** A token `chrome` accepts: a font, spacing, border or radius of the tabs, the toolbar or the footer (from `ChromeToken` in the crate). */\n\
+         export type ThemeChromeToken =\n{};\n\n\
+         /** Chrome overrides: a CSS value per token, e.g. `{{ \"tab-padding\": \"0 12px\", \"footer-font-size\": \"12px\" }}`. */\n\
+         export type ThemeChromeMap = Partial<Record<ThemeChromeToken, string>>;\n",
         tokens.concat().trim_end()
     )
 }

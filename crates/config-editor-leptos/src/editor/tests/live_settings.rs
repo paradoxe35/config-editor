@@ -9,7 +9,7 @@ use crate::editor::edit::Edit;
 use crate::editor::languages::Language;
 use crate::editor::state::EditorState;
 use crate::editor::test_state::TestEditor;
-use crate::{EditorSettings, EditorTheme, ThemeColor, ThemeColors};
+use crate::{ChromeToken, EditorSettings, EditorTheme, ThemeChrome, ThemeColor, ThemeColors};
 
 /// A YAML document with a syntax problem on its last line and a block that
 /// folds.
@@ -127,20 +127,21 @@ fn each_switch_changes_only_its_own_part() {
 }
 
 #[test]
-fn theme_and_colors_follow_the_signal() {
+fn theme_colors_and_chrome_follow_the_signal() {
     let settings = RwSignal::new(EditorSettings::default());
     let (_owner, state) = editor(settings);
     let live = state.config().settings;
     assert_eq!(live.theme.get_untracked(), EditorTheme::VsCodeDark);
-    assert_eq!(live.color_style().to_string(), "");
+    assert_eq!(live.root_style().to_string(), "");
     settings.update(|settings| {
         settings.theme = EditorTheme::Nord;
         settings.colors = ThemeColors::new().set(ThemeColor::Key, "#123456");
+        settings.chrome = ThemeChrome::new().set(ChromeToken::TabPadding, "0 12px");
     });
     assert_eq!(live.theme.get_untracked(), EditorTheme::Nord);
     assert_eq!(
-        live.color_style().to_string(),
-        "--config-editor-key:#123456"
+        live.root_style().to_string(),
+        "--config-editor-key:#123456;--config-editor-tab-padding:0 12px"
     );
 }
 

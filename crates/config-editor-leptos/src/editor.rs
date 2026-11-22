@@ -129,7 +129,8 @@ pub use schema_formats::{
     SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss, SchemaResources, UnknownSchemaFormat,
 };
 pub use secret_options::SecretOptions;
-pub use theme::{EditorTheme, ThemeColor, ThemeColors, UnknownTheme};
+pub(crate) use theme::root_style;
+pub use theme::{ChromeToken, EditorTheme, ThemeChrome, ThemeColor, ThemeColors, UnknownTheme};
 
 use crate::EditorSettings;
 use crate::cssom::cssom;
@@ -525,7 +526,7 @@ pub fn ConfigEditor(
             dir="ltr"
             data-theme=move || shown.theme.get().css_family()
             data-color-theme=move || shown.theme.get().as_str()
-            style=cssom(move || shown.color_style())
+            style=cssom(move || shown.root_style())
             node_ref=state.view().root_ref
             on:keydown=move |event| keys::on_root_keydown(state, &event)
             on:focusout=move |event| state.tip_follows_focus(event.related_target().as_ref())

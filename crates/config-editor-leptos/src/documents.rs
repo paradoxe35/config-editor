@@ -191,8 +191,9 @@ pub fn ConfigDocuments(
     /// `value`, a [`Document::edit_as_text`] that does not convert).
     #[prop(optional, into)]
     on_sync_change: Option<Callback<(String, bool)>>,
-    /// The settings of every editor, and the theme and colors of the tabs
-    /// (the `Tab*` tokens of [`ThemeColor`](crate::ThemeColor) included); a
+    /// The settings of every editor, and the theme, colors and chrome of the
+    /// tabs (the `Tab*` tokens of [`ThemeColor`](crate::ThemeColor) and
+    /// [`ChromeToken`](crate::ChromeToken) included); a
     /// document's own [`Document::settings`] replace them for its editor.
     /// May be a signal: every setting switches live. `styled` injects
     /// [`PRESET_CSS`](crate::PRESET_CSS) once, for the whole view (shared with the page's
@@ -279,7 +280,9 @@ pub fn ConfigDocuments(
         move |entry: Entry| view! { <DocumentPanel documents=documents_view entry=entry /> };
     let empty = move || documents_view.entries.with(Vec::is_empty);
     let theme = Memo::new(move |_| settings.with(|settings| settings.theme));
-    let style = move || settings.with(|settings| settings.colors.declarations());
+    let style = move || {
+        settings.with(|settings| crate::editor::root_style(&settings.colors, &settings.chrome))
+    };
     let styled = Memo::new(move |_| settings.with(|settings| settings.styled));
 
     view! {

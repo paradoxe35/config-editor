@@ -30,15 +30,15 @@ function settingsOf(props) {
 /**
  * What `update` takes to go from the settings `before` to `after` (both
  * from `settingsOf`): the keys that changed, `null` for one no longer set,
- * `strings` text by text and `colors` token by token (`update` merges
- * them).
+ * `strings` text by text, `colors` and `chrome` token by token (`update`
+ * merges them).
  */
 function settingsChange(before, after) {
   const change = {};
   const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
   for (const key of Object.keys(SETTING_TYPES)) {
     if (same(before[key], after[key])) continue;
-    if ((key === "strings" || key === "colors") && after[key]) {
+    if (SETTING_TYPES[key] === "object" && after[key]) {
       const texts = {};
       for (const text of new Set([...Object.keys(before[key] ?? {}), ...Object.keys(after[key])])) {
         texts[text] = after[key][text] ?? null;

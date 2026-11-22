@@ -2,6 +2,12 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+mod chrome;
+mod tokens;
+
+pub use chrome::{ChromeToken, ThemeChrome};
+use tokens::{Token, TokenValues};
+
 /// A bundled color theme.
 ///
 /// All themes share the same layout; only the palette changes.
@@ -277,6 +283,28 @@ pub enum ThemeColor {
     TabActiveBorder,
     /// A tab's unsaved-changes dot.
     TabDirty,
+    /// The close button on a tab (by default none).
+    TabCloseBackground,
+    /// The close button under the pointer.
+    TabCloseHoverBackground,
+    /// The "+" after the tabs (by default the `TabBar` color).
+    TabAddBackground,
+    /// The "+" itself (by default the `TabText` color).
+    TabAddText,
+    /// The "+" under the pointer (by default the `TabBackground` color).
+    TabAddHoverBackground,
+    /// The "+" itself under the pointer (by default the `TabActiveText` color).
+    TabAddHoverText,
+    /// The toolbar (by default the `Panel` color).
+    ToolbarBackground,
+    /// The line under the toolbar (by default the `Border` color).
+    ToolbarBorder,
+    /// The footer (by default the `Panel` color).
+    FooterBackground,
+    /// The line over the footer (by default the `Border` color).
+    FooterBorder,
+    /// The footer's text (by default the `RaisedMuted` color).
+    FooterText,
 }
 
 impl ThemeColor {
@@ -367,14 +395,23 @@ impl ThemeColor {
         Self::TabBorder,
         Self::TabActiveBorder,
         Self::TabDirty,
+        Self::TabCloseBackground,
+        Self::TabCloseHoverBackground,
+        Self::TabAddBackground,
+        Self::TabAddText,
+        Self::TabAddHoverBackground,
+        Self::TabAddHoverText,
+        Self::ToolbarBackground,
+        Self::ToolbarBorder,
+        Self::FooterBackground,
+        Self::FooterBorder,
+        Self::FooterText,
     ];
 
     /// The token's name: its CSS variable without `--config-editor-`, such
     /// as `"key"`. [`ThemeColors`] read from JSON are keyed by it.
     pub fn token(self) -> &'static str {
-        self.css_var()
-            .strip_prefix("--config-editor-")
-            .unwrap_or_default()
+        Token::token(self)
     }
 
     /// The CSS variable this token sets, such as `"--config-editor-key"`.
@@ -465,7 +502,31 @@ impl ThemeColor {
             Self::TabBorder => "--config-editor-tab-border",
             Self::TabActiveBorder => "--config-editor-tab-active-border",
             Self::TabDirty => "--config-editor-tab-dirty",
+            Self::TabCloseBackground => "--config-editor-tab-close-bg",
+            Self::TabCloseHoverBackground => "--config-editor-tab-close-hover-bg",
+            Self::TabAddBackground => "--config-editor-tab-add-bg",
+            Self::TabAddText => "--config-editor-tab-add-text",
+            Self::TabAddHoverBackground => "--config-editor-tab-add-hover-bg",
+            Self::TabAddHoverText => "--config-editor-tab-add-hover-text",
+            Self::ToolbarBackground => "--config-editor-toolbar-bg",
+            Self::ToolbarBorder => "--config-editor-toolbar-border",
+            Self::FooterBackground => "--config-editor-footer-bg",
+            Self::FooterBorder => "--config-editor-footer-border",
+            Self::FooterText => "--config-editor-footer-text",
         }
+    }
+}
+
+impl Token for ThemeColor {
+    const ALL: &'static [Self] = Self::ALL;
+    const KIND: &'static str = "color";
+    const VALUE: &'static str = "a CSS color string";
+    const EXPECTING: &'static str =
+        "an object of token: CSS color, such as { \"key\": \"#ffcc66\" }";
+    const LISTED: &'static str = "ThemeColorToken (TypeScript) and ThemeColor::ALL (Rust)";
+
+    fn css_var(self) -> &'static str {
+        Self::css_var(self)
     }
 }
 
@@ -483,7 +544,7 @@ impl ThemeColor {
 /// ```
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub struct ThemeColors {
-    colors: Vec<(ThemeColor, String)>,
+    colors: TokenValues<ThemeColor>,
 }
 
 impl ThemeColors {
@@ -496,39 +557,20 @@ impl ThemeColors {
     /// replacing an earlier value for it.
     #[must_use]
     pub fn set(mut self, color: ThemeColor, value: impl Into<String>) -> Self {
-        let value = value.into();
-        match self
-            .colors
-            .iter_mut()
-            .find(|(existing, _)| *existing == color)
-        {
-            Some((_, current)) => *current = value,
-            None => self.colors.push((color, value)),
-        }
+        self.colors.set(color, value.into());
         self
     }
 
     /// The overrides as inline CSS declarations. Values that could end the
     /// declaration (`;`, braces) are dropped.
     pub fn to_style(&self) -> String {
-        self.colors
-            .iter()
-            .filter(|(_, value)| !value.contains([';', '{', '}']))
-            .map(|(color, value)| format!("{}: {};", color.css_var(), value.trim()))
-            .collect::<Vec<_>>()
-            .join(" ")
+        self.colors.to_style()
     }
 
     /// The overrides as declarations set through the CSSOM (which a strict
     /// CSP allows), with the same values [`Self::to_style`] keeps.
     pub(crate) fn declarations(&self) -> crate::cssom::Declarations {
-        self.colors
-            .iter()
-            .filter(|(_, value)| !value.contains([';', '{', '}']))
-            .fold(
-                crate::cssom::Declarations::new(),
-                |style, (color, value)| style.set(color.css_var(), value.trim()),
-            )
+        self.colors.declare(crate::cssom::Declarations::new())
     }
 
     /// Whether no color is overridden.
@@ -538,10 +580,13 @@ impl ThemeColors {
 
     /// The overrides, in the order they were set.
     pub fn iter(&self) -> impl Iterator<Item = (ThemeColor, &str)> {
-        self.colors
-            .iter()
-            .map(|(color, value)| (*color, value.as_str()))
+        self.colors.iter()
     }
+}
+
+/// A root's inline style: the `colors` and then the `chrome` overrides.
+pub(crate) fn root_style(colors: &ThemeColors, chrome: &ThemeChrome) -> crate::cssom::Declarations {
+    chrome.declare(colors.declarations())
 }
 
 /// A slug that is not a bundled [`EditorTheme`].
@@ -593,89 +638,13 @@ impl<'de> Deserialize<'de> for EditorTheme {
 /// (`{"key": "#ffcc66"}`), keyed by [`ThemeColor::token`].
 impl Serialize for ThemeColors {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_map(self.iter().map(|(color, value)| (color.token(), value)))
+        self.colors.serialize(serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for ThemeColors {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(ColorsVisitor)
-    }
-}
-
-struct ColorsVisitor;
-
-impl<'de> serde::de::Visitor<'de> for ColorsVisitor {
-    type Value = ThemeColors;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("an object of token: CSS color, such as { \"key\": \"#ffcc66\" }")
-    }
-
-    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<ThemeColors, A::Error> {
-        let mut colors = ThemeColors::new();
-        while let Some(token) = map.next_key::<String>()? {
-            let color = ThemeColor::ALL
-                .iter()
-                .copied()
-                .find(|color| color.token() == token)
-                .ok_or_else(|| serde::de::Error::custom(unknown_token(&token)))?;
-            let value = map.next_value::<CssColor>()?;
-            colors = colors.set(color, value.0);
-        }
-        Ok(colors)
-    }
-}
-
-/// The error for a color token that is not one: the nearest token, and
-/// where they are all listed.
-fn unknown_token(token: &str) -> String {
-    let nearest = ThemeColor::ALL
-        .iter()
-        .map(|color| (distance(token, color.token()), color.token()))
-        .min()
-        .filter(|(distance, _)| *distance <= 2)
-        .map(|(_, nearest)| format!(" (did you mean \"{nearest}\"?)"))
-        .unwrap_or_default();
-    format!(
-        "unknown color token \"{token}\"{nearest}; the tokens are listed by ThemeColorToken (TypeScript) and ThemeColor::ALL (Rust)"
-    )
-}
-
-/// Characters to insert, delete or replace to turn `one` into `other`.
-fn distance(one: &str, other: &str) -> usize {
-    let other: Vec<char> = other.chars().collect();
-    let mut row: Vec<usize> = (0..=other.len()).collect();
-    for (index, character) in one.chars().enumerate() {
-        let mut diagonal = row[0];
-        row[0] = index + 1;
-        for (at, wanted) in other.iter().enumerate() {
-            let next = (diagonal + usize::from(character != *wanted))
-                .min(row[at] + 1)
-                .min(row[at + 1] + 1);
-            diagonal = row[at + 1];
-            row[at + 1] = next;
-        }
-    }
-    row[other.len()]
-}
-
-/// A color's value: a string, else an error saying so.
-struct CssColor(String);
-
-impl<'de> Deserialize<'de> for CssColor {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Visitor;
-        impl serde::de::Visitor<'_> for Visitor {
-            type Value = CssColor;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("a CSS color string")
-            }
-            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<CssColor, E> {
-                Ok(CssColor(value.to_string()))
-            }
-        }
-        deserializer.deserialize_str(Visitor)
+        TokenValues::deserialize(deserializer).map(|colors| Self { colors })
     }
 }
 

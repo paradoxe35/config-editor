@@ -1,6 +1,9 @@
 
 /* The documents view (`ConfigDocuments`): a tab strip over one editor per
-   document. Colors come from the `--config-editor-tab-*` tokens. Given a
+   document. Its looks come from the `--config-editor-tab-*` variables
+   (colors and `ThemeChrome`), read by rules that keep the shield's weight;
+   its hover effects are in `@layer config-editor.chrome` (at the end), so
+   a host's own rule on a tab's class wins over them. Given a
    height (`height: 100%` in a container of a set height), the strip keeps
    its own and the shown editor fills the rest; without one, the view is
    as tall as the strip and the editor, which sizes itself. */
@@ -31,7 +34,7 @@
   overflow: hidden;
   border: 1px solid var(--config-editor-tab-border);
   border-bottom: 0;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--config-editor-tab-bar-radius);
   background: var(--config-editor-tab-bar);
   font: 12px/1.2 ui-sans-serif, system-ui, sans-serif;
 }
@@ -55,14 +58,10 @@
   place-items: center;
   padding: 0;
   border: 0;
-  background: var(--config-editor-tab-bar);
-  color: var(--config-editor-tab-text);
+  background: var(--config-editor-tab-add-bg);
+  color: var(--config-editor-tab-add-text);
   font: 18px/1 ui-sans-serif, system-ui, sans-serif;
   cursor: pointer;
-}
-:not(#\#):not(#\#) .config-editor-documents__add:hover {
-  background: var(--config-editor-tab-bg);
-  color: var(--config-editor-tab-active-text);
 }
 :not(#\#):not(#\#) .config-editor-documents__add:focus-visible {
   outline: 1px solid var(--config-editor-focus-ring);
@@ -74,12 +73,14 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--config-editor-tab-gap);
   height: 35px;
-  padding: 0 6px 0 10px;
-  border-right: 1px solid var(--config-editor-tab-border);
+  padding: var(--config-editor-tab-padding);
+  border-right: var(--config-editor-tab-border-width) solid var(--config-editor-tab-border);
+  border-radius: var(--config-editor-tab-radius);
   background: var(--config-editor-tab-bg);
   color: var(--config-editor-tab-text);
+  font: var(--config-editor-tab-font-style) var(--config-editor-tab-font-weight) var(--config-editor-tab-font-size)/1.2 var(--config-editor-tab-font-family);
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
@@ -89,13 +90,14 @@
 :not(#\#):not(#\#) .config-editor-documents__tab-active {
   background: var(--config-editor-tab-active-bg);
   color: var(--config-editor-tab-active-text);
+  font-weight: var(--config-editor-tab-active-font-weight);
 }
 
 :not(#\#):not(#\#) .config-editor-documents__tab-active::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 2px;
+  height: var(--config-editor-tab-active-border-width);
   background: var(--config-editor-tab-active-border);
 }
 
@@ -136,7 +138,7 @@
 
 /* Italic letters lean past their box: the name keeps room on its right
    for the last letter's slant, which `overflow: hidden` would cut. */
-:not(#\#):not(#\#) .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: italic; padding-inline-end: 0.15em; }
+:not(#\#):not(#\#) .config-editor-documents__tab-readonly .config-editor-documents__name { font-style: var(--config-editor-tab-readonly-font-style); padding-inline-end: 0.15em; }
 :not(#\#):not(#\#) .config-editor-documents__tab-readonly .config-editor-documents__name-start:last-child { padding-inline-end: 0.15em; }
 
 /* A tab that cannot be closed keeps no room for the button: only its
@@ -155,14 +157,13 @@
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 4px;
-  background: transparent;
+  border-radius: var(--config-editor-tab-close-radius);
+  background: var(--config-editor-tab-close-bg);
   color: inherit;
-  font: 14px/1 ui-sans-serif, system-ui, sans-serif;
+  font: var(--config-editor-tab-close-font-size)/1 var(--config-editor-tab-font-family);
 }
 
 :not(#\#):not(#\#) .config-editor-documents__close { cursor: pointer; }
-:not(#\#):not(#\#) .config-editor-documents__close:hover { background: var(--config-editor-raised-hover); }
 :not(#\#):not(#\#) .config-editor-documents__close > span,
 :not(#\#):not(#\#) .config-editor-documents__marker > span { grid-area: 1 / 1; }
 
@@ -233,7 +234,6 @@
 }
 
 @media (max-width: 600px) {
-  :not(#\#):not(#\#) .config-editor-documents__tab { padding-left: 8px; }
   /* Room for a short folder before a shared file's name (prod/). */
   :not(#\#):not(#\#) .config-editor-documents__name { max-width: calc(100px + var(--config-editor-tab-kept, 0px)); }
   /* A tab's folder (`conf.d/`) is left out, so the names that tell the
@@ -248,5 +248,19 @@
   :not(#\#):not(#\#) .config-editor-documents__tab-active::before {
     forced-color-adjust: none;
     background: Highlight;
+  }
+}
+
+/* Cosmetic extras, in a layer: a host's own rule (unlayered, of any
+   weight) wins over them. Each sets a variable the shielded rules read,
+   as the shield keeps every property itself; nothing here lays anything
+   out. */
+@layer config-editor.chrome {
+  .config-editor-documents__add:hover {
+    --config-editor-tab-add-bg: var(--config-editor-tab-add-hover-bg);
+    --config-editor-tab-add-text: var(--config-editor-tab-add-hover-text);
+  }
+  .config-editor-documents__close:hover {
+    --config-editor-tab-close-bg: var(--config-editor-tab-close-hover-bg);
   }
 }

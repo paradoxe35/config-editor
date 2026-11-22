@@ -20,6 +20,12 @@ export interface EditorSettings {
    */
   colors?: ThemeColorMap;
   /**
+   * The chrome's fonts, spacing, borders and radius, by token (`tab-padding`, `tab-font-size`, `toolbar-padding`, `footer-font-size`, …), over the preset's: the documents view's tabs, the toolbar and the footer. Their colors are `colors` tokens (`tab-bg`, `toolbar-bg`, `footer-text`, …). See "Theming the chrome" in the README.
+   *
+   * @default {}
+   */
+  chrome?: ThemeChromeMap;
+  /**
    * Inject the preset stylesheet. Off, serve it as a file (`preset.css` in the crate and the npm package, as a strict Content-Security-Policy needs) or style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript).
    *
    * @default true
@@ -1675,10 +1681,55 @@ export type ThemeColorToken =
   | "tab-active-text"
   | "tab-border"
   | "tab-active-border"
-  | "tab-dirty";
+  | "tab-dirty"
+  | "tab-close-bg"
+  | "tab-close-hover-bg"
+  | "tab-add-bg"
+  | "tab-add-text"
+  | "tab-add-hover-bg"
+  | "tab-add-hover-text"
+  | "toolbar-bg"
+  | "toolbar-border"
+  | "footer-bg"
+  | "footer-border"
+  | "footer-text";
 
 /** Color overrides: a CSS color per token, e.g. `{ bg: "#101418", key: "#7dd3fc" }`. */
 export type ThemeColorMap = Partial<Record<ThemeColorToken, string>>;
+
+/** A token `chrome` accepts: a font, spacing, border or radius of the tabs, the toolbar or the footer (from `ChromeToken` in the crate). */
+export type ThemeChromeToken =
+  | "tab-font-family"
+  | "tab-font-size"
+  | "tab-font-weight"
+  | "tab-font-style"
+  | "tab-active-font-weight"
+  | "tab-readonly-font-style"
+  | "tab-padding"
+  | "tab-gap"
+  | "tab-border-width"
+  | "tab-active-border-width"
+  | "tab-radius"
+  | "tab-bar-radius"
+  | "tab-close-radius"
+  | "tab-close-font-size"
+  | "toolbar-font-family"
+  | "toolbar-font-size"
+  | "toolbar-font-weight"
+  | "toolbar-font-style"
+  | "toolbar-padding"
+  | "toolbar-gap"
+  | "toolbar-border-width"
+  | "footer-font-family"
+  | "footer-font-size"
+  | "footer-font-weight"
+  | "footer-font-style"
+  | "footer-padding"
+  | "footer-gap"
+  | "footer-border-width";
+
+/** Chrome overrides: a CSS value per token, e.g. `{ "tab-padding": "0 12px", "footer-font-size": "12px" }`. */
+export type ThemeChromeMap = Partial<Record<ThemeChromeToken, string>>;
 
 /** A built-in language name (from `Language::ALL` in the crate; its file extensions name it too, `"yml"`, `"tf"`) or one from `registerLanguage`. */
 export type LanguageName =

@@ -25,6 +25,7 @@ export type {
   TextChange,
   ApplyChangesOptions,
   ThemeColorMap,
+  ThemeChromeMap,
   ThemeName,
 } from "@pngwasi/config-editor";
 export type { ConfigDocumentsHandle, ConfigEditorHandle } from "@pngwasi/config-editor/binding";

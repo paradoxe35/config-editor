@@ -10,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{EditorStrings, EditorTheme, ThemeColors};
+use crate::{EditorStrings, EditorTheme, ThemeChrome, ThemeColors};
 
 /// How an editor looks and which of its features are on: everything a host
 /// sets once and may switch at any time, apart from the document itself.
@@ -49,6 +49,12 @@ pub struct EditorSettings {
     /// Colors overriding the theme's, by token (`bg`, `key`, `string`,
     /// `selection`, …), for a custom palette.
     pub colors: ThemeColors,
+    /// The chrome's fonts, spacing, borders and radius, by token
+    /// (`tab-padding`, `tab-font-size`, `toolbar-padding`, `footer-font-size`,
+    /// …), over the preset's: the documents view's tabs, the toolbar and the
+    /// footer. Their colors are `colors` tokens (`tab-bg`, `toolbar-bg`,
+    /// `footer-text`, …). See "Theming the chrome" in the README.
+    pub chrome: ThemeChrome,
     /// Inject the preset stylesheet. Off, serve it as a file (`preset.css`
     /// in the crate and the npm package, as a strict Content-Security-Policy
     /// needs) or style the `config-editor__*` markup yourself (the preset is
@@ -116,6 +122,7 @@ impl Default for EditorSettings {
         Self {
             theme: EditorTheme::default(),
             colors: ThemeColors::new(),
+            chrome: ThemeChrome::new(),
             styled: true,
             show_toolbar: false,
             show_footer: false,
@@ -191,6 +198,7 @@ mod tests {
         let settings = EditorSettings::default();
         assert_eq!(settings.theme, EditorTheme::VsCodeDark);
         assert!(settings.colors.is_empty());
+        assert!(settings.chrome.is_empty());
         let off = [settings.show_toolbar, settings.show_footer];
         assert_eq!(off, [false, false]);
         let on = [
@@ -242,6 +250,9 @@ mod tests {
                     serde_json::Value::String(_) => "dracula".into(),
                     serde_json::Value::Object(_) if key == "strings" => {
                         serde_json::json!({"noProblems": "Keine Fehler"})
+                    }
+                    serde_json::Value::Object(_) if key == "chrome" => {
+                        serde_json::json!({"tab-padding": "0 12px"})
                     }
                     serde_json::Value::Object(_) => serde_json::json!({"key": "#ffcc66"}),
                     serde_json::Value::Number(_) => 12.into(),
@@ -318,6 +329,12 @@ mod tests {
             (r#"{"colors": {"key": 7}}"#, "a CSS color string"),
             (r#"{"folding": "yes"}"#, "expected a boolean"),
             (r#"{"colors": []}"#, "an object of token: CSS color"),
+            (
+                r#"{"chrome": {"tab-pading": "0"}}"#,
+                "unknown chrome token \"tab-pading\" (did you mean \"tab-padding\"?); the tokens are listed by ThemeChromeToken",
+            ),
+            (r#"{"chrome": {"tab-gap": 4}}"#, "a CSS value string"),
+            (r#"{"chrome": []}"#, "an object of token: CSS value"),
             (r#"{"stickyScrollMaxLines": "3"}"#, "expected u64"),
         ];
         let failures: Vec<String> = cases

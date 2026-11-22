@@ -4,7 +4,7 @@
 //! generated from the struct (`settings.d.ts`, see `tests/settings.rs`).
 
 use js_sys::{Object, Reflect};
-use leptos_config_editor::{EditorSettings, EditorStrings, ThemeColors};
+use leptos_config_editor::{EditorSettings, EditorStrings, ThemeChrome, ThemeColors};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -25,6 +25,12 @@ fn keys_of(value: &impl Serialize) -> Vec<String> {
     }
 }
 
+/// Whether the setting `key` is an object that merges with what is set,
+/// key by key (a text or token set to `null` takes its default again).
+pub(crate) fn merges(key: &str) -> bool {
+    matches!(key, "strings" | "colors" | "chrome")
+}
+
 /// The settings keys, as JavaScript spells them (`showFooter`).
 pub(crate) fn setting_keys() -> Vec<String> {
     KEYS.with(Clone::clone)
@@ -41,7 +47,7 @@ pub(crate) fn settings_from(object: &JsValue) -> Result<EditorSettings, JsError>
             if !value.is_undefined() && !value.is_null() {
                 // A text or token set to `undefined` or `null` takes its
                 // default, as `update` reads it.
-                let value = if (key == "strings" || key == "colors") && is_record(&value) {
+                let value = if merges(&key) && is_record(&value) {
                     merged_texts(&JsValue::UNDEFINED, &value)
                 } else {
                     value
@@ -63,13 +69,19 @@ pub(crate) fn settings_from(object: &JsValue) -> Result<EditorSettings, JsError>
         let names: Vec<&str> = known.iter().map(String::as_str).collect();
         warn_unknown_keys(&strings, &names, "string");
     }
-    let colors = field(&given, "colors");
-    if !colors.is_undefined()
-        && (!colors.is_object() || colors.is_function() || js_sys::Array::is_array(&colors))
-    {
-        return Err(JsError::new(
-            "colors must be an object of token: CSS color, such as { key: \"#ffcc66\" }",
-        ));
+    for (key, expected) in [
+        ("colors", "token: CSS color, such as { key: \"#ffcc66\" }"),
+        (
+            "chrome",
+            "token: CSS value, such as { \"tab-padding\": \"0 12px\" }",
+        ),
+    ] {
+        let tokens = field(&given, key);
+        if !tokens.is_undefined() && !is_record(&tokens) {
+            return Err(JsError::new(&format!(
+                "{key} must be an object of {expected}"
+            )));
+        }
     }
     let deserializer = serde_wasm_bindgen::Deserializer::from(JsValue::from(given));
     let settings: EditorSettings =
@@ -80,6 +92,7 @@ pub(crate) fn settings_from(object: &JsValue) -> Result<EditorSettings, JsError>
             ))
         })?;
     check_colors(&settings.colors)?;
+    check_chrome(&settings.chrome)?;
     Ok(settings)
 }
 
@@ -126,7 +139,7 @@ fn javascript_kind(serde: &str) -> String {
 
 /// `overrides` (a document's `settings`) over `base` (the view's): the keys
 /// it sets replace the base's, the texts of its `strings` the base's
-/// texts and the tokens of its `colors` the base's tokens.
+/// texts and the tokens of its `colors` and `chrome` the base's tokens.
 pub(crate) fn settings_over(
     base: &EditorSettings,
     overrides: &JsValue,
@@ -138,8 +151,7 @@ pub(crate) fn settings_over(
             continue;
         }
         let base_texts = field(&merged, &key);
-        let merges = key == "strings" || key == "colors";
-        let value = if merges && is_record(&value) {
+        let value = if merges(&key) && is_record(&value) {
             merged_texts(&base_texts, &value)
         } else {
             value
@@ -153,7 +165,7 @@ pub(crate) fn is_record(value: &JsValue) -> bool {
     value.is_object() && !value.is_function() && !js_sys::Array::is_array(value)
 }
 
-/// `texts` over `current` (both `strings` or both `colors` objects), as
+/// `texts` over `current` (both `strings`, `colors` or `chrome` objects), as
 /// the settings themselves merge: a text set to `null` is dropped, so it
 /// takes its default; one set to `undefined` is left as it was.
 pub(crate) fn merged_texts(current: &JsValue, texts: &JsValue) -> JsValue {
@@ -181,6 +193,21 @@ fn check_colors(colors: &ThemeColors) -> Result<(), JsError> {
             return Err(JsError::new(&format!(
                 "colors: color \"{}\": \"{css}\" is not a CSS color",
                 color.token()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Every chrome value as the browser reads its property (`padding` for
+/// `tab-padding`): a typo would otherwise be dropped silently.
+fn check_chrome(chrome: &ThemeChrome) -> Result<(), JsError> {
+    for (token, css) in chrome.iter() {
+        if !web_sys::css::supports_with_value(token.property(), css).unwrap_or(false) {
+            return Err(JsError::new(&format!(
+                "chrome: \"{}\": \"{css}\" is not a {}",
+                token.token(),
+                token.property()
             )));
         }
     }

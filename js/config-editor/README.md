@@ -55,6 +55,7 @@ which build on this package.
   - [Edit-as with a custom language](#edit-as-with-a-custom-language)
 - [Themes](#themes)
 - [Styling](#styling)
+  - [Theming the chrome](#theming-the-chrome)
   - [Size](#size)
   - [Strict Content-Security-Policy](#strict-content-security-policy)
 - [License](#license)
@@ -197,27 +198,28 @@ viewer.update({ showDiagnostics: true });
 
 <!-- Generated from crates/config-editor-leptos/src/settings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
-| Setting                  | Default             |                                                                                                                                                                                                                                                                                    |
-| ------------------------ | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme`                  | `"vscode-dark"`     | The bundled color theme.                                                                                                                                                                                                                                                           |
-| `colors`                 | none                | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette.                                                                                                                                                                             |
-| `styled`                 | `true`              | Inject the preset stylesheet. Off, serve it as a file (`preset.css` in the crate and the npm package, as a strict Content-Security-Policy needs) or style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript).                        |
-| `showToolbar`            | `false`             | Show the built-in toolbar: the file name, its language and the schema's state.                                                                                                                                                                                                     |
-| `showFooter`             | `false`             | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count.                                                                                                                                                                              |
-| `showDiagnostics`        | `true`              | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them).                                                                                                                                                                                      |
-| `showDiff`               | `true`              | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature.                                                                                                      |
-| `completions`            | `true`              | Schema completions (`Ctrl+Space`).                                                                                                                                                                                                                                                 |
-| `autoTriggerCompletions` | `true`              | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them.                                                                                                                                                                                        |
-| `hoverDocs`              | `true`              | Show the schema's title, description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.                                                                                                   |
-| `highlighting`           | `true`              | Syntax colors.                                                                                                                                                                                                                                                                     |
-| `autoClosing`            | `true`              | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace.                                                                                                                                                                                              |
-| `search`                 | `true`              | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                   |
-| `goToLine`               | `true`              | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                                             |
-| `folding`                | `true`              | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature. |
-| `stickyScroll`           | `true`              | Sticky scroll, as in VS Code: the lines opening the blocks around the top line stay at the top while the text scrolls; a click goes back to one. Works with `folding` off too. In Rust, needs the `folding` Cargo feature.                                                         |
-| `stickyScrollMaxLines`   | `5`                 | The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never more than fit in a quarter of the text area (at least one).                                                                                                                               |
-| `saveShortcut`           | `true`              | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.                                                                                                                                             |
-| `strings`                | English (see below) | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`.                                                                                       |
+| Setting                  | Default             |                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `theme`                  | `"vscode-dark"`     | The bundled color theme.                                                                                                                                                                                                                                                                                                             |
+| `colors`                 | none                | Colors overriding the theme's, by token (`bg`, `key`, `string`, `selection`, …), for a custom palette.                                                                                                                                                                                                                               |
+| `chrome`                 | none                | The chrome's fonts, spacing, borders and radius, by token (`tab-padding`, `tab-font-size`, `toolbar-padding`, `footer-font-size`, …), over the preset's: the documents view's tabs, the toolbar and the footer. Their colors are `colors` tokens (`tab-bg`, `toolbar-bg`, `footer-text`, …). See "Theming the chrome" in the README. |
+| `styled`                 | `true`              | Inject the preset stylesheet. Off, serve it as a file (`preset.css` in the crate and the npm package, as a strict Content-Security-Policy needs) or style the `config-editor__*` markup yourself (the preset is `PRESET_CSS`, `presetCss()` in JavaScript).                                                                          |
+| `showToolbar`            | `false`             | Show the built-in toolbar: the file name, its language and the schema's state.                                                                                                                                                                                                                                                       |
+| `showFooter`             | `false`             | Show the built-in status footer: the suggestions hint, problem and change counts, and the line count.                                                                                                                                                                                                                                |
+| `showDiagnostics`        | `true`              | Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them).                                                                                                                                                                                                                                        |
+| `showDiff`               | `true`              | Show line changes against the baseline in the gutter (`Alt+F5` / `Alt+F3` move between them). Off, the change summary stays at zero. In Rust, needs the `diff` Cargo feature.                                                                                                                                                        |
+| `completions`            | `true`              | Schema completions (`Ctrl+Space`).                                                                                                                                                                                                                                                                                                   |
+| `autoTriggerCompletions` | `true`              | Open suggestions while typing and after accepting a key. Off, only `Ctrl+Space` opens them.                                                                                                                                                                                                                                          |
+| `hoverDocs`              | `true`              | Show the schema's title, description, type, default and examples when hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen readers), or on a tap on a touch screen.                                                                                                                                                     |
+| `highlighting`           | `true`              | Syntax colors.                                                                                                                                                                                                                                                                                                                       |
+| `autoClosing`            | `true`              | Auto-close quotes and brackets, wrap selections, and delete empty pairs on Backspace.                                                                                                                                                                                                                                                |
+| `search`                 | `true`              | Find and replace (`Ctrl+F`, `Ctrl+H`, `F3`). Off, those keys are left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                                                                     |
+| `goToLine`               | `true`              | Go to line (`Ctrl+G`). Off, the key is left to the browser. In Rust, needs the `search` Cargo feature.                                                                                                                                                                                                                               |
+| `folding`                | `true`              | Folding by structure: chevrons in the gutter, `Ctrl+Shift+[` and `Ctrl+Shift+]` at the caret, `Ctrl+K Ctrl+0` and `Ctrl+K Ctrl+J` for everything (`Cmd` on macOS). View only: the text stays whole. Switching it off opens every fold. In Rust, needs the `folding` Cargo feature.                                                   |
+| `stickyScroll`           | `true`              | Sticky scroll, as in VS Code: the lines opening the blocks around the top line stay at the top while the text scrolls; a click goes back to one. Works with `folding` off too. In Rust, needs the `folding` Cargo feature.                                                                                                           |
+| `stickyScrollMaxLines`   | `5`                 | The most lines sticky scroll shows, 1 to 20 (others are taken as the nearest), and never more than fit in a quarter of the text area (at least one).                                                                                                                                                                                 |
+| `saveShortcut`           | `true`              | Whether `Ctrl+S` / `Cmd+S` saves, when a save callback is set. Off, the key is left to the browser and only the handle's `save` saves.                                                                                                                                                                                               |
+| `strings`                | English (see below) | Every built-in text (hints, tooltips, notices and their buttons, footer counts, accessible names and announcements), English by default: give only the texts to change. See `EditorStrings`.                                                                                                                                         |
 
 <!-- settings:end -->
 
@@ -2271,6 +2273,95 @@ With `styled: false` the editor injects nothing, and its markup
 as `@pngwasi/config-editor/preset.css` to serve or adapt (`presetCss()`
 returns the same text).
 
+### Theming the chrome
+
+The tabs, the toolbar and the footer keep their layout (their display,
+rows, sizes, overflow and the close button's 24×24 hit area) against
+the page's resets: Tailwind's preflight, modern-normalize or
+`button { padding: 0; background: transparent }` change nothing in them.
+Their looks are `--config-editor-*` variables, each read by a rule a
+reset cannot outweigh, with the preset's values as their defaults (set on
+the editor's root). Change them on purpose, three ways:
+
+- the `chrome` option for fonts, spacing, borders and radius, and
+  `colors` for their colors (the `tab-*`, `toolbar-*` and `footer-*`
+  tokens), on `ConfigEditor` or `ConfigDocuments`, live with `update`
+  (`ThemeChromeToken` and `ThemeColorToken` list them in TypeScript);
+- your own CSS, setting the variables;
+- for more than the variables give, your own rules over the cosmetic layer
+  (below).
+
+```js
+new ConfigDocuments(element, {
+  documents,
+  chrome: {
+    "tab-padding": "0 12px 0 16px",
+    "tab-font-size": "13px",
+    "tab-readonly-font-style": "normal",
+    "footer-font-size": "12px",
+  },
+  colors: { "tab-active-bg": "#0f172a", "toolbar-bg": "#111827" },
+});
+```
+
+```css
+/* The same from a stylesheet. */
+.config-editor-documents {
+  --config-editor-tab-padding: 0 12px 0 16px;
+  --config-editor-tab-active-bg: #0f172a;
+}
+.config-editor {
+  --config-editor-toolbar-bg: #111827;
+  --config-editor-footer-font-size: 12px;
+}
+```
+
+<details>
+<summary>Every chrome variable</summary>
+
+| Part          | Colors (`colors`)                                                      | Fonts, spacing, borders, radius (`chrome`)                                                                                                            |
+| ------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs          | `tab-bar`, `tab-bg`, `tab-text`, `tab-border`, `tab-dirty`             | `tab-font-family`, `tab-font-size`, `tab-font-weight`, `tab-font-style`, `tab-padding`, `tab-gap`, `tab-border-width`, `tab-radius`, `tab-bar-radius` |
+| Active tab    | `tab-active-bg`, `tab-active-text`, `tab-active-border`                | `tab-active-font-weight`, `tab-active-border-width`                                                                                                   |
+| Read-only tab |                                                                        | `tab-readonly-font-style`                                                                                                                             |
+| Close button  | `tab-close-bg`, `tab-close-hover-bg`                                   | `tab-close-radius`, `tab-close-font-size`                                                                                                             |
+| "+" button    | `tab-add-bg`, `tab-add-text`, `tab-add-hover-bg`, `tab-add-hover-text` |                                                                                                                                                       |
+| Toolbar       | `toolbar-bg`, `toolbar-text`, `toolbar-border`                         | `toolbar-font-family`, `toolbar-font-size`, `toolbar-font-weight`, `toolbar-font-style`, `toolbar-padding`, `toolbar-gap`, `toolbar-border-width`     |
+| Footer        | `footer-bg`, `footer-text`, `footer-border`                            | `footer-font-family`, `footer-font-size`, `footer-font-weight`, `footer-font-style`, `footer-padding`, `footer-gap`, `footer-border-width`            |
+
+</details>
+
+Each name is the variable without `--config-editor-` (`tab-padding` is
+`--config-editor-tab-padding`). The defaults are the preset's look: for
+example `tab-padding` is `0 6px 0 10px` (`0 6px 0 8px` on a phone),
+`tab-font-size` `12px`, `tab-readonly-font-style` `italic`,
+`toolbar-padding` `0 14px`, `footer-font-size` `10px`; `ThemeChromeToken` lists
+them all. A value the browser cannot read for its property is an error
+in the npm package (`chrome: "tab-padding": "red" is not a padding`).
+
+The editor's own hover effects (the close button's and the "+"'s
+background) are in a cascade layer, `@layer config-editor.chrome`, and only
+change these variables. A rule of your own, outside any layer, wins over
+them whatever its weight:
+
+```css
+.config-editor-documents__close:hover {
+  --config-editor-tab-close-bg: #3b82f6;
+}
+.config-editor-documents__tab:hover {
+  --config-editor-tab-bg: #1f2937;
+}
+```
+
+Set a variable on the class of the part you mean (as above), or on the
+roots: `.config-editor-documents` for the tabs, `.config-editor` for an
+editor's toolbar and footer (each editor's root sets its defaults, so a
+value on the documents view's root does not reach the editors inside it;
+`colors` and `chrome` on `ConfigDocuments` do). A property set directly
+on a chrome class (`.config-editor-documents__tab { padding: 0 }`) loses
+to the editor's own rule, which carries two ids' weight so that a page's
+resets cannot reach it: set the variable instead.
+
 ### Size
 
 The editor sizes itself, not by its element's height: its text area grows
@@ -2354,6 +2445,9 @@ The tabs of `ConfigDocuments` use `tab-bar` (the strip), `tab-bg` /
 unsaved-changes dot); they follow `panel`, `bg`, `muted`, `text`, `border`
 and `accent` unless set, as variables on the `.config-editor-documents` root
 or through its `colors` setting.
+The rest of the chrome's colors (the close and "+" buttons, the toolbar and
+the footer) and its fonts, spacing, borders and radius are in
+[Theming the chrome](#theming-the-chrome).
 
 </details>
 
