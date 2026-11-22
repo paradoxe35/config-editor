@@ -18,7 +18,8 @@ mod property_names;
 mod use_types;
 mod uses;
 
-#[cfg(test)]
+// Only the YAML-built uses tests read them.
+#[cfg(all(test, feature = "yaml"))]
 pub(in crate::editor) use find::{UseTarget, uses_said};
 pub(in crate::editor) use find::{close_uses_on_moves, empty_text, title};
 pub(crate) use keyword::{KEYWORD, key_places, pointers_in};
