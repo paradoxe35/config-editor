@@ -1,6 +1,6 @@
 {
   "name": "@pngwasi/config-editor-svelte",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Svelte 5 components for config-editor: schema-aware YAML, JSON, TOML, HCL and XML editing",
   "type": "module",
   "svelte": "./dist/index.js",
@@ -23,7 +23,7 @@
     "build": "svelte-package -i src -o dist"
   },
   "peerDependencies": {
-    "@pngwasi/config-editor": "^0.2.1",
+    "@pngwasi/config-editor": "^0.2.2",
     "svelte": "^5.0.0"
   },
   "license": "MIT",
