@@ -105,6 +105,13 @@ impl NodeAt<'_, '_> {
         let names_list = |types: Types, branches: &[&Value]| {
             types != Types::ANY || branches.iter().any(|branch| type_includes(branch, "array"))
         };
+        // The readings tried, in order: the value as written (its text as
+        // parsed, then as the schemas want it), then a list's one item. The
+        // first the schemas take is kept: an option taking the list never
+        // wins over one taking the value written (`<b>1.5</b>` the `"1.5"`
+        // an object option lists, beside an option for any list).
+        let text_scalars = self.text_scalars;
+        let lone_read = || text_scalars && taken_as_read(value, at, root);
         let item = repeatable
             && if types.allows_type("array") {
                 at.accepts(value, root) != Some(true)
@@ -121,7 +128,8 @@ impl NodeAt<'_, '_> {
                         blind.types().allows_type("array")
                             && names_list(blind.types(), &blind.branches())
                     }
-            };
+            }
+            && !lone_read();
         if item {
             *value = Value::Array(vec![value.take()]);
             let pointer = self.pointer.clone();
@@ -135,6 +143,7 @@ impl NodeAt<'_, '_> {
                 let blind = Here::walk(at.clone(), root, Seen::default());
                 blind.types().allows_type("array") && names_list(blind.types(), &blind.branches())
             }
+            && !lone_read()
         {
             self.read_as_item(value, at);
         }
@@ -398,6 +407,60 @@ enum Reading {
     Item(Option<Value>),
     /// The value written once, where it was read as a list's one item.
     Lone,
+}
+
+/// Whether the schemas at `at` take `value` (a lone XML object) once the
+/// text under it is read as they want it (`<b>1.5</b>` the `"1.5"` an
+/// option's `b` lists, `<b><c>1.5</c></b>` a `c` under it). Only the text
+/// is read (no list of one under it), and [`TRIAL_LEVELS`] levels at
+/// most, so each value is read again by a bounded number of the objects
+/// above it. A scalar's own text is read before (`read_text` at the
+/// node). `false` where no text reads otherwise.
+fn taken_as_read(value: &Value, at: &Entry<'_>, root: &Value) -> bool {
+    if !is_filled(value) || value.is_array() {
+        return false;
+    }
+    let mut read = value.clone();
+    read_texts(&mut read, at, root, TRIAL_LEVELS);
+    read != *value && at.accepts(&read, root) == Some(true)
+}
+
+/// Levels of values under a lone object [`taken_as_read`] reads.
+const TRIAL_LEVELS: usize = 6;
+
+/// The text in `value`'s members (and theirs, `levels` deep) read as the
+/// schemas at each want it, as [`NodeAt::read`] reads it.
+fn read_texts(value: &mut Value, at: &Entry<'_>, root: &Value, levels: usize) {
+    if !is_filled(value) {
+        let applied = Here::walk(at.clone(), root, Seen::default());
+        read_text(value, at, &applied.branches(), applied.types(), root);
+        return;
+    }
+    if levels == 0 {
+        return;
+    }
+    let applied = Here::walk(
+        at.clone(),
+        root,
+        Seen::value(value.is_object().then_some(&*value)),
+    );
+    let segments: Vec<SchemaPathSegment> = match &*value {
+        Value::Array(items) => (0..items.len()).map(SchemaPathSegment::ArrayItem).collect(),
+        Value::Object(map) => map.keys().cloned().map(SchemaPathSegment::Key).collect(),
+        _ => return,
+    };
+    let children: Vec<Entry<'_>> = segments
+        .iter()
+        .map(|segment| applied.child_typed(segment))
+        .collect();
+    let held: Vec<&mut Value> = match value {
+        Value::Array(items) => items.iter_mut().collect(),
+        Value::Object(map) => map.values_mut().collect(),
+        _ => return,
+    };
+    for (child, child_at) in held.into_iter().zip(&children) {
+        read_texts(child, child_at, root, levels - 1);
+    }
 }
 
 /// Whether `value` holds something (a map or list that is not empty): no

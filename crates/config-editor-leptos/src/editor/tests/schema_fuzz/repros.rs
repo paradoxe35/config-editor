@@ -727,6 +727,21 @@ fn xml_view_text_saves_as_read_where_the_schema_takes_only_that_reading() {
     );
 }
 
+/// P2: a lone XML element whose text an object option lists (`b:
+/// enum ["1.5"]`) beside an option for a list reads as that object, not
+/// a list of one, so the save writes what the view reads.
+#[test]
+fn a_lone_element_an_object_option_lists_saves_as_that_object() {
+    holds_everywhere(
+        super::edit_as::check,
+        json!({"$defs": {"d0": {"required": ["b"], "properties": {"b": {"enum": ["1.5"]}}}},
+            "properties": {"a": {"oneOf": [{"$ref": "#/$defs/d0"},
+                {"type": "array", "contains": {"type": "integer"}}]}}}),
+        json!({"a": {"x_two": "1.5"}}),
+        json!({"a": {"b": "1.5"}}),
+    );
+}
+
 /// A number typed in an XML view where an overlapping `oneOf` (`{}`
 /// beside a string option) would take the host's string twice saves as
 /// the view reads it (P2, PutGet).

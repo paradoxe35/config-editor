@@ -122,3 +122,47 @@ fn a_lone_element_is_no_list_where_the_object_above_then_refuses_it() {
         assert_eq!(read(&under(depth, any_of), lone(depth)), listed(depth));
     }
 }
+
+/// A lone element whose text an object option lists (`<a><b>1.5</b></a>`,
+/// `b: enum ["1.5"]`) beside an option for a list is the object, its text
+/// read as listed, not a list of one: the value as written is tried (with
+/// its text read as the schemas want it) before a list's one item. Each
+/// reading is one the schema takes; elements written twice stay the list
+/// written.
+#[test]
+fn a_lone_element_an_object_option_takes_once_its_text_is_read_is_no_list() {
+    let array = json!({"type": "array", "contains": {"type": "integer"}});
+    let keys = ["b", "c"];
+    let nested = |depth: usize, inner: Value| {
+        (0..depth)
+            .rev()
+            .fold(inner, |inner, level| json!({keys[level]: inner}))
+    };
+    for combinator in ["oneOf", "anyOf"] {
+        for listed in [json!("1.5"), json!(1.5)] {
+            for depth in [1, 2] {
+                // `b` (depth 1) or `b/c` (depth 2) holds the listed value.
+                let option = (0..depth).rev().fold(json!({"enum": [listed]}), |inner, level| {
+                    json!({"required": [keys[level]], "properties": {keys[level]: inner}})
+                });
+                let written = nested(depth, json!(1.5));
+                for options in [json!([option, array]), json!([array, option])] {
+                    let schema = json!({"properties": {"a": {combinator: options}}});
+                    let lone = read(&schema, json!({"a": written}));
+                    assert_eq!(
+                        lone,
+                        json!({"a": nested(depth, listed.clone())}),
+                        "{schema}"
+                    );
+                    let repeated = json!({"a": [written, written]});
+                    assert_eq!(read(&schema, repeated.clone()), repeated, "{schema}");
+                    #[cfg(feature = "schema-validation")]
+                    for reading in [lone, repeated] {
+                        let validator = jsonschema::validator_for(&schema).unwrap();
+                        assert!(validator.is_valid(&reading), "{schema} {reading}");
+                    }
+                }
+            }
+        }
+    }
+}
