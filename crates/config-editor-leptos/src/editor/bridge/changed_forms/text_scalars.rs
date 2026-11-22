@@ -54,7 +54,7 @@ pub(in crate::editor::bridge) fn in_host_types(
             &value,
             edited,
             record,
-            &mut String::new(),
+            (&mut String::new(), &mut String::new()),
             (&mut retyped, &mut typed),
         )?;
         for (pointer, text) in typed {
@@ -207,38 +207,72 @@ fn shown_pointer(at: &str) -> String {
 }
 
 /// Each scalar of `value` the view reads otherwise in `edited` (at the
-/// same pointer), with the view's reading, where the user wrote it: an
+/// same place), with the view's reading, where the user wrote it: an
 /// untouched value keeps the host's text. `out`: those readings, and the
 /// host strings the user wrote in another text, each as typed (which the
 /// schema may read as it reads the host's text: `8` over `"08"` where it
-/// reads numbers), saved so unless the schema keeps the reading.
+/// reads numbers), saved so unless the schema keeps the reading. `at`:
+/// the pointer in `value`, and the one in `edited` (the view's), which
+/// lacks the `/0` of a host's list of one the view shows as its item.
 fn read_otherwise(
     value: &Value,
     edited: &Value,
     record: &Record<'_>,
-    at: &mut String,
+    (at, shown): (&mut String, &mut String),
     out: (&mut Retyped, &mut Retyped),
 ) -> Result<(), Unsaved> {
     let (readings, typed) = out;
-    let length = at.len();
+    let (length, shown_length) = (at.len(), shown.len());
     match (value, edited) {
         (Value::Object(map), Value::Object(theirs)) => {
             for (key, child) in map {
                 if let Some(other) = theirs.get(key) {
-                    at.push('/');
-                    at.push_str(&pointer_key(key));
-                    read_otherwise(child, other, record, at, (&mut *readings, &mut *typed))?;
+                    let key = pointer_key(key);
+                    for pointer in [&mut *at, &mut *shown] {
+                        pointer.push('/');
+                        pointer.push_str(&key);
+                    }
+                    read_otherwise(
+                        child,
+                        other,
+                        record,
+                        (&mut *at, &mut *shown),
+                        (&mut *readings, &mut *typed),
+                    )?;
                     at.truncate(length);
+                    shown.truncate(shown_length);
                 }
             }
         }
         (Value::Array(items), Value::Array(theirs)) => {
             for (index, (child, other)) in items.iter().zip(theirs).enumerate() {
-                at.push('/');
-                at.push_str(&index.to_string());
-                read_otherwise(child, other, record, at, (&mut *readings, &mut *typed))?;
+                for pointer in [&mut *at, &mut *shown] {
+                    pointer.push('/');
+                    pointer.push_str(&index.to_string());
+                }
+                read_otherwise(
+                    child,
+                    other,
+                    record,
+                    (&mut *at, &mut *shown),
+                    (&mut *readings, &mut *typed),
+                )?;
                 at.truncate(length);
+                shown.truncate(shown_length);
             }
+        }
+        // A host's list of one the view shows as its item (the merge kept
+        // the list): its item is the view's value.
+        (Value::Array(items), other) if items.len() == 1 && !other.is_array() => {
+            at.push_str("/0");
+            read_otherwise(
+                &items[0],
+                other,
+                record,
+                (&mut *at, &mut *shown),
+                (&mut *readings, &mut *typed),
+            )?;
+            at.truncate(length);
         }
         // A host scalar the view reads as a list's one item (a lone element
         // where the schema wants a list, or a list of one list of one…),
@@ -249,7 +283,7 @@ fn read_otherwise(
                 && !scalar.is_array()
                 && let Some((depth, leaf)) = lone_leaf(edited) =>
         {
-            let item = format!("{at}{}", "/0".repeat(depth));
+            let item = format!("{shown}{}", "/0".repeat(depth));
             if record.wrote(&item)? {
                 if let Some(text) = record.respelled(&item, scalar, leaf) {
                     typed.push((at.clone(), text));
@@ -258,8 +292,8 @@ fn read_otherwise(
             }
         }
         (Value::Object(_) | Value::Array(_), _) | (_, Value::Object(_) | Value::Array(_)) => {}
-        (value, other) if value != other && record.wrote(at)? => {
-            if let Some(text) = record.respelled(at, value, other) {
+        (value, other) if value != other && record.wrote(shown)? => {
+            if let Some(text) = record.respelled(shown, value, other) {
                 typed.push((at.clone(), text));
             }
             readings.push((at.clone(), other.clone()));

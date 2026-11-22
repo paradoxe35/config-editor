@@ -999,7 +999,10 @@ impl Bridge {
     /// hold it as a list's only item (`<k3>3</k3>` where the schema wants
     /// a list reads `[3]`): moved or copied there, the host value goes in
     /// that item, unless the schemas there prefer the view's reading (see
-    /// `schema_readings::prefers`), the one the save then proposes.
+    /// `schema_readings::prefers`), the one the save then proposes. So for
+    /// a scalar in its place that the view showed as its host value and
+    /// now reads otherwise (an edit beside it changed what the schemas
+    /// make of its text).
     fn host_values(
         &self,
         view: &DataReading,
@@ -1009,6 +1012,8 @@ impl Bridge {
         let mut edited = view.value().clone();
         let mut read: Vec<(&Arc<str>, Option<std::borrow::Cow<'_, serde_json::Value>>)> =
             Vec::new();
+        // The view's reading of each host text's view, read when asked.
+        let mut shown = Vec::new();
         for scalar in untouched {
             let at = match read
                 .iter()
@@ -1060,10 +1065,17 @@ impl Bridge {
             // as a list's item, or copied there), other schemas judge it:
             // the view's reading stays where they take it and refuse the
             // host's value (the host's `0` as an item of a list of text).
+            // So do they where it stayed but the view now reads it otherwise
+            // than it showed it (a key beside it removed, whose dependent
+            // schema typed it): its text is what the view validates now.
+            let Some(schema) = self.shape() else {
+                continue;
+            };
+            if spellings::same(held, &read_as) {
+                continue;
+            }
             let moved = scalar.from != *at;
-            if moved
-                && let Some(schema) = self.shape()
-                && !spellings::same(held, &read_as)
+            if (moved || self.shown_as(&mut shown, &scalar.host, at, held))
                 && schema_readings::prefers(&edited, at, &read_as, schema)
                 && let Some(slot) = edited.pointer_mut(at)
             {
@@ -1071,6 +1083,34 @@ impl Bridge {
             }
         }
         edited
+    }
+
+    /// Whether the view of the host text `host` read the value at `at` as
+    /// `held` (the host's value there), each host text's view read once
+    /// into `shown`.
+    fn shown_as(
+        &self,
+        shown: &mut Vec<(Arc<str>, Option<serde_json::Value>)>,
+        host: &Arc<str>,
+        at: &str,
+        held: &serde_json::Value,
+    ) -> bool {
+        let index = match shown.iter().position(|(text, _)| Arc::ptr_eq(text, host)) {
+            Some(index) => index,
+            None => {
+                let reading = self.to_edit(host).ok().and_then(|view| {
+                    codec::read(self.edit.behavior(), &view.text, self.shape()).ok()
+                });
+                shown.push((host.clone(), reading));
+                shown.len() - 1
+            }
+        };
+        // Not known: not shown so (the host's value stays).
+        shown[index]
+            .1
+            .as_ref()
+            .and_then(|reading| reading.pointer(at))
+            .is_some_and(|reading| spellings::same(reading, held))
     }
 
     /// `saved` with the scalars of each item `items` tells the edit moved

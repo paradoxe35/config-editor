@@ -43,7 +43,18 @@ pub(super) struct Sides<'a> {
 /// The class of the save when XML's spelling explains each value it reads
 /// otherwise than the view: the first such value's.
 pub(super) fn explained(sides: &Sides<'_>) -> Option<&'static str> {
-    let held = |at: &str| spellings::held(sides.before, sides.paired, sides.saved, at);
+    // An item of a list the view made of a host scalar (its element
+    // written again) was taken from that scalar: the save keeps its host
+    // type unless the schema there prefers the view's reading, as for a
+    // scalar left where it was.
+    let held = |at: &str| {
+        spellings::held(sides.before, sides.paired, sides.saved, at).or_else(|| {
+            let (list, index) = at.rsplit_once('/')?;
+            index.parse::<usize>().ok()?;
+            spellings::held(sides.before, sides.paired, sides.saved, list)
+                .filter(|scalar| !scalar.is_object() && !scalar.is_array())
+        })
+    };
     let typed = |at: &str| {
         sides
             .typed?

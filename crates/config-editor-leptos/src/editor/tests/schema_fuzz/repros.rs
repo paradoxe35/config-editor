@@ -1429,3 +1429,82 @@ fn text_an_if_beside_it_refuses_in_the_views_reading_keeps_the_hosts_type() {
         json!({"a": 1, "b": 5}),
     );
 }
+
+/// A number typed in another spelling (`08`) inside a host's list of one
+/// that the XML view shows as its item, where no schema reads the host's
+/// list (properties of an object, the list kept), keeps the host's text
+/// type with the text typed (`"08"`, not `"8"`): the documented kept list.
+#[test]
+fn a_number_respelled_in_a_list_of_one_shown_as_its_item_keeps_the_text_typed() {
+    for of in ["oneOf", "anyOf", "allOf"] {
+        for typed in ["08", "2.50", "1e3"] {
+            holds_everywhere_but_known(
+                "edit_as",
+                super::edit_as::check,
+                json!({"properties": {"x": {of: [{"properties": {"c": {"type": "number"}}}]}}}),
+                json!({"x": [{"c": "n"}]}),
+                json!({"x": [{"c": typed}]}),
+            );
+        }
+    }
+}
+
+/// A host scalar left in place that the XML view showed as its host
+/// value, and reads otherwise once a key beside it is removed (`b` typed
+/// `c` a number, so `<c>true</c>` was `true`; without it `true` matches
+/// both options of a `oneOf` and the text `"true"` one), saves as the
+/// view now reads it where the schema prefers that: the host has a
+/// problem exactly when the view shows one. Through a dependent schema
+/// and an `if`, for a boolean and a number.
+#[test]
+fn a_scalar_the_view_reads_otherwise_after_an_edit_beside_it_saves_as_the_view_reads_it() {
+    for (value, option) in [
+        (json!(true), json!({"type": "boolean"})),
+        (json!(8), json!({"type": "number"})),
+    ] {
+        let either = json!({"oneOf": [{"anyOf": [{}]}, option]});
+        let number = json!({"properties": {"c": {"type": "number"}}});
+        for beside in [
+            json!({"dependentSchemas": {"b": number}}),
+            json!({"if": {"required": ["b"]}, "then": number}),
+        ] {
+            let mut schema = json!({"properties": {"c": either}});
+            schema
+                .as_object_mut()
+                .unwrap()
+                .extend(beside.as_object().unwrap().clone());
+            holds_everywhere_but_known(
+                "edit_as",
+                super::edit_as::check,
+                schema,
+                json!({"b": false, "c": value}),
+                json!({"c": value}),
+            );
+        }
+    }
+}
+
+/// A host scalar whose element the XML view writes again as a list's
+/// first item, beside a new item, keeps its host type where the item's
+/// schema refuses both readings (`false` and `"false"` where items are
+/// `s`): the documented kept type, judged at the scalar the item came
+/// from. Across the scalar's kinds; where items are text, the host's
+/// type is refused and the view's reading saved.
+#[test]
+fn a_host_scalar_written_again_as_a_list_item_keeps_its_type_where_the_schema_tells_nothing() {
+    for (host, items) in [
+        (json!(false), json!({"enum": ["s"]})),
+        (json!(0), json!({"enum": ["s"]})),
+        (json!(1.5), json!({"enum": ["s"]})),
+        (json!(false), json!({"type": "string"})),
+        (json!(0), json!({"type": "string"})),
+    ] {
+        holds_everywhere_but_known(
+            "edit_as",
+            super::edit_as::check,
+            json!({"properties": {"x": {"properties": {"b": {"items": items}}}}}),
+            json!({"x": {"b": host}}),
+            json!({"x": {"b": [host, "s"]}}),
+        );
+    }
+}
