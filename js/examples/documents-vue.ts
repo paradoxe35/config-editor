@@ -24,6 +24,11 @@ const revisions = new URLSearchParams(location.search).has("revisions");
 // (a `valueRevision` left out) does not forget: an older echo still on its
 // way after one is dropped too.
 const newest = new Map<string, number>();
+// For tests: `?forget-newest` brings back a mistake a host can make: a
+// text of the host's own forgets the newest revision heard for the file, so
+// an older echo still on its way after it takes the host back (the editor
+// then tells it the document again).
+const forgetNewest = new URLSearchParams(location.search).has("forget-newest");
 
 const App = defineComponent({
   components: { ConfigDocuments },
@@ -47,7 +52,10 @@ const App = defineComponent({
     };
     Object.assign(window, {
       setViewSettings: (change: (settings: EditorSettings) => EditorSettings) => (settings.value = change(settings.value)),
-      updateFile: update,
+      updateFile: (id: string, change: Partial<DocumentSpec>) => {
+        if (forgetNewest && "value" in change && change.valueRevision === undefined) newest.delete(id);
+        update(id, change);
+      },
       currentFiles: () => files.value,
       documentsHandle: {
         get current() {

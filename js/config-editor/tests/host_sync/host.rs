@@ -2,7 +2,9 @@
 //! `onChange` text once it comes back from its store, late) with its
 //! revision, the texts on their way back to the editor, and the texts it
 //! listed and gave last. A host that keeps revisions (`revisions`) keeps
-//! the newest one: an older text coming back late is not rendered.
+//! the newest one: an older text coming back late is not rendered. One
+//! that slips (`slips`) forgets that newest revision when it sets a text of
+//! its own, so an older echo still on its way after it takes it back.
 
 use crate::model::{Class, LOCKED, ResetKind, new_version};
 
@@ -38,10 +40,13 @@ pub(crate) struct HostDoc {
     pub(crate) holds_given_again: bool,
     /// Whether it keeps the newest revision (passes `valueRevision`).
     pub(crate) revisions: bool,
+    /// Whether a text of its own makes it forget the newest revision it
+    /// heard (see [`HostDoc::own`]).
+    pub(crate) slips: bool,
 }
 
 impl HostDoc {
-    pub(crate) fn new(text: &str, revisions: bool) -> Self {
+    pub(crate) fn new(text: &str, revisions: bool, slips: bool) -> Self {
         Self {
             store: text.to_string(),
             store_revision: None,
@@ -53,6 +58,7 @@ impl HostDoc {
             last_given: text.to_string(),
             holds_given_again: false,
             revisions,
+            slips: slips && revisions,
         }
     }
 
@@ -83,7 +89,10 @@ impl HostDoc {
         }
         if self.store != text {
             text.clone_into(&mut self.store);
-            self.holds_given_again = false;
+            // A host that slips takes older echoes after a text of its own
+            // the editor did not take (the one it gave last, given again):
+            // still that case by design, whatever it takes next.
+            self.holds_given_again &= self.slips;
         }
         self.store_revision = revision.filter(|_| self.revisions);
         true
@@ -91,9 +100,17 @@ impl HostDoc {
 
     /// The host gives `text` of its own (`update({ value })`), its pending
     /// echoes dropped. A text that is the one it gave last is, by the
-    /// echo contract, that text given again: no news.
+    /// echo contract, that text given again: no news. A host that slips
+    /// keeps the echoes still on its way that are older than the newest
+    /// revision it heard (a host keeping that revision drops them), and
+    /// forgets that revision: it takes them when they come, going back.
     pub(crate) fn own(&mut self, text: &str) {
-        self.queue.clear();
+        match self.store_revision.filter(|_| self.slips) {
+            Some(newest) => self
+                .queue
+                .retain(|queued| queued.revision.is_some_and(|revision| revision < newest)),
+            None => self.queue.clear(),
+        }
         text.clone_into(&mut self.store);
         self.store_revision = None;
         self.holds_given_again = text == self.last_given;

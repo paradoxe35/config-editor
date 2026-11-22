@@ -25,6 +25,9 @@ pub(crate) struct Setup {
     /// The host keeps `{ text, revision }` and passes `valueRevision`
     /// (else a v0.1.0 host: texts only).
     pub(crate) revisions: bool,
+    /// With revisions, the host forgets the newest revision it heard when
+    /// it sets a text of its own (see `HostDoc::own`).
+    pub(crate) slips: bool,
 }
 
 /// Replays `acts` from `setup`, then lets every text come back.
@@ -51,7 +54,7 @@ fn run(setup: Setup, acts: &[Act]) -> Outcome {
         View::Editor => vec![BASES[setup.base]],
         View::Documents => vec![BASES[setup.base], BASES[setup.other]],
     };
-    let mut sim = Sim::new(&bases, setup.form, setup.revisions)?;
+    let mut sim = Sim::new(&bases, setup.form, setup.revisions, setup.slips)?;
     for (step, act) in acts.iter().enumerate() {
         let outcome = sim.step(act);
         trace(act, &sim.describe());
@@ -78,6 +81,7 @@ fn setup(rng: &mut Rng, view: View) -> Setup {
             Form::Index
         },
         revisions: rng.chance(50),
+        slips: false,
     }
 }
 
@@ -173,6 +177,11 @@ pub(crate) fn explore(view: View, cases: u64, steps: usize, first: u64) -> BTree
         let mut rng = Rng::new(seed);
         let setup = setup(&mut rng, view);
         let acts: Vec<Act> = (0..steps).map(|_| act(&mut rng, view)).collect();
+        // Drawn last, so the runs drawn before it stay as they were.
+        let setup = Setup {
+            slips: setup.revisions && rng.chance(50),
+            ..setup
+        };
         let Err(failure) = replay(setup, &acts) else {
             continue;
         };

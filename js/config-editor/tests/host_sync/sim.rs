@@ -65,13 +65,13 @@ fn new_key() -> String {
 }
 
 impl DocSim {
-    fn new(base: &str, form: Form, revisions: bool) -> Result<Self, Failure> {
+    fn new(base: &str, form: Form, revisions: bool, slips: bool) -> Result<Self, Failure> {
         let mut sim = Self {
             core: Core {
                 text: base.to_string(),
                 channel: HostChannel::new(true, base, None, None),
             },
-            host: HostDoc::new(base, revisions),
+            host: HostDoc::new(base, revisions, slips),
             form,
             settle_armed: false,
             last: None,
@@ -530,10 +530,15 @@ pub(crate) struct Sim {
 }
 
 impl Sim {
-    pub(crate) fn new(bases: &[&str], form: Form, revisions: bool) -> Result<Self, Failure> {
+    pub(crate) fn new(
+        bases: &[&str],
+        form: Form,
+        revisions: bool,
+        slips: bool,
+    ) -> Result<Self, Failure> {
         let docs = bases
             .iter()
-            .map(|base| DocSim::new(base, form, revisions))
+            .map(|base| DocSim::new(base, form, revisions, slips))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self { docs, active: 0 })
     }

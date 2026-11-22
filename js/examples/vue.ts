@@ -39,6 +39,11 @@ const random = query.has("random");
 // newest revision heard wins (a late, older one is ignored), passed back as
 // `value-revision`; the locks of the first line name the file as loaded.
 const revisions = query.has("revisions");
+// For tests: `?forget-newest` brings back a mistake a host can make: a
+// text of the parent's own forgets the newest revision heard, so an older
+// echo still on its way after it takes the parent back (the editor then
+// tells it the document again).
+const forgetNewest = query.has("forget-newest");
 const resetEarly = query.has("reset-early");
 // `?keep-alive` hides the editor inside `<KeepAlive>` (the component kept,
 // not unmounted) instead of a plain `v-if` (a new component).
@@ -110,6 +115,7 @@ const App = defineComponent({
     };
     hooks.renameFile = () => (fileName.value = `renamed-${fileName.value}`);
     const own = (text: string) => {
+      if (forgetNewest) newest = undefined;
       revision.value = undefined;
       value.value = text;
     };

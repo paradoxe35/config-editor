@@ -1131,6 +1131,35 @@ test.describe(() => {
         expect(await main(page)).toEqual({ text: 'ablisten: 7835', parent: 'ablisten: 7835' });
         expect(page.errors).toEqual([]);
       });
+
+      // The same with the mistake a parent can make (`?forget-newest`): its
+      // own text forgets the newest revision, so it takes the older echo
+      // and goes back. That revision is confirmed already: the editor tells
+      // the parent the document again (at once, and once more after the
+      // pause while it stays behind, no more), and the parent catches up.
+      test('with revisions, a parent that forgets the newest revision and goes back catches up', async ({ page }) => {
+        await open(page, name, '?manual&revisions&forget-newest');
+        await page.locator('.config-editor__input').first().click();
+        await page.keyboard.press('Control+Home');
+        await page.keyboard.type('ab', { delay: 60 });
+        await page.evaluate(() => window.releaseEchoes([1]));
+        await expect.poll(() => main(page)).toEqual({ text: 'ablisten: 7835', parent: 'ablisten: 7835' });
+        await page.evaluate(() => {
+          const file = window.currentFiles().find((candidate) => candidate.id === 'main');
+          window.updateFile('main', { value: file.value, valueRevision: undefined });
+        });
+        await page.evaluate(() => window.releaseEchoes([0]));
+        await expect.poll(() => main(page)).toEqual({ text: 'ablisten: 7835', parent: 'alisten: 7835' });
+        await expect.poll(() => page.evaluate(() => window.heldEchoes())).toBe(4);
+        await page.waitForTimeout(800);
+        expect(await page.evaluate(() => window.heldEchoes())).toBe(4);
+        await page.evaluate(() => window.releaseEchoes([2, 3]));
+        await expect.poll(() => main(page)).toEqual({ text: 'ablisten: 7835', parent: 'ablisten: 7835' });
+        await page.waitForTimeout(600);
+        expect(await page.evaluate(() => window.heldEchoes())).toBe(4);
+        expect(await main(page)).toEqual({ text: 'ablisten: 7835', parent: 'ablisten: 7835' });
+        expect(page.errors).toEqual([]);
+      });
     });
   }
 });

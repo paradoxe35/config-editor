@@ -37,6 +37,11 @@
   const slow = query.has("slow");
   const random = query.has("random");
   const revisions = query.has("revisions");
+  // For tests: `?forget-newest` brings back a mistake a host can make: a
+  // text of the parent's own forgets the newest revision heard, so an older
+  // echo still on its way after it takes the parent back (the editor then
+  // tells it the document again).
+  const forgetNewest = query.has("forget-newest");
   const resetEarly = query.has("reset-early");
   const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
@@ -117,6 +122,7 @@
 
   // A text of the parent's own: no revision.
   function own(text: string) {
+    if (forgetNewest) newest = undefined;
     revision = undefined;
     value = text;
   }

@@ -59,6 +59,11 @@ const resetEarly = new URLSearchParams(location.search).has("reset-early");
 // and `toolsApi` those of `@pngwasi/config-editor` and its `/tools`.
 const initialExtra = JSON.parse(new URLSearchParams(location.search).get("props") ?? "{}") as ConfigEditorProps;
 Object.assign(window, { packageApi: api, coreApi: core, toolsApi: tools });
+// For tests: `?forget-newest` brings back a mistake a host can make: a
+// text of the parent's own forgets the newest revision heard, so an older
+// echo still on its way after it takes the parent back (the editor then
+// tells it the document again).
+const forgetNewest = new URLSearchParams(location.search).has("forget-newest");
 const initialText = "# Tunnel server configuration\nlisten: 7835\npublic_address: tunnel.example.com\n";
 
 function App({ schema }: { schema: string }) {
@@ -70,6 +75,7 @@ function App({ schema }: { schema: string }) {
   const newest = useRef<number | undefined>(undefined);
   // A text of the parent's own: no revision.
   const setValue = (next: string | ((current: string) => string)) => {
+    if (forgetNewest) newest.current = undefined;
     setRevision(undefined);
     setText(next);
   };

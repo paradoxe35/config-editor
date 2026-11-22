@@ -269,6 +269,11 @@ pub struct Echoes {
     /// before it may still come (out of order) or never (a host handing
     /// back only the latest of several), so it is not counted on to come.
     came_back: Option<u64>,
+    /// The clock when the host's own text last replaced the document: the
+    /// texts sent before it belong to the text it replaced, so a value
+    /// given back with one of their revisions is a late echo the host
+    /// should have dropped (see [`Echoes::moved_past`]).
+    replaced_before: Option<u64>,
     /// The text the host gave last.
     last_given: Option<Print>,
     /// The text the host gave last in a list or an update, which
@@ -631,6 +636,7 @@ impl Echoes {
                 // echoes.
                 if !same {
                     self.forget_before(flushed);
+                    self.replaced_before = Some(flushed.min(clock()));
                     self.reset = None;
                     self.catch_up = None;
                 }
@@ -683,21 +689,22 @@ impl Echoes {
     /// is its echo, and confirms it and every text sent before; while a
     /// newer text is on its way the host is behind but catching up, and
     /// with none it hears the document again (the host may have dropped
-    /// it). A value that is not the text sent at `revision` is the host's
-    /// own, as [`Echoes::received`] reads it.
+    /// it). A revision the host moved past (see [`Echoes::moved_past`])
+    /// given back means the host went back to an older text: it hears the
+    /// document again too (see [`Echoes::left_behind`]). A value that is
+    /// not the text sent at `revision` is the host's own, as
+    /// [`Echoes::received`] reads it.
     pub fn received_at(&mut self, value: &str, revision: u64, current: &str, flushed: u64) -> Echo {
         let print = Print::of(value);
-        if self.on
-            && !self.order.contains_key(&revision)
-            && self.came_back.is_some_and(|back| revision <= back)
-        {
-            // Confirmed already: the host gives back a revision it moved
-            // past (a render of an old value), no news. It is still the
-            // text the host gave last: the one it renders next is judged
-            // against it.
+        if self.on && self.moved_past(revision) {
+            // A revision the host moved past (confirmed, or replaced by a
+            // text of its own): it went back to an older text (it forgot
+            // the newest revision it heard, then took a late echo). It is
+            // still the text the host gave last: the one it renders next
+            // is judged against it.
             self.last_given = Some(print);
             self.last_listed = Some(print);
-            return Echo::Skip;
+            return self.left_behind(value, print, current);
         }
         if self.on && self.behind(revision) {
             // A revision this record never sent, older than a text it sent
@@ -749,6 +756,39 @@ impl Echoes {
         Echo::Resend
     }
 
+    /// Whether the host moved past `revision` for a fact: it is not on its
+    /// way, and it is confirmed (it or a later one came back) or was sent
+    /// before a text of the host's own replaced the document. Revisions
+    /// come from one clock for the page, and a host keeping the newest one
+    /// never passes such a revision back again.
+    fn moved_past(&self, revision: u64) -> bool {
+        !self.order.contains_key(&revision)
+            && (self.came_back.is_some_and(|back| revision <= back)
+                || self.replaced_before.is_some_and(|before| revision < before))
+    }
+
+    /// The host gave back `value` (printed `print`) at a revision it moved
+    /// past, the document being `current`: it holds an older text. Unless
+    /// it is the document, or a copy of the document is on its way (the
+    /// host takes that newer revision when it comes), the host hears the
+    /// document again with a fresh revision ([`Echo::Resend`]), and
+    /// catches up. That bounds what it hears: a host that stays on the old
+    /// text (renders it again, drops what it is told) gets that copy and,
+    /// after the pause, one more, then nothing until it takes the document
+    /// and goes back again; one resend per step back.
+    fn left_behind(&mut self, value: &str, print: Print, current: &str) -> Echo {
+        if self.same(value, print, current) {
+            self.document = Some(print);
+            return Echo::Skip;
+        }
+        let document = self.document_print(current);
+        if self.to_come(document) {
+            return Echo::Skip;
+        }
+        self.send(document);
+        Echo::Resend
+    }
+
     /// Whether `revision` is one this record never sent, older than a text
     /// it sent that is still on its way. Revisions come from one clock for
     /// the page and a host passes back only those `on_change` gave (never
@@ -783,8 +823,7 @@ impl Echoes {
         if let Some(revision) = revision
             && (self.order.get(&revision) == Some(&print)
                 || self.behind(revision)
-                || !self.order.contains_key(&revision)
-                    && self.came_back.is_some_and(|back| revision <= back))
+                || self.moved_past(revision))
         {
             return false;
         }
@@ -829,10 +868,7 @@ impl Echoes {
             return self.replaces(value, current);
         }
         let print = Print::of(value);
-        if !self.order.contains_key(&revision)
-            && self.came_back.is_some_and(|back| revision <= back)
-            || self.behind(revision)
-        {
+        if self.moved_past(revision) || self.behind(revision) {
             return false;
         }
         if self.order.get(&revision) == Some(&print) {
@@ -1002,6 +1038,74 @@ mod tests {
         let ab = echoes.sent("ab");
         assert_eq!(echoes.received_at("ab", ab, "ab", NONE), Echo::Apply);
         assert_ne!(echoes.received_at("a", a, "ab", NONE), Echo::Apply);
+    }
+
+    /// P4, a host with revisions that forgets the newest one with a text of
+    /// its own, then takes a late older echo: a revision it moved past is a
+    /// known fact, so it hears the document again (a fresh revision), once
+    /// per step back; while that copy is on its way, the old text given
+    /// again (a render) sends nothing more.
+    #[test]
+    fn a_host_gone_back_to_a_revision_it_moved_past_hears_the_document_again() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let a = echoes.sent("a");
+        let ab = echoes.sent("ab");
+        assert_eq!(echoes.received_at("ab", ab, "ab", NONE), Echo::Apply);
+        // Its own text, the one it holds: no news.
+        assert_eq!(echoes.received("ab", "ab", NONE), Echo::Apply);
+        // The late `a`, its revision confirmed already.
+        assert_eq!(echoes.received_at("a", a, "ab", NONE), Echo::Resend);
+        let again = echoes.latest_revision().expect("the document sent again");
+        assert!(again > ab);
+        assert_eq!(echoes.received_at("a", a, "ab", NONE), Echo::Skip);
+        assert!(echoes.settle("ab"), "the host still holds a: once more");
+        let last = echoes.latest_revision().expect("sent once more");
+        assert_eq!(echoes.received_at("a", a, "ab", NONE), Echo::Skip);
+        assert!(!echoes.is_own("a", Some(a)));
+        assert!(!echoes.replaces_at("a", a, "ab"));
+        // It takes the document, then steps back again: told again.
+        assert_eq!(echoes.received_at("ab", last, "ab", NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 0);
+        assert_eq!(echoes.received_at("a", a, "ab", NONE), Echo::Resend);
+        // A revision it moved past whose text is the document: nothing to
+        // tell.
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let x = echoes.sent("x");
+        echoes.sent("xy");
+        let back = echoes.sent("x");
+        assert_eq!(echoes.received_at("x", back, "x", NONE), Echo::Apply);
+        assert_eq!(echoes.received_at("x", x, "x", NONE), Echo::Skip);
+        assert_eq!(echoes.latest_revision(), None);
+    }
+
+    /// The same for a revision sent before a text of the host's own replaced
+    /// the document: a late echo the host should have dropped, a known fact
+    /// whether or not it came back before. Typing since, on its way, brings
+    /// the host back by itself.
+    #[test]
+    fn a_host_gone_back_to_a_revision_its_own_text_replaced_hears_the_document_again() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let a = echoes.sent("a");
+        assert_eq!(echoes.received("own", "a", NONE), Echo::Apply);
+        assert!(!echoes.is_own("a", Some(a)));
+        assert_eq!(echoes.received_at("a", a, "own", NONE), Echo::Resend);
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let a = echoes.sent("a");
+        assert_eq!(echoes.received("own", "a", NONE), Echo::Apply);
+        echoes.sent("ownb");
+        assert_eq!(echoes.received_at("a", a, "ownb", NONE), Echo::Skip);
+        // Without revisions the same is told by the texts already: the copy
+        // of `a` is no echo any more, so going back to it applies (a file
+        // switched back to).
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        echoes.sent("a");
+        assert_eq!(echoes.received("own", "a", NONE), Echo::Apply);
+        assert_eq!(echoes.received("a", "own", NONE), Echo::Apply);
     }
 
     /// Without the option every text applies and nothing is kept.
@@ -1725,6 +1829,7 @@ mod tests {
             order: echoes.order.clone(),
             copies: echoes.copies.clone(),
             came_back: echoes.came_back,
+            replaced_before: echoes.replaced_before,
             last_given: echoes.last_given,
             last_listed: echoes.last_listed,
             document: echoes.document,

@@ -238,6 +238,36 @@ export function hostTextCases(name) {
       expect(errors).toEqual([]);
     });
 
+    // The same with the mistake a parent can make (`?forget-newest`): its
+    // own text forgets the newest revision, so it takes the older echo and
+    // goes back. That revision is confirmed already: the editor knows the
+    // parent is behind and tells it the document again, a bounded number
+    // of times while the parent stays behind (at once, and once more after
+    // the pause), and the parent catches up.
+    test('a parent that forgets the newest revision and goes back hears the document again and catches up', async ({ page }) => {
+      const { errors } = await open(page, name, '?manual&revisions&forget-newest');
+      await input(page).click();
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type('ab');
+      await page.evaluate(() => window.releaseEchoes([1]));
+      await expect(saved(page)).toHaveText(`${initialText}ab`);
+      await page.evaluate(() => window.setParentValue(window.parentState().text));
+      await page.evaluate(() => window.releaseEchoes([0]));
+      await expect(saved(page)).toHaveText(`${initialText}a`);
+      // The parent stays behind: the pause after a value given (250 ms)
+      // twice over, and the texts sent again stop at two.
+      await expect.poll(() => page.evaluate(() => window.heldEchoes())).toBe(4);
+      await page.waitForTimeout(800);
+      expect(await page.evaluate(() => window.heldEchoes())).toBe(4);
+      await page.evaluate(() => window.releaseEchoes([2, 3]));
+      await expect(saved(page)).toHaveText(`${initialText}ab`);
+      await page.waitForTimeout(600);
+      expect(await page.evaluate(() => window.heldEchoes())).toBe(4);
+      await expect(saved(page)).toHaveText(`${initialText}ab`);
+      await expect(input(page)).toHaveValue(`${initialText}ab`);
+      expect(errors).toEqual([]);
+    });
+
     test('late problems for an older revision land on the text they name', async ({ page }) => {
       const { errors } = await open(page, name, '?revisions');
       await input(page).click();

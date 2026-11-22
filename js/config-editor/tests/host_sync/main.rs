@@ -108,6 +108,7 @@ mod repros {
                 other: 0,
                 form: Lines,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::MoveLine { line: 18613 },
@@ -163,6 +164,7 @@ mod repros {
                 other: 3,
                 form: Index,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Reset {
@@ -201,6 +203,7 @@ mod repros {
                 other: 1,
                 form: Lines,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Type { at: 51612, ch: ' ' },
@@ -263,6 +266,7 @@ mod repros {
                 other: 0,
                 form: Lines,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Type { at: 36100, ch: ' ' },
@@ -316,6 +320,7 @@ mod repros {
                 other: 2,
                 form: Lines,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Reset {
@@ -382,6 +387,7 @@ mod repros {
                 other: 1,
                 form: Index,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Own {
@@ -471,6 +477,7 @@ mod repros {
                 other: 2,
                 form: Lines,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Delete { at: 25242, len: 2 },
@@ -545,6 +552,7 @@ mod repros {
                 other: 0,
                 form: Index,
                 revisions: true,
+                slips: false,
             },
             &[
                 Act::Enter { at: 0 },
@@ -582,6 +590,7 @@ mod repros {
                     other: 0,
                     form: Lines,
                     revisions,
+                    slips: false,
                 },
                 &[
                     Act::Own {
@@ -609,6 +618,7 @@ mod repros {
                 other: 1,
                 form: Index,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Type { at: 37807, ch: ' ' },
@@ -635,6 +645,7 @@ mod repros {
                 other: 0,
                 form: Index,
                 revisions: true,
+                slips: false,
             },
             &[
                 Act::Own {
@@ -674,6 +685,7 @@ mod repros {
                 other: 3,
                 form: Index,
                 revisions: true,
+                slips: false,
             },
             &[
                 Act::Type { at: 22220, ch: 'b' },
@@ -732,6 +744,7 @@ mod repros {
                 other: 0,
                 form: Index,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Reset {
@@ -768,6 +781,7 @@ mod repros {
                 other: 2,
                 form: Index,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Reset {
@@ -813,6 +827,7 @@ mod repros {
                 other: 3,
                 form: Lines,
                 revisions: true,
+                slips: false,
             },
             &[
                 Act::Reset {
@@ -854,6 +869,7 @@ mod repros {
                     other: 1,
                     form: Lines,
                     revisions: true,
+                    slips: false,
                 },
                 &[
                     Act::Type { at: 26650, ch: ' ' },
@@ -885,6 +901,7 @@ mod repros {
                 other: 1,
                 form: Index,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Enter { at: 26147 },
@@ -914,6 +931,7 @@ mod repros {
                 other: 0,
                 form: Index,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Own {
@@ -977,6 +995,7 @@ mod repros {
                 other: 3,
                 form: Lines,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Type { at: 27496, ch: ':' },
@@ -1030,6 +1049,7 @@ mod repros {
                 other: 0,
                 form: Lines,
                 revisions: true,
+                slips: false,
             },
             &[
                 Act::Own {
@@ -1110,6 +1130,7 @@ mod repros {
                 other: 0,
                 form: Lines,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Type { at: 38237, ch: ':' },
@@ -1139,6 +1160,7 @@ mod repros {
                 other: 1,
                 form: Lines,
                 revisions: false,
+                slips: false,
             },
             &[
                 Act::Type { at: 42516, ch: ' ' },
@@ -1162,6 +1184,39 @@ mod repros {
                     anchor: Anchor::Text,
                 },
             ],
+        );
+    }
+
+    /// A host that forgets the newest revision with a text of its own, that
+    /// text the one it gave last (no news, by design): the late echo of
+    /// the Enter takes the host back, and the case stays the one by design.
+    #[test]
+    fn repro_slip_after_own_text_given_again() {
+        assert_class(
+            Setup {
+                view: Editor,
+                base: 3,
+                other: 2,
+                form: Index,
+                revisions: true,
+                slips: true,
+            },
+            &[
+                Act::Enter { at: 15377 },
+                Act::Reset {
+                    doc: 0,
+                    kind: NewVersion(35294),
+                    same_task: false,
+                    via: Via::ReplaceValue,
+                },
+                Act::Own {
+                    doc: 0,
+                    edit: 32392,
+                    ranges: false,
+                    same_task: false,
+                },
+            ],
+            Class::NotConvergedOnGivenAgain,
         );
     }
 }

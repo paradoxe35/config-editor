@@ -688,13 +688,23 @@ a revision; store it beside the text, keep only the newest revision you were
 given (never go back to an older one, even after a text of your own), and
 pass it back:
 `update({ value, valueRevision })`. The echo is then matched exactly: that
-revision and every earlier one are confirmed, an older value given back means
-a newer one is still on its way, and nothing is sent again. Give a text of
-your own without `valueRevision`. So the editor counts every text it gave
-as on its way until you pass back its revision or a later one, and never
-sends it again by itself: a store that loses one (a save that failed, a
-render that dropped it) must send it again, for instance the newest text
-`onChange` gave with its revision. To go back to a text
+revision and every earlier one are confirmed, and an older value given back
+while a newer text is on its way means that text is still coming. Give a
+text of your own without `valueRevision`. So the editor counts every text
+it gave as on its way until you pass back its revision or a later one, and
+never sends it again by itself: a store that loses one (a save that failed,
+a render that dropped it) must send it again, for instance the newest text
+`onChange` gave with its revision. One slip the editor knows for a fact: a
+`valueRevision` that is confirmed already, or that `onChange` gave before a
+text of your own replaced the document, means your store went back to a
+text it had moved past (it forgot the newest revision with a text of its
+own, then took a late answer). Unless a newer text is on its way, `onChange`
+then gives your store the document again with a new revision, and the store
+catches up: once at once and, if the store is still behind 250 ms later,
+once more; after that nothing, until your store takes the document and goes
+back again. So never pass a stored revision with another text (going back
+to another file): give that file's text as your own, without
+`valueRevision`. To go back to a text
 `onChange` gave that may still be on its way (a discard to what you saved, a
 revert), or to reset while the echoes of what was typed are still to come,
 call `replaceValue(text)`: it always applies, and the echoes on their way

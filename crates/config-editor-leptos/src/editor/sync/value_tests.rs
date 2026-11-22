@@ -66,8 +66,10 @@ fn sent_revision(state: EditorState) -> u64 {
 
 /// P4: a Leptos host passing each `on_change` text back with its revision
 /// (the `value_revision` prop) has its echoes matched exactly: a late echo
-/// of a confirmed revision is no news, and a host behind but catching up
-/// is not sent the document again.
+/// of a confirmed revision never replaces the document, a host behind but
+/// catching up is not sent the document again, and one that went back to
+/// that confirmed revision (it holds the late copy now) hears the document
+/// again, a bounded number of times.
 #[test]
 fn a_late_echo_with_its_revision_is_no_news() {
     let value = RwSignal::new("a: 1\n".to_string());
@@ -83,13 +85,18 @@ fn a_late_echo_with_its_revision_is_no_news() {
     value.set("a: 1x\n".to_string());
     revision.set(Some(xy));
     value.set("a: 1xy\n".to_string());
+    assert_eq!(heard.lock().expect("heard").len(), 2);
     // A late copy of the first, again with its revision: confirmed
-    // already, so no news. By its text alone it came back already, so it
-    // would be the host's own and replace the document.
+    // already, so it never replaces the document (by its text alone it
+    // came back already, so it would be the host's own). The host holds
+    // it now, so it hears the document again: at once, and at most once
+    // more after the pause.
     revision.set(Some(x));
     value.set("a: 1x\n".to_string());
     assert_eq!(state.doc().text.get_untracked(), "a: 1xy\n");
-    assert_eq!(heard.lock().expect("heard").len(), 2);
+    let told = heard.lock().expect("heard").clone();
+    assert!((3..=4).contains(&told.len()), "{told:?}");
+    assert!(told[2..].iter().all(|text| text == "a: 1xy\n"), "{told:?}");
     // A text of the host's own, with no revision, applies.
     revision.set(None);
     value.set("b: 2\n".to_string());

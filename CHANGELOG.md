@@ -145,6 +145,17 @@ versions move together.
 
 ### Fixes
 
+- A host with revisions that goes back to a text it had moved past (it
+  forgot the newest revision with a text of its own, then took a late
+  answer) no longer stays there: a `valueRevision` confirmed already, or
+  given before a text of the host's own replaced the document, is a known
+  fact that the host is behind, so `onChange` gives it the document again
+  with a new revision (at once and, if it is still behind after the
+  250 ms pause, once more; nothing more until it takes the document and
+  goes back again), and the host catches up. Such a value never replaces
+  the document. Before, the editor kept the document and the host the
+  older text, or a late answer from before the host's own text replaced
+  that text.
 - An Edit-as save after typing does the work of what was typed, not of
   every item of the document: an XML host with attributes no longer pairs
   each item with its link or checks each item and element's markup again
