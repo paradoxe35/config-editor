@@ -131,6 +131,13 @@ export async function host(page, call, arg, onText) {
       const vanilla = !!window.documentsView || !!window.editor;
       // A revisions host names the text its ranges were worked out on.
       const named = (text) => (fz.revisions ? { rangesFor: text } : {});
+      // The framework parent's props with `props` given: ranges given with
+      // no text named are in its value again (a hide and show named one).
+      const extraWith = (props) => ({
+        ...fz.extra,
+        ...(!fz.revisions && 'readOnlyRanges' in props && !('rangesFor' in props) ? { rangesFor: undefined } : {}),
+        ...props,
+      });
       const calls = {
         // A new text with the read-only ranges the host works out on it
         // (`ranges`), given together where the API allows.
@@ -156,7 +163,7 @@ export async function host(page, call, arg, onText) {
           } else {
             // The parent lists the text it set with the ranges it worked
             // out on it.
-            fz.extra = { ...fz.extra, readOnlyRanges: ranges, ...named(text) };
+            fz.extra = extraWith({ readOnlyRanges: ranges, ...named(text) });
             window.setParentValue(text);
             window.setExtraProps({ ...fz.extra });
           }
@@ -169,7 +176,7 @@ export async function host(page, call, arg, onText) {
         singleProps: (props) => {
           if (window.editor) window.editor.update(props);
           else {
-            fz.extra = { ...fz.extra, ...props };
+            fz.extra = extraWith(props);
             window.setExtraProps({ ...fz.extra });
           }
         },

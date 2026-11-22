@@ -67,9 +67,13 @@ export async function hostChange(run, action) {
 // The framework page's parent unmounts the component and mounts it again
 // (`setShown`), `wait` ms apart, late echoes on their way or not. The new
 // editor knows only what the parent renders (the README's "Hidden and
-// shown again"): a revisions host names the text its range was worked
-// out on (`rangesFor`); one naming none works its range out again on the
-// value it shows, in the task that shows it.
+// shown again, the editor knows only what you render: give `rangesFor`
+// ... so locks worked out on another text land on their text"): a
+// revisions host names the text its range was worked out on; one with no
+// revisions works its range out again on the value it shows, in the task
+// that shows it, and names that text too. A late answer for a text the
+// gone editor sent is the parent's own text for the new one (no
+// `echoKey`): rendered with it, a list naming no text would be read in it.
 export async function hideShow(run, { wait }) {
   const { page } = run;
   if (!(await page.evaluate(() => typeof window.setShown === 'function' && !window.editor))) return null;
@@ -83,7 +87,7 @@ export async function hideShow(run, { wait }) {
     if (locked !== null) {
       const start = text.indexOf(locked);
       const readOnlyRanges = start < 0 ? [] : [{ start, end: start + locked.length }];
-      fz.extra = { ...fz.extra, readOnlyRanges };
+      fz.extra = { ...fz.extra, readOnlyRanges, rangesFor: text };
       window.setExtraProps({ ...fz.extra });
     }
     window.setShown(true);
@@ -114,7 +118,10 @@ export async function lateDiagnostics(run, { at, by, wait }) {
         { range: { startLine: number, startColumn: 1 }, severity: 'warning', message: 'checked by the host', source: 'host' },
       ];
       const named = by === 'revision' && state.revision !== undefined && state.revision !== null ? state.revision : state.text;
-      const props = fz.revisions ? { hostDiagnostics, diagnosticsFor: named } : { hostDiagnostics };
+      // Problems given alone are read in the text the ranges name: after a
+      // hide and show that is a text, not the value (see `hideShow`).
+      const alone = fz.extra?.rangesFor === undefined ? { hostDiagnostics } : { hostDiagnostics, diagnosticsFor: state.text };
+      const props = fz.revisions ? { hostDiagnostics, diagnosticsFor: named } : alone;
       // F8 also walks onto the host's problem (at a line start).
       fz.hostDiagnosed = true;
       if (fz.kind === 'single' && window.editor) window.editor.update(props);
