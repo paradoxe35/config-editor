@@ -24,8 +24,9 @@ use serde_json::Value;
 /// spelling (`4.80` over `4.8`, see [`respelled`]).
 ///
 /// A host whose values are all text reads a number kept as typed as that
-/// text (`4.10`): [`Spelled::as_text`] says which, so the save's read-back
-/// check reads them as the numbers they are.
+/// text (`4.10`): it is proposed so where the schema takes the number
+/// there, and the save's last check decides whether that spelling is one
+/// it may write (see `spellings`).
 pub(in crate::editor::bridge) fn kept(
     (host, edit): (&dyn ConfigLanguage, &dyn ConfigLanguage),
     (previous, edit_text): (&str, &str),
@@ -33,7 +34,7 @@ pub(in crate::editor::bridge) fn kept(
     (saved, respelled): (String, Vec<String>),
     shape: Option<&Value>,
     sources: Option<&ItemSources>,
-) -> Spelled {
+) -> String {
     // A key renamed holds its number where the host held it under its
     // old name: its form is read there.
     let renames = codec::renames(old, target, sources);
@@ -53,7 +54,7 @@ pub(in crate::editor::bridge) fn kept(
     // (Disjoint: these hold the value they held.)
     changed.extend(respelled);
     if changed.is_empty() {
-        return Spelled::as_saved(saved);
+        return saved;
     }
     // Where the save writes each value that may be spelled anew.
     let mut places = Vec::new();
@@ -84,7 +85,7 @@ pub(in crate::editor::bridge) fn kept(
         places.push((pointer, value, range));
     }
     if places.is_empty() {
-        return Spelled::as_saved(saved);
+        return saved;
     }
     // Only those are looked up in the edit's text, and the numbers among
     // them in the host's last (their form there).
@@ -131,18 +132,18 @@ pub(in crate::editor::bridge) fn kept(
         }
     }
     if edits.is_empty() {
-        return Spelled::as_saved(saved);
+        return saved;
     }
     edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start()));
     let mut spelled = saved.clone();
     for (range, text) in edits {
         if slice::replace(&mut spelled, range, &text).is_none() {
-            return Spelled::as_saved(saved);
+            return saved;
         }
     }
     let reads = |text: &str| codec::read(host, text, shape).ok();
     let (Some(mut read), Some(before)) = (reads(&spelled), reads(&saved)) else {
-        return Spelled::as_saved(saved);
+        return saved;
     };
     // Each number kept as typed text reads as that text, where the host
     // holds the text as the number: else the same.
@@ -155,30 +156,7 @@ pub(in crate::editor::bridge) fn kept(
             *slot = was.clone();
         }
     }
-    if read == before {
-        Spelled {
-            text: spelled,
-            as_text,
-        }
-    } else {
-        Spelled::as_saved(saved)
-    }
-}
-
-/// A save's text with numbers spelled as typed, and those a host whose
-/// values are all text holds as the typed text (pointer, text).
-pub(in crate::editor::bridge) struct Spelled {
-    pub(in crate::editor::bridge) text: String,
-    pub(in crate::editor::bridge) as_text: Vec<(String, String)>,
-}
-
-impl Spelled {
-    fn as_saved(text: String) -> Self {
-        Spelled {
-            text,
-            as_text: Vec::new(),
-        }
-    }
+    if read == before { spelled } else { saved }
 }
 
 /// The numbers of `edited` (the edit's value of `edit_text`) the edit left
@@ -385,7 +363,7 @@ fn unquoted<'a>(edit: &dyn ConfigLanguage, typed: &'a str) -> Option<&'a str> {
 /// takes the number the reader reads the text as there. Where it does
 /// not, its reader takes the text for the text (`3` where the number
 /// would match two options of a `oneOf`), another value than the view's.
-pub(in crate::editor::bridge) fn text_holds_number(
+fn text_holds_number(
     text: &str,
     number: &Value,
     (document, pointer): (&Value, &str),

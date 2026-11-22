@@ -103,15 +103,6 @@ pub(super) const KNOWN: &[Known] = &[
         class: xml_spelling::CUT_TO_ONE,
         applies: |_| true,
     },
-    // `bridge::text_scalars`: XML text the view reads as a number or a
-    // boolean is saved as text where the host holds a string the schema
-    // takes there (`"1"` made `12` stays `"12"`).
-    Known {
-        finding: "documented: XML view text keeps the host's string where the schema allows it",
-        property: "edit_as",
-        class: xml_spelling::KEPT_TEXT,
-        applies: |_| true,
-    },
     // `completion::candidates::refused_beside`: a key that makes another
     // key required (a dependent schema, `dependentRequired`, the `then` of
     // an `if` it decides) is offered, and the problem it adds names the
@@ -166,20 +157,23 @@ pub(super) const KNOWN: &[Known] = &[
         class: xml_spelling::EMPTIED_TEXT,
         applies: |_| true,
     },
-    // `bridge::schema_readings`: a value the schema takes in no reading
-    // (`0` typed under `minimum: 1` over a host's text, or any value of a
-    // field no value meets) is saved in the host's type: the view's
-    // reading is kept only where the schema takes it.
+    // `bridge::spellings`: XML text the view reads as a number or a
+    // boolean is saved in the host's type of the same text (`"1"` made
+    // `12` stays `"12"`, `0` typed under `minimum: 1` over a host's
+    // text), unless the schema takes the view's reading and refuses the
+    // host's type.
     Known {
-        finding: "documented: a value no reading of which the schema takes keeps the host's type",
+        finding: "documented: XML view text keeps the host's type unless the schema refuses it and takes the view's reading",
         property: "edit_as",
         class: xml_spelling::KEPT_TYPE,
         applies: |_| true,
     },
-    // `bridge::text_scalars`: a number typed in another spelling (`08`,
-    // `2.50`) where the host holds a number is that number.
+    // `bridge::spellings`: a number typed in another decimal spelling
+    // (`08`, `2.50`) is written as its XML side writes it: an XML view's
+    // text as the host's number, a number typed so over an XML host as
+    // that text where the schema tells the two apart nowhere.
     Known {
-        finding: "documented: a number typed in another spelling is the host's number",
+        finding: "documented: a number typed in another spelling is kept as its XML side writes it",
         property: "edit_as",
         class: xml_spelling::RESPELLED,
         applies: |_| true,

@@ -145,6 +145,20 @@ versions move together.
 
 ### Fixes
 
+- An Edit-as save no longer guesses how the host's reader will read what
+  it writes: it reads the text it would write once, with the host's own
+  reader under the schema, and compares it value by value with what the
+  view reads. A value may differ only where the user left it as the view
+  showed it, or where XML writes two values alike (one written list:
+  a list of one as its item, `8` and `"8"`, a number typed in another
+  spelling, an emptied element, nested lists shown flat, a TOML
+  datetime in its own form). Any other difference makes the save wait
+  and say why ("cannot keep this value exactly"). So a save that would
+  read otherwise now waits, for example two `<d>0</d>` elements the view
+  reads as numbers where the schema wants strings. And a value left alone
+  inside a list of one the schema reads as a list (a YAML `!!str 3` under
+  `containers`), through a line copied in an XML view and a switch to
+  TOML, now keeps its host form instead of being saved as the number.
 - A host with revisions that goes back to a text it had moved past (it
   forgot the newest revision with a text of its own, then took a late
   answer) no longer stays there: a `valueRevision` confirmed already, or

@@ -59,6 +59,7 @@ mod moved_forms;
 mod read_back;
 mod schema_readings;
 mod shared;
+pub(super) mod spellings;
 mod tags;
 mod written_anew;
 use changed_forms::{emptied_quotes, text_scalars, typed_spellings, whole_floats, wide_numbers};
@@ -481,31 +482,38 @@ impl Bridge {
             },
             in_place: told.in_place(),
         });
-        let value = match &seen {
+        let renames = std::cell::RefCell::default();
+        let paired = match &seen {
             // An edit where the view could not show the host's value (an
             // XML view of nested or empty lists) that does not map back onto
             // it waits: saving the view's approximation would change data.
-            Some(seen) => merge_changes(
-                &old,
-                seen,
-                &edited,
-                &View {
-                    unshown: &unshown,
-                    repetition: self.edit.behavior().repetition(),
-                    moves: moved,
-                    host_reading: host_reading.as_deref(),
-                    told: view_sources.as_ref(),
-                },
-            )
-            .map_err(|pointer| {
-                ConvertError::Unsupported(format!(
-                    "{} cannot show the value at {pointer} exactly, so this edit of it cannot be saved: edit it as {} (at {pointer})",
-                    self.edit.label(),
-                    self.host.label()
-                ))
-            })?,
-            None => edited.clone(),
+            Some(seen) => Some(
+                merge_changes(
+                    &old,
+                    seen,
+                    &edited,
+                    &View {
+                        unshown: &unshown,
+                        repetition: self.edit.behavior().repetition(),
+                        moves: moved,
+                        host_reading: host_reading.as_deref(),
+                        told: view_sources.as_ref(),
+                        renames: &renames,
+                    },
+                )
+                .map_err(|pointer| {
+                    ConvertError::Unsupported(format!(
+                        "{} cannot show the value at {pointer} exactly, so this edit of it cannot be saved: edit it as {} (at {pointer})",
+                        self.edit.label(),
+                        self.host.label()
+                    ))
+                })?,
+            ),
+            None => None,
         };
+        let value = paired
+            .as_ref()
+            .map_or_else(|| edited.clone(), |paired| paired.merged.clone());
         // A view that writes every scalar as text (XML) only guesses types:
         // the edited values keep the host's.
         let value = match &seen {
@@ -544,7 +552,7 @@ impl Bridge {
         };
         // Each changed value in the host's own form (a TOML datetime read
         // back normalized), or the reason the save waits.
-        let value = host_scalars(host, previous_host, &old, value)?;
+        let (value, own_forms) = host_scalars(host, previous_host, &old, value)?;
         let sources = view_sources;
         let told = SaveTold::new(sources.as_ref()).with_schema(self.shape());
         // The host's text is patched to read back exactly as a full render
@@ -779,9 +787,9 @@ impl Bridge {
             Some(order) => in_order(host, text, order, shape, over.later()),
             None => text,
         });
-        let (conversion, as_text) = match patched {
+        let conversion = match patched {
             Some(text) => {
-                let spelled = typed_spellings::kept(
+                let text = typed_spellings::kept(
                     (host, self.edit.behavior()),
                     (previous_host, edit_text),
                     (&old, &target),
@@ -789,11 +797,7 @@ impl Bridge {
                     shape,
                     over.sources(),
                 );
-                let conversion = Conversion {
-                    text: spelled.text,
-                    losses,
-                };
-                (conversion, spelled.as_text)
+                Conversion { text, losses }
             }
             // No patch applies: the host is written anew, which keeps none
             // of its comments; a host with some waits.
@@ -807,7 +811,7 @@ impl Bridge {
                 }
                 #[cfg(test)]
                 WHOLE_RENDERS.with(|count| count.set(count.get() + 1));
-                (rendered, Vec::new())
+                rendered
             }
         };
         // A value the host would read back otherwise (XML writes a one-item
@@ -930,11 +934,20 @@ impl Bridge {
         }
         // Nor does what is written read back otherwise, or keys in another
         // order than the user moved them to.
-        let saved = read_back::Saved {
-            text: &conversion.text,
-            as_text: &as_text,
+        let typed = |at: &str| typed_text(&view_reading, at);
+        let expected = read_back::Expected {
+            view: &edited,
+            seen: seen.as_ref(),
+            old: &old,
+            paired: paired.as_ref(),
+            typed: &typed,
+            from_xml: self.edit.behavior().scalars_are_text(),
+            view_repeats: self.edit.behavior().repetition(),
+            own_forms: &own_forms,
+            order: reordered.then_some(intended),
         };
-        match read_back::first_mismatch(host, &saved, intended, reordered, shape) {
+        let verdict = read_back::first_mismatch(host, &conversion.text, &expected, shape);
+        match verdict {
             Some(read_back::Mismatch::Value(pointer)) => {
                 return Err(SaveError::CannotKeep { pointer });
             }
@@ -1023,9 +1036,14 @@ impl Bridge {
             // A scalar standing where its source stands (as written, or as
             // the reading's list item) is the host's value there, the list
             // the reading makes of it included: the merge keeps the host's
-            // shape for it, so an unchanged view saves nothing.
+            // shape for it, so an unchanged view saves nothing. A list of
+            // one the reading makes of a value holding it (a lone element
+            // the schema reads as a list) is no list of the scalar: it is
+            // named through that list's `/0`.
             let read = view.read_pointer(&scalar.pointer);
-            let at = if scalar.from == scalar.pointer || scalar.from == read {
+            let at = if (scalar.from == scalar.pointer || scalar.from == read)
+                && edited.pointer(&scalar.pointer).is_some()
+            {
                 &scalar.pointer
             } else {
                 &read
@@ -1214,6 +1232,16 @@ fn patched(
     })
 }
 
+/// The text the user typed for the scalar at `at` of the view, as its
+/// language parsed it (before the schema read it as another type).
+fn typed_text(view: &DataReading, at: &str) -> Option<String> {
+    let parsed = match view.node(at).scalar {
+        super::data_reading::Scalar::Retyped(parsed) => parsed,
+        super::data_reading::Scalar::AsParsed => view.value().pointer(at)?,
+    };
+    (!parsed.is_object() && !parsed.is_array()).then(|| super::applies::scalar_text(parsed))
+}
+
 /// `value` with each scalar changed from `old` as the host saves it there
 /// ([`SaveLayout::scalar_edit`]), or the reason the save waits.
 fn host_scalars(
@@ -1221,16 +1249,20 @@ fn host_scalars(
     previous: &str,
     old: &serde_json::Value,
     mut value: serde_json::Value,
-) -> Result<serde_json::Value, SaveError> {
+) -> Result<(serde_json::Value, OwnForms), SaveError> {
     let mut changed = Vec::new();
     changed_scalars(old, &value, String::new(), &mut changed);
+    let mut own_forms = OwnForms::new();
     with_lines(host, previous, || {
         for pointer in changed {
             let Some(slot) = value.pointer_mut(&pointer) else {
                 continue;
             };
             match host.scalar_edit(previous, &FieldPath::from(&pointer), slot) {
-                Ok(Some(own)) => *slot = own,
+                Ok(Some(own)) => {
+                    own_forms.insert(pointer, own.clone());
+                    *slot = own;
+                }
                 Ok(None) => {}
                 Err(reason) => {
                     return Err(
@@ -1239,9 +1271,13 @@ fn host_scalars(
                 }
             }
         }
-        Ok(value)
+        Ok((value, own_forms))
     })
 }
+
+/// The changed scalars the host writes in its own form (see
+/// [`SaveLayout::scalar_edit`]), by pointer.
+type OwnForms = HashMap<String, serde_json::Value>;
 
 /// The items of a save whose source `items` (their links) tell is `from`
 /// (in one host text), as (pointer in the save, pointer in that text).

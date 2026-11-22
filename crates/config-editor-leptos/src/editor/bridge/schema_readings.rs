@@ -1,87 +1,91 @@
-//! Values a view that writes every scalar as text (XML) read by the schema
-//! (`8` for "an integer ≥ 1 or `auto`"), saved as read where the host's
-//! type of them is one the schema does not allow, by every schema judging
-//! the value where it is.
+//! Which of two readings of a value the schema prefers, for a view that
+//! writes every scalar as text (XML): `8` for "an integer ≥ 1 or `auto`"
+//! where the host held text. One question, asked twice: the save proposes
+//! the view's reading where the schema prefers it ([`keep`]), and its last
+//! check (`read_back`) asks the same question of the text the host reads
+//! back, to tell a documented spelling from a value read otherwise.
 
 use super::super::applies::{self, Applies, Entry};
 use super::super::language::{SchemaPathSegment, pointer_segments};
 use serde_json::Value;
 
 /// Puts back each of `retyped` (a pointer into `value` and the view's
-/// reading of the value there, which the host's type changed) where
-/// `schema` takes the reading and refuses the host's type of it, or takes
-/// both and lists the reading (`enum: ["true"]`) and not the host's type.
+/// reading of the value there, which the host's type changed) where the
+/// schema [`prefers`] the reading.
+pub(super) fn keep(value: &mut Value, retyped: Vec<(String, Value)>, schema: &Value) {
+    for (pointer, read) in retyped {
+        if prefers(value, &pointer, &read, schema)
+            && let Some(slot) = value.pointer_mut(&pointer)
+        {
+            *slot = read;
+        }
+    }
+}
+
+/// Whether `schema` prefers `reading` at `pointer` to the value `document`
+/// holds there: it takes the reading and refuses the value, or takes both
+/// and lists the reading (`enum: ["true"]`) and not the value.
 ///
 /// The schemas judging the value are those the path leads to and, above
 /// it, every value whose schemas judge it together with its siblings
 /// (options, `contains`, see [`Here::judges_children_together`]). The
 /// outermost that tells the two readings apart decides: what it judges
 /// holds what the nearer ones do, and a nearer schema may be one of its
-/// options only.
+/// options only. A part of the schemas at a level refusing both (the
+/// document fails there whichever is saved) tells nothing.
 ///
 /// [`Here::judges_children_together`]: applies::Here::judges_children_together
-pub(super) fn keep(value: &mut Value, retyped: Vec<(String, Value)>, schema: &Value) {
-    for (pointer, read) in retyped {
-        let Some(typed) = value.pointer(&pointer).cloned() else {
-            continue;
-        };
-        let path = path_in(value, &pointer);
-        // Each judging value above, outermost first, as the pointer to it
-        // and what applies there; then what applies at the value.
-        let (above, at, listed) = {
-            let document = &*value;
-            let whole = || Some(document);
-            let applies = Applies::for_types(schema, false, &whole);
-            let above: Vec<(&str, Entry<'_>)> = (0..path.len())
-                .filter_map(|depth| {
-                    let held = applies.at(&path[..depth]);
-                    held.judges_children_together().then(|| {
-                        (
-                            parent_pointer(&pointer, path.len() - depth),
-                            held.entry().clone(),
-                        )
-                    })
-                })
-                .collect();
-            let here = applies.at(&path);
-            let listed: Vec<Value> = here
-                .branches()
-                .into_iter()
-                .flat_map(|branch| applies::listed(branch).cloned())
-                .collect();
-            (above, here.entry().clone(), listed)
-        };
-        // The value at `held` with `candidate` at the pointer.
-        let with = |value: &mut Value, held: &str, candidate: &Value| {
-            if let Some(slot) = value.pointer_mut(&pointer) {
-                *slot = candidate.clone();
-            }
-            value.pointer(held).cloned()
-        };
-        // A part of the schemas at a level refusing both readings (the
-        // document fails there whichever is saved) tells nothing; one
-        // refusing each reading refuses the reading too.
-        let decided = above.iter().find_map(|(held, entry)| {
-            let as_typed = with(value, held, &typed)?;
-            let as_read = with(value, held, &read)?;
-            let told = entry.refusing(&as_typed, &as_read, schema);
-            match (told.first, told.second) {
-                (true, false) => Some(true),
-                (_, true) => Some(false),
-                (false, false) => None,
-            }
-        });
-        let put_back = decided.unwrap_or_else(|| {
-            match (at.accepts(&typed, schema), at.accepts(&read, schema)) {
-                (Some(false), Some(true)) => true,
-                (Some(true), Some(true)) => listed.contains(&read) && !listed.contains(&typed),
-                _ => false,
-            }
-        });
-        if let Some(slot) = value.pointer_mut(&pointer) {
-            *slot = if put_back { read } else { typed };
+pub(super) fn prefers(document: &Value, pointer: &str, reading: &Value, schema: &Value) -> bool {
+    let Some(held) = document.pointer(pointer) else {
+        return false;
+    };
+    let path = path_in(document, pointer);
+    let whole = || Some(document);
+    let applies = Applies::for_types(schema, false, &whole);
+    // Each judging value above, outermost first, as the pointer to it and
+    // what applies there.
+    let above: Vec<(&str, Entry<'_>)> = (0..path.len())
+        .filter_map(|depth| {
+            let here = applies.at(&path[..depth]);
+            here.judges_children_together().then(|| {
+                (
+                    parent_pointer(pointer, path.len() - depth),
+                    here.entry().clone(),
+                )
+            })
+        })
+        .collect();
+    // The value at `above` with `reading` at the pointer.
+    let with_reading = |above: &str| {
+        let relative = pointer.strip_prefix(above)?;
+        let mut value = document.pointer(above)?.clone();
+        *value.pointer_mut(relative)? = reading.clone();
+        Some(value)
+    };
+    let decided = above.iter().find_map(|(at, entry)| {
+        let as_held = document.pointer(at)?;
+        let told = entry.refusing(as_held, &with_reading(at)?, schema);
+        match (told.first, told.second) {
+            (true, false) => Some(true),
+            (_, true) => Some(false),
+            (false, false) => None,
         }
-    }
+    });
+    decided.unwrap_or_else(|| {
+        let here = applies.at(&path);
+        match (here.accepts(held), here.accepts(reading)) {
+            (Some(false), Some(true)) => true,
+            (Some(true), Some(true)) => {
+                let listed: Vec<&Value> = here
+                    .branches()
+                    .into_iter()
+                    .flat_map(applies::listed)
+                    .collect();
+                listed.contains(&reading) && !listed.contains(&held)
+            }
+            _ => false,
+        }
+    })
 }
 
 /// Whether the schemas at `pointer` in `document` take `candidate` there

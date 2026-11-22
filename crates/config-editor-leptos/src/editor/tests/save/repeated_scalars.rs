@@ -96,7 +96,17 @@ fn a_host_scalar_written_as_several_elements_saves_as_the_view_reads_it() {
             for schema in [None, Some(&strings)] {
                 for source in [Inserted::Typed, Inserted::Pasted] {
                     let saved =
-                        saved_with_copies(language, host, schema, count, &source, None).unwrap();
+                        match saved_with_copies(language, host, schema, count, &source, None) {
+                            Ok(saved) => saved,
+                            // Where the view reads the items otherwise than the
+                            // schema prefers (numbers under an `anyOf` of string
+                            // items), the save waits: it never writes what the
+                            // view does not read.
+                            Err(error) if schema.is_some() && error.starts_with("CannotKeep") => {
+                                continue;
+                            }
+                            Err(error) => panic!("{error}"),
+                        };
                     let read = language.parse(&saved).expect(&saved);
                     let expected = match (count, schema) {
                         // Unchanged: nothing is saved.

@@ -3021,3 +3021,23 @@ fn a_json_list_cut_to_one_item_in_an_xml_view_under_a_list_schema_saves_the_list
         ],
     );
 }
+
+/// P2: a YAML string tagged `!!str` that an XML view shows as plain text,
+/// left alone through a line copied above it and a switch to TOML (which
+/// reads the XML text as a number), keeps its tag and stays the string.
+#[test]
+fn a_tagged_string_left_alone_through_an_xml_view_and_a_switch_keeps_its_tag() {
+    super::replay_typed(
+        Language::YAML,
+        Language::XML,
+        422855546,
+        "kind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n    matchLabels:\n      app: web\n  template:\n    spec:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n              value: !!str 3\n",
+        &[
+            Op::CopyLine {
+                line: 21,
+                down: false,
+            },
+            Op::Switch { to: 2 },
+        ],
+    );
+}

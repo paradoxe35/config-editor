@@ -1,46 +1,25 @@
-//! The documented ways a save with XML on one side reads back otherwise
-//! than the view, told value by value: a failing save is in one of these
-//! classes only when each value it reads otherwise is one of them, so an
-//! allowance (see `known`) covers that value and no other difference.
+//! The judge's side of the documented ways a save with XML on one side
+//! reads back otherwise than the view: the list itself is the save's own
+//! (`bridge::spellings`), asked here with the reference validator telling
+//! what the schema makes of a value, so the save and the judge allow the
+//! same spellings and the judge's schema answers stay its own. A failing
+//! save is in one of these classes only when each value it reads
+//! otherwise is one of them, so an allowance (see `known`) covers that
+//! value and no other difference.
 
 use std::collections::HashSet;
 
 use serde_json::Value;
 
-use super::reference::{Both, same};
+use super::reference::Both;
 use crate::editor::Language;
 use crate::editor::applies::scalar_text;
-use crate::editor::bridge::links::HostPaths;
 use crate::editor::bridge::paired;
-use crate::editor::decimal_text::decimal;
-use crate::editor::language::{pointer_key, unescaped_key};
-
-/// An XML view shows a list of one as its item where no schema says it is
-/// a list (and a list cut to one item looks the same), and its save keeps
-/// the host's list there, its item told as any other value.
-pub(super) const KEPT_LIST: &str = "a save keeps the host's list where the XML view shows one item";
-/// A list cut to one item in a view of an XML host is written as one
-/// element, which the host reads as that item.
-pub(super) const CUT_TO_ONE: &str =
-    "a save writes a list cut to one item as that item in an XML host";
-/// An XML element emptied where the host holds text saves as the empty
-/// text, where the view reads the empty element as an empty object.
-pub(super) const EMPTIED_TEXT: &str =
-    "a save writes an emptied XML element as the host's empty text";
-/// A number typed in an XML view in another spelling (`08`, `2.50`) where
-/// the host holds a number saves as that number.
-pub(super) const RESPELLED: &str =
-    "a save keeps the host's number for a number typed in another spelling";
-/// XML text the view reads as one type saves in the host's type where the
-/// schema takes the host's type (`"1"` made `12` stays `"12"`).
-pub(super) const KEPT_TEXT: &str =
-    "a save keeps the host's text where the XML view's text reads as another type";
-/// XML text the schema refuses read either way (as the view reads it, and
-/// in the host's type), or does not tell apart, keeps the host's type: the
-/// view's reading is kept only where the schema takes it and refuses the
-/// host's type.
-pub(super) const KEPT_TYPE: &str =
-    "a save keeps the host's type of a value the schema takes in no reading";
+use crate::editor::bridge::spellings::{self, Refused};
+pub(super) use crate::editor::bridge::spellings::{
+    CUT_TO_ONE, EMPTIED_TEXT, KEPT_LIST, KEPT_TYPE, RESPELLED,
+};
+use crate::editor::language::unescaped_key;
 
 /// A save and what it is compared with.
 pub(super) struct Sides<'a> {
@@ -53,8 +32,8 @@ pub(super) struct Sides<'a> {
     pub(super) view: &'a Value,
     /// The host's document read back from the save.
     pub(super) saved: &'a Value,
-    /// Which host value the save took each value from (see [`held`]);
-    /// `None`: each at its own pointer.
+    /// Which host value the save took each value from (see
+    /// `spellings::held`); `None`: each at its own pointer.
     pub(super) paired: Option<&'a paired::Paired>,
     /// The document the view's text was written from (what the user
     /// typed, each scalar as its text); `None`: not known.
@@ -64,176 +43,47 @@ pub(super) struct Sides<'a> {
 /// The class of the save when XML's spelling explains each value it reads
 /// otherwise than the view: the first such value's.
 pub(super) fn explained(sides: &Sides<'_>) -> Option<&'static str> {
-    classes_at(sides, "", sides.view, false)?.first().copied()
-}
-
-/// The class of each value the saved value at `at` holds otherwise than
-/// `view`, the view's value there; `None` when one has none. `listed`: the
-/// value is (in) the item of a list the save kept, which no schema reads.
-fn classes_at(
-    sides: &Sides<'_>,
-    at: &str,
-    view: &Value,
-    listed: bool,
-) -> Option<Vec<&'static str>> {
-    let mut pointers = Vec::new();
-    differing(
-        sides.saved.pointer(at)?,
-        view,
-        &mut String::new(),
-        &mut pointers,
-    );
-    pointers
-        .iter()
-        .map(|inner| spelling(sides, &format!("{at}{inner}"), view.pointer(inner)?, listed))
-        .collect()
-}
-
-/// The pointers at which `saved` and `view` differ, each the outermost
-/// where they differ in kind, keys or length.
-fn differing(saved: &Value, view: &Value, at: &mut String, out: &mut Vec<String>) {
-    let length = at.len();
-    match (saved, view) {
-        (Value::Object(saved), Value::Object(view)) => {
-            let keys = saved
-                .keys()
-                .chain(view.keys().filter(|key| !saved.contains_key(*key)));
-            for key in keys {
-                at.push('/');
-                at.push_str(&pointer_key(key));
-                match (saved.get(key), view.get(key)) {
-                    (Some(saved), Some(view)) => differing(saved, view, at, out),
-                    _ => out.push(at.clone()),
-                }
-                at.truncate(length);
-            }
-        }
-        (Value::Array(saved), Value::Array(view)) if saved.len() == view.len() => {
-            for (index, (saved, view)) in saved.iter().zip(view).enumerate() {
-                at.push('/');
-                at.push_str(&index.to_string());
-                differing(saved, view, at, out);
-                at.truncate(length);
-            }
-        }
-        _ if same(saved, view) => {}
-        _ => out.push(at.clone()),
-    }
-}
-
-/// Which documented spelling explains the saved value at `at`, which the
-/// view holds as `view`, if one does.
-fn spelling(sides: &Sides<'_>, at: &str, view: &Value, listed: bool) -> Option<&'static str> {
-    let saved = sides.saved.pointer(at)?;
-    let before = held(sides, at);
-    let into_xml = sides.host == Language::XML;
-    let from_xml = sides.edit == Language::XML;
-    match (before, view, saved) {
-        (Some(Value::Array(_)), _, Value::Array(items))
-            if from_xml && items.len() == 1 && !view.is_array() =>
-        {
-            classes_at(sides, &format!("{at}/0"), view, true).map(|_| KEPT_LIST)
-        }
-        (Some(Value::Array(_)), Value::Array(items), _)
-            if into_xml && matches!(&items[..], [only] if same(only, saved)) =>
-        {
-            Some(CUT_TO_ONE)
-        }
-        (Some(Value::String(_)), Value::Object(map), Value::String(text))
-            if from_xml && map.is_empty() && text.is_empty() =>
-        {
-            Some(EMPTIED_TEXT)
-        }
-        (Some(Value::Number(_)), Value::String(text), Value::Number(_))
-            if from_xml && respelled(text, saved) =>
-        {
-            Some(RESPELLED)
-        }
-        // An item no schema reads keeps the host's type (see `text_scalars`),
-        // and so does a host scalar the view reads as a list's one item.
-        (Some(before), _, _)
-            if from_xml
-                && kind(before) == kind(saved)
-                && same_text(lone_item(view), saved)
-                && saved_as_typed(sides, at, saved) =>
-        {
-            if listed {
-                Some(KEPT_LIST)
-            } else {
-                in_host_type(sides, at, view)
-            }
-        }
-        _ => None,
-    }
-}
-
-/// The host's value before the save that the saved value at `at` was
-/// taken from.
-///
-/// Which host value that is, is the save's own record (`paired`, the
-/// merge's pairing): a view typed whole carries no links, so only the
-/// merge knows which host key a key it renamed stands for, and every other
-/// value stays at its host pointer. The judge takes from the record only
-/// that identity, and only where the host agrees it can be one (a renamed
-/// key's host key is in the host's map there, its new name is not, and
-/// the merged map no longer holds the old one); what the save wrote for
-/// the value is still judged here, against the host's value and the
-/// view's, by the documented spellings. So a wrong pairing can at worst
-/// compare a value with another of the host's values the view renamed
-/// away, never excuse a value the host did not hold in that form.
-fn held<'a>(sides: &Sides<'a>, at: &str) -> Option<&'a Value> {
-    let Some(paired) = sides.paired else {
-        return sides.before.pointer(at);
+    let held = |at: &str| spellings::held(sides.before, sides.paired, sides.saved, at);
+    let typed = |at: &str| {
+        sides
+            .typed?
+            .pointer(at)
+            .filter(|typed| !typed.is_object() && !typed.is_array())
+            .map(scalar_text)
     };
-    // The saved value's place in the merged value: the host may read a
-    // list of one the merge wrote as its item (an XML host), the walk of
-    // the two pairs them (see `HostPaths`).
-    let (merged, _) = HostPaths::between(&paired.merged, sides.saved).item(at);
-    let (mut placed, mut host) = (String::new(), String::new());
-    for segment in merged.split('/').skip(1) {
-        let renamed = paired.renames.iter().find(|renamed| {
-            renamed.at == placed
-                && pointer_key(&renamed.key) == segment
-                && renames_one(sides.before.pointer(&host), &paired.merged, renamed)
-        });
-        host.push('/');
-        match renamed {
-            Some(renamed) => host.push_str(&pointer_key(&renamed.from)),
-            None => host.push_str(segment),
-        }
-        placed.push('/');
-        placed.push_str(segment);
-    }
-    sides.before.pointer(&host)
+    let refused = |at: &str, view: &Value| refused(sides, at, view);
+    spellings::explained(
+        &spellings::Sides {
+            from_xml: sides.edit == Language::XML,
+            into_xml: sides.host == Language::XML,
+            view_repeats: sides.edit.behavior().repetition(),
+            host_repeats: sides.host.behavior().repetition(),
+            own_form: &|_| None,
+            view: sides.view,
+            saved: sides.saved,
+            held: &held,
+            typed: &typed,
+            refused: &refused,
+        },
+        &|_| false,
+    )
+    .ok()
+    .flatten()
 }
 
-/// Whether the host's map `host` and the merged value agree that the
-/// merge's `renamed` can be a rename: the host held the old key and not
-/// the new one, and the merged map holds the new one in its place.
-fn renames_one(host: Option<&Value>, merged: &Value, renamed: &paired::Renamed) -> bool {
-    let (Some(Value::Object(host)), Some(Value::Object(merged))) =
-        (host, merged.pointer(&renamed.at))
-    else {
-        return false;
+/// What the reference makes of the view's value at `at` in the saved
+/// document in place of the saved value. A reading is refused by an error
+/// at the value (or inside it), by one anywhere that the other reading
+/// does not have (the two documents differ only in the value: an `if`
+/// beside it reading it), or by one above it (options of an object holding
+/// it) that goes with the value.
+fn refused(sides: &Sides<'_>, at: &str, view: &Value) -> Refused {
+    let Some(saved) = sides.saved.pointer(at) else {
+        return Refused::default();
     };
-    host.contains_key(&renamed.from)
-        && !host.contains_key(&renamed.key)
-        && merged.contains_key(&renamed.key)
-        && !merged.contains_key(&renamed.from)
-}
-
-/// The class of a value saved in the host's type, by what the schema
-/// makes of its two readings: the view's reading is kept only where the
-/// schema takes it and refuses the host's type.
-fn in_host_type(sides: &Sides<'_>, at: &str, view: &Value) -> Option<&'static str> {
-    let saved = sides.saved.pointer(at)?;
-    let as_viewed = errors_about(sides, at, Some(view));
-    let as_saved = errors_about(sides, at, Some(saved));
+    let as_viewed = errors_about(sides, at, Some(view)).unwrap_or_default();
+    let as_saved = errors_about(sides, at, Some(saved)).unwrap_or_default();
     let without = errors_about(sides, at, None);
-    // A reading is refused by an error at the value (or inside it), by one
-    // anywhere that the other reading does not have (the two documents
-    // differ only in the value: an `if` beside it reading it), or by one
-    // above it (options of an object holding it) that goes with the value.
     let refused = |errors: &Errors, other: &Errors| {
         errors.iter().any(|error| {
             let (place, _) = error;
@@ -246,17 +96,9 @@ fn in_host_type(sides: &Sides<'_>, at: &str, view: &Value) -> Option<&'static st
                             .is_some_and(|without| !without.contains(error)))
         })
     };
-    let (as_viewed, as_saved) = (as_viewed.unwrap_or_default(), as_saved.unwrap_or_default());
-    match (
-        refused(&as_viewed, &as_saved),
-        refused(&as_saved, &as_viewed),
-    ) {
-        // The schema takes the view's reading and not the host's type: the
-        // save should have kept the reading.
-        (false, true) => None,
-        (true, true) => Some(KEPT_TYPE),
-        (_, false) if saved.is_string() => Some(KEPT_TEXT),
-        (_, false) => Some(KEPT_TYPE),
+    Refused {
+        view: refused(&as_viewed, &as_saved),
+        saved: refused(&as_saved, &as_viewed),
     }
 }
 
@@ -296,72 +138,6 @@ fn errors_about(sides: &Sides<'_>, at: &str, value: Option<&Value>) -> Option<Er
         })
         .collect();
     Some(errors)
-}
-
-/// Whether `text` spells the number `number` otherwise than its plain
-/// form (`08` for 8, `2.50` for 2.5).
-fn respelled(text: &str, number: &Value) -> bool {
-    let text = text.trim();
-    let plain = number.to_string();
-    decimal(text, false).is_some_and(|read| same(&read, number)) && text != plain
-}
-
-fn kind(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-    }
-}
-
-/// Whether a string the save kept in the host's type is the text the user
-/// typed (which the view reads as a number or boolean), not another
-/// spelling of it the host held (`"08"` kept for `8` typed): where the
-/// typed document holds a scalar at `at`.
-fn saved_as_typed(sides: &Sides<'_>, at: &str, saved: &Value) -> bool {
-    let (Some(typed), Value::String(text)) = (sides.typed, saved) else {
-        return true;
-    };
-    match typed.pointer(at) {
-        Some(typed) if !typed.is_object() && !typed.is_array() => {
-            scalar_text(typed).trim() == text.trim()
-        }
-        _ => true,
-    }
-}
-
-/// The scalar of a list of one scalar, through nested lists of one (the
-/// view's reading of a lone element the schema wants a list, or a list of
-/// lists, of), else `value`.
-fn lone_item(value: &Value) -> &Value {
-    let mut at = value;
-    while let Value::Array(items) = at
-        && let [item] = &items[..]
-    {
-        at = item;
-    }
-    if at.is_object() || at.is_array() {
-        value
-    } else {
-        at
-    }
-}
-
-/// Whether `left` and `right` are scalars of two types XML writes as the
-/// same text (`"8"` and `8`, `"true"` and `true`, `"null"` and `null`).
-fn same_text(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        (Value::String(text), other) | (other, Value::String(text)) => match other {
-            Value::Number(_) => decimal(text.trim(), false).is_some_and(|read| same(&read, other)),
-            Value::Bool(flag) => text.trim() == flag.to_string(),
-            Value::Null => text.trim() == "null",
-            _ => false,
-        },
-        _ => false,
-    }
 }
 
 #[cfg(test)]
@@ -502,7 +278,7 @@ mod tests {
                 (json!({"a": "x"}), json!({"a": 8}), json!({"a": "8"})),
             )
         };
-        assert_eq!(typed(json!({"type": "string"})), Some(KEPT_TEXT));
+        assert_eq!(typed(json!({"type": "string"})), Some(KEPT_TYPE));
         assert_eq!(
             typed(json!({"type": "string", "enum": ["q"]})),
             Some(KEPT_TYPE)
@@ -516,7 +292,7 @@ mod tests {
         );
         assert_eq!(
             renamed(&any, false, text, &[("", "a", "name")]),
-            Some(KEPT_TEXT)
+            Some(KEPT_TYPE)
         );
         // Each scalar XML reads from text, at its own key and renamed.
         for (read, text) in [
@@ -531,7 +307,7 @@ mod tests {
             );
             assert_eq!(
                 renamed(&any, false, moved, &[("", "a", "b")]),
-                Some(KEPT_TEXT),
+                Some(KEPT_TYPE),
                 "{read}"
             );
             let own = (
@@ -539,7 +315,7 @@ mod tests {
                 json!({"a": read.clone(), "c": 1}),
                 json!({"a": text, "c": 1}),
             );
-            assert_eq!(class(&any, false, own), Some(KEPT_TEXT), "{read}");
+            assert_eq!(class(&any, false, own), Some(KEPT_TYPE), "{read}");
             let other = (
                 json!({"a": "nil"}),
                 json!({"a": read.clone()}),
@@ -709,7 +485,7 @@ mod tests {
             json!({"a": true, "c": "false"}),
         );
         assert_eq!(saved, json!({"a": "true", "c": "false"}));
-        assert_eq!(judged(&before, &view, &saved, &paired), Some(KEPT_TEXT));
+        assert_eq!(judged(&before, &view, &saved, &paired), Some(KEPT_TYPE));
         // Another host value's text there is no spelling of the source.
         let swapped = json!({"a": "false", "c": "false"});
         assert_eq!(judged(&before, &view, &swapped, &paired), None);
