@@ -538,7 +538,17 @@ fn fill<'a>(
     // boolean beside an option describing an object).
     let types = Here::walk(at.clone(), root, Seen::default()).types();
     let lists = types.allows_type("array");
-    if lists && array_branch(child, root).is_some() && object_branch(child, root).is_none() {
+    // The schema describing it a list or an object: its property's own,
+    // else one certain to apply beside it (an `allOf` member typing it a
+    // list of two, a property in another member giving its required
+    // children), which reads it the same.
+    let certain = at.certain();
+    let describing = |branch: for<'v> fn(&'v Value, &'v Value) -> Option<&'v Value>| {
+        std::iter::once(child)
+            .chain(certain.iter().copied())
+            .find(|schema| branch(schema, root).is_some())
+    };
+    if lists && describing(array_branch).is_some() && describing(object_branch).is_none() {
         let empty = Value::Array(Vec::new());
         // A list the language cannot write (XML's empty one) is left out,
         // unless the schema takes a value that is no list there (list
@@ -546,7 +556,7 @@ fn fill<'a>(
         let Some(list) = least_list(language, at, root)
             .into_iter()
             .chain([empty])
-            .find(|list| language_keeps(language, list, child, root))
+            .find(|list| super::kept::language_keeps_at(language, list, at, root))
         else {
             let takes_text = decides(child, &Value::String(String::new()), root) == Some(true);
             return takes_text.then_some(Fill::Empty(None));
@@ -562,8 +572,10 @@ fn fill<'a>(
             list => Fill::Value(list),
         });
     }
-    if types.allows_type("object") && object_branch(child, root).is_some() {
-        let nested = children(language, child, Some(at), root, caret, depth + 1);
+    if types.allows_type("object")
+        && let Some(object) = describing(object_branch)
+    {
+        let nested = children(language, object, Some(at), root, caret, depth + 1);
         if !nested.is_empty() {
             return Some(Fill::Children(nested));
         }

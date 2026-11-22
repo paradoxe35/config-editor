@@ -1019,6 +1019,7 @@ dependencies = [
  "quick-xml",
  "regex",
  "regex-lite",
+ "regex-syntax",
  "serde",
  "serde_json",
  "text-size",

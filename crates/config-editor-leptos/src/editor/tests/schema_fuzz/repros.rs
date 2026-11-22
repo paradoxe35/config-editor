@@ -939,6 +939,38 @@ fn a_required_child_list_with_an_item_no_schema_types_is_written_with_it() {
     );
 }
 
+/// A required child list asking an item (`minItems: 1`) of text a
+/// pattern spells (`^x`, through a reference), which no plain letters
+/// meet, is written with one such item, not empty.
+#[test]
+fn a_required_child_list_of_patterned_text_is_written_with_its_items() {
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"$defs": {"d1": {"type": "string", "pattern": "^x"}},
+            "properties": {"c": {"required": ["port"], "properties": {"port": {
+                "minItems": 1, "items": {"$ref": "#/$defs/d1"}}}}}}),
+        json!({"c": {"port": "x"}}),
+        json!(null),
+    );
+}
+
+/// A required child whose property says nothing of it (a description)
+/// while an `allOf` member beside it asks a list of two is written as
+/// that list in every language (XML wrote one empty element).
+#[test]
+fn a_required_child_list_asked_beside_its_property_is_written_with_its_items() {
+    holds_everywhere_but_known(
+        "fill",
+        super::fill::check,
+        json!({"properties": {"x_one": {"allOf": [{"properties": {"x_two": {
+            "type": "array", "minItems": 2}}}],
+            "properties": {"x_two": {"description": "d"}}, "required": ["x_two"]}}}),
+        json!({"x_one": 0}),
+        json!(null),
+    );
+}
+
 /// A key renamed in an XML view keeps what is under it as the host held
 /// it, each value told by its own documented XML spelling: the host's
 /// text `"0"` the view reads as `0`, and a list of one emptied text the

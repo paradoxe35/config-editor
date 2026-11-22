@@ -13,6 +13,18 @@ pub(crate) use regex::{Captures, Regex, RegexBuilder};
 #[cfg(not(feature = "schema-validation"))]
 pub(crate) use regex_lite::{Captures, Regex, RegexBuilder};
 
+/// A pattern's syntax tree, which a fill reads texts matching it off
+/// (`completion/pattern_texts.rs`): from `regex-syntax`, the parser `regex`
+/// links anyway, so only builds with `schema-validation` have it.
+#[cfg(feature = "schema-validation")]
+pub(crate) use regex_syntax::hir::{Class, Hir, HirKind};
+
+/// `pattern` parsed as the engine reads it; `None` when it cannot.
+#[cfg(feature = "schema-validation")]
+pub(crate) fn parse_pattern(pattern: &str) -> Option<Hir> {
+    regex_syntax::Parser::new().parse(pattern).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::SecretOptions;

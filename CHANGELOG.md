@@ -235,6 +235,14 @@ versions move together.
   item's start tag (it was written as a child element). A custom
   language's `write_insert` gets such a list as `Fill::List`, its value
   `Fill::value`.
+- A required list of text a `pattern` asks for (`^x`, `^[0-9]{2}-[A-F]+$`)
+  is filled with the items its `minItems` asks for, each a text read off
+  the pattern, where it was written empty when no plain letters or digits
+  met the pattern (with `schema-validation`, whose regex parser this uses).
+- A required child whose property says nothing of its shape, while an
+  `allOf` member beside it makes it a list or an object, is filled as that
+  list (with its `minItems`) or object (with its required children); it
+  was left to type, and XML wrote one empty element.
 - An edit lines away from a secret's placeholder that makes the list or
   map holding it one string (`=` typed into a YAML item's `- `, or ` |`
   typed after the parent's key) is refused, or held with the save

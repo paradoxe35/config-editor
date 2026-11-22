@@ -21,7 +21,7 @@ default = ["schema-validation", "yaml", "json", "toml", "hcl", "xml", "search", 
 # Live JSON Schema diagnostics (the `jsonschema` dependency, the heaviest
 # part). Completions, hover docs and schema-shaped reading work without it;
 # leave it out when the schema is checked elsewhere (by the host's own checks).
-schema-validation = ["dep:jsonschema", "dep:regex"]
+schema-validation = ["dep:jsonschema", "dep:regex", "dep:regex-syntax"]
 # Built-in languages; each enables `Language::<NAME>` and its parser. Disable
 # the ones a host does not use to shrink the build.
 yaml = ["dep:noyalib"]
@@ -52,6 +52,9 @@ jsonschema = { version = "0.61.2", default-features = false, optional = true }
 # Matching `patternProperties`: the full engine `jsonschema` brings anyway when
 # validating, else the small one (an unused engine is not linked).
 regex = { version = "1", optional = true }
+# Its parser, already built for `regex`: the syntax tree a fill reads text
+# matching a `pattern` off (see `completion/pattern_texts.rs`).
+regex-syntax = { version = "0.8", optional = true }
 regex-lite = "0.1"
 # Finding the host's many secret placeholders in a text in one pass (as
 # `regex` finds many literals; already built with `schema-validation`).

@@ -15,6 +15,18 @@ pub fn language_keeps(
     property: &Value,
     root: &Value,
 ) -> bool {
+    language_keeps_at(language, value, &Entry::schema(property), root)
+}
+
+/// [`language_keeps`] for a value `at` names every schema of, read as they
+/// all expect: a list an `allOf` member beside its property asks for has
+/// its one XML element read as a list.
+pub(super) fn language_keeps_at(
+    language: &dyn ConfigLanguage,
+    value: &Value,
+    at: &Entry<'_>,
+    root: &Value,
+) -> bool {
     let document = serde_json::json!({ "r": { "k": value } });
     let Ok(text) = language.write_document(&document, None) else {
         // Refused: the value, unless the language writes nothing.
@@ -27,8 +39,7 @@ pub fn language_keeps(
     let Some(read) = read.pointer_mut("/r/k").map(Value::take) else {
         return false;
     };
-    super::super::data_reading::value_under(language, read, &Entry::schema(property), root)
-        == *value
+    super::super::data_reading::value_under(language, read, at, root) == *value
 }
 
 /// The `default` of `property` ([`schema_default`]) when `language` keeps

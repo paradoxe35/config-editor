@@ -20,6 +20,8 @@ mod list_mode;
 mod live;
 mod matching;
 mod others;
+#[cfg(feature = "schema-validation")]
+mod pattern_texts;
 mod patterns;
 mod placed;
 mod popup;

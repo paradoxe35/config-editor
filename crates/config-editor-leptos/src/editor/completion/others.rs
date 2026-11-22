@@ -10,7 +10,9 @@ use super::*;
 /// text), its upper bound and up to `more` whole numbers below it, the first `more` multiples its `multipleOf` allows past its
 /// lower bound, and for text of a least length or a pattern, `more` texts
 /// of that length (and a little longer) in small letters, capitals and
-/// digits.
+/// digits; for a pattern also up to `more` texts read off it
+/// (`pattern_texts`, with `schema-validation`), each alone
+/// and with such letters after it.
 pub(super) fn others(schema: &Value, root: &Value, filled: &[Value], more: usize) -> Vec<Value> {
     let branches = resolve_branches(schema, root);
     let mut found: Vec<Value> = Vec::new();
@@ -44,6 +46,26 @@ pub(super) fn others(schema: &Value, root: &Value, filled: &[Value], more: usize
         if least.is_some() || branch.get("pattern").is_some() {
             let least = least.map_or(1, |least| usize::try_from(least).unwrap_or(usize::MAX));
             found.extend(texts(least.max(1), more));
+        }
+        // Text the pattern spells (`^x`), which no plain letters meet; and
+        // it with letters after it, for a least length or distinct items
+        // (`xa`, `xb`) where the pattern leaves its end open.
+        #[cfg(feature = "schema-validation")]
+        if let Some(pattern) = branch.get("pattern").and_then(Value::as_str) {
+            let least = branch.get("minLength").and_then(Value::as_u64).unwrap_or(0);
+            for text in super::pattern_texts::pattern_texts(pattern, more) {
+                let short = usize::try_from(least)
+                    .unwrap_or(usize::MAX)
+                    .saturating_sub(text.chars().count());
+                let tails = texts(short.max(1), more);
+                found.push(Value::String(text.clone()));
+                found.extend(
+                    tails
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(|tail| Value::String(format!("{text}{tail}"))),
+                );
+            }
         }
     }
     for value in filled {
