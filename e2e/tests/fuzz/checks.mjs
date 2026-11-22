@@ -138,6 +138,20 @@ function lockMarks(snap, text) {
   return judged ? {} : null;
 }
 
+// Whether some row in view of the locked `text` (found in the text once)
+// marks a part of its piece of it locked.
+function partlyMarked(snap, text) {
+  const at = snap.text.indexOf(text);
+  if (at < 0 || snap.text.indexOf(text, at + 1) >= 0) return false;
+  const first = snap.text.slice(0, at).split('\n').length;
+  return text.split('\n').some((line, index) => {
+    const piece = line.trim();
+    // The key's `:` before the value may be marked too.
+    const mark = snap.rows.find((candidate) => candidate.n === first + index)?.m.replace(/^\s*:/, '').trim();
+    return !!piece && !!mark && (mark.includes(piece) || piece.includes(mark));
+  });
+}
+
 // A path the host named after the user changed its field (`run.pendingPath`,
 // see `lockPath`) locks nothing while the save waits, saying why (a "Not
 // saved" problem naming it); once the field reads as the host's text again
@@ -166,6 +180,12 @@ function checkPathHold(snap, run) {
     run.setLock(null, 'path', { text: locked[0], path: '/public_address' });
     return null;
   }
+  // In a text that does not parse the editor locks the field as the text
+  // reads with the character breaking it blanked (see `markedLock`), which
+  // may leave lines `rangeOf` reads into the value (an indented line under
+  // it) free for the repair: a lock marked on part of it is a lock the run
+  // cannot judge, not a missing one.
+  if (snap.errored && candidates.some((text) => partlyMarked(snap, text))) return null;
   if (marks.length && marks.every(([, marked]) => marked?.missing)) {
     return {
       check: 'lock-hold',
