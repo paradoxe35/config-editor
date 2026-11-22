@@ -319,21 +319,59 @@ fn overrides_around(was: &serde_json::Map<String, Value>, own: &[String], keys: 
 }
 
 /// `value` as `previous` writes it at `pointer` (`0x1F`, `'quoted'`) when
-/// that is one line reading as it, else as YAML writes it.
+/// that is one line reading as it, else as YAML writes it. A map or list
+/// is written in flow style, each scalar in it as `previous` writes it
+/// (`{driver: "json-file"}`), so the scalars a written-out merge or alias
+/// holds keep their host text.
 fn written_value(previous: &str, pointer: &str, value: &Value) -> String {
-    let written = || {
-        let (line, start, end) = yaml_value_span_for_path(previous, pointer)?;
-        let text = previous.lines().nth(line.checked_sub(1)?)?;
-        let characters: Vec<char> = text.chars().collect();
-        let text: String = characters.get(start.checked_sub(1)?..end.checked_sub(1)?)?.iter().collect();
-        let text = text[node_properties_len(&text)..].trim().to_string();
-        let reads = YamlBehavior.parse(&format!("k: {text}\n")).ok()?;
-        (!text.is_empty() && !text.starts_with(['|', '>', '*']) && reads.get("k") == Some(value)).then_some(text)
+    written_in(previous, pointer, value, false)
+}
+
+/// [`written_value`], `in_flow` when it is written inside a flow map or
+/// list (where a plain `a, b` would read otherwise).
+fn written_in(previous: &str, pointer: &str, value: &Value, in_flow: bool) -> String {
+    let flow = match value {
+        Value::Object(map) => {
+            let pairs: Vec<String> = map
+                .iter()
+                .map(|(key, child)| {
+                    let at = format!("{pointer}/{}", crate::editor::language::pointer_key(key));
+                    format!("{}: {}", yaml_key(key), written_in(previous, &at, child, true))
+                })
+                .collect();
+            format!("{{{}}}", pairs.join(", "))
+        }
+        Value::Array(items) => {
+            let items: Vec<String> = items
+                .iter()
+                .enumerate()
+                .map(|(index, child)| written_in(previous, &format!("{pointer}/{index}"), child, true))
+                .collect();
+            format!("[{}]", items.join(", "))
+        }
+        _ => return written_scalar(previous, pointer, value, in_flow).unwrap_or_else(|| yaml_value(value)),
     };
-    if value.is_object() || value.is_array() {
-        return yaml_value(value);
-    }
-    written().unwrap_or_else(|| yaml_value(value))
+    // Each scalar was checked to read as itself in a flow; the whole is
+    // checked too.
+    if reads_as(&flow, value) { flow } else { yaml_value(value) }
+}
+
+/// The scalar `value` as `previous` writes it at `pointer`, when that is
+/// one line reading as it (in a flow too, when `in_flow`).
+fn written_scalar(previous: &str, pointer: &str, value: &Value, in_flow: bool) -> Option<String> {
+    let (line, start, end) = yaml_value_span_for_path(previous, pointer)?;
+    let text = previous.lines().nth(line.checked_sub(1)?)?;
+    let characters: Vec<char> = text.chars().collect();
+    let text: String = characters.get(start.checked_sub(1)?..end.checked_sub(1)?)?.iter().collect();
+    let text = text[node_properties_len(&text)..].trim().to_string();
+    let readable = !text.is_empty() && !text.starts_with(['|', '>', '*']);
+    let in_a_flow = || reads_as(&format!("[{text}]"), &Value::Array(vec![value.clone()]));
+    (readable && reads_as(&text, value) && (!in_flow || in_a_flow())).then_some(text)
+}
+
+/// Whether `text`, written as the value of a key, reads as `value`.
+fn reads_as(text: &str, value: &Value) -> bool {
+    YamlBehavior.parse(&format!("k: {text}\n")).ok().is_some_and(|reads| reads.get("k") == Some(value))
 }
 
 /// The start of the first of the comment lines right above the line at

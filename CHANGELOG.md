@@ -338,6 +338,12 @@ versions move together.
   is saved in a spelling the host reads as the number, or the save
   waits; an HCL view saved the text `3`, which the host read as the
   string `"3"`.
+- A YAML merge (`<<: *common`) or alias whose map an Edit-as edit parts
+  from its anchor is written out with each of its scalars as the host
+  wrote it (`logging: {driver: "json-file"}`); the quotes were dropped,
+  and a value left alone in the anchor that the same save moved values
+  next to lost them too (`driver: "json-file"` saved as
+  `driver: json-file` from a TOML view).
 
 ## 0.1.2 — 2026-11-21
 

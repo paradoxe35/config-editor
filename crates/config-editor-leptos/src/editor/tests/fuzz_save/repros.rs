@@ -3041,3 +3041,21 @@ fn a_tagged_string_left_alone_through_an_xml_view_and_a_switch_keeps_its_tag() {
         ],
     );
 }
+
+/// P3: lines cut in a TOML view of a YAML host part a merge from its
+/// anchor and move values into the anchor's map: the merge written out
+/// and the anchor's value left alone keep their quotes
+/// (`driver: "json-file"`).
+#[test]
+fn a_yaml_merge_written_out_beside_moved_values_keeps_quotes_in_a_toml_view() {
+    replay(
+        Language::YAML,
+        Language::TOML,
+        "x-common: &common\n  restart: unless-stopped # always back\n  logging:\n    driver: \"json-file\"\nservices:\n  web:\n    <<: *common\n    image: 'nginx:1.25'\n    ports:\n      - 8443:443\n    environment:\n      MODE: production\n      DEBUG: \"false\"\n    command: >-\n      'daemon off;'\n  db:\n    image: postgres:16\n    volumes: [dbdata:/var/lib/postgresql/data]\n    healthcheck: {test: [CMD, pg_isready], interval: 10s}\n  dbdata: {}\n",
+        &[
+            Op::DeleteLine { line: 40 },
+            Op::DeleteLine { line: 6 },
+            Op::DeleteLine { line: 30 },
+        ],
+    );
+}

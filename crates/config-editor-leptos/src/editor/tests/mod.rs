@@ -97,6 +97,14 @@ mod anchor_moves;
     feature = "json",
     feature = "toml",
     feature = "hcl",
+    feature = "xml"
+))]
+mod kept_quotes_moved;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
     feature = "xml",
     feature = "folding",
     feature = "diff",
