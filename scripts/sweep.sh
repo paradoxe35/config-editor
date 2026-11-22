@@ -59,6 +59,7 @@ schema-fill            schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  2
 schema-text            schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  300  schema_text::every_spelling_of_a_schema_compiles_alike_and_keys_written_twice_are_refused
 schema-secrets         schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  600  secrets::no_message_hover_or_suggestion_shows_a_secret
 schema-suggestions     schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  200  suggestions::accepted_suggestions_add_no_problem_and_hovers_name_types_once
+schema-uses            schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  300  uses::find_uses_finds_exactly_what_a_brute_force_reading_finds
 schema-validation      schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  400  validation::random_documents_get_problems_exactly_when_the_reference_finds_them_invalid
 schema-work            schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  12   work::work_on_random_recursive_schemas_grows_with_the_document
 schema-data-reading    schema   lib       SCHEMA_FUZZ_CASES  SCHEMA_FUZZ_SEED  300  data_reading::every_feature_reads_xml_and_hcl_as_the_one_data_reading
