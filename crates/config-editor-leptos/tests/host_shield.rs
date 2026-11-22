@@ -130,7 +130,14 @@ fn sets_only_variables_in_the_chrome_layer(rule: &Rule) -> bool {
 fn unshielded(css: &str) -> Vec<String> {
     let mut unshielded = Vec::new();
     for rule in rules(css) {
-        if sets_only_variables_in_the_chrome_layer(&rule) {
+        // A keyframe's step (`from`, `50%`) styles no element: the shield's
+        // reset does not reach the animation it describes.
+        if sets_only_variables_in_the_chrome_layer(&rule)
+            || rule
+                .within
+                .iter()
+                .any(|prelude| prelude.starts_with("@keyframes"))
+        {
             continue;
         }
         let selectors = selectors(&rule.selectors);
@@ -244,6 +251,14 @@ fn the_chrome_layer_is_exempt_only_for_its_variables() {
         layer("--config-editor-a: red;")
     );
     assert_eq!(unshielded(&after), [".config-editor__x"]);
+}
+
+/// Keyframe steps are not style rules; a rule after the keyframes' block
+/// is checked again.
+#[test]
+fn keyframe_steps_need_no_shield() {
+    let css = "@keyframes fade { from { opacity: 0; } 50% { opacity: 1; } } .config-editor__x { color: red; }";
+    assert_eq!(unshielded(css), [".config-editor__x"]);
 }
 
 /// An editor in a documents view is inside a root, so shielded: each rule
