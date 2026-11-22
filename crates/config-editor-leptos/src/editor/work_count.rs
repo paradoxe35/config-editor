@@ -291,6 +291,9 @@ pub(crate) enum Work {
     /// documents view suggests (`documents::key_names`): a keystroke reads
     /// the document typed in, not every open one.
     KeyNamesRead,
+    /// One document walked with its schema for the uses of a name (Find
+    /// uses): once per open document per request, never per keystroke.
+    UsesWalk,
 }
 
 impl Work {
@@ -356,6 +359,7 @@ impl Work {
             Self::TokenSearch => 56,
             Self::MarkupRead => 57,
             Self::KeyNamesRead => 58,
+            Self::UsesWalk => 59,
         }
     }
 
@@ -421,12 +425,13 @@ impl Work {
         Self::TokenSearch,
         Self::MarkupRead,
         Self::KeyNamesRead,
+        Self::UsesWalk,
     ];
 }
 
 /// How many kinds of work there are.
 #[cfg(test)]
-const KINDS: usize = 59;
+const KINDS: usize = 60;
 
 #[cfg(test)]
 thread_local! {

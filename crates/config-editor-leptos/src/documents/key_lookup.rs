@@ -88,8 +88,14 @@ impl Documents {
             }
         });
         KeyNamesInput {
-            source: std::sync::Arc::new(ViewNames { documents, id }),
+            source: std::sync::Arc::new(ViewNames {
+                documents,
+                id: id.clone(),
+            }),
             on_go_to_definition: Some(go),
+            open: std::sync::Arc::new(super::uses::ViewUses { documents, id }),
+            on_find_uses: self.callbacks.on_find_uses,
+            on_go_to_use: self.callbacks.on_go_to_use,
         }
     }
 

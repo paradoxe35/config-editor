@@ -11,7 +11,7 @@
     type LanguageName,
   } from "@pngwasi/config-editor-svelte";
   import { later } from "../echo-delay";
-  import { keys, keyFiles, keyNames } from "../key-names.js";
+  import { findUses, keys, keyFiles, keyNames } from "../key-names.js";
 
   let { schema }: { schema: string } = $props();
   // `?revisions`: each file keeps the revision `onChange` gave its value
@@ -115,5 +115,7 @@
   {onClose}
   keyNames={keys ? keyNames : undefined}
   onGoToDefinition={keys ? ({ name, source }) => note(`goto ${source} ${name}`) : undefined}
+  onFindUses={keys ? findUses : undefined}
+  onGoToUse={keys ? ({ source, path }) => note(`use ${source} ${path}`) : undefined}
 />
 <pre id="log">{log.join("\n")}</pre>

@@ -43,6 +43,8 @@ pub(crate) const EDITOR_OPTIONS: &[&str] = &[
     "channel",
     "keyNames",
     "onGoToDefinition",
+    "onFindUses",
+    "onGoToUse",
 ];
 
 /// Logs a warning for each key of `options` that is neither one of `known`

@@ -4,12 +4,12 @@
 //! with, and the `keysAt` tool.
 
 use js_sys::{Array, Object, Reflect};
-use leptos_config_editor::{GoToDefinition, KeyName, KeyNames};
+use leptos_config_editor::{FindUses, GoToDefinition, GoToUse, KeyName, KeyNames, Use};
 use wasm_bindgen::prelude::*;
 
 use crate::languages::language_named;
 use crate::options::warn_unknown_keys;
-use crate::typings::KeysResult;
+use crate::typings::{FoundUsesResult, KeysResult};
 use crate::values::{field, optional_text, text_arg};
 use leptos_config_editor::js_support::document;
 
@@ -106,6 +106,178 @@ pub(crate) fn go_to_definition_to_js(target: &GoToDefinition) -> JsValue {
         let _ = Reflect::set(&object, &JsValue::from_str(key), &value);
     }
     object.into()
+}
+
+/// Keys a use from `onFindUses` can hold (`range`, ignored: a `usesAt`
+/// answer spread into a use as it is).
+const USE_KEYS: &[&str] = &["source", "path", "line", "text", "version", "range"];
+
+/// Asks `callback` (`onFindUses`) for the uses of `request`'s name in the
+/// files that are not open: with `{ schema, pointer, name }`; it returns
+/// the uses, or a promise of them. They join the list when they come; a
+/// throw, a rejection or an answer that is no list of uses ends the
+/// search with none (the console says why).
+pub(crate) fn find_uses_from_host(callback: &js_sys::Function, request: FindUses) {
+    let argument = Object::new();
+    let text = |value: Option<&str>| value.map_or(JsValue::NULL, JsValue::from_str);
+    for (key, value) in [
+        ("schema", text(request.schema.as_deref())),
+        ("pointer", JsValue::from_str(&request.pointer)),
+        ("name", JsValue::from_str(&request.name)),
+    ] {
+        let _ = Reflect::set(&argument, &JsValue::from_str(key), &value);
+    }
+    let Some(answer) = crate::mount::ask_host(callback, &argument) else {
+        request.reply(Vec::new());
+        return;
+    };
+    // Nothing returned: the host searches no other files (a framework
+    // binding forwarding a handler its user did not set).
+    if answer.is_undefined() {
+        leptos_config_editor::js_support::decline_find_uses(&request);
+        return;
+    }
+    // One function for both outcomes: called once, then freed.
+    let settle = Closure::once_into_js(move |found: JsValue| {
+        request.reply(uses_from(&found).unwrap_or_else(|error| {
+            web_sys::console::error_2(
+                &JsValue::from_str(&format!("config-editor: onFindUses: {error}")),
+                &found,
+            );
+            Vec::new()
+        }));
+    });
+    let promise = js_sys::Promise::resolve(&answer);
+    if let Ok(then) = Reflect::get(&promise, &JsValue::from_str("then")) {
+        let then: &js_sys::Function = then.unchecked_ref();
+        let _ = then.call2(&promise, &settle, &settle);
+    }
+}
+
+/// The uses a host answered with: `[{ source, path, line?, text?,
+/// version? }]` (`version` a string or a number, kept as text).
+fn uses_from(found: &JsValue) -> Result<Vec<Use>, String> {
+    if !Array::is_array(found) {
+        return Err(
+            "the answer must be an array of { source, path, line?, text?, version? }".into(),
+        );
+    }
+    Array::from(found)
+        .iter()
+        .enumerate()
+        .map(|(index, item)| use_from(&item).map_err(|error| format!("use {index}: {error}")))
+        .collect()
+}
+
+fn use_from(item: &JsValue) -> Result<Use, String> {
+    if !item.is_object() || Array::is_array(item) {
+        return Err("must be { source, path, line?, text?, version? }".into());
+    }
+    warn_unknown_keys(item, USE_KEYS, "onFindUses use key");
+    let source = field(item, "source")
+        .as_string()
+        .ok_or("source must be a string")?;
+    let path = crate::values::path_from_js(&field(item, "path"))
+        .map_err(|_| "path must be a JSON pointer or an array of keys and indices".to_string())?;
+    let mut found = Use::new(source, path);
+    if let Some(line) = field(item, "line")
+        .as_f64()
+        .filter(|line| *line >= 1.0 && line.fract() == 0.0 && line.is_finite())
+    {
+        found = found.with_line(line as usize);
+    }
+    if let Some(text) = field(item, "text").as_string() {
+        found = found.with_text(text);
+    }
+    let version = field(item, "version");
+    if let Some(version) = version
+        .as_string()
+        .or_else(|| version.as_f64().map(|number| number.to_string()))
+    {
+        found = found.with_version(version);
+    }
+    Ok(found)
+}
+
+/// What `onGoToUse` is called with: `{ source, path, name }`, `path` a
+/// JSON pointer.
+pub(crate) fn go_to_use_to_js(target: &GoToUse) -> JsValue {
+    let object = Object::new();
+    for (key, value) in [
+        ("source", target.source.as_str()),
+        ("path", &target.path.to_pointer()),
+        ("name", target.name.as_str()),
+    ] {
+        let _ = Reflect::set(&object, &JsValue::from_str(key), &JsValue::from_str(value));
+    }
+    object.into()
+}
+
+/// The uses of `name` in `text` (read as `language`, its schema `schema`,
+/// JSON Schema text): every value, and every key an object's
+/// `propertyNames` reads, whose `x-config-editor-keys` names the map at
+/// `pointer` and that is `name`, in the order written, as
+/// `[{ path, line, text, range }]` (`path` a JSON pointer, `line`
+/// one-based). For answering `onFindUses` about a file that is not open.
+/// `of` is the `$id` the request names (its `schema`); left out, the
+/// schema's own. `null` when the text does not parse.
+#[wasm_bindgen(js_name = usesAt)]
+pub fn uses_at(
+    #[wasm_bindgen(unchecked_param_type = "string")] text: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "LanguageName")] language: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "string")] schema: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "string")] pointer: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "string")] name: JsValue,
+    #[wasm_bindgen(unchecked_optional_param_type = "string | null")] of: JsValue,
+) -> Result<FoundUsesResult, JsError> {
+    let language = language_named(&text_arg(&language, "language")?)?;
+    let text = text_arg(&text, "text")?;
+    let schema = crate::headless::schema_from(&text_arg(&schema, "schema")?, &JsValue::UNDEFINED)?;
+    let pointer = text_arg(&pointer, "pointer")?;
+    let name = text_arg(&name, "name")?;
+    let of = optional_text(&of, "of")?;
+    let text = document(&text);
+    let found = leptos_config_editor::tools::uses_at(
+        text,
+        language,
+        &schema,
+        &pointer,
+        &name,
+        of.as_deref(),
+    );
+    Ok(found
+        .map_or(JsValue::NULL, |found| {
+            found
+                .into_iter()
+                .map(|found| {
+                    let object = Object::new();
+                    let range = Object::new();
+                    for (key, position) in [("start", found.range.start), ("end", found.range.end)]
+                    {
+                        let place = Object::new();
+                        let _ =
+                            Reflect::set(&place, &"line".into(), &(position.line as f64).into());
+                        let _ = Reflect::set(
+                            &place,
+                            &"column".into(),
+                            &(position.column as f64).into(),
+                        );
+                        let _ = Reflect::set(&range, &key.into(), &place);
+                    }
+                    for (key, value) in [
+                        ("path", JsValue::from_str(&found.path.to_pointer())),
+                        ("line", JsValue::from_f64(found.line as f64)),
+                        ("text", JsValue::from_str(&found.text)),
+                        ("range", range.into()),
+                    ] {
+                        let _ = Reflect::set(&object, &JsValue::from_str(key), &value);
+                    }
+                    JsValue::from(object)
+                })
+                .collect::<Array>()
+                .into()
+        })
+        .unchecked_into())
 }
 
 /// The keys of the map at the JSON pointer `pointer` of `text`, read as

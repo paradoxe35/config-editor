@@ -8,7 +8,7 @@ import {
 } from "@pngwasi/config-editor-react";
 import { loadConfigEditor } from "@pngwasi/config-editor";
 import { later } from "./echo-delay";
-import { keys, keyFiles, keyNames } from "./key-names.js";
+import { findUses, keys, keyFiles, keyNames } from "./key-names.js";
 
 // The bundle does not sit next to the package's wasm, so say where it is.
 await loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });
@@ -106,7 +106,14 @@ function App() {
         onAdd={add}
         // `?keys`: the host's names of every file; a name no open file
         // defines goes to the host.
-        {...(keys ? { keyNames, onGoToDefinition: ({ name, source }) => note(`goto ${source} ${name}`) } : {})}
+        {...(keys
+          ? {
+              keyNames,
+              onGoToDefinition: ({ name, source }) => note(`goto ${source} ${name}`),
+              onFindUses: findUses,
+              onGoToUse: ({ source, path }) => note(`use ${source} ${path}`),
+            }
+          : {})}
         onClose={({ id, dirty }) => {
           if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
           setFiles((list) => list.filter((file) => file.id !== id));

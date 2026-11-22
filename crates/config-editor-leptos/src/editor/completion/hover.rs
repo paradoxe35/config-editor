@@ -31,9 +31,43 @@ pub(crate) struct KeyHover {
     /// JSON item's `{`): the item's own title and description, under the
     /// list's (those it does not share with it).
     pub(crate) item: Option<ValueDoc>,
+    /// On a known name (a use or its definition): the card's links to its
+    /// definition and its uses (see `key_names`).
+    pub(crate) name_links: Option<NameLinks>,
+}
+
+/// The hover card's links on a name: to its definition (on a use of a
+/// name defined somewhere) and to its uses, acting on the field shown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct NameLinks {
+    pub(crate) field: FieldHit,
+    /// Go to definition is offered: a use of a known name.
+    pub(crate) definition: bool,
 }
 
 impl KeyHover {
+    /// The card of a name the schema documents nothing of: its key alone,
+    /// to carry the name's links.
+    pub(crate) fn bare(key: String, start_column: usize) -> Self {
+        Self {
+            key,
+            start_column,
+            type_label: String::new(),
+            title: None,
+            description: None,
+            default: None,
+            examples: Vec::new(),
+            required: false,
+            deprecated: false,
+            deprecation: None,
+            docs_url: None,
+            choice: None,
+            value: None,
+            item: None,
+            name_links: None,
+        }
+    }
+
     /// Whether `other` shows what this shows, wherever on the line it was
     /// found (an XML element's end tag, a key's value): one card is for
     /// both.
@@ -53,6 +87,7 @@ impl KeyHover {
             choice,
             value,
             item,
+            name_links,
         } = self;
         *key == other.key
             && *type_label == other.type_label
@@ -67,6 +102,7 @@ impl KeyHover {
             && *choice == other.choice
             && *value == other.value
             && *item == other.item
+            && *name_links == other.name_links
     }
 }
 
@@ -512,6 +548,7 @@ fn property_hover(
         choice,
         value: None,
         item,
+        name_links: None,
     })
 }
 

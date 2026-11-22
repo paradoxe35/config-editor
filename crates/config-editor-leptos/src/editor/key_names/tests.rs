@@ -53,6 +53,7 @@ fn mounted_as(
         on_go_to_definition: Some(Callback::new(move |target| {
             heard.update(|heard: &mut Vec<GoToDefinition>| heard.push(target));
         })),
+        ..KeyNamesInput::default()
     };
     let (owner, state) = editor.mount();
     (owner, state, heard)

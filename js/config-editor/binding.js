@@ -317,6 +317,8 @@ export class EditorBinding extends Binding {
       onBaselineConflict: (event) => this.props.onBaselineConflict?.(event),
       keyNames: props.keyNames ?? [],
       onGoToDefinition: (target) => this.props.onGoToDefinition?.(target),
+      onFindUses: (request) => this.props.onFindUses?.(request),
+      onGoToUse: (target) => this.props.onGoToUse?.(target),
       onSchemaWarning: (message) => {
         const warn = this.props.onSchemaWarning;
         if (warn) warn(message);
@@ -512,6 +514,8 @@ export class EditorBinding extends Binding {
       foldAll: () => binding.guard((editor) => editor.foldAll()),
       unfoldAll: () => binding.guard((editor) => editor.unfoldAll()),
       focus: () => binding.guard((editor) => editor.focus()),
+      goToDefinition: () => binding.ask((editor) => editor.goToDefinition(), false),
+      findUses: () => binding.ask((editor) => editor.findUses(), false),
       save: () => binding.ask((editor) => editor.save(), false),
       editAs: (language) =>
         binding.ask((editor) => {
@@ -571,6 +575,8 @@ export class DocumentsBinding extends Binding {
       onSyncChange: (id, inSync) => this.props.onSyncChange?.(id, inSync),
       keyNames: props.keyNames ?? [],
       onGoToDefinition: (target) => this.props.onGoToDefinition?.(target),
+      onFindUses: (request) => this.props.onFindUses?.(request),
+      onGoToUse: (target) => this.props.onGoToUse?.(target),
     });
   }
 
@@ -630,6 +636,8 @@ export class DocumentsBinding extends Binding {
       saveAll: () => binding.ask((view) => view.saveAll(), []),
       editAs: (id, language) => binding.ask((view) => view.editAs(id, language), false),
       focus: () => binding.guard((view) => view.focus()),
+      goToDefinition: () => binding.ask((view) => view.goToDefinition(), false),
+      findUses: () => binding.ask((view) => view.findUses(), false),
       editor: (id) => binding.ask((view) => view.editor(id) ?? null, null),
       setValue: (id, value) => binding.#setValue(id, value),
       applyChanges: (id, changes, options) =>

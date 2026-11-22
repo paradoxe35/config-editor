@@ -40,6 +40,7 @@ mod page_ruler;
 mod suggestions;
 mod tab;
 mod typing;
+mod uses;
 #[cfg(all(test, feature = "protect"))]
 pub(in crate::editor) use navigation::check_before_walk;
 pub(in crate::editor) use typing::WRAP;
@@ -59,6 +60,10 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     // nothing to close.
     // Before the card hides: Alt+Enter opens its link.
     if super::a11y::focus_keys(state, event) || super::a11y::open_docs_key(state, event) {
+        return;
+    }
+    // The list of uses takes its keys before anything else acts on them.
+    if uses::list_keys(state, event) {
         return;
     }
     // A modifier alone keeps the card: Alt for Alt+Enter, which opens its
@@ -94,6 +99,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         || navigation::keep_placeholder(state, event)
         || super::changes::go_to_change(state, event)
         || go_to_definition(state, event)
+        || uses::find_uses(state, event)
     {
         return;
     }
@@ -194,6 +200,7 @@ pub(super) fn on_root_keydown(state: EditorState, event: &KeyboardEvent) {
         // back itself): the text takes the focus back, not the page.
         let from_tip = from_problem_tip(event);
         state.close_suggestions();
+        state.close_uses();
         super::changes::close_preview(state);
         state.hide_hover();
         state.hide_shown_problem();

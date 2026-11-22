@@ -30,6 +30,8 @@ declare const ConfigEditor: import("svelte").Component<ConfigEditorProps, {
     getFoldedLines: () => LineRange[];
     foldAll: () => void;
     unfoldAll: () => void;
+    goToDefinition: () => boolean;
+    findUses: () => boolean;
     focus: () => void;
     save: () => boolean;
     editAs: (language: LanguageName) => boolean;

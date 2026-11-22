@@ -385,6 +385,15 @@ mod tunnel_schema;
     feature = "xml"
 ))]
 mod typing_matrix;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "hcl",
+    feature = "xml"
+))]
+mod uses_matrix;
 
 /// A document language: a built-in one ([`Language::YAML`], …) or any
 /// [`ConfigLanguage`] implementation wrapped with [`Language::new`].

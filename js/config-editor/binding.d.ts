@@ -13,7 +13,10 @@ import {
   type EditorSettings,
   type EditorView,
   type FieldPath,
+  type FindUses,
   type GoToDefinition,
+  type GoToUse,
+  type Use,
   type HostDiagnostic,
   type KeyNames,
   type LanguageName,
@@ -64,6 +67,10 @@ export interface EditorBindingProps extends EditorSettings {
   keyNames?: KeyNames[];
   /** Go to definition of a name the document does not define. */
   onGoToDefinition?: (target: GoToDefinition) => void;
+  /** The uses of a name in files that are not open (`Shift+F12`): return them, or a promise of them. */
+  onFindUses?: (request: FindUses) => Use[] | Promise<Use[]> | undefined;
+  /** A use `onFindUses` listed was chosen: open its file there. */
+  onGoToUse?: (target: GoToUse) => void;
   secrets?: SecretOptions;
   schema?: string;
   /** The format `schema` is written in (default `"json-schema"`). Changing it re-mounts. */
@@ -132,6 +139,10 @@ export interface ConfigEditorHandle {
   foldAll(): void;
   /** Opens every fold. */
   unfoldAll(): void;
+  /** Goes to the definition of the name at the caret, as `F12` does; `false` when the caret is on no known name or the editor is not mounted. */
+  goToDefinition(): boolean;
+  /** Lists the uses of the name at the caret, as `Shift+F12` does; `false` when the caret is on no name or the editor is not mounted. */
+  findUses(): boolean;
   /** Focuses the editor, keeping its selection. */
   focus(): void;
   /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, not mounted, or an `editAs` edit that cannot convert back yet). */
@@ -164,6 +175,10 @@ export interface DocumentsBindingProps extends EditorSettings {
   keyNames?: KeyNames[];
   /** Go to definition of a name no open document defines. */
   onGoToDefinition?: (target: GoToDefinition) => void;
+  /** The uses of a name in files that are not open (`Shift+F12`): return them, or a promise of them. */
+  onFindUses?: (request: FindUses) => Use[] | Promise<Use[]> | undefined;
+  /** A use `onFindUses` listed was chosen: open its file there. */
+  onGoToUse?: (target: GoToUse) => void;
   label?: string;
   viewClassName?: string;
   onError?: (error: unknown) => void;
@@ -191,6 +206,10 @@ export interface ConfigDocumentsHandle {
    * no such document.
    */
   editAs(id: string, language: LanguageName): boolean;
+  /** Goes to the definition of the name at the active editor's caret, as `F12` does; `false` when there is none. */
+  goToDefinition(): boolean;
+  /** Lists the uses of the name at the active editor's caret, as `Shift+F12` does; `false` when there is none. */
+  findUses(): boolean;
   /** Focuses the active document's editor. */
   focus(): void;
   /**

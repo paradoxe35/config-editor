@@ -504,6 +504,7 @@ fn the_docs_announcement_has_one_full_stop_after_each_part() {
         choice: None,
         value: None,
         item: None,
+        name_links: None,
     };
     assert_eq!(
         hover_text(&crate::EditorStrings::default(), &hover, true),
@@ -532,6 +533,7 @@ fn the_docs_announcement_names_the_documentation_link() {
         choice: None,
         value: None,
         item: None,
+        name_links: None,
     };
     let strings = crate::EditorStrings::default();
     assert_eq!(

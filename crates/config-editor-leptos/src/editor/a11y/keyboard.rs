@@ -132,6 +132,11 @@ pub(super) const KEYS: &[Row] = &[
         &[Always],
     ),
     row(
+        "`Shift+F12`",
+        "Find the uses of the name at the caret (or of the key defining it), grouped by file: `↑` `↓` move, `Enter` goes there, `Escape` closes",
+        &[Always],
+    ),
+    row(
         "`Alt+Enter` on a problem with a docs link",
         "Open its documentation in a new tab (else the hover card's Documentation link)",
         &[Always],

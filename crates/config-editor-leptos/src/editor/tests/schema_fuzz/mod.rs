@@ -29,6 +29,7 @@ mod schemas;
 mod secrets;
 mod shrink;
 mod suggestions;
+mod uses;
 mod validation;
 mod work;
 mod xml_spelling;

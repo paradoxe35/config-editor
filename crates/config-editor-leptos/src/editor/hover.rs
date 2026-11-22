@@ -102,7 +102,7 @@ impl EditorState {
     /// The card's docs of `field` in `text`: its key's, and over a value
     /// its field's with the value's own where the schema documents it.
     pub(super) fn field_docs(&self, text: &str, field: &FieldHit) -> Option<KeyHover> {
-        let mut hover = self.config().schema.with_value(|schema| {
+        let hover = self.config().schema.with_value(|schema| {
             field_docs(
                 text,
                 field,
@@ -110,9 +110,8 @@ impl EditorState {
                 self.behavior(),
                 Values::Any,
             )
-        })?;
-        self.add_defined_in(text, field, &mut hover);
-        Some(hover)
+        });
+        self.add_name_docs(text, field, hover)
     }
 
     /// The docs the card shows for the field under character `column` of

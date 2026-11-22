@@ -49,6 +49,9 @@ mod screen_tests;
 mod tab_names;
 #[cfg(all(test, feature = "yaml"))]
 mod tab_names_tests;
+mod uses;
+#[cfg(all(test, feature = "yaml"))]
+mod uses_tests;
 
 pub use handle::DocumentsHandle;
 pub use model::{CloseRequest, Document};
@@ -228,6 +231,18 @@ pub fn ConfigDocuments(
     /// document shows that document with the caret on the key.
     #[prop(optional, into)]
     on_go_to_definition: Option<Callback<GoToDefinition>>,
+    /// Called when the user asks for the uses of such a name
+    /// (`Shift+F12`, the hover card's Uses link), for the uses in files
+    /// that are not open: answer with [`FindUses::reply`](crate::FindUses::reply).
+    /// Every open document's uses show at once (unsaved edits included);
+    /// a use the host lists for an open document's id is left out.
+    #[prop(optional, into)]
+    on_find_uses: Option<Callback<crate::FindUses>>,
+    /// Called when the user chooses a use the host listed, for the host to
+    /// open its file there (a use in an open document shows that document
+    /// with the caret on it).
+    #[prop(optional, into)]
+    on_go_to_use: Option<Callback<crate::GoToUse>>,
 ) -> impl IntoView {
     let documents_view = Documents::new(
         Callbacks {
@@ -241,6 +256,8 @@ pub fn ConfigDocuments(
             on_edit_as_change,
             on_sync_change,
             on_go_to_definition,
+            on_find_uses,
+            on_go_to_use,
             echoes,
         },
         settings,

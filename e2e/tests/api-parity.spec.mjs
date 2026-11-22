@@ -87,6 +87,8 @@ const PROPS = {
   secrets: { option: 'secrets', fixed: 'the placeholder patterns build the editor (`isPlaceholder` is called live)' },
   key_names: { option: 'keyNames', update: 'keyNames' },
   on_go_to_definition: { option: 'onGoToDefinition', update: 'onGoToDefinition' },
+  on_find_uses: { option: 'onFindUses', update: 'onFindUses' },
+  on_go_to_use: { option: 'onGoToUse', update: 'onGoToUse' },
 };
 
 // Binding props (so every component's) with no JS option of their own.
@@ -117,6 +119,8 @@ const HANDLE = {
   unfold_all: { member: 'unfoldAll' },
   folded_lines: { member: 'foldedLines' },
   focus: { member: 'focus' },
+  go_to_definition: { member: 'goToDefinition' },
+  find_uses: { member: 'findUses' },
 };
 
 const LANGUAGE = {
@@ -317,6 +321,8 @@ const DOCUMENTS_PROPS = {
   handle: { exempt: 'the `ConfigDocuments` instance (a component: its instance API) is the handle' },
   key_names: { option: 'keyNames', update: 'keyNames' },
   on_go_to_definition: { option: 'onGoToDefinition', update: 'onGoToDefinition' },
+  on_find_uses: { option: 'onFindUses', update: 'onFindUses' },
+  on_go_to_use: { option: 'onGoToUse', update: 'onGoToUse' },
 };
 
 const DOCUMENTS_BINDING_ONLY_PROPS = {
@@ -336,6 +342,8 @@ const DOCUMENTS_HANDLE = {
   save_all: { member: 'saveAll' },
   edit_as: { member: 'editAs' },
   focus: { member: 'focus' },
+  go_to_definition: { member: 'goToDefinition' },
+  find_uses: { member: 'findUses' },
   sent_revision: { exempt: 'a component\'s `onChange` gets the revision as its third argument (and a `ConfigDocuments` has `sentRevision(id)`)' },
 };
 
@@ -387,6 +395,10 @@ const CRATE_EXPORTS = {
   HostChange: { type: 'TextChange' },
   RangesFor: { exempt: 'a revision (a number) or a text (a string) in JS: `rangesFor`, `diagnosticsFor`' },
   GoToDefinition: { type: 'GoToDefinition' },
+  FindUses: { type: 'FindUses' },
+  GoToUse: { type: 'GoToUse' },
+  Use: { type: 'Use' },
+  FoundUse: { type: 'FoundUse' },
   KeyName: { type: 'KeyName' },
   KeyNames: { type: 'KeyNames' },
   HoverDocs: { exempt: 'what `Schema::hover` returns, a Rust-only check' },
@@ -430,6 +442,7 @@ const CRATE_EXPORTS = {
   flush_pending_edits: { exempt: 'every JS member that reads or replaces the document flushes first' },
   unified_diff: { tool: 'unifiedDiff' },
   'tools::keys_at': { tool: 'keysAt' },
+  'tools::uses_at': { tool: 'usesAt' },
 };
 
 // Options of `ConfigEditor` / `ConfigDocuments` that no Rust prop maps to

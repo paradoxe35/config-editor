@@ -23,6 +23,7 @@
 //! | `protect()`    | `ProtectState`      | `protect`       |
 //! | `a11y()`       | `A11yState`         | `a11y`          |
 //! | `edit_as()`    | `EditAsState`       | `edit_as`       |
+//! | `uses()`       | `UsesState`         | `key_names`     |
 
 use super::line_endings::{LineEndings, editor_text};
 use std::sync::Arc;
@@ -201,6 +202,8 @@ groups! {
     a11y: A11yState,
     /// The Edit-as notice (see `edit_as`).
     edit_as: EditAsState,
+    /// The list of a name's uses (see `key_names`).
+    uses: super::key_names::UsesState,
 }
 
 /// A group read after the editor unmounted: a hole in `reactive::later`.
@@ -361,6 +364,7 @@ impl EditorState {
             typing: TypingState::new(),
             popups,
             a11y: A11yState::new(),
+            uses: super::key_names::UsesState::new(),
             edit_as,
             config,
             doc,

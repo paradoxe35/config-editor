@@ -5,6 +5,41 @@ All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
+## Unreleased
+
+### Find uses
+
+- `Shift+F12` on a key name (a value or `propertyNames` key whose schema
+  has `x-config-editor-keys`) or on the key defining it lists the name's
+  uses under it, grouped by document (this one, then the other open
+  documents of a documents view, then the host's files), each with its
+  line: arrows, `Enter` or a click goes there (switching tabs in
+  `ConfigDocuments`), `Escape` closes; the count is announced. A use is a
+  value (an item, an object's field, an `anyOf` option) or a key of a field
+  whose keyword names the same map (and schema, `from` included); free
+  text, `examples` words and other maps never count. A name defined nowhere
+  still lists its uses; none says "No uses" ("No uses in open files"
+  without a host search). Searched on demand only: one walk per open
+  document per request, nothing while typing.
+- `onFindUses({ schema, pointer, name })` (Rust `on_find_uses` with
+  `FindUses::reply`) answers with the uses in files that are not open, at
+  once or as a promise; they join the list when they come, a stale answer
+  is dropped. `onGoToUse({ source, path, name })` (Rust `on_go_to_use`)
+  opens one the user chose. `usesAt(text, language, schema, pointer, name,
+of?)` in `@pngwasi/config-editor/tools` (Rust `tools::uses_at`) finds a
+  file's uses with the same engine.
+- The hover card on a name ends with **Definition · Uses** links (mouse,
+  tap and keyboard; each a 24×24 px target, named in full for screen
+  readers: "Go to definition (F12)", "Find uses (Shift+F12)"); Definition
+  is left out on the definition itself. A key defining a name now shows a
+  card for them even when the schema documents nothing there.
+- `goToDefinition()` and `findUses()` (Rust `go_to_definition()`,
+  `find_uses()`) on the editor and documents handles and every framework
+  component act at the caret, for a host's button or menu.
+- New `EditorStrings`: `definitionLink`, `definitionLinkLabel`, `usesLink`,
+  `usesLinkLabel`, `usesTitle`, `usesOne`, `usesOther`, `noUses`,
+  `noUsesInOpenFiles`, `usesSearching`.
+
 ## 0.2.1 — 2026-11-22
 
 ### Key names

@@ -9,7 +9,7 @@ import {
 } from "@pngwasi/config-editor-vue";
 import { loadConfigEditor } from "@pngwasi/config-editor";
 import { later } from "./echo-delay";
-import { keys, keyFiles, keyNames } from "./key-names.js";
+import { findUses, keys, keyFiles, keyNames } from "./key-names.js";
 
 // The same page as documents-react.html, for the same tests. The documents
 // live in a reactive array the handlers change in place, as Vue apps do.
@@ -72,6 +72,10 @@ const App = defineComponent({
       onGoToDefinition: keys
         ? ({ name, source }: { name: string; source: string | null }) => note(`goto ${source} ${name}`)
         : undefined,
+      onFindUses: keys ? findUses : undefined,
+      onGoToUse: keys
+        ? ({ source, path }: { source: string; path: string }) => note(`use ${source} ${path}`)
+        : undefined,
       log,
       tabs,
       settings,
@@ -113,6 +117,8 @@ const App = defineComponent({
       :documents="files"
       :key-names="keyNames"
       @go-to-definition="onGoToDefinition"
+      :on-find-uses="onFindUses"
+      @go-to-use="onGoToUse"
       @change="onChange"
       @save="onSave"
       @select="onSelect"

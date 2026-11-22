@@ -1,6 +1,6 @@
 // The README examples, type-checked against the built packages (`npm run typecheck`).
 import { ConfigEditor, loadConfigEditor, registerLanguage, registerSchemaFormat, schemaFormatForFile, schemaFormats, type ChangeSummary, type CustomLanguageContext, type EditorUpdate, type EditorView } from "@pngwasi/config-editor";
-import { compileSchema, convert, schemaImports, unifiedDiff, validate } from "@pngwasi/config-editor/tools";
+import { compileSchema, convert, schemaImports, unifiedDiff, usesAt, validate } from "@pngwasi/config-editor/tools";
 import { DocumentsBinding, EditorBinding, SETTING_TYPES } from "@pngwasi/config-editor/binding";
 const noChanges: ChangeSummary = { added: 0, removed: 0, modified: 0, hunks: 0 };
 await loadConfigEditor();
@@ -26,6 +26,9 @@ editor.update({ language: "json" });
 const partial: EditorUpdate = { showFooter: true, theme: undefined };
 editor.update(partial);
 const asView: EditorView = editor;
+// Find uses: the host answers for its closed files (`usesAt` finds them), late; the methods act at the caret.
+editor.update({ onFindUses: async ({ schema: of, pointer, name }) => (usesAt("default_client: home\n", "yaml", schemaText, pointer, name, of) ?? []).map((found) => ({ ...found, source: "server.d/home.yaml", version: 3 })), onGoToUse: ({ source, path, name }) => void [source, path.length, name] });
+const acted: boolean = editor.findUses() && asView.goToDefinition(); void acted;
 const review: string = editor.unifiedDiff() + editor.unifiedDiff(0) + unifiedDiff("a\n", "b\n") + asView.unifiedDiff();
 const env = registerLanguage({
   label: "ENV", icon: "E", extensions: ["env"],

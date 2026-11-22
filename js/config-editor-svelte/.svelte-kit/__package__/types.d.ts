@@ -1,4 +1,4 @@
-import type { BaselineConflict, ChangeSummary, CloseRequest, Diagnostic, DocumentSpec, EditorPath, EditorSettings, FieldPath, GoToDefinition, HostDiagnostic, KeyNames, LanguageName, SchemaFormatName, SecretOptions, TextRangeInput } from "@pngwasi/config-editor";
+import type { BaselineConflict, ChangeSummary, CloseRequest, Diagnostic, DocumentSpec, EditorPath, EditorSettings, FieldPath, FindUses, GoToDefinition, GoToUse, Use, HostDiagnostic, KeyNames, LanguageName, SchemaFormatName, SecretOptions, TextRangeInput } from "@pngwasi/config-editor";
 /**
  * Props of `<ConfigEditor>`: the document (`bind:value`), its callbacks, and
  * every setting (`EditorSettings`: `theme`, `showFooter`, `folding`, …),
@@ -43,6 +43,10 @@ export interface ConfigEditorProps extends EditorSettings {
     keyNames?: KeyNames[];
     /** Called when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) the document does not define, with `{ schema, pointer, name, source }`: open its `source`. A name the document defines moves the caret to its key. */
     onGoToDefinition?: (target: GoToDefinition) => void;
+    /** Called when the user asks for the uses of such a name (`Shift+F12`, the hover card's Uses link), with `{ schema, pointer, name }`, for the uses in files that are not open: return them, or a promise of them (`usesAt` from `@pngwasi/config-editor/tools` finds them in a file). Open documents' uses show at once. */
+    onFindUses?: (request: FindUses) => Use[] | Promise<Use[]>;
+    /** Called when the user chooses a use `onFindUses` listed, with `{ source, path, name }`: open its file there. */
+    onGoToUse?: (target: GoToUse) => void;
     /** How secret placeholders are matched, described and completed. Changing `placeholder`, `hint` or `referencePrefixes`, or adding or removing `isPlaceholder`, re-mounts; a new `isPlaceholder` function in its place does not. */
     secrets?: SecretOptions;
     /** JSON Schema as JSON or YAML text. Changing it re-mounts. */
@@ -110,6 +114,10 @@ export interface ConfigDocumentsProps extends EditorSettings {
     keyNames?: KeyNames[];
     /** Called when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) no open document defines, with `{ schema, pointer, name, source }`: open its `source`. A name another open document defines shows that document with the caret on its key. */
     onGoToDefinition?: (target: GoToDefinition) => void;
+    /** Called when the user asks for the uses of such a name (`Shift+F12`, the hover card's Uses link), with `{ schema, pointer, name }`, for the uses in files that are not open: return them, or a promise of them (`usesAt` from `@pngwasi/config-editor/tools` finds them in a file). Open documents' uses show at once. */
+    onFindUses?: (request: FindUses) => Use[] | Promise<Use[]>;
+    /** Called when the user chooses a use `onFindUses` listed, with `{ source, path, name }`: open its file there. */
+    onGoToUse?: (target: GoToUse) => void;
     /** The tab list's accessible name. Default `"Open files"`. Changing it re-mounts. */
     label?: string;
     /** Class on the view's root (inside the container). Changing it re-mounts. */

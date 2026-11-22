@@ -171,6 +171,12 @@ pub(in crate::editor) fn hover_text(
             format!("{}: {url}", strings.documentation)
         });
     }
+    if let Some(links) = &hover.name_links {
+        if links.definition {
+            parts.push(strings.definition_link_label.clone());
+        }
+        parts.push(strings.uses_link_label.clone());
+    }
     sentences(&parts)
 }
 

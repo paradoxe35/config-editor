@@ -15,6 +15,7 @@ mod read_only_notice;
 mod source;
 mod status_bar;
 mod toolbar;
+mod uses_list;
 
 pub(super) use announcer::Announcer;
 pub(super) use baseline_notice::BaselineNotice;
@@ -29,6 +30,7 @@ pub(super) use read_only_notice::ReadOnlyNotice;
 pub(super) use source::SourceInput;
 pub(super) use status_bar::StatusBar;
 pub(super) use toolbar::Toolbar;
+pub(super) use uses_list::UsesListView;
 
 use leptos::prelude::*;
 

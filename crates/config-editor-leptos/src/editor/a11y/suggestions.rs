@@ -20,6 +20,16 @@ impl A11yState {
     pub(in crate::editor) fn suggestion_id(&self, index: usize) -> String {
         format!("config-editor-{}-suggestion-{index}", self.id)
     }
+
+    /// The id of the list of uses.
+    pub(in crate::editor) fn uses_id(&self) -> String {
+        format!("config-editor-{}-uses", self.id)
+    }
+
+    /// The id of use `index` in the list of uses.
+    pub(in crate::editor) fn use_id(&self, index: usize) -> String {
+        format!("config-editor-{}-use-{index}", self.id)
+    }
 }
 
 /// Keeps the textarea's `aria-controls` and `aria-activedescendant` in
@@ -33,10 +43,29 @@ pub(in crate::editor) fn connect_suggestions(state: EditorState) {
         };
         let open = !state.completion().suggestions.with(Vec::is_empty);
         let active = state.completion().active.get();
+        // The list of uses is the other list the text controls (one of
+        // the two is open at a time).
+        let uses = state.uses();
+        let uses_open = uses.list.with(Option::is_some);
+        let uses_active = uses
+            .list
+            .with(|list| list.as_ref().is_some_and(|list| list.count() > 0))
+            .then(|| uses.active.get());
         if open {
             let _ = element.set_attribute("aria-controls", &state.a11y().suggestions_id());
             let _ =
                 element.set_attribute("aria-activedescendant", &state.a11y().suggestion_id(active));
+        } else if uses_open {
+            let _ = element.set_attribute("aria-controls", &state.a11y().uses_id());
+            match uses_active {
+                Some(active) => {
+                    let _ = element
+                        .set_attribute("aria-activedescendant", &state.a11y().use_id(active));
+                }
+                None => {
+                    let _ = element.remove_attribute("aria-activedescendant");
+                }
+            }
         } else {
             let _ = element.remove_attribute("aria-controls");
             let _ = element.remove_attribute("aria-activedescendant");

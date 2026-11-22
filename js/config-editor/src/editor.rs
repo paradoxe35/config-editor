@@ -258,6 +258,8 @@ impl ConfigEditor {
         let read_only_paths = paths_from(&field(&options, "readOnlyPaths"), "readOnlyPaths")?;
         let key_names = key_names_from(&field(&options, "keyNames"), "keyNames")?;
         let on_go_to_definition = function_option(&options, "onGoToDefinition")?;
+        let on_find_uses = function_option(&options, "onFindUses")?;
+        let on_go_to_use = function_option(&options, "onGoToUse")?;
         warn_unknown_options(&options, EDITOR_OPTIONS);
         // The editor replaces whatever the element held, editors included.
         replace_editors_in(&element);
@@ -333,6 +335,8 @@ impl ConfigEditor {
             read_only_paths: RwSignal::new(read_only_paths),
             key_names: RwSignal::new(key_names),
             on_go_to_definition: StoredValue::new_local(on_go_to_definition),
+            on_find_uses: StoredValue::new_local(on_find_uses),
+            on_go_to_use: StoredValue::new_local(on_go_to_use),
             told: StoredValue::new_local(Told::default()),
             channel: StoredValue::new_local(channel.clone()),
         });
@@ -526,6 +530,8 @@ impl ConfigEditor {
             .map(|list| key_names_from(&list, "keyNames"))
             .transpose()?;
         let on_go_to_definition = callback_change(&options, "onGoToDefinition")?;
+        let on_find_uses = callback_change(&options, "onFindUses")?;
+        let on_go_to_use = callback_change(&options, "onGoToUse")?;
         let state = self.state;
         let mut callbacks = Vec::new();
         for (name, slot) in [
@@ -580,6 +586,12 @@ impl ConfigEditor {
         }
         if let Some(callback) = on_go_to_definition {
             let _ = state.on_go_to_definition.try_set_value(callback);
+        }
+        if let Some(callback) = on_find_uses {
+            let _ = state.on_find_uses.try_set_value(callback);
+        }
+        if let Some(callback) = on_go_to_use {
+            let _ = state.on_go_to_use.try_set_value(callback);
         }
         let added = told::added(callbacks.iter().map(|(name, change, slot)| {
             (
@@ -832,6 +844,21 @@ impl ConfigEditor {
     /// Focuses the editor, keeping its selection.
     pub fn focus(&self) {
         handle_calls::focus(Some(self.state.handle));
+    }
+
+    /// Goes to the definition of the name at the caret, as `F12` does (for
+    /// a button or menu of yours); `false` when the caret is on no known
+    /// name.
+    #[wasm_bindgen(js_name = goToDefinition)]
+    pub fn go_to_definition(&self) -> bool {
+        handle_calls::go_to_definition(Some(self.state.handle))
+    }
+
+    /// Lists the uses of the name at the caret (or of the key defining it),
+    /// as `Shift+F12` does; `false` when the caret is on no name.
+    #[wasm_bindgen(js_name = findUses)]
+    pub fn find_uses(&self) -> bool {
+        handle_calls::find_uses(Some(self.state.handle))
     }
 
     /// Saves as `Ctrl+S` does: calls `onSave` with the document in

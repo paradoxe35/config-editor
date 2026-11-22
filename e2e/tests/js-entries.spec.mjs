@@ -44,6 +44,7 @@ const ENTRIES = {
     'schemaWarnings',
     'serialize',
     'unifiedDiff',
+    'usesAt',
     'validate',
   ],
   binding: ['DocumentsBinding', 'EditorBinding', 'SETTING_TYPES'],

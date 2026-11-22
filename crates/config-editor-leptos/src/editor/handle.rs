@@ -507,6 +507,28 @@ impl EditorHandle {
             .unwrap_or(false)
     }
 
+    /// Goes to the definition of the name at the caret, as `F12` does (a
+    /// field whose schema says it names a key defined elsewhere, see
+    /// [`KeyNames`](crate::KeyNames)): its key when the document (or, in
+    /// `ConfigDocuments`, another open document) defines it, else the
+    /// `on_go_to_definition` prop hears where it is. For a host's button
+    /// or menu. Returns whether there was a known name at the caret;
+    /// `false` before the editor mounts.
+    pub fn go_to_definition(&self) -> bool {
+        self.editor()
+            .is_some_and(|state| untrack(|| state.go_to_definition()))
+    }
+
+    /// Lists the uses of the name at the caret (or of the key defining
+    /// it), as `Shift+F12` does: the open documents' at once, the files'
+    /// the `on_find_uses` prop answers with when they come. For a host's
+    /// button or menu. Returns whether there was a name at the caret;
+    /// `false` before the editor mounts.
+    pub fn find_uses(&self) -> bool {
+        self.editor()
+            .is_some_and(|state| untrack(|| state.find_uses()))
+    }
+
     /// Focuses the editor, keeping its selection; in `ConfigDocuments`,
     /// selecting its document first.
     pub fn focus(&self) {

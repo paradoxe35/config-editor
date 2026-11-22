@@ -2,23 +2,41 @@
 //! schema's `x-config-editor-keys`), and for the keys of an object whose
 //! `propertyNames` has it ([`property_names`]): the keyword ([`keyword`]),
 //! the names a host gives and the schema identity they are matched by
-//! ([`names`]). Suggestions only: never a diagnostic.
+//! ([`names`]), go to definition ([`go_to`]) and Find uses ([`uses`] finds
+//! them, [`find`] and [`list`] show them). Suggestions only: never a
+//! diagnostic.
 
 mod definition;
+mod find;
 mod go_to;
 mod keyword;
+mod list;
 mod names;
 mod offer;
+mod open_uses;
 mod property_names;
+mod use_types;
+mod uses;
 
+#[cfg(test)]
+pub(in crate::editor) use find::{UseTarget, uses_said};
+pub(in crate::editor) use find::{close_uses_on_moves, empty_text, title};
 pub(crate) use keyword::{KEYWORD, key_places, pointers_in};
+pub(crate) use list::{UseGroup, UsesList, UsesState};
 pub use names::{GoToDefinition, KeyName, KeyNames};
 pub(crate) use names::{KeptKeys, KeyNameSource, NoKeyNames, SchemaIdentity, keys_in};
 pub(crate) use offer::{KeyOrigin, NameLookup, Offered};
+pub(crate) use open_uses::{DocumentUses, NoOpenUses, OpenUses};
 pub(crate) use property_names::key_branches;
+pub(crate) use use_types::UsesReply;
+pub use use_types::{FindUses, FoundUse, GoToUse, Use};
+#[cfg(test)]
+pub(crate) use uses::UsePart;
+pub(crate) use uses::{NameRef, UseHit, uses_in, uses_in_language};
 
 /// What an editor reads the names of its `x-config-editor-keys` fields
-/// from, and where go to definition goes for a name it does not hold.
+/// from, where go to definition goes for a name it does not hold, and
+/// where Find uses looks beyond the document.
 #[derive(Clone)]
 pub(crate) struct KeyNamesInput {
     /// The names beyond the document's own (the host's `key_names`; a
@@ -26,6 +44,12 @@ pub(crate) struct KeyNamesInput {
     pub(crate) source: std::sync::Arc<dyn KeyNameSource>,
     /// Called for a name not defined in the document itself.
     pub(crate) on_go_to_definition: Option<leptos::prelude::Callback<GoToDefinition>>,
+    /// The other open documents (a documents view's), searched for uses.
+    pub(crate) open: std::sync::Arc<dyn OpenUses>,
+    /// Asked for the uses in the files that are not open.
+    pub(crate) on_find_uses: Option<leptos::prelude::Callback<FindUses>>,
+    /// Told of a use the host listed that the user chose.
+    pub(crate) on_go_to_use: Option<leptos::prelude::Callback<GoToUse>>,
 }
 
 impl Default for KeyNamesInput {
@@ -33,9 +57,14 @@ impl Default for KeyNamesInput {
         Self {
             source: std::sync::Arc::new(NoKeyNames),
             on_go_to_definition: None,
+            open: std::sync::Arc::new(NoOpenUses),
+            on_find_uses: None,
+            on_go_to_use: None,
         }
     }
 }
 
 #[cfg(all(test, feature = "yaml"))]
 mod tests;
+#[cfg(all(test, feature = "yaml"))]
+mod uses_tests;

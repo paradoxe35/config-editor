@@ -1,0 +1,103 @@
+/* Find uses: the list of a name's uses under it (`Shift+F12`), and the
+   hover card's links on a name (Definition · Uses). */
+
+:not(#\#):not(#\#) .config-editor__uses {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  width: min(460px, calc(100vw - 16px));
+  max-height: min(320px, 45vh, calc(100vh - 64px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border: 1px solid var(--config-editor-raised-border);
+  border-radius: 4px;
+  background: var(--config-editor-raised);
+  color: var(--config-editor-raised-text);
+  box-shadow: 0 6px 16px var(--config-editor-popup-shadow);
+  font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+:not(#\#):not(#\#) .config-editor__uses-title {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--config-editor-raised-border);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+:not(#\#):not(#\#) .config-editor__uses-body {
+  /* Rows are placed against it when it scrolls one into view. */
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+:not(#\#):not(#\#) .config-editor__uses-file {
+  padding: 4px 8px 2px;
+  color: var(--config-editor-raised-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+:not(#\#):not(#\#) .config-editor__use {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  /* A 24px target (WCAG 2.5.8). */
+  min-height: 24px;
+  padding: 2px 8px 2px 16px;
+  cursor: pointer;
+}
+
+:not(#\#):not(#\#) .config-editor__use--active {
+  background: var(--config-editor-completion-active);
+  color: var(--config-editor-raised-text);
+}
+
+:not(#\#):not(#\#) .config-editor__use-line {
+  min-width: 3ch;
+  color: var(--config-editor-raised-muted);
+  font: 11px var(--config-editor-mono);
+  text-align: right;
+}
+
+:not(#\#):not(#\#) .config-editor__use-text {
+  overflow: hidden;
+  font: 12px var(--config-editor-mono);
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+:not(#\#):not(#\#) .config-editor__uses-empty {
+  padding: 6px 8px;
+  color: var(--config-editor-raised-muted);
+}
+
+:not(#\#):not(#\#) .config-editor__hover-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+
+:not(#\#):not(#\#) .config-editor__hover-action {
+  /* A 24×24px target (WCAG 2.5.8), taking no more room than its line. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  margin-block: -4px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--config-editor-accent-text);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+:not(#\#):not(#\#) .config-editor__hover-action:focus-visible {
+  outline: 2px solid var(--config-editor-accent-text);
+  outline-offset: 1px;
+}

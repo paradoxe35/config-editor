@@ -134,6 +134,13 @@
         // For tests: where go to definition went for a name the document
         // does not define.
         onGoToDefinition: (target) => (window.wentTo ??= []).push(target),
+        // For tests: Find uses asks `window.answerUses` (unset: the host
+        // searches no other files), and where a host's use went.
+        onFindUses: (request) => {
+          (window.findUsesAsked ??= []).push(request);
+          return window.answerUses?.(request);
+        },
+        onGoToUse: (target) => (window.wentToUse ??= []).push(target),
         ...extra,
       });
       window.editor = editor;

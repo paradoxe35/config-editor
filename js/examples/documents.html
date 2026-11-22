@@ -23,7 +23,7 @@
     </main>
     <script type="module">
       import { ConfigDocuments, loadConfigEditor } from "../config-editor/index.js";
-      import { keys, keyFiles, keyNames } from "./key-names.js";
+      import { findUses, keys, keyFiles, keyNames } from "./key-names.js";
 
       await loadConfigEditor();
       const schema = await (await fetch("../../schema.json")).text();
@@ -66,7 +66,14 @@
         onAdd: add,
         // `?keys`: the host's names of every file, and the names no open
         // file defines go to the host.
-        ...(keys ? { keyNames, onGoToDefinition: ({ name, source }) => log(`goto ${source} ${name}`) } : {}),
+        ...(keys
+          ? {
+              keyNames,
+              onGoToDefinition: ({ name, source }) => log(`goto ${source} ${name}`),
+              onFindUses: findUses,
+              onGoToUse: ({ source, path }) => log(`use ${source} ${path}`),
+            }
+          : {}),
         onClose: ({ id, dirty }) => {
           if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
           files = files.filter((file) => file.id !== id);

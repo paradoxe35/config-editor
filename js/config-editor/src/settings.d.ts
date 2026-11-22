@@ -1240,6 +1240,66 @@ export interface EditorStrings {
    */
   noSuggestions?: string;
   /**
+   * The hover card's link on a known name to its definition (shown on a use, not on the definition itself).
+   *
+   * @default "Definition"
+   */
+  definitionLink?: string;
+  /**
+   * The accessible name and tooltip of the hover card's Definition link.
+   *
+   * @default "Go to definition (F12)"
+   */
+  definitionLinkLabel?: string;
+  /**
+   * The hover card's link on a known name (a use or its definition) to the list of its uses.
+   *
+   * @default "Uses"
+   */
+  usesLink?: string;
+  /**
+   * The accessible name and tooltip of the hover card's Uses link.
+   *
+   * @default "Find uses (Shift+F12)"
+   */
+  usesLinkLabel?: string;
+  /**
+   * The title and accessible name of the list of a name's uses (Shift+F12).
+   *
+   * @default "Uses of {name}"
+   */
+  usesTitle?: string;
+  /**
+   * Said when the list of uses opens or grows, for one use.
+   *
+   * @default "{count} use"
+   */
+  usesOne?: string;
+  /**
+   * Said when the list of uses opens or grows, for several uses.
+   *
+   * @default "{count} uses"
+   */
+  usesOther?: string;
+  /**
+   * The list of uses when nothing uses the name.
+   *
+   * @default "No uses"
+   */
+  noUses?: string;
+  /**
+   * The list of uses when no open document uses the name and the host does not search its other files (no `onFindUses`).
+   *
+   * @default "No uses in open files"
+   */
+  noUsesInOpenFiles?: string;
+  /**
+   * The list of uses while the host searches its other files.
+   *
+   * @default "Searching other files…"
+   */
+  usesSearching?: string;
+  /**
    * A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.
    *
    * @default "\"{key}\" is not allowed here"

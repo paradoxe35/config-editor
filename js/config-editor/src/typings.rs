@@ -42,6 +42,50 @@ export interface GoToDefinition {
   source: string | null;
 }
 
+/** A place using a name, in a file the editor does not have open: what `onFindUses` answers with (`usesAt` finds them in a file's text). */
+export interface Use {
+  /** The file (an id you know it by): the group's title in the list, and given back to `onGoToUse`. */
+  source: string;
+  /** The field using the name. */
+  path: FieldPath;
+  /** Its one-based line, shown with it. */
+  line?: number;
+  /** The text of that line, shown in the list (else the path). */
+  text?: string;
+  /** Whatever tells your file's versions apart (a revision, a hash): kept with the place, never read. */
+  version?: string | number;
+}
+
+/** What `onFindUses` is asked: the uses of a name, for the files the editor does not have open. */
+export interface FindUses {
+  /** The `$id` of the schema of the documents the name is a key of; `null`: the document's own schema, which has none. */
+  schema: string | null;
+  /** The JSON pointer of the map the name is a key of. */
+  pointer: string;
+  name: string;
+}
+
+/** What `onGoToUse` is called with: a use `onFindUses` listed that the user chose, for the host to open. */
+export interface GoToUse {
+  /** The file, as the `Use` named it. */
+  source: string;
+  /** The field using the name, as a JSON pointer. */
+  path: string;
+  name: string;
+}
+
+/** A use `usesAt` found in a text. */
+export interface FoundUse {
+  /** The field using the name, as a JSON pointer. */
+  path: string;
+  /** Its one-based line. */
+  line: number;
+  /** The text of that line. */
+  text: string;
+  /** Where the value (or key) is written: one-based lines and character columns. */
+  range: { start: { line: number; column: number }; end: { line: number; column: number } };
+}
+
 /** What `applyChanges` takes beside the changes. */
 export interface ApplyChangesOptions {
   /** The revision of the text the changes were made on (`onChange` gave it); left out, the host's text now. One the editor can no longer name, or never sent, throws and changes nothing. */
@@ -109,6 +153,10 @@ export interface EditorOptions extends EditorSettings {
   keyNames?: KeyNames[];
   /** Called when the user asks for the definition of such a name (`F12`, `Ctrl`/`Cmd`+click) that the document does not define itself (one it defines moves the caret to its key), for the host to open its source. */
   onGoToDefinition?: (target: GoToDefinition) => void;
+  /** Called when the user asks for the uses of such a name (`Shift+F12`, the hover card's Uses link, `findUses()`), for the uses in files that are not open: return them, or a promise of them (`usesAt` finds them in a file). The document's own uses show at once, yours join them when they come; an answer to a list the user left is dropped. Without it, an empty list says "No uses in open files". */
+  onFindUses?: (request: FindUses) => Use[] | Promise<Use[]>;
+  /** Called when the user chooses a use `onFindUses` listed, for the host to open its file there. */
+  onGoToUse?: (target: GoToUse) => void;
   /** Fields the user cannot change (each with everything inside it), on top of those the schema marks `readOnly`. They hold while editing as another language too; `update` replaces them. */
   readOnlyPaths?: FieldPath[];
   /** Stretches of the document (in `language`) the user cannot change; they follow the text through edits; `update` replaces them. */
@@ -226,6 +274,8 @@ export interface EditorUpdate extends SettingsUpdate {
   /** Replaces the names the host knows; `null` or `[]` clears them. */
   keyNames?: KeyNames[] | null;
   onGoToDefinition?: ((target: GoToDefinition) => void) | null;
+  onFindUses?: ((request: FindUses) => Use[] | Promise<Use[]>) | null;
+  onGoToUse?: ((target: GoToUse) => void) | null;
   /** The editor is built from it: create a new one to change it. */
   language?: never;
   /** The editor is built from it: create a new one to change it. */
@@ -285,6 +335,10 @@ export interface EditorView {
   unfoldAll(): void;
   /** Focuses the editor, keeping its selection. */
   focus(): void;
+  /** Goes to the definition of the name at the caret, as `F12` does (for a button or menu of yours); `false` when the caret is on no known name. */
+  goToDefinition(): boolean;
+  /** Lists the uses of the name at the caret (or of the key defining it), as `Shift+F12` does; `false` when the caret is on no name. */
+  findUses(): boolean;
   /** Makes the host's own change of the document: `changes` (string indices of the text `options.revision` names, else the host's text now) rebased over what the user typed since; locks, folds and the caret follow it exactly, and Undo does not undo it. The revision of the new text, `undefined` when nothing changed (or a document's editor not mounted yet). */
   applyChanges(changes: TextChange[], options?: ApplyChangesOptions): number | undefined;
   /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet). */
@@ -521,6 +575,10 @@ export interface DocumentsOptions extends EditorSettings {
   keyNames?: KeyNames[];
   /** Called when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) no open document defines: open its `source`. A name the document defines moves the caret to its key; one another open document defines shows that document with the caret on its key. */
   onGoToDefinition?: (target: GoToDefinition) => void;
+  /** Called when the user asks for the uses of such a name (`Shift+F12`, the hover card's Uses link), for the uses in files that are not open: return them, or a promise of them. Every open document's uses show at once (unsaved edits included); a use you list for an open document's id is left out. */
+  onFindUses?: (request: FindUses) => Use[] | Promise<Use[]>;
+  /** Called when the user chooses a use `onFindUses` listed, for the host to open its file there (a use in an open document shows that document with the caret on it). */
+  onGoToUse?: (target: GoToUse) => void;
 }
 
 /**
@@ -549,6 +607,8 @@ export interface DocumentsUpdate extends SettingsUpdate {
   /** Replaces the host's names; `null` removes them. */
   keyNames?: KeyNames[] | null;
   onGoToDefinition?: ((target: GoToDefinition) => void) | null;
+  onFindUses?: ((request: FindUses) => Use[] | Promise<Use[]>) | null;
+  onGoToUse?: ((target: GoToUse) => void) | null;
   /** The view is built from it: create a new one to change it. */
   className?: never;
   /** The view is built from it: create a new one to change it. */
@@ -595,6 +655,8 @@ extern "C" {
     pub type PathResult;
     #[wasm_bindgen(typescript_type = "string[] | null")]
     pub type KeysResult;
+    #[wasm_bindgen(typescript_type = "FoundUse[] | null")]
+    pub type FoundUsesResult;
     #[wasm_bindgen(typescript_type = "ChangeSummary")]
     pub type ChangeSummaryResult;
     #[wasm_bindgen(typescript_type = "LineRange[]")]

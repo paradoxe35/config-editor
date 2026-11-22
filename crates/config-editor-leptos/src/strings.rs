@@ -507,6 +507,26 @@ pub struct EditorStrings {
     pub key_name_defined_in: String,
     /// Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
     pub no_suggestions: String,
+    /// The hover card's link on a known name to its definition (shown on a use, not on the definition itself).
+    pub definition_link: String,
+    /// The accessible name and tooltip of the hover card's Definition link.
+    pub definition_link_label: String,
+    /// The hover card's link on a known name (a use or its definition) to the list of its uses.
+    pub uses_link: String,
+    /// The accessible name and tooltip of the hover card's Uses link.
+    pub uses_link_label: String,
+    /// The title and accessible name of the list of a name's uses (Shift+F12).
+    pub uses_title: String,
+    /// Said when the list of uses opens or grows, for one use.
+    pub uses_one: String,
+    /// Said when the list of uses opens or grows, for several uses.
+    pub uses_other: String,
+    /// The list of uses when nothing uses the name.
+    pub no_uses: String,
+    /// The list of uses when no open document uses the name and the host does not search its other files (no `onFindUses`).
+    pub no_uses_in_open_files: String,
+    /// The list of uses while the host searches its other files.
+    pub uses_searching: String,
 
     // Problems the editor words.
     /// A key the schema does not allow (`{key}`); its object's pointer
@@ -931,6 +951,16 @@ impl Default for EditorStrings {
             key_name_detail: text("{source} · {detail}"),
             key_name_defined_in: text("defined in {source}"),
             no_suggestions: text("No suggestions"),
+            definition_link: text("Definition"),
+            definition_link_label: text("Go to definition (F12)"),
+            uses_link: text("Uses"),
+            uses_link_label: text("Find uses (Shift+F12)"),
+            uses_title: text("Uses of {name}"),
+            uses_one: text("{count} use"),
+            uses_other: text("{count} uses"),
+            no_uses: text("No uses"),
+            no_uses_in_open_files: text("No uses in open files"),
+            uses_searching: text("Searching other files…"),
             key_not_allowed: text("\"{key}\" is not allowed here"),
             text_not_allowed: text("text is not allowed here, only elements"),
             key_deprecated: text("{pointer}: \"{key}\" is deprecated"),

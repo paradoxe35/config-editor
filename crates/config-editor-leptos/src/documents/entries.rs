@@ -279,6 +279,8 @@ pub(super) struct Callbacks {
     pub(super) on_edit_as_change: Option<Callback<(String, Language)>>,
     pub(super) on_sync_change: Option<Callback<(String, bool)>>,
     pub(super) on_go_to_definition: Option<Callback<crate::GoToDefinition>>,
+    pub(super) on_find_uses: Option<Callback<crate::FindUses>>,
+    pub(super) on_go_to_use: Option<Callback<crate::GoToUse>>,
     /// The host lists every `on_change` text back (the `echoes` prop).
     pub(super) echoes: bool,
 }

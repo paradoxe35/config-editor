@@ -191,6 +191,20 @@ impl DocumentEditorView {
         handle_calls::focus(self.handle());
     }
 
+    /// Goes to the definition of the name at the caret, as `F12` does;
+    /// `false` when the caret is on no known name.
+    #[wasm_bindgen(js_name = goToDefinition)]
+    pub fn go_to_definition(&self) -> bool {
+        handle_calls::go_to_definition(self.handle())
+    }
+
+    /// Lists the uses of the name at the caret, as `Shift+F12` does;
+    /// `false` when the caret is on no name.
+    #[wasm_bindgen(js_name = findUses)]
+    pub fn find_uses(&self) -> bool {
+        handle_calls::find_uses(self.handle())
+    }
+
     /// Makes the host's own change of the document, as
     /// `ConfigEditor.applyChanges` does (`options.revision` names the text
     /// the changes were made on); `null` while its editor is not mounted

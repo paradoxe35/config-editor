@@ -67,6 +67,14 @@
   export function editAs(id: string, language: LanguageName): boolean {
     return handle.editAs(id, language);
   }
+  /** Goes to the definition of the name at the caret, as `F12` does; `false` when there is none. */
+  export function goToDefinition(): boolean {
+    return handle.goToDefinition();
+  }
+  /** Lists the uses of the name at the caret, as `Shift+F12` does; `false` when there is none. */
+  export function findUses(): boolean {
+    return handle.findUses();
+  }
   /** Focuses the active document's editor. */
   export function focus(): void {
     handle.focus();

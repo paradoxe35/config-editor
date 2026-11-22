@@ -117,7 +117,7 @@ pub use diagnostics::{Diagnostic, DiagnosticOrigin, Severity, check_syntax};
 pub use handle::EditorHandle;
 pub use host_diagnostics::{DiagnosticTarget, HostDiagnostic, is_web_url};
 pub use host_editing::{BaselineConflict, SaveRequest};
-pub use key_names::{GoToDefinition, KeyName, KeyNames};
+pub use key_names::{FindUses, FoundUse, GoToDefinition, GoToUse, KeyName, KeyNames, Use};
 pub use language::ParseError;
 pub use languages::{Language, UnknownLanguage};
 pub use paths::{FieldPath, TextPosition, TextRange};
@@ -137,7 +137,7 @@ use crate::cssom::cssom;
 use changes::DiffPeekPopup;
 use components::{
     Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, EditAsNotice, Gutter,
-    HoverCardView, ProblemTip, ReadOnlyNotice, SourceInput, StatusBar, Toolbar,
+    HoverCardView, ProblemTip, ReadOnlyNotice, SourceInput, StatusBar, Toolbar, UsesListView,
 };
 use fill::FillProbe;
 use positioning::frame_probe_style;
@@ -158,7 +158,8 @@ use state::{EditorState, Init};
 pub const PRESET_CSS: &str = concat!(
     include_str!("css/base.css"),
     include_str!("css/themes.css"),
-    include_str!("css/documents.css")
+    include_str!("css/documents.css"),
+    include_str!("css/uses.css")
 );
 
 /// A schema-aware config editor for YAML, JSON, TOML, HCL, and XML.
@@ -382,6 +383,20 @@ pub fn ConfigEditor(
     /// source. See [`GoToDefinition`].
     #[prop(optional, into)]
     on_go_to_definition: Option<Callback<GoToDefinition>>,
+    /// Called when the user asks for the uses of such a name
+    /// (`Shift+F12`, the hover card's Uses link,
+    /// [`EditorHandle::find_uses`]), for the uses in files that are not
+    /// open: answer with [`FindUses::reply`], at once or later
+    /// ([`tools::uses_at`](crate::tools::uses_at) finds them in a file).
+    /// The document's own uses show at once. Without it, an empty list
+    /// says "No uses in open files".
+    #[prop(optional, into)]
+    on_find_uses: Option<Callback<FindUses>>,
+    /// Called when the user chooses a use the host listed (from
+    /// `on_find_uses`), for the host to open its file there. See
+    /// [`GoToUse`].
+    #[prop(optional, into)]
+    on_go_to_use: Option<Callback<GoToUse>>,
 ) -> impl IntoView {
     let (schema, schema_error) = match schema.map(SchemaSource::resolve) {
         Some(Ok(schema)) => (Some(schema), None),
@@ -446,6 +461,9 @@ pub fn ConfigEditor(
                     None => std::sync::Arc::new(key_names::NoKeyNames),
                 },
                 on_go_to_definition,
+                open: std::sync::Arc::new(key_names::NoOpenUses),
+                on_find_uses,
+                on_go_to_use,
             }),
     });
     // After the editor is made, not while: the host has its handle (a
@@ -504,6 +522,7 @@ pub fn ConfigEditor(
     popups::close_popups_on_outside_press(state);
     kept_focus::keep_focus_in_editor(state);
     popups::close_popups_on_escape_over_them(state);
+    key_names::close_uses_on_moves(state);
     live_settings::follow(state);
     let rows = components::row_states(state);
     folding::mount_fold_layers(state, rows);
@@ -550,6 +569,7 @@ pub fn ConfigEditor(
                         <ProtectTipView state=state />
                         <ReadOnlyNotice state=state />
                         <CompletionList state=state />
+                        <UsesListView state=state />
                         <Kept when=shown.search view=move || view! { <FindWidget state=state /> } />
                         <Kept when=shown.go_to_line view=move || view! { <GoToLineWidget state=state /> } />
                     </div>

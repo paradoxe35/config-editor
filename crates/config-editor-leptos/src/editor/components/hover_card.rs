@@ -4,7 +4,7 @@
 use leptos::html::Div;
 use leptos::prelude::*;
 
-use super::super::completion::{ChoiceHover, HoverValue, KeyHover, ValueDoc};
+use super::super::completion::{ChoiceHover, FieldHit, HoverValue, KeyHover, NameLinks, ValueDoc};
 use super::super::popups::{
     back_on_text, card_keys, enter_popup, opens_docs_from, popup_wheel, selects_all_in,
 };
@@ -100,6 +100,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                 // screen only one with a link or that scrolls takes taps;
                 // others let them through to the text (see the stylesheet).
                 let links = info.docs_url.is_some()
+                    || info.name_links.is_some()
                     || problems.iter().any(|entry| entry.docs_url.is_some());
                 let scrolls = scrolling.read();
                 let interactive = move || links || scrolls.get();
@@ -179,6 +180,7 @@ pub(crate) fn HoverCardView(state: EditorState) -> impl IntoView {
                                 {state.text(|strings| &strings.documentation)}
                             </a>
                         })}
+                        {info.name_links.map(|links| name_links_view(state, card.line, links))}
                     </div>
                 }
             })
@@ -212,13 +214,13 @@ fn measure(card_ref: NodeRef<Div>, scrolls: RwSignal<bool>) {
     }
 }
 
-/// A press on a link keeps the caret (and the card) while it opens; one on
-/// the text selects it, to be copied.
+/// A press on a link or a button keeps the caret (and the card) while it
+/// acts; one on the text selects it, to be copied.
 fn press_card(event: &web_sys::MouseEvent) {
     let on_link = event
         .target()
         .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-        .and_then(|target| target.closest("a").ok().flatten())
+        .and_then(|target| target.closest("a, button").ok().flatten())
         .is_some();
     if on_link {
         event.prevent_default();
@@ -337,6 +339,51 @@ fn item_section(item: ValueDoc) -> impl IntoView {
             })}
         </div>
     }
+}
+
+/// The links on a name, last: "Definition · Uses", short, each named in
+/// full (with its key) for a screen reader and in its tooltip. Definition
+/// is left out on the definition itself.
+fn name_links_view(state: EditorState, line: usize, links: NameLinks) -> impl IntoView {
+    let NameLinks { field, definition } = links;
+    let uses_field = field.clone();
+    view! {
+        <div class="config-editor__hover-actions">
+            {definition.then(|| {
+                view! {
+                    <button
+                        type="button"
+                        class="config-editor__hover-action"
+                        aria-label=state.text(|strings| &strings.definition_link_label)
+                        title=state.text(|strings| &strings.definition_link_label)
+                        on:click=move |_| go_to_definition_link(state, &field)
+                    >
+                        {state.text(|strings| &strings.definition_link)}
+                    </button>
+                    <span aria-hidden="true">"·"</span>
+                }
+            })}
+            <button
+                type="button"
+                class="config-editor__hover-action"
+                aria-label=state.text(|strings| &strings.uses_link_label)
+                title=state.text(|strings| &strings.uses_link_label)
+                on:click=move |_| find_uses_link(state, line, &uses_field)
+            >
+                {state.text(|strings| &strings.uses_link)}
+            </button>
+        </div>
+    }
+}
+
+/// The Definition link: goes to the name's definition.
+fn go_to_definition_link(state: EditorState, field: &FieldHit) {
+    state.go_to_definition_of(field);
+}
+
+/// The Uses link: lists the name's uses, in place of the card.
+fn find_uses_link(state: EditorState, line: usize, field: &FieldHit) {
+    state.find_uses_on(line, field);
 }
 
 /// The hovered value, first: its title and description, above its key's.

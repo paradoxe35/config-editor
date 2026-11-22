@@ -17,6 +17,7 @@ export {
   schemaWarnings,
   serialize,
   unifiedDiff,
+  usesAt,
   validate,
 } from "./pkg/config_editor.js";
 export { loadConfigEditor } from "./load.js";

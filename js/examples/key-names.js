@@ -86,3 +86,16 @@ export const keyNames = [
     ],
   },
 ];
+
+/**
+ * The uses of a name in the files that are not open, as `onFindUses`
+ * answers: late, as a host reading its disk or asking its server would.
+ * `server.d/office.yaml` routes to `main`.
+ */
+export function findUses({ name }) {
+  const uses =
+    name === "main"
+      ? [{ source: "server.d/office.yaml", path: "/routes/0/client", line: 5, text: "    client: main" }]
+      : [];
+  return new Promise((resolve) => setTimeout(() => resolve(uses), 400));
+}

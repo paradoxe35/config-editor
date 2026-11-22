@@ -213,6 +213,22 @@ impl DocumentsHandle {
             .is_some_and(|documents| documents.edit_as(id, language))
     }
 
+    /// Goes to the definition of the name at the active editor's caret, as
+    /// `F12` does there (see [`EditorHandle::go_to_definition`]). Returns
+    /// whether there was a known name at the caret.
+    pub fn go_to_definition(&self) -> bool {
+        self.active_editor()
+            .is_some_and(|editor| editor.go_to_definition())
+    }
+
+    /// Lists the uses of the name at the active editor's caret, as
+    /// `Shift+F12` does there (see [`EditorHandle::find_uses`]). Returns
+    /// whether there was a name at the caret.
+    pub fn find_uses(&self) -> bool {
+        self.active_editor()
+            .is_some_and(|editor| editor.find_uses())
+    }
+
     /// Focuses the active document's editor, keeping its selection.
     pub fn focus(&self) {
         if let Some(documents) = self.view()

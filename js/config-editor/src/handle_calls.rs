@@ -124,3 +124,15 @@ pub(crate) fn focus(handle: Option<EditorHandle>) {
         handle.focus();
     }
 }
+
+/// `goToDefinition()`: at the caret, as the text last left it.
+pub(crate) fn go_to_definition(handle: Option<EditorHandle>) -> bool {
+    leptos_config_editor::js_support::flush_pending_input();
+    untrack(|| handle.is_some_and(|handle| handle.go_to_definition()))
+}
+
+/// `findUses()`: at the caret, as the text last left it.
+pub(crate) fn find_uses(handle: Option<EditorHandle>) -> bool {
+    leptos_config_editor::js_support::flush_pending_input();
+    untrack(|| handle.is_some_and(|handle| handle.find_uses()))
+}

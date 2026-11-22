@@ -42,6 +42,22 @@ pub(crate) fn call_host(callback: &Function, argument: &JsValue) {
     call_host_with(callback, std::slice::from_ref(argument));
 }
 
+/// [`call_host`], keeping what the callback returned (`None` when it
+/// threw, which the console says).
+pub(crate) fn ask_host(callback: &Function, argument: &JsValue) -> Option<JsValue> {
+    count_callback(1);
+    let result = callback.call1(&JsValue::NULL, argument);
+    count_callback(-1);
+    result
+        .map_err(|error| {
+            web_sys::console::error_2(
+                &JsValue::from_str("config-editor: a callback threw"),
+                &error,
+            );
+        })
+        .ok()
+}
+
 /// [`call_host`] with several arguments.
 pub(crate) fn call_host_with(callback: &Function, arguments: &[JsValue]) {
     count_callback(1);
@@ -92,6 +108,8 @@ pub(crate) struct State {
     /// The names the host knows (`keyNames`).
     pub(crate) key_names: RwSignal<Vec<leptos_config_editor::KeyNames>>,
     pub(crate) on_go_to_definition: StoredValue<Option<Function>, LocalStorage>,
+    pub(crate) on_find_uses: StoredValue<Option<Function>, LocalStorage>,
+    pub(crate) on_go_to_use: StoredValue<Option<Function>, LocalStorage>,
     /// What the state callbacks last reported (see `told`).
     pub(crate) told: StoredValue<Told, LocalStorage>,
     /// The editor's channel to its host (the core's record: the texts
@@ -121,6 +139,8 @@ impl State {
             self.on_baseline_conflict,
             self.on_schema_warning,
             self.on_go_to_definition,
+            self.on_find_uses,
+            self.on_go_to_use,
         ] {
             let _ = callback.try_set_value(None);
         }
@@ -244,6 +264,19 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             );
         }
     };
+    let find_uses = move |request: leptos_config_editor::FindUses| match state
+        .on_find_uses
+        .try_get_value()
+        .flatten()
+    {
+        Some(callback) => crate::key_names::find_uses_from_host(&callback, request),
+        None => leptos_config_editor::js_support::decline_find_uses(&request),
+    };
+    let go_to_use = move |target: leptos_config_editor::GoToUse| {
+        if let Some(callback) = state.on_go_to_use.try_get_value().flatten() {
+            call_host(&callback, &crate::key_names::go_to_use_to_js(&target));
+        }
+    };
     let schema_warning =
         move |message: String| match state.on_schema_warning.try_get_value().flatten() {
             Some(callback) => call_host(&callback, &JsValue::from_str(&message)),
@@ -280,6 +313,8 @@ pub(crate) fn view(state: State, latest: Latest, setup: Setup) -> AnyView {
             secrets=setup.secrets
             key_names=key_names
             on_go_to_definition=go_to_definition
+            on_find_uses=find_uses
+            on_go_to_use=go_to_use
         />
     }
     .into_any()

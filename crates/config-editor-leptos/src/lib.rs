@@ -122,13 +122,13 @@ pub use editor::unified_diff;
 pub use editor::{
     BaselineConflict, ChangeSummary, CheckProblem, CheckedDocument, ChromeToken, CompiledSchema,
     ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,
-    DiagnosticOrigin, DiagnosticTarget, EditorHandle, EditorTheme, FieldPath, GoToDefinition,
-    HostChange, HostDiagnostic, HoverDocs, KeyName, KeyNames, Language, LossEffect, PRESET_CSS,
-    ParseError, RangesFor, SaveRequest, Schema, SchemaCheck, SchemaCompiler, SchemaError,
-    SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss, SchemaResources, SchemaSource,
-    SecretOptions, Severity, Suggestion, TextPosition, TextRange, ThemeChrome, ThemeColor,
-    ThemeColors, UnknownLanguage, UnknownSchemaFormat, UnknownTheme, check_syntax, float_of,
-    float_value, flush_pending_edits, string_of, string_value,
+    DiagnosticOrigin, DiagnosticTarget, EditorHandle, EditorTheme, FieldPath, FindUses, FoundUse,
+    GoToDefinition, GoToUse, HostChange, HostDiagnostic, HoverDocs, KeyName, KeyNames, Language,
+    LossEffect, PRESET_CSS, ParseError, RangesFor, SaveRequest, Schema, SchemaCheck,
+    SchemaCompiler, SchemaError, SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss,
+    SchemaResources, SchemaSource, SecretOptions, Severity, Suggestion, TextPosition, TextRange,
+    ThemeChrome, ThemeColor, ThemeColors, UnknownLanguage, UnknownSchemaFormat, UnknownTheme, Use,
+    check_syntax, float_of, float_value, flush_pending_edits, string_of, string_value,
 };
 
 /// What the browser bindings (`config-editor-js`, published to npm as
@@ -142,6 +142,12 @@ pub mod js_support {
         Listed, Reading, SETTLE_MS, Taken, echo_clock, flush_pending_input, is_web_url,
         statement_of,
     };
+
+    /// Answers `request` as a host that searches no files beyond the open
+    /// ones: the bindings' `onFindUses` left unset.
+    pub fn decline_find_uses(request: &crate::FindUses) {
+        request.decline();
+    }
 
     /// A timer [`after`] set, to [`cancel`](Self::cancel) it.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

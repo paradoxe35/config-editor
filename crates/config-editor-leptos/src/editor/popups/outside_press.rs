@@ -17,9 +17,11 @@ pub(crate) fn close_popups_on_outside_press(state: EditorState) {
     window_listener(&["pointerdown"], move |event| {
         let open =
             state.popups().is_open() || state.problems().current.with_untracked(Option::is_some);
+        let open = open || state.uses().is_open();
         if open && !inside_editor(state, &event) {
             state.hide_hover();
             state.hide_shown_problem();
+            state.close_uses();
         }
     });
 }

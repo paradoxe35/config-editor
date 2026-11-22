@@ -48,7 +48,7 @@ pub fn change_summary(
 
 /// The schema `text` in the format `source` gives (JSON Schema by default),
 /// compiled once for many calls (see `schema_cache`).
-fn schema_from(text: &str, source: &JsValue) -> Result<Schema, JsError> {
+pub(crate) fn schema_from(text: &str, source: &JsValue) -> Result<Schema, JsError> {
     if !source.is_undefined() && !source.is_null() {
         warn_unknown_keys(
             source,

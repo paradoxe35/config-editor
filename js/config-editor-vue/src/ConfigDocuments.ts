@@ -2,7 +2,10 @@ import type {
   CloseRequest,
   Diagnostic,
   DocumentSpec,
+  FindUses,
   GoToDefinition,
+  GoToUse,
+  Use,
   KeyNames,
   LanguageName,
 } from "@pngwasi/config-editor";
@@ -54,6 +57,10 @@ const documentsProps = {
   keyNames: optional(Array as PropType<KeyNames[]>),
   /** `@go-to-definition`: when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) no open document defines, with `{ schema, pointer, name, source }`: open its `source`. A name another open document defines shows that document with the caret on its key. */
   onGoToDefinition: listener<(target: GoToDefinition) => void>(),
+  /** Called when the user asks for the uses of such a name (`Shift+F12`, the hover card's Uses link), with `{ schema, pointer, name }`, for the uses in files that are not open: return them, or a promise of them (`usesAt` from `@pngwasi/config-editor/tools` finds them in a file). Open documents' uses show at once. A function, not an event: its answer counts. */
+  onFindUses: optional(Function as PropType<(request: FindUses) => Use[] | Promise<Use[]>>),
+  /** `@go-to-use`: when the user chooses a use `onFindUses` listed, with `{ source, path, name }`: open its file there. */
+  onGoToUse: listener<(target: GoToUse) => void>(),
   /** The tab list's accessible name. Default `"Open files"`. Changing it re-mounts. */
   label: optional(String),
   /** Class on the view's root (inside the component's `<div>`). Changing it re-mounts. */

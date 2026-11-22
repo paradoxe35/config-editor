@@ -4,7 +4,10 @@ import type {
   Diagnostic,
   EditorPath,
   FieldPath,
+  FindUses,
   GoToDefinition,
+  GoToUse,
+  Use,
   HostDiagnostic,
   KeyNames,
   LanguageName,
@@ -68,6 +71,10 @@ const editorProps = {
   keyNames: optional(Array as PropType<KeyNames[]>),
   /** `@go-to-definition`: when the user asks to go to the definition of a name (`F12`, `Ctrl`+click) the document does not define, with `{ schema, pointer, name, source }`: open its `source`. A name the document defines moves the caret to its key. */
   onGoToDefinition: listener<(target: GoToDefinition) => void>(),
+  /** Called when the user asks for the uses of such a name (`Shift+F12`, the hover card's Uses link), with `{ schema, pointer, name }`, for the uses in files that are not open: return them, or a promise of them (`usesAt` from `@pngwasi/config-editor/tools` finds them in a file). Open documents' uses show at once. A function, not an event: its answer counts. */
+  onFindUses: optional(Function as PropType<(request: FindUses) => Use[] | Promise<Use[]>>),
+  /** `@go-to-use`: when the user chooses a use `onFindUses` listed, with `{ source, path, name }`: open its file there. */
+  onGoToUse: listener<(target: GoToUse) => void>(),
   /** The `revision` `@update:model-value` gave the value with (its second argument), when the parent stores it beside the value and never goes back to an older one: a late echo is then matched exactly, with no pause. `v-model` keeps the value alone. */
   valueRevision: optional(Number),
   /** A name for the place this component shows its document in, unique on the page, for a parent that hides it and shows a new one for the same document (a conditional render): the texts the editor sent that have not come back yet are kept under it when it unmounts, and the next component made with the same name takes them over, so a late value for one of them never replaces what is typed there. Changing it re-mounts. Without it (and without `valueRevision`), a late value for a text the editor that is gone sent replaces the typing. */

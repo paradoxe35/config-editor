@@ -47,6 +47,8 @@ pub(crate) const DOCUMENTS_OPTIONS: &[&str] = &[
     "onSyncChange",
     "keyNames",
     "onGoToDefinition",
+    "onFindUses",
+    "onGoToUse",
 ];
 
 /// The options the view is built from, which `update` refuses.
@@ -81,6 +83,8 @@ pub(crate) struct State {
     on_edit_as_change: StoredValue<Option<Function>, LocalStorage>,
     on_sync_change: StoredValue<Option<Function>, LocalStorage>,
     on_go_to_definition: StoredValue<Option<Function>, LocalStorage>,
+    on_find_uses: StoredValue<Option<Function>, LocalStorage>,
+    on_go_to_use: StoredValue<Option<Function>, LocalStorage>,
     /// The host's names for every document (`keyNames`).
     key_names: RwSignal<Vec<KeyNames>>,
     /// Whether the view was mounted with `onClose`: closable documents'
@@ -128,6 +132,8 @@ impl State {
             self.on_edit_as_change,
             self.on_sync_change,
             self.on_go_to_definition,
+            self.on_find_uses,
+            self.on_go_to_use,
         ] {
             let _ = callback.try_set_value(None);
         }
@@ -383,6 +389,15 @@ fn view(state: State, setup: Setup) -> AnyView {
             call_host(&callback, &go_to_definition_to_js(&target));
         }
     };
+    let find_uses = move |request: leptos_config_editor::FindUses| match host(state.on_find_uses) {
+        Some(callback) => crate::key_names::find_uses_from_host(&callback, request),
+        None => leptos_config_editor::js_support::decline_find_uses(&request),
+    };
+    let go_to_use = move |target: leptos_config_editor::GoToUse| {
+        if let Some(callback) = host(state.on_go_to_use) {
+            call_host(&callback, &crate::key_names::go_to_use_to_js(&target));
+        }
+    };
     let add = setup.adds.then(|| {
         Callback::new(move |()| {
             if let Some(callback) = host(state.on_add) {
@@ -418,6 +433,8 @@ fn view(state: State, setup: Setup) -> AnyView {
             on_sync_change=sync_changed
             key_names=state.key_names
             on_go_to_definition=go_to_definition
+            on_find_uses=find_uses
+            on_go_to_use=go_to_use
             settings=settings
             class=setup.class
             nostrip:label=setup.label
@@ -500,6 +517,8 @@ impl ConfigDocuments {
         let on_edit_as_change = function_option(&options, "onEditAsChange")?;
         let on_sync_change = function_option(&options, "onSyncChange")?;
         let on_go_to_definition = function_option(&options, "onGoToDefinition")?;
+        let on_find_uses = function_option(&options, "onFindUses")?;
+        let on_go_to_use = function_option(&options, "onGoToUse")?;
         let key_names = key_names_from(&field(&options, "keyNames"), "keyNames")?;
         let setup = Setup {
             active: string_option(&options, "activeId")?,
@@ -536,6 +555,8 @@ impl ConfigDocuments {
             on_edit_as_change: StoredValue::new_local(on_edit_as_change),
             on_sync_change: StoredValue::new_local(on_sync_change),
             on_go_to_definition: StoredValue::new_local(on_go_to_definition),
+            on_find_uses: StoredValue::new_local(on_find_uses),
+            on_go_to_use: StoredValue::new_local(on_go_to_use),
             key_names: RwSignal::new(key_names),
             closes: setup.closes,
             adds: setup.adds,
@@ -659,6 +680,22 @@ impl ConfigDocuments {
     /// Focuses the active document's editor, keeping its selection.
     pub fn focus(&self) {
         self.state.handle.focus();
+    }
+
+    /// Goes to the definition of the name at the active editor's caret, as
+    /// `F12` does there; `false` when the caret is on no known name.
+    #[wasm_bindgen(js_name = goToDefinition)]
+    pub fn go_to_definition(&self) -> bool {
+        leptos_config_editor::js_support::flush_pending_input();
+        untrack(|| self.state.handle.go_to_definition())
+    }
+
+    /// Lists the uses of the name at the active editor's caret, as
+    /// `Shift+F12` does there; `false` when the caret is on no name.
+    #[wasm_bindgen(js_name = findUses)]
+    pub fn find_uses(&self) -> bool {
+        leptos_config_editor::js_support::flush_pending_input();
+        untrack(|| self.state.handle.find_uses())
     }
 
     /// The view's settings in effect: every key of `EditorSettings`, set.
@@ -876,6 +913,8 @@ impl ConfigDocuments {
             ("onEditAsChange", self.state.on_edit_as_change),
             ("onSyncChange", self.state.on_sync_change),
             ("onGoToDefinition", self.state.on_go_to_definition),
+            ("onFindUses", self.state.on_find_uses),
+            ("onGoToUse", self.state.on_go_to_use),
         ] {
             callbacks.push((name, callback_change(&options, name)?, slot));
         }
