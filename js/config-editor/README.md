@@ -1065,6 +1065,17 @@ name says where it is defined; `F12` or `Ctrl`+click (`Cmd`+click) moves the
 caret to its key when the document defines it, else calls
 `onGoToDefinition`.
 
+An object whose keys are such names puts the keyword in its
+`propertyNames`
+(`{ type: "object", propertyNames: { "x-config-editor-keys": "/clients" } }`):
+a new key, or one typed over, is offered the same names in the same order,
+without the keys the object has already, and hover, `F12` and `Ctrl`+click
+work on its keys. `propertyNames` is found through `$ref`, `allOf`, `anyOf`
+and `oneOf`; its `enum` and `examples` are offered as keys even without the
+keyword. The keyword never makes a key a problem, but the rest of
+`propertyNames` is checked as JSON Schema says (a key an `enum` there does
+not list is one).
+
 ## Languages and themes
 
 The main entry also lists what the editor accepts, for pickers and file

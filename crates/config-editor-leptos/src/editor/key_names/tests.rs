@@ -15,13 +15,19 @@ use crate::editor::state::EditorState;
 use crate::editor::test_state::TestEditor;
 use crate::editor::text::text_size;
 
-const SCHEMA: &str = r#"{
+const SCHEMA: &str = r##"{
   "properties": {
     "clients": {"type": "object"},
     "default_client": {"type": "string", "x-config-editor-keys": "/clients"},
-    "port": {"type": "integer"}
-  }
-}"#;
+    "port": {"type": "integer"},
+    "reach": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/client"},
+      "additionalProperties": {"type": "array"}
+    }
+  },
+  "$defs": {"client": {"x-config-editor-keys": "/clients", "examples": ["self"]}}
+}"##;
 
 const TEXT: &str = "clients:\n  home: {}\n  work: {}\ndefault_client: home\nport: 80\n";
 
@@ -178,4 +184,87 @@ fn a_document_that_does_not_parse_keeps_its_last_good_names() {
     retype(state, fixed, caret);
     assert_eq!(suggested(state), ["home", "remote"]);
     crate::editor::parse_cache::release();
+}
+
+/// A key of an object whose `propertyNames` has the keyword: hover says
+/// where the name is defined, and go to definition goes there, as on a
+/// value; `(language, text, zero-based line of the reach keys)`.
+fn key_name_cases() -> Vec<(Language, &'static str, usize)> {
+    let mut cases = vec![(
+        Language::YAML,
+        "clients:\n  home: {}\n  work: {}\nreach:\n  home: []\n  remote: []\n",
+        4,
+    )];
+    #[cfg(feature = "toml")]
+    cases.push((
+        Language::TOML,
+        "[clients.home]\n\n[clients.work]\n\n[reach]\nhome = []\nremote = []\n",
+        5,
+    ));
+    #[cfg(feature = "json")]
+    cases.push((
+        Language::JSON,
+        "{\n  \"clients\": {\"home\": {}, \"work\": {}},\n  \"reach\": {\n    \"home\": [],\n    \"remote\": []\n  }\n}\n",
+        3,
+    ));
+    cases
+}
+
+#[test]
+fn hover_and_go_to_definition_on_a_key_name() {
+    for (language, text, line) in key_name_cases() {
+        let (_owner, state, heard) = mounted_as(language, text);
+        let at_line = |line: usize| {
+            text.split('\n')
+                .take(line)
+                .map(|l| l.len() + 1)
+                .sum::<usize>()
+        };
+        let home_line = &text[at_line(line)..];
+        let home = at_line(line) + home_line.find("home").unwrap();
+        let remote_line = &text[at_line(line + 1)..];
+        let remote = at_line(line + 1) + remote_line.find("remote").unwrap();
+        let card = |byte: usize, line: usize| {
+            let column = text[at_line(line)..byte].chars().count() + 1;
+            let field = field_at(text, line, column, state.behavior()).expect("a field");
+            state.field_docs(text, &field)?.value?.doc.description
+        };
+        assert_eq!(
+            card(home, line).as_deref(),
+            Some("defined in this document"),
+            "{language}"
+        );
+        assert_eq!(
+            card(remote, line + 1).as_deref(),
+            Some("defined in server.d/remote.yaml"),
+            "{language}"
+        );
+        state.doc().caret.set(text_size(home + 2));
+        // The key `/clients/home` is written on the line of the first
+        // `home` (TOML's header starts at its `[`).
+        let defined = text.find("home").unwrap();
+        let Some(Definition::Key(at)) = state.definition_at_caret() else {
+            panic!("{language}: no key to go to");
+        };
+        let at = usize::from(at);
+        assert!(
+            at <= defined && !text[at..defined].contains('\n'),
+            "{language}: goes to {at}"
+        );
+        state.doc().caret.set(text_size(remote + 2));
+        assert!(state.go_to_definition(), "{language}");
+        assert_eq!(
+            heard.get_untracked(),
+            [GoToDefinition {
+                schema: None,
+                pointer: "/clients".into(),
+                name: "remote".into(),
+                source: Some("server.d/remote.yaml".into()),
+            }],
+            "{language}"
+        );
+        // A key of an object with no such `propertyNames` is no name.
+        state.doc().caret.set(text_size(defined + 2));
+        assert_eq!(state.definition_at_caret(), None, "{language}");
+    }
 }

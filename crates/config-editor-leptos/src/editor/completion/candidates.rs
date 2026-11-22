@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use super::elsewhere::OtherPlaces;
+use super::named_keys::{KeyEntry, named_keys};
 use super::placed::Placed;
 use super::*;
 use crate::editor::key_names::{KeptKeys, KeyNameSource, NameLookup};
@@ -337,8 +338,8 @@ pub(super) fn default_selection(
     clippy::too_many_arguments,
     reason = "one suggestion run's place, schema and language, passed as they are read"
 )]
-pub(super) fn property_completions(
-    here: &Here<'_>,
+pub(super) fn property_completions<'s>(
+    here: &Here<'s>,
     typed: &str,
     replace: TextRange,
     root: &Value,
@@ -348,10 +349,12 @@ pub(super) fn property_completions(
     behavior: &dyn ConfigLanguage,
     written: Option<&Value>,
     read_rewritable: &dyn Fn() -> HashSet<String>,
+    names: &ValueNames<'_>,
 ) -> Vec<Completion> {
     let rewritable = std::cell::OnceCell::new();
     let rewritable_keys = || rewritable.get_or_init(read_rewritable);
     let mut candidates = Vec::new();
+    let mut named = Vec::new();
     let object = ObjectAt::of(here);
     let choices = &object.choices;
     let branches = &object.branches;
@@ -373,6 +376,7 @@ pub(super) fn property_completions(
     // A key of `oneOf`/`anyOf` options names them (the matched one alone
     // when it has the key); once an option matches, another option's keys
     // are not offered (adding one would leave it).
+    let mut entries = Vec::new();
     for branch in &here.offered() {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
@@ -399,146 +403,172 @@ pub(super) fn property_completions(
             } else {
                 property
             };
-            // A list key written by repetition can appear again: any list in
-            // XML; a list of objects as HCL blocks (never inside `{ … }`),
-            // once it is written so (not as one whole list).
-            let present = existing.is_some_and(|existing| existing.contains(key))
-                && (repetition != Repetition::None || !rewritable_keys().contains(key));
-            let repeatable = match repetition {
-                Repetition::Elements => repeats_as_elements(
-                    property,
-                    written.and_then(|written| written.get(key)),
-                    root,
-                    behavior,
-                ),
-                Repetition::Blocks => {
-                    insert_context.position == EntryPosition::Block
-                        && array_branch(property, root)
-                            .and_then(|array| array.get("items"))
-                            .is_some_and(|items| object_branch(items, root).is_some())
-                        && (!present || rewritable_keys().contains(key))
+            entries.push(KeyEntry {
+                key: key.clone(),
+                property,
+                bonus: bonus
+                    + if required.contains(key.as_str()) {
+                        REQUIRED_BONUS
+                    } else {
+                        0
+                    },
+                type_label: info.type_label,
+                detail: ValueDoc {
+                    title: choices.titles_holding(key),
+                    description: property
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
                 }
-                _ => false,
-            };
-            if !repeatable && present || forbidden.contains(key.as_str()) || full && !present {
-                continue;
-            }
-            // A key a `not` keeps apart from keys written (`git` beside
-            // `path`): writing it would break the `not`. Nor a key that
-            // makes the schemas refuse a value written beside it.
-            if existing.is_some_and(|existing| excluded_by_not(key, branches, existing, root))
-                || (!present && refused_beside(key, property, here, written, root, behavior))
-            {
-                continue;
-            }
-            let Some(score) = match_score(key, typed) else {
-                continue;
-            };
-            let score = score
-                + bonus
-                + if required.contains(key.as_str()) {
-                    REQUIRED_BONUS
-                } else {
-                    0
-                };
-            let another = InsertContext {
-                another_item: present && repeatable,
-                attributes_marked,
-                ..*insert_context
-            };
-            // Another item of a list written by repeating its key (an XML
-            // element, an HCL block) is one item: written as its items'
-            // schema says.
-            let written_schema = if another.another_item {
-                array_branch(property, root)
-                    .and_then(|array| item_schema(array, 1))
-                    .unwrap_or(property)
-            } else {
-                property
-            };
-            // A default (or const) another schema at the key refuses (the
-            // `else` the object takes typing it otherwise) is not written:
-            // the key is written as a schema there whose value is not
-            // refused describes it.
-            let written_schema = if another.another_item {
-                written_schema
-            } else {
-                let at_key = here.child(&SchemaPathSegment::Key(key.to_string()));
-                let refused = |schema: &Value| {
-                    kept_default(behavior, schema, root)
-                        .or_else(|| kept_const(behavior, schema, root))
-                        .is_some_and(|value| at_key.accepts(value, root) == Some(false))
-                };
-                if refused(written_schema) {
-                    at_key
-                        .schemas()
-                        .into_iter()
-                        .find(|schema| !refused(schema))
-                        .unwrap_or(written_schema)
-                } else {
-                    written_schema
-                }
-            };
-            // The children every schema at the key asks for (a `then` the
-            // document takes beside the property): not for one more item.
-            let at_key = (!another.another_item)
-                .then(|| here.child(&SchemaPathSegment::Key(key.to_string())));
-            let plan = InsertPlan::at(behavior, written_schema, at_key.as_ref(), root);
-            let Some((insert, cursor_offset)) = behavior.write_insert(key, &plan, &another) else {
-                continue;
-            };
-            // The language API places the caret in UTF-16 units.
-            let cursor_offset = byte_of(&insert, cursor_offset);
-            let children = plan.children;
-            // Only the values the insert writes are Tab stops (a list
-            // written `[]` writes none of its items' children).
-            let fills = written_fills(&insert, cursor_offset, fills_of(&children));
-            let (cursor_offset, selected) =
-                default_selection(&insert, cursor_offset, written_schema, root, behavior);
-            // A list written with items to type: the caret in the first.
-            let (cursor_offset, selected) =
-                if selected == TextSize::default() && caret_at_list(&children) {
-                    caret_in_list(&insert, cursor_offset, &fills, behavior)
-                        .unwrap_or((cursor_offset, selected))
-                } else {
-                    (cursor_offset, selected)
-                };
-            let title = choices.titles_holding(key);
-            let type_label = info.type_label;
-            candidates.push((
-                score,
-                Completion {
-                    label: key.clone(),
-                    detail: ValueDoc {
-                        title,
-                        description: property
-                            .get("description")
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
-                    }
-                    .detail()
-                    .unwrap_or_default(),
-                    type_label,
-                    insert,
-                    start: replace.start(),
-                    end: replace.end(),
-                    cursor_offset,
-                    selected,
-                    // A name alone (a table header segment) completes the
-                    // entry, so the list does not reopen on it.
-                    is_value: insert_context.position == EntryPosition::Name,
-                    renames: false,
-                    matched: match_ranges(key, typed),
-                    deprecated: is_deprecated(property, root),
-                    fills,
-                    closes_tag: false,
-                    key_origin: None,
-                    read_only: false,
-                },
-            ));
+                .detail()
+                .unwrap_or_default(),
+                origin: None,
+                named: false,
+            });
         }
     }
-    sorted_completions(candidates)
+    // Then the keys its `propertyNames` names.
+    entries.extend(named_keys(here, &object, names));
+    for entry in entries {
+        let key = &entry.key;
+        let property = entry.property;
+        // A list key written by repetition can appear again: any list in
+        // XML; a list of objects as HCL blocks (never inside `{ … }`),
+        // once it is written so (not as one whole list).
+        let present = existing.is_some_and(|existing| existing.contains(key))
+            && (repetition != Repetition::None || !rewritable_keys().contains(key));
+        let repeatable = match repetition {
+            Repetition::Elements => repeats_as_elements(
+                property,
+                written.and_then(|written| written.get(key)),
+                root,
+                behavior,
+            ),
+            Repetition::Blocks => {
+                insert_context.position == EntryPosition::Block
+                    && array_branch(property, root)
+                        .and_then(|array| array.get("items"))
+                        .is_some_and(|items| object_branch(items, root).is_some())
+                    && (!present || rewritable_keys().contains(key))
+            }
+            _ => false,
+        };
+        if !repeatable && present || forbidden.contains(key.as_str()) || full && !present {
+            continue;
+        }
+        // A key a `not` keeps apart from keys written (`git` beside
+        // `path`): writing it would break the `not`. Nor a key that
+        // makes the schemas refuse a value written beside it.
+        if existing.is_some_and(|existing| excluded_by_not(key, branches, existing, root))
+            || (!present && refused_beside(key, property, here, written, root, behavior))
+        {
+            continue;
+        }
+        let Some(score) = match_score(key, typed) else {
+            continue;
+        };
+        let score = score + entry.bonus;
+        let another = InsertContext {
+            another_item: present && repeatable,
+            attributes_marked,
+            ..*insert_context
+        };
+        // Another item of a list written by repeating its key (an XML
+        // element, an HCL block) is one item: written as its items'
+        // schema says.
+        let written_schema = if another.another_item {
+            array_branch(property, root)
+                .and_then(|array| item_schema(array, 1))
+                .unwrap_or(property)
+        } else {
+            property
+        };
+        // A default (or const) another schema at the key refuses (the
+        // `else` the object takes typing it otherwise) is not written:
+        // the key is written as a schema there whose value is not
+        // refused describes it.
+        let written_schema = if another.another_item {
+            written_schema
+        } else {
+            let at_key = here.child(&SchemaPathSegment::Key(key.to_string()));
+            let refused = |schema: &Value| {
+                kept_default(behavior, schema, root)
+                    .or_else(|| kept_const(behavior, schema, root))
+                    .is_some_and(|value| at_key.accepts(value, root) == Some(false))
+            };
+            if refused(written_schema) {
+                at_key
+                    .schemas()
+                    .into_iter()
+                    .find(|schema| !refused(schema))
+                    .unwrap_or(written_schema)
+            } else {
+                written_schema
+            }
+        };
+        // The children every schema at the key asks for (a `then` the
+        // document takes beside the property): not for one more item.
+        let at_key =
+            (!another.another_item).then(|| here.child(&SchemaPathSegment::Key(key.to_string())));
+        let plan = InsertPlan::at(behavior, written_schema, at_key.as_ref(), root);
+        let Some((insert, cursor_offset)) = behavior.write_insert(key, &plan, &another) else {
+            continue;
+        };
+        // The language API places the caret in UTF-16 units.
+        let cursor_offset = byte_of(&insert, cursor_offset);
+        let children = plan.children;
+        // Only the values the insert writes are Tab stops (a list
+        // written `[]` writes none of its items' children).
+        let fills = written_fills(&insert, cursor_offset, fills_of(&children));
+        let (cursor_offset, selected) =
+            default_selection(&insert, cursor_offset, written_schema, root, behavior);
+        // A list written with items to type: the caret in the first.
+        let (cursor_offset, selected) =
+            if selected == TextSize::default() && caret_at_list(&children) {
+                caret_in_list(&insert, cursor_offset, &fills, behavior)
+                    .unwrap_or((cursor_offset, selected))
+            } else {
+                (cursor_offset, selected)
+            };
+        let completion = (
+            score,
+            Completion {
+                label: key.clone(),
+                detail: entry.detail,
+                type_label: entry.type_label,
+                insert,
+                start: replace.start(),
+                end: replace.end(),
+                cursor_offset,
+                selected,
+                // A name alone (a table header segment) completes the
+                // entry, so the list does not reopen on it.
+                is_value: insert_context.position == EntryPosition::Name,
+                renames: false,
+                matched: match_ranges(key, typed),
+                deprecated: is_deprecated(property, root),
+                fills,
+                closes_tag: false,
+                key_origin: entry.origin,
+                read_only: false,
+            },
+        );
+        if entry.named {
+            named.push(completion);
+        } else {
+            candidates.push(completion);
+        }
+    }
+    // The named keys follow the declared ones, best match first, else in
+    // the order found (as a value's names are).
+    let mut options = sorted_completions(candidates);
+    named.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    for (_, option) in named {
+        if !options.iter().any(|offered| offered.label == option.label) {
+            options.push(option);
+        }
+    }
+    options
 }
 
 #[cfg(test)]
@@ -1333,6 +1363,7 @@ fn completions_around(
         behavior,
         applies.value_at(&context.path),
         &|| behavior.rewritable_keys(source, cursor_byte, &context.path),
+        &names(HashSet::new()),
     );
     // A key typed directly in an array starts a new object item, which needs
     // its delimiters: `[|]` becomes `[{ hosts = [] }]`, not `[hosts = []]`.

@@ -19,6 +19,7 @@ mod list_items;
 mod list_mode;
 mod live;
 mod matching;
+mod named_keys;
 mod others;
 #[cfg(feature = "schema-validation")]
 mod pattern_texts;

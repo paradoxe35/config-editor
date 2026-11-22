@@ -5,6 +5,20 @@ All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
+## 0.2.1 — unreleased
+
+### Key names
+
+- `x-config-editor-keys` in an object's `propertyNames` names its keys: a
+  new key, or one typed over, is offered the document's own keys at the
+  pointer, then the host's names, then the `propertyNames` `enum` and
+  `examples`, without the keys the object has. Hover, `F12` and
+  `Ctrl`/`Cmd`+click work on such a key as on a value. `propertyNames` is
+  found through `$ref`, `allOf`, `anyOf` and `oneOf`, and its `enum` and
+  `examples` are offered as keys without the keyword too. The keyword
+  never makes a key a problem; the rest of `propertyNames` is still
+  checked.
+
 ## 0.2.0 — 2026-11-22
 
 ### Host lists name their text

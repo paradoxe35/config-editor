@@ -1591,6 +1591,25 @@ goes to its definition: the caret moves to its key when the document
 defines it, else `on_go_to_definition` gets `{ schema, pointer, name,
 source }` to open the file.
 
+An object whose keys are such names (a map from client to its routes)
+puts the keyword in its `propertyNames`:
+
+```json
+"reach": {
+  "type": "object",
+  "propertyNames": { "x-config-editor-keys": "/clients", "examples": ["self"] },
+  "additionalProperties": { "type": "array" }
+}
+```
+
+A new key of `reach`, or one typed over, is then offered the same names in
+the same order, without the keys `reach` has already; hover, `F12` and
+`Ctrl`+click work on its keys as on a value. `propertyNames` is found
+through `$ref`, `allOf`, `anyOf` and `oneOf`, and its `enum` and
+`examples` are offered as keys even without the keyword. The keyword never
+makes a key a problem, but the rest of `propertyNames` is checked as JSON
+Schema says: with an `enum` there, a key it does not list is one.
+
 ## Schema formats
 
 The editor works with JSON Schema. A schema written in another format is

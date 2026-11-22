@@ -195,4 +195,51 @@ test.describe('key names in one editor, vanilla.html', () => {
     await expect.poll(() => wentTo(page)).toEqual([target, target]);
     expect(errors).toEqual([]);
   });
+
+  test("an object's keys named by its propertyNames are suggested, and F12 on one goes to its key", async ({
+    page,
+  }) => {
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(String(error)));
+    page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+    const reach = {
+      ...options,
+      value: 'clients:\n  main: {}\n  lab: {}\nreach:\n  main: []\n  \n',
+      schema: JSON.stringify({
+        $id: ID,
+        type: 'object',
+        properties: {
+          clients: { type: 'object' },
+          reach: {
+            type: 'object',
+            propertyNames: { 'x-config-editor-keys': '/clients', examples: ['self'] },
+            additionalProperties: { type: 'array' },
+          },
+        },
+      }),
+    };
+    await page.goto(
+      `${pathToFileURL(join(js, 'examples', 'vanilla.html')).href}?options=${encodeURIComponent(JSON.stringify(reach))}`,
+    );
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
+    await field(page).click();
+    // A new key of `reach`: the names it does not have yet, in order.
+    await field(page).evaluate((element) => {
+      const at = element.value.length - 1;
+      element.setSelectionRange(at, at);
+    });
+    await page.keyboard.press('Control+Space');
+    const keys = () => page.locator('.config-editor__completions .config-editor__completion-key').allTextContents();
+    await expect.poll(keys).toEqual(['lab', 'office', 'self']);
+    await page.keyboard.press('Escape');
+    // F12 on the key `main` of `reach` goes to the client `main`.
+    await field(page).evaluate((element) => {
+      const at = element.value.indexOf('reach:\n  main') + 'reach:\n  ma'.length;
+      element.setSelectionRange(at, at);
+    });
+    await page.keyboard.press('F12');
+    await expect.poll(() => caretAt(page, 'main: {}')).toBe(true);
+    expect(await wentTo(page)).toEqual([]);
+    expect(errors).toEqual([]);
+  });
 });
