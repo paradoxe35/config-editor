@@ -33,6 +33,7 @@ const ENTRIES = {
     'changeSummary',
     'compileSchema',
     'convert',
+    'keysAt',
     'loadConfigEditor',
     'parse',
     'pathAt',
