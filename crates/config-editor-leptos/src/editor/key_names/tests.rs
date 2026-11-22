@@ -127,6 +127,7 @@ fn a_suggestion_shows_its_source_with_its_own_detail() {
 
 /// Replaces the document with `text`, as typing would, the caret at the end
 /// of `caret_after`, and lets the typing pause's check read it.
+#[cfg(feature = "json")]
 fn retype(state: EditorState, text: &str, caret_after: &str) {
     let before = state.doc().text.get_untracked().to_string();
     let end = before.encode_utf16().count();
@@ -142,6 +143,7 @@ fn retype(state: EditorState, text: &str, caret_after: &str) {
 }
 
 /// The names suggested at the caret, as `Ctrl+Space` lists them.
+#[cfg(feature = "json")]
 fn suggested(state: EditorState) -> Vec<String> {
     state.set_list_mode(crate::editor::completion::ListMode::Asked {
         replace_word: false,
