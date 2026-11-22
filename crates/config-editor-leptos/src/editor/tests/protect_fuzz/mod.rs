@@ -23,6 +23,7 @@
 mod acts;
 mod cases;
 mod checks;
+mod cut_matrix;
 mod gate_repros;
 mod known;
 mod leak_repros;

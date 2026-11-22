@@ -13,6 +13,8 @@
 //! - A field the language cannot locate (no spans) is kept unplaced, by
 //!   its value: a text reading it otherwise holds it.
 
+use std::cell::OnceCell;
+
 use super::super::super::text::{TextRange, TextSize, slice};
 
 use serde_json::Value;
@@ -20,7 +22,7 @@ use serde_json::Value;
 use super::super::super::codec;
 use super::super::super::paths::{inside, key_range};
 use super::super::carry::Moves;
-use super::super::locate::{Extent, extent, lookup, values_under};
+use super::super::locate::{Extent, LineIndex, extent, lookup, values_under};
 use super::super::scan;
 use super::super::texts::Reason;
 use super::holds::{EditMade, HoldCause, Holds};
@@ -686,8 +688,9 @@ impl<'r, 'a> Placer<'r, 'a> {
     /// `before`) moved through an edit that took away a key holding it:
     /// in a text that parses, held by the keys the parse writes its text
     /// under when they read as the keys it lost (the key of a list copied
-    /// above its items, the first one cut: the copy holds the items).
-    /// Else as moved, a holder lost.
+    /// above its items, the first one cut: the copy holds the items), or
+    /// when the lost key did not write its text either (a held item's
+    /// copy on a line of another field). Else as moved, a holder lost.
     fn held_again(&self, pointer: &str, before: &str, was: &Lock, moved: Lock) -> Lock {
         let Reading {
             behavior,
@@ -704,9 +707,10 @@ impl<'r, 'a> Placer<'r, 'a> {
         let (Some(_), Some((start, end))) = (document, span) else {
             return moved;
         };
-        let mut keys = Vec::new();
-        for ((key, at), lost) in self.holders(pointer).zip(&was.guards) {
-            let holds = extent(*behavior, text, lines, at).is_some_and(|field| {
+        // Whether the field at `at` (its key `key`) of `text` writes the
+        // bytes `start..end`.
+        let holds = |text: &str, lines: &LineIndex<'_>, at: &str, key: TextRange, (start, end)| {
+            extent(*behavior, text, lines, at).is_some_and(|field| {
                 field
                     .ranges
                     .first()
@@ -717,8 +721,26 @@ impl<'r, 'a> Placer<'r, 'a> {
                         // its value ends: the range after the key is held.
                         end <= last.end() || last.end() <= key.end()
                     })
-            });
-            if !holds || slice::slice(before, *lost) != slice::slice(text, key) {
+            })
+        };
+        let was_span = was
+            .ranges
+            .first()
+            .map(|first| first.start())
+            .zip(was.ranges.last().map(|last| last.end()));
+        let lines_before = OnceCell::new();
+        let mut keys = Vec::new();
+        for ((key, at), lost) in self.holders(pointer).zip(&was.guards) {
+            // A field whose text the lost key did not write before either
+            // (a held item's copy on a line of another field) lost nothing
+            // the key held: the key of that name the parse reads now
+            // stands for it.
+            let held = holds(text, lines, at, key, (start, end))
+                || was_span.is_some_and(|span| {
+                    let lines = lines_before.get_or_init(|| LineIndex::new(before));
+                    !holds(before, lines, at, *lost, span)
+                });
+            if !held || slice::slice(before, *lost) != slice::slice(text, key) {
                 return moved;
             }
             keys.push(key);

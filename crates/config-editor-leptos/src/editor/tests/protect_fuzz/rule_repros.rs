@@ -1023,3 +1023,47 @@ fn an_entry_after_a_new_value_in_a_copied_xml_secret_line_is_taken() {
         ],
     );
 }
+
+/// A cut of a duplicated parent key line above a schema-locked list is
+/// taken: the other copy still holds the list.
+#[test]
+fn a_cut_of_a_duplicated_key_line_above_a_schema_locked_list_is_taken() {
+    let setup = Setup {
+        case: 14,
+        lock: Lock::Schema,
+        host: None,
+        pairs: true,
+    };
+    assert_ok(
+        &setup,
+        &[
+            Act::Line {
+                line: 16280,
+                command: 2,
+            },
+            Act::PasteCopy { line: 43594 },
+            Act::Entry {
+                anchor: 0,
+                name: 14,
+                paste: false,
+            },
+            Act::Entry {
+                anchor: 1,
+                name: 6,
+                paste: true,
+            },
+            Act::Entry {
+                anchor: 3,
+                name: 15,
+                paste: true,
+            },
+            Act::Type { at: 4639, text: 4 },
+            Act::Entry {
+                anchor: 0,
+                name: 2,
+                paste: false,
+            },
+            Act::Cut { line: 10121 },
+        ],
+    );
+}
