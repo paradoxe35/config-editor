@@ -190,6 +190,7 @@ fn a_document_that_does_not_parse_keeps_its_last_good_names() {
 /// where the name is defined, and go to definition goes there, as on a
 /// value; `(language, text, zero-based line of the reach keys)`.
 fn key_name_cases() -> Vec<(Language, &'static str, usize)> {
+    #[cfg_attr(not(any(feature = "toml", feature = "json")), allow(unused_mut))]
     let mut cases = vec![(
         Language::YAML,
         "clients:\n  home: {}\n  work: {}\nreach:\n  home: []\n  remote: []\n",
