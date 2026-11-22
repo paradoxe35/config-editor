@@ -157,6 +157,25 @@ test.describe('vanilla.html', () => {
     await expect(footer(browserPage)).not.toContainText('consider TLS');
   });
 
+  test('edited as XML, a host range at a line start marks its key, and Shift+F8 puts the caret there and names it', async ({ page: browserPage }) => {
+    const errors = await open(browserPage, 'vanilla.html');
+    await browserPage.locator('#edit-as').selectOption('xml');
+    await expect(input(browserPage)).toHaveValue(/<public_address>tunnel\.example\.com<\/public_address>/);
+    // Line 3 of the YAML text: `public_address: tunnel.example.com`.
+    await setHost(browserPage, [{ range: { startLine: 3, startColumn: 1 }, severity: 'warning', message: 'checked by the host' }]);
+    const host = browserPage.locator('.config-editor__diagnostic-marker-host');
+    await expect(host).toHaveCount(1);
+    await expect(host).toHaveText('public_address');
+    await input(browserPage).click();
+    await browserPage.keyboard.press('Control+Home');
+    await browserPage.keyboard.press('Shift+F8');
+    await expect(browserPage.locator('.config-editor__announcement')).toContainText('from host: checked by the host');
+    await expect(host).toHaveClass(/config-editor__diagnostic-marker-shown/);
+    const at = await input(browserPage).evaluate((element) => [element.value.indexOf('<public_address>') + 1, element.selectionStart, element.selectionEnd]);
+    expect(at.slice(1)).toEqual([at[0], at[0]]);
+    expect(errors).toEqual([]);
+  });
+
   test('the host problem replaces the editor’s own saying the same on the same value, and shows beside one saying else', async ({
     page: browserPage,
   }) => {

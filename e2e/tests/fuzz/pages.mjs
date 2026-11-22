@@ -290,6 +290,16 @@ export function installProbe({ kind, vanilla }) {
     // The walk visits the problems with no place last (the footer shows
     // them): the caret stays, and the announcement names the one reached.
     const said = fz.root()?.querySelector('.config-editor__announcement')?.textContent ?? '';
+    // While editing as another language the host's problem marks the field
+    // its line starts in (on its key; README "Host diagnostics"), not a line
+    // start: reached so, its marker is the one shown, on the caret's line
+    // from the caret on, and the announcement names it.
+    if (fz.hostDiagnosed && said.replace(/ +$/, '').endsWith(fz.hostMessage)) {
+      const shown = fz.root()?.querySelector('.config-editor__diagnostic-marker-host.config-editor__diagnostic-marker-shown');
+      const marked = shown?.textContent ?? '';
+      const onLine = shown?.getAttribute('aria-label')?.includes(` on line ${caret.line}: `);
+      if (onLine && marked && lineText.slice(caret.column - 1).startsWith(marked)) return null;
+    }
     const unplaced = (fz.problems[fz.activeId() ?? ''] ?? []).filter((problem) => !problem.line);
     if (unplaced.some((problem) => problem.message && said.replace(/ +$/, '').endsWith(problem.message))) return null;
     // A host problem is unplaced when the text no longer has its line
