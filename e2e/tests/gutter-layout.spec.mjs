@@ -347,3 +347,53 @@ test.describe('the gutter markers sharing a line', () => {
     expect(page.errors).toEqual([]);
   });
 });
+
+// A narrow editor (a phone, or a narrow column of a wide page) keeps its
+// width for the text: the gutter shrinks to about 50px, the text still
+// takes the click at the column under the pointer, and the chevron keeps
+// its 24px area and folds.
+const PHONE_SAMPLE = 'server:\n  host: example.org\n  port: 8080\nname: demo\n';
+
+/** Clicks the text of `line` a little into its `column`th character (the caret goes before it), and returns the caret. */
+async function clickColumn(page, line, column) {
+  const { widest, textLeft } = await gutterGeometry(page);
+  const charWidth = widest.width / widest.digits;
+  const row = await page.locator(`.config-editor__gutter div[data-line="${line}"]`).boundingBox();
+  await page.mouse.click(textLeft + (column - 0.75) * charWidth, row.y + row.height / 2);
+  return editor(page).caret();
+}
+
+for (const [name, viewport, editorWidth] of [
+  ['on a phone', { width: 390, height: 844 }, null],
+  ['in a narrow column of a wide page', { width: 1100, height: 620 }, '360px'],
+]) {
+  test.describe(`the gutter ${name}`, () => {
+    test.use({ viewport });
+
+    test('is about 50px wide, places the caret where the text is clicked, and its chevron folds', async ({ page, baseURL }) => {
+      await page.addInitScript((sample) => {
+        window.configEditorSample = sample;
+      }, PHONE_SAMPLE);
+      await page.goto(`${baseURL}?sample=page`);
+      await page.locator('.config-editor__input').waitFor();
+      if (editorWidth) await page.locator('.config-editor__input').evaluate((input, width) => (input.closest('.config-editor').style.width = width), editorWidth);
+      const { gutterWidth, textLeft, gutterLeft } = await gutterGeometry(page);
+      expect(gutterWidth, 'the gutter').toBeLessThanOrEqual(50);
+      expect(textLeft - gutterLeft - gutterWidth, 'the text starts at the gutter').toBeLessThanOrEqual(1);
+
+      expect(await clickColumn(page, 2, 5)).toEqual({ line: 2, column: 5, collapsed: true });
+      expect(await clickColumn(page, 3, 9)).toEqual({ line: 3, column: 9, collapsed: true });
+
+      const toggle = page.locator('.config-editor__fold-toggle[data-line="1"]');
+      await page.locator('.config-editor__gutter').hover();
+      await expect(toggle).toBeVisible();
+      const area = await hitBox(toggle);
+      expect(area.right - area.left, 'the chevron wide').toBeGreaterThanOrEqual(24);
+      expect(area.bottom - area.top, 'the chevron tall').toBeGreaterThanOrEqual(24);
+      expect(area.right, 'the chevron ends before the text').toBeLessThanOrEqual(textLeft + 0.5);
+      await page.mouse.click(area.right - 4, (area.top + area.bottom) / 2);
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.locator('.config-editor__gutter div[data-line="2"]')).toHaveCount(0);
+    });
+  });
+}

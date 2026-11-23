@@ -507,6 +507,9 @@
   display: flex;
   background: var(--config-editor-bg);
   overflow: hidden;
+  /* Its width (the editor's, not the window's: a host may place it in a
+     narrow column) narrows the gutter (see the gutter). */
+  container: config-editor-surface / inline-size;
 }
 
 /* Above the text layers, opaque: code scrolled sideways passes under it. */
@@ -2218,6 +2221,47 @@
   position: absolute;
   inset: calc((1lh - max(24px, 1lh)) / 2) 0;
   content: "";
+}
+
+/* A narrow editor (a phone) keeps its width for the text: the gutter is
+   about 50px instead of 76px. The markers share a smaller column (the lock
+   or key, then the change bar at the column's edge; a problem dot beside a
+   lock moves to its corner), and the chevrons' column is only as wide as
+   the chevron. Each hit area stays 24px: a bar's
+   reaches over the start of the number's column, a chevron's over its end,
+   so on a line that folds, a tap on its number folds it (the number still
+   selects the line on every other line, and by a drag). */
+@container config-editor-surface (max-width: 480px) {
+  :not(#\#):not(#\#) .config-editor__gutter {
+    --config-editor-marker-column: 16px;
+    --config-editor-gutter-padding: 6px;
+  }
+  :not(#\#):not(#\#) .config-editor__gutter.config-editor__gutter-folding {
+    --config-editor-fold-gutter: 10px;
+    --config-editor-gutter-padding: 2px;
+  }
+  :not(#\#):not(#\#) .config-editor__lock-marker,
+  :not(#\#):not(#\#) .config-editor__secret-marker {
+    left: calc(var(--config-editor-marker-column) - 13px);
+  }
+  :not(#\#):not(#\#) .config-editor__line-number-error::before { left: calc(var(--config-editor-marker-column) - 12px); }
+  :not(#\#):not(#\#) .config-editor__line-number-error:has(.config-editor__lock-marker, .config-editor__secret-marker)::before {
+    top: 1px;
+    left: calc(var(--config-editor-marker-column) - 9px);
+  }
+  :not(#\#):not(#\#) .config-editor__diff-marker { left: calc(var(--config-editor-marker-column) - 4px); }
+  :not(#\#):not(#\#) .config-editor__diff-marker-added::after,
+  :not(#\#):not(#\#) .config-editor__diff-marker-modified::after {
+    right: calc(var(--config-editor-marker-column) - 25px);
+    left: calc(4px - var(--config-editor-marker-column));
+  }
+  :not(#\#):not(#\#) .config-editor__diff-deleted { left: calc(var(--config-editor-marker-column) - 10px); }
+  :not(#\#):not(#\#) .config-editor__diff-deleted::after {
+    left: calc(10px - var(--config-editor-marker-column));
+    width: 24px;
+  }
+  :not(#\#):not(#\#) .config-editor__fold-toggle { width: 24px; }
+  :not(#\#):not(#\#) .config-editor__fold-toggle::before { left: 14px; }
 }
 
 /* The footer's and the notices' buttons too (their rows have the room). */

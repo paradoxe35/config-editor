@@ -7,6 +7,15 @@ versions move together.
 
 ## 0.2.4 — 2026-11-23
 
+### Changed
+
+- A narrow editor (under 480px wide, as on a phone or in a narrow column
+  of a page; the editor's own width counts, not the window's) has a
+  narrower gutter, about 50px instead of 76px, so more of each line
+  shows. The markers share a smaller column and the fold chevrons' column
+  is as wide as the chevron; each control keeps its 24px hit area, so on
+  a line that folds a tap on the line number folds it.
+
 ### Fixed
 
 - A host's own change (`applyChanges`) made while the save is held (a key
