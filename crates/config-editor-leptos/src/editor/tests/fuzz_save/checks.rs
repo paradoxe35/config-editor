@@ -158,12 +158,16 @@ impl Start {
 
 impl Start {
     /// The session goes on from the host's own text typed in its language.
+    /// The view texts known to stand for a host text still do: an undo
+    /// back to one saves that host text.
     pub(super) fn rebase(&mut self, text: &str) {
         if text == self.text {
             return;
         }
         if let Some(start) = Start::new(self.host, text, text, self.host) {
+            let synced = std::mem::take(&mut *self.synced.borrow_mut());
             *self = start;
+            self.synced.borrow_mut().splice(0..0, synced);
         }
     }
 
@@ -723,16 +727,20 @@ fn check_save(
             .rev()
             .find(|(language, text, _)| *language == written_in && *text == written)
             .map(|(_, _, host_text)| host_text.clone());
-        if let Some(stood_for) = stood_for
-            && stood_for != saved
-        {
-            let mut failure = Failure::new(
-                Broken::NotRestored,
-                "",
-                "the view is back to a text it had, the host is not",
-            );
-            failure.now = stood_for;
-            return Err(failure);
+        if let Some(stood_for) = stood_for {
+            if stood_for != saved {
+                let mut failure = Failure::new(
+                    Broken::NotRestored,
+                    "",
+                    "the view is back to a text it had, the host is not",
+                );
+                failure.now = stood_for;
+                return Err(failure);
+            }
+            // Back to a host text the session had, exactly: its forms and
+            // comments are the ones that text had, whatever was typed in
+            // the host's language since.
+            return Ok(());
         }
         start
             .synced

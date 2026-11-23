@@ -3169,3 +3169,27 @@ fn a_yaml_str_tag_left_alone_keeps_its_tag_when_its_element_line_is_split_in_xml
         }],
     );
 }
+
+/// P2 (GetPut): undo back across a switch into the host's language, to the
+/// view's first text, saves the host's first text exactly: the alias an
+/// edit in the view had to write out comes back.
+#[test]
+fn undo_back_across_a_switch_to_the_host_saves_the_first_host_text() {
+    replay(
+        Language::YAML,
+        Language::HCL,
+        "alpha:\n  k1: |\n  k2: !Sub \"${AWS::StackName}-data\"\n  k3: !Sub \"${AWS::StackName}-data\"\n  k4: {x: 1, y: two} # note 3\nbeta:\n  k5:\n    base: &bk5 5\n    copy: *bk5\n",
+        &[
+            Op::Type {
+                line: 13,
+                column: 1000,
+                text: "1",
+            },
+            Op::DeleteLine { line: 30 },
+            Op::Undo,
+            Op::Switch { to: 0 },
+            Op::Undo,
+            Op::Undo,
+        ],
+    );
+}
