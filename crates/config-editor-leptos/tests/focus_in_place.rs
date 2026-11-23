@@ -19,8 +19,9 @@ fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
 }
 
 /// The `.focus()` and `.focus_with_options(` calls in `text` not made on a
-/// handle (`handle.focus()`, `self.state.handle.focus()`), as `line: text`.
-fn plain_focus_calls(text: &str) -> Vec<String> {
+/// handle (`handle.focus()`, `self.state.handle.focus()`, or `self.focus()`
+/// inside a handle's own file, `in_handle`), as `line: text`.
+fn plain_focus_calls(text: &str, in_handle: bool) -> Vec<String> {
     let mut found = Vec::new();
     for (number, line) in text.lines().enumerate() {
         let trimmed = line.trim_start();
@@ -32,7 +33,9 @@ fn plain_focus_calls(text: &str) -> Vec<String> {
             while let Some(at) = line[from..].find(call) {
                 let at = from + at;
                 from = at + call.len();
-                let on_handle = call == ".focus()" && line[..at].ends_with("handle");
+                let before = &line[..at];
+                let on_handle = call == ".focus()"
+                    && (before.ends_with("handle") || in_handle && before.ends_with("self"));
                 if !on_handle {
                     found.push(format!("{}: {}", number + 1, trimmed));
                 }
@@ -44,15 +47,25 @@ fn plain_focus_calls(text: &str) -> Vec<String> {
 
 #[test]
 fn the_check_catches_a_plain_focus() {
-    assert_eq!(plain_focus_calls("    let _ = element.focus();").len(), 1);
     assert_eq!(
-        plain_focus_calls("let _ = input.focus_with_options(&o);").len(),
+        plain_focus_calls("    let _ = element.focus();", false).len(),
         1
     );
-    assert!(plain_focus_calls("    handle.focus();").is_empty());
-    assert!(plain_focus_calls("        self.state.handle.focus();").is_empty());
-    assert!(plain_focus_calls("    let _ = element.focus_in_place();").is_empty());
-    assert!(plain_focus_calls("//! `element.focus()` scrolls").is_empty());
+    assert_eq!(
+        plain_focus_calls("let _ = input.focus_with_options(&o);", false).len(),
+        1
+    );
+    assert!(plain_focus_calls("    handle.focus();", false).is_empty());
+    assert!(plain_focus_calls("        self.state.handle.focus();", false).is_empty());
+    assert!(plain_focus_calls("    let _ = element.focus_in_place();", false).is_empty());
+    assert!(plain_focus_calls("//! `element.focus()` scrolls", false).is_empty());
+    // A handle calling its own `focus` (which focuses in place) is one; the
+    // same words elsewhere are not.
+    assert!(plain_focus_calls("            self.focus();", true).is_empty());
+    assert_eq!(
+        plain_focus_calls("            self.focus();", false).len(),
+        1
+    );
 }
 
 #[test]
@@ -69,7 +82,7 @@ fn every_focus_goes_through_focus_in_place() {
         .filter(|path| !path.ends_with("src/focus/mod.rs"))
         .flat_map(|path| {
             let text = std::fs::read_to_string(path).expect("read source file");
-            plain_focus_calls(&text)
+            plain_focus_calls(&text, path.ends_with("handle.rs"))
                 .into_iter()
                 .map(move |line| format!("{}:{line}", path.display()))
         })
