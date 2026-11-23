@@ -307,7 +307,17 @@ pub(crate) struct Applies<'s, 'd> {
     /// Whether an option a value only fits is taken as its own (not when
     /// reading values' types, see [`Here::child_typed`]).
     trust_fit: bool,
-    steps: RefCell<HashMap<Vec<SchemaPathSegment>, Rc<Here<'s>>>>,
+    /// The paths walked, as a tree of their steps: a path is found one
+    /// step at a time, so a deep path costs its depth, not its depth
+    /// squared (as keying each prefix by its whole path would).
+    steps: RefCell<Vec<Step<'s>>>,
+}
+
+/// One path walked: what applies there, and the steps walked below it
+/// (indexes into [`Applies::steps`]).
+struct Step<'s> {
+    here: Rc<Here<'s>>,
+    children: HashMap<SchemaPathSegment, usize>,
 }
 
 fn no_document<'d>() -> Option<&'d Value> {
@@ -325,7 +335,7 @@ impl<'s, 'd> Applies<'s, 'd> {
             repeats_arrays,
             document,
             trust_fit: true,
-            steps: RefCell::new(HashMap::new()),
+            steps: RefCell::new(Vec::new()),
         }
     }
 
@@ -359,22 +369,38 @@ impl<'s, 'd> Applies<'s, 'd> {
 
     /// What applies at `path`, walked for the document's value there.
     pub(crate) fn at(&self, path: &[SchemaPathSegment]) -> Rc<Here<'s>> {
-        if let Some(known) = self.steps.borrow().get(path) {
-            return known.clone();
-        }
-        let here = match path.split_last() {
-            None => Here::walk_read(Entry::schema(self.root), self.root, &|| {
+        if self.steps.borrow().is_empty() {
+            let here = Here::walk_read(Entry::schema(self.root), self.root, &|| {
                 Seen::value(self.value_at(&[]))
-            }),
-            Some((segment, parent)) => {
-                let parent_here = self.at(parent);
-                let entry = self.step(&parent_here, segment, path);
-                Here::walk_read(entry, self.root, &|| Seen::value(self.value_at(path)))
-            }
-        };
-        let here = Rc::new(here);
-        self.steps.borrow_mut().insert(path.to_vec(), here.clone());
-        here
+            });
+            self.steps.borrow_mut().push(Step {
+                here: Rc::new(here),
+                children: HashMap::new(),
+            });
+        }
+        let mut node = 0;
+        for (index, segment) in path.iter().enumerate() {
+            let known = self.steps.borrow()[node].children.get(segment).copied();
+            node = match known {
+                Some(child) => child,
+                None => {
+                    let parent_here = self.steps.borrow()[node].here.clone();
+                    let at = &path[..=index];
+                    let entry = self.step(&parent_here, segment, at);
+                    let here =
+                        Here::walk_read(entry, self.root, &|| Seen::value(self.value_at(at)));
+                    let mut steps = self.steps.borrow_mut();
+                    let child = steps.len();
+                    steps.push(Step {
+                        here: Rc::new(here),
+                        children: HashMap::new(),
+                    });
+                    steps[node].children.insert(segment.clone(), child);
+                    child
+                }
+            };
+        }
+        self.steps.borrow()[node].here.clone()
     }
 
     /// [`Self::at`] for an object with `keys` (those its text has): its

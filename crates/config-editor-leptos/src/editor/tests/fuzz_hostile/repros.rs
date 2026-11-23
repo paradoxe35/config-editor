@@ -595,3 +595,29 @@ fn the_field_under_the_pointer_in_a_long_flat_document_is_found_in_time() {
         "the readings of a flat document of 1,125 keys took past 20 s"
     );
 }
+
+/// P5: the suggestions and the hover in and after a block header of
+/// thousands of labels (a path thousands of steps deep) take time linear
+/// in its depth: the schema is walked once per step, not once per prefix.
+#[test]
+fn a_path_thousands_of_steps_deep_is_read_in_time() {
+    let text = format!("{}{{\n  \n}}\n", "\"a\" ".repeat(8_000));
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .stack_size(4 << 20)
+        .spawn(move || {
+            super::reading::replay(super::reading::ReadCase {
+                language: "HCL",
+                text,
+                at: 11_765_178,
+            });
+            let _ = done.send(());
+        })
+        .expect("a test thread");
+    assert!(
+        finished
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .is_ok(),
+        "the readings of a block header of 8,000 labels took past 20 s"
+    );
+}
