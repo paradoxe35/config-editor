@@ -7,13 +7,20 @@ use web_sys::KeyboardEvent;
 
 use super::super::state::EditorState;
 
-/// `Shift+F12`: the uses of the name at the caret; the key is left to the
-/// browser where there is none.
+/// `Shift+F12`: the uses of the name at the caret. Where the schema names
+/// keys, finding none says so; where it names none, the key is left to the
+/// browser.
 pub(super) fn find_uses(state: EditorState, event: &KeyboardEvent) -> bool {
     let shift_only =
         event.shift_key() && !event.ctrl_key() && !event.meta_key() && !event.alt_key();
-    if event.key() != "F12" || !shift_only || !state.find_uses() {
+    if event.key() != "F12" || !shift_only {
         return false;
+    }
+    if !state.find_uses() {
+        if !state.names_keys() {
+            return false;
+        }
+        state.say_no_uses();
     }
     event.prevent_default();
     true

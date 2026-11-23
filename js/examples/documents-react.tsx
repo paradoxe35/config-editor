@@ -6,10 +6,12 @@ import {
   type ConfigDocumentsHandle,
   type DocumentSpec,
   type EditorSettings,
+  type GoToDefinition,
+  type GoToUse,
 } from "@pngwasi/config-editor-react";
 import { loadConfigEditor } from "@pngwasi/config-editor";
 import { later } from "./echo-delay";
-import { findUses, keys, keyFiles, keyNames } from "./key-names.js";
+import { closedFile, findUses, keys, keyFiles, keyNames, reveal } from "./key-names.js";
 
 // The bundle does not sit next to the package's wasm, so say where it is.
 await loadConfigEditor({ module_or_path: "../config-editor/pkg/config_editor_bg.wasm" });
@@ -76,6 +78,13 @@ function App() {
     setFiles((list) => [...list, { id: `new${count}`, fileName: `conf.d/new-${count}.yaml`, value: "", schema }]);
   };
 
+  // A definition or use in a file that is not open: the host opens it.
+  const goTo = (target: GoToDefinition | GoToUse) => {
+    const file = closedFile(target.source, latest.current);
+    if (file) setFiles((list) => [...list, file]);
+    reveal(() => tabs.current, target);
+  };
+
   return (
     <>
       <header>
@@ -106,13 +115,19 @@ function App() {
         onSyncChange={(id, inSync) => note(`sync ${id} ${inSync}`)}
         onAdd={add}
         // `?keys`: the host's names of every file; a name no open file
-        // defines goes to the host.
+        // defines goes to the host, which opens its file there.
         {...(keys
           ? {
               keyNames,
-              onGoToDefinition: ({ name, source }) => note(`goto ${source} ${name}`),
+              onGoToDefinition: (target) => {
+                note(`goto ${target.source} ${target.name}`);
+                goTo(target);
+              },
               onFindUses: findUses,
-              onGoToUse: ({ source, path }) => note(`use ${source} ${path}`),
+              onGoToUse: (target) => {
+                note(`use ${target.source} ${target.path}`);
+                goTo(target);
+              },
             }
           : {})}
         onClose={({ id, dirty }) => {

@@ -241,5 +241,7 @@ test.describe('the suggestion list', () => {
     await page.keyboard.type('zz');
     await expect(page.locator('#listed .config-editor__announcement')).toHaveText(/^No suggestions/);
     expect(await page.evaluate(() => window.said.filter((text) => /^No suggestions/.test(text)).length)).toBeGreaterThanOrEqual(1);
+    // Only said: the tip at the caret is for Ctrl+Space finding nothing.
+    await expect(page.locator('#listed .config-editor__caret-notice')).toHaveCount(0);
   });
 });

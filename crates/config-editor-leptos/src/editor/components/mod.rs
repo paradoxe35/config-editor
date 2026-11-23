@@ -3,6 +3,7 @@
 
 mod announcer;
 mod baseline_notice;
+mod caret_notice;
 mod chrome;
 mod code;
 mod completions;
@@ -11,7 +12,6 @@ mod edit_as_notice;
 mod gutter;
 mod hover_card;
 mod problem_summary;
-mod read_only_notice;
 mod source;
 mod status_bar;
 mod toolbar;
@@ -19,6 +19,8 @@ mod uses_list;
 
 pub(super) use announcer::Announcer;
 pub(super) use baseline_notice::BaselineNotice;
+pub(in crate::editor) use caret_notice::CaretNotice;
+pub(super) use caret_notice::CaretNoticeView;
 pub use chrome::{ConfigEditorFooter, ConfigEditorToolbar};
 pub(super) use code::CodeLayer;
 pub(super) use completions::CompletionList;
@@ -26,7 +28,6 @@ pub(super) use diagnostics::{DiagnosticOverlay, ProblemTip};
 pub(super) use edit_as_notice::EditAsNotice;
 pub(super) use gutter::Gutter;
 pub(super) use hover_card::{HoverCard, HoverCardView};
-pub(super) use read_only_notice::ReadOnlyNotice;
 pub(super) use source::SourceInput;
 pub(super) use status_bar::StatusBar;
 pub(super) use toolbar::Toolbar;

@@ -1246,11 +1246,35 @@ export interface EditorStrings {
    */
   keyNameDefinedIn?: string;
   /**
-   * Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
+   * Said and shown at the caret for a moment when Ctrl+Space finds nothing to offer; said when typing empties a list opened with Ctrl+Space or moved in (a list that opened by itself closes silently).
    *
    * @default "No suggestions"
    */
   noSuggestions?: string;
+  /**
+   * Said and shown at the caret for a moment when F12 finds no definition of the word at the caret (where the schema names keys).
+   *
+   * @default "No definition for '{name}'"
+   */
+  noDefinitionFor?: string;
+  /**
+   * `no_definition_for` when there is no word at the caret.
+   *
+   * @default "No definition here"
+   */
+  noDefinitionHere?: string;
+  /**
+   * Said and shown at the caret for a moment when Shift+F12 finds nothing to list the uses of (where the schema names keys).
+   *
+   * @default "No uses of '{name}'"
+   */
+  noUsesOf?: string;
+  /**
+   * `no_uses_of` when there is no word at the caret.
+   *
+   * @default "No uses here"
+   */
+  noUsesHere?: string;
   /**
    * The hover card's link on a known name to its definition (shown on a use, not on the definition itself).
    *

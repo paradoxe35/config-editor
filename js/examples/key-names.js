@@ -88,6 +88,20 @@ export const keyNames = [
 ];
 
 /**
+ * The files on disk that are not open at first, their path as their id (as
+ * the host's names and uses give it): opened as a tab when the user goes to
+ * a definition or a use in one.
+ */
+export const closedFiles = [
+  {
+    id: "server.d/office.yaml",
+    fileName: "server.d/office.yaml",
+    value: "routes:\n  - path: /office\n    client: main\nclients:\n  office:\n    weight: 3\n",
+    schema: dropInSchema,
+  },
+];
+
+/**
  * The uses of a name in the files that are not open, as `onFindUses`
  * answers: late, as a host reading its disk or asking its server would.
  * `server.d/office.yaml` routes to `main`.
@@ -95,7 +109,40 @@ export const keyNames = [
 export function findUses({ name }) {
   const uses =
     name === "main"
-      ? [{ source: "server.d/office.yaml", path: "/routes/0/client", line: 5, text: "    client: main" }]
+      ? [{ source: "server.d/office.yaml", path: "/routes/0/client", line: 3, text: "    client: main" }]
       : [];
   return new Promise((resolve) => setTimeout(() => resolve(uses), 400));
+}
+
+/**
+ * The file to add to the open ones for a definition or a use in `source`
+ * (`onGoToDefinition`, `onGoToUse`), when it is a closed file the host has:
+ * a copy, which the host's list may change in place.
+ */
+export function closedFile(source, open) {
+  if (open.some((file) => file.id === source)) return undefined;
+  const file = closedFiles.find((candidate) => candidate.id === source);
+  return file && { ...file };
+}
+
+/** Where a go-to target points in its file: a use's path, or the key a definition names. */
+const pathOf = (target) =>
+  target.path ?? `${target.pointer}/${target.name.replace(/~/g, "~0").replace(/\//g, "~1")}`;
+
+/**
+ * Shows the file of `target` (`onGoToDefinition`'s, `onGoToUse`'s) and
+ * selects the field it points at, once the view lists the file (a
+ * framework renders a new file a little later). `view()` is the documents
+ * view, or a framework component's handle.
+ */
+export async function reveal(view, target) {
+  if (!target.source) return false;
+  let selected = false;
+  for (let frame = 0; frame < 120; frame += 1) {
+    const documents = view();
+    selected ||= Boolean(documents?.select(target.source));
+    if (selected && documents.editor(target.source)?.reveal(pathOf(target))) return true;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+  return false;
 }

@@ -8,10 +8,12 @@
     type ConfigDocumentsHandle,
     type DocumentSpec,
     type EditorSettings,
+    type GoToDefinition,
+    type GoToUse,
     type LanguageName,
   } from "@pngwasi/config-editor-svelte";
   import { later } from "../echo-delay";
-  import { findUses, keys, keyFiles, keyNames } from "../key-names.js";
+  import { closedFile, findUses, keys, keyFiles, keyNames, reveal } from "../key-names.js";
 
   let { schema }: { schema: string } = $props();
   // `?revisions`: each file keeps the revision `onChange` gave its value
@@ -92,6 +94,21 @@
     note(`add new${added}`);
     files.push({ id: `new${added}`, fileName: `conf.d/new-${added}.yaml`, value: "", schema: documentSchema });
   }
+  // `?keys`: a name no open file defines goes to the host, which opens its
+  // file there.
+  function goTo(target: GoToDefinition | GoToUse) {
+    const file = closedFile(target.source, files);
+    if (file) files.push(file);
+    reveal(() => (tabs ? asHandle(tabs) : null), target);
+  }
+  function onGoToDefinition(target: GoToDefinition) {
+    note(`goto ${target.source} ${target.name}`);
+    goTo(target);
+  }
+  function onGoToUse(target: GoToUse) {
+    note(`use ${target.source} ${target.path}`);
+    goTo(target);
+  }
   function onClose({ id, dirty }: CloseRequest) {
     if (dirty && !confirm(`Discard unsaved changes to ${id}?`)) return;
     files = files.filter((file) => file.id !== id);
@@ -114,8 +131,8 @@
   {onAdd}
   {onClose}
   keyNames={keys ? keyNames : undefined}
-  onGoToDefinition={keys ? ({ name, source }) => note(`goto ${source} ${name}`) : undefined}
+  onGoToDefinition={keys ? onGoToDefinition : undefined}
   onFindUses={keys ? findUses : undefined}
-  onGoToUse={keys ? ({ source, path }) => note(`use ${source} ${path}`) : undefined}
+  onGoToUse={keys ? onGoToUse : undefined}
 />
 <pre id="log">{log.join("\n")}</pre>

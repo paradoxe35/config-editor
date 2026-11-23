@@ -263,6 +263,51 @@ test.describe('find uses in one editor, vanilla.html', () => {
     await expect(rows(page)).toHaveCount(2);
     expect(errors).toEqual([]);
   });
+
+  // Where the schema names keys, F12 and Shift+F12 are the editor's keys:
+  // finding nothing says so at the caret (and to screen readers), and the
+  // browser never gets them (Chrome's F12 opens its developer tools).
+  test('F12 and Shift+F12 with nothing to find say so at the caret, never reaching the browser', async ({ page }) => {
+    const errors = await openEditor(page);
+    await page.evaluate(() => {
+      window.prevented = [];
+      document.addEventListener('keydown', (event) => event.key === 'F12' && window.prevented.push(event.defaultPrevented));
+    });
+    const notice = page.locator('.config-editor__caret-notice');
+    await caretOn(page, 'note', 0, 2);
+    await page.keyboard.press('F12');
+    await expect(notice).toHaveText("No definition for 'note'");
+    await expect(notice).toBeVisible();
+    await expect(said(page)).toHaveText(/^No definition for 'note'/);
+    await page.keyboard.press('Shift+F12');
+    await expect(notice).toHaveText("No uses of 'note'");
+    await expect(list(page)).toHaveCount(0);
+    // The next key puts it away.
+    await page.keyboard.press('ArrowRight');
+    await expect(notice).toHaveCount(0);
+    // No word at the caret.
+    await caretOn(page, 'default_client: ', 0, 'default_client:'.length);
+    await page.keyboard.press('F12');
+    await expect(notice).toHaveText('No definition here');
+    expect(await page.evaluate(() => window.prevented)).toEqual([true, true, true]);
+    expect(errors).toEqual([]);
+  });
+
+  test('without key names in the schema, F12 is left to the browser', async ({ page }) => {
+    const errors = await openEditor(page, {
+      schema: JSON.stringify({ type: 'object', properties: { note: { type: 'string' } } }),
+    });
+    await page.evaluate(() => {
+      window.prevented = [];
+      document.addEventListener('keydown', (event) => event.key === 'F12' && window.prevented.push(event.defaultPrevented));
+    });
+    await caretOn(page, 'note', 0, 2);
+    await page.keyboard.press('F12');
+    await page.keyboard.press('Shift+F12');
+    expect(await page.evaluate(() => window.prevented)).toEqual([false, false]);
+    await expect(page.locator('.config-editor__caret-notice')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
 });
 
 test.describe('find uses on a phone, vanilla.html', () => {
@@ -338,6 +383,14 @@ for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORK_PAGES]) {
       await page.keyboard.press('ArrowDown');
       await page.keyboard.press('Enter');
       await expect(page.locator('#log')).toContainText('use server.d/office.yaml /routes/0/client');
+      // The host opens that file as a tab, there.
+      const office = 'server.d/office.yaml';
+      await expect(tab(page, office)).toHaveAttribute('aria-selected', 'true');
+      await expect
+        .poll(() =>
+          input(page, office).evaluate((element) => element.value.slice(element.selectionStart, element.selectionEnd)),
+        )
+        .toContain('main');
       expect(errors).toEqual([]);
     });
   });

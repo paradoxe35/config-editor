@@ -334,3 +334,48 @@ fn a_name_in_an_item_on_one_line_is_hovered_gone_to_and_searched() {
         }
     }
 }
+
+/// Where the schema names keys, `F12` and `Shift+F12` on no name say so at
+/// the caret (they are the editor's keys there); where it names none,
+/// they are not the editor's.
+#[test]
+fn finding_nothing_says_so_at_the_caret_where_the_schema_names_keys() {
+    let (_owner, state, _) = mounted(TEXT);
+    assert!(state.names_keys());
+    let on_port = TEXT.find("port").unwrap() + 2;
+    state.doc().caret.set(text_size(on_port));
+    assert!(!state.go_to_definition());
+    state.say_no_definition();
+    let notice = state.a11y().caret_notice.get_untracked().expect("a notice");
+    assert_eq!(notice.message, "No definition for 'port'");
+    assert!(!notice.refused);
+    assert_eq!(
+        state
+            .a11y()
+            .announcement
+            .get_untracked()
+            .trim_end_matches('\u{a0}'),
+        "No definition for 'port'"
+    );
+    assert!(!state.find_uses());
+    state.say_no_uses();
+    let notice = state.a11y().caret_notice.get_untracked().expect("a notice");
+    assert_eq!(notice.message, "No uses of 'port'");
+    // No word at the caret.
+    state
+        .doc()
+        .caret
+        .set(text_size(TEXT.find(": 80").unwrap() + 1));
+    state.say_no_definition();
+    let notice = state.a11y().caret_notice.get_untracked().expect("a notice");
+    assert_eq!(notice.message, "No definition here");
+    state.hide_caret_notice();
+    assert_eq!(state.a11y().caret_notice.get_untracked(), None);
+
+    let mut editor = TestEditor::new(Language::YAML, TEXT);
+    editor.schema = Some(Arc::new(
+        build_schema(r#"{"properties": {"port": {"type": "integer"}}}"#).expect("compiles"),
+    ));
+    let (_owner, state) = editor.mount();
+    assert!(!state.names_keys());
+}

@@ -31,7 +31,7 @@ pub(super) use caret_note::{
 };
 pub(super) use focus::{focus_keys, toggle_tab_focus};
 pub(super) use shortcuts::connect_shortcuts;
-pub(super) use suggestions::{connect_suggestions, say_no_suggestions, say_no_suggestions_after};
+pub(super) use suggestions::{connect_suggestions, say_no_suggestions_after, show_no_suggestions};
 pub(super) use texts::{hover_text, problem_announcement, problem_marker, severity_name};
 
 use leptos::prelude::*;
@@ -52,8 +52,9 @@ pub(super) struct A11yState {
     pub(super) note_timer: StoredValue<crate::reactive::later::Timeout>,
     /// Distinguishes this editor's elements from other editors'.
     pub(super) id: usize,
-    /// Where the read-only editor's notice shows (see `note_read_only`).
-    pub(super) read_only_notice: RwSignal<Option<usize>>,
+    /// The short notice at the caret, while it shows (see
+    /// `show_caret_notice`).
+    pub(super) caret_notice: RwSignal<Option<super::components::CaretNotice>>,
     /// The timer that puts the notice away.
     pub(super) notice_timer: StoredValue<crate::reactive::later::Timeout>,
 }
@@ -69,7 +70,7 @@ impl A11yState {
             caret_note: RwSignal::new(String::new()),
             note_timer: StoredValue::new(Default::default()),
             id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            read_only_notice: RwSignal::new(None),
+            caret_notice: RwSignal::new(None),
             notice_timer: StoredValue::new(Default::default()),
         }
     }

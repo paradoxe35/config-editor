@@ -104,7 +104,7 @@ for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORK_PAGES]) {
       expect(errors).toEqual([]);
     });
 
-    test('go to definition of a name only the host knows asks the host', async ({ page }) => {
+    test('go to definition of a name only the host knows asks the host, which opens its file there', async ({ page }) => {
       const errors = await open(page, name);
       await caretAfter(page, SERVER, 'default_client: ');
       await page.keyboard.type('office');
@@ -112,7 +112,14 @@ for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORK_PAGES]) {
       await page.keyboard.press('ArrowLeft');
       await page.keyboard.press('F12');
       await expect(page.locator('#log')).toContainText('goto server.d/office.yaml office');
-      await expect(tab(page, SERVER)).toHaveAttribute('aria-selected', 'true');
+      // The host opens that file as a tab, on the key.
+      const office = 'server.d/office.yaml';
+      await expect(tab(page, office)).toHaveAttribute('aria-selected', 'true');
+      await expect
+        .poll(() =>
+          input(page, office).evaluate((element) => element.value.slice(element.selectionStart, element.selectionEnd)),
+        )
+        .toContain('office');
       expect(errors).toEqual([]);
     });
   });

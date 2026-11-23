@@ -23,7 +23,7 @@
     </main>
     <script type="module">
       import { ConfigDocuments, loadConfigEditor } from "../config-editor/index.js";
-      import { findUses, keys, keyFiles, keyNames } from "./key-names.js";
+      import { closedFile, findUses, keys, keyFiles, keyNames, reveal } from "./key-names.js";
 
       await loadConfigEditor();
       const schema = await (await fetch("../../schema.json")).text();
@@ -65,13 +65,19 @@
         onSyncChange: (id, inSync) => log(`sync ${id} ${inSync}`),
         onAdd: add,
         // `?keys`: the host's names of every file, and the names no open
-        // file defines go to the host.
+        // file defines go to the host, which opens their file there.
         ...(keys
           ? {
               keyNames,
-              onGoToDefinition: ({ name, source }) => log(`goto ${source} ${name}`),
+              onGoToDefinition: (target) => {
+                log(`goto ${target.source} ${target.name}`);
+                goTo(target);
+              },
               onFindUses: findUses,
-              onGoToUse: ({ source, path }) => log(`use ${source} ${path}`),
+              onGoToUse: (target) => {
+                log(`use ${target.source} ${target.path}`);
+                goTo(target);
+              },
             }
           : {}),
         onClose: ({ id, dirty }) => {
@@ -80,6 +86,15 @@
           view.update({ documents: files });
         },
       });
+      // A definition or use in a file that is not open: the host opens it.
+      function goTo(target) {
+        const file = closedFile(target.source, files);
+        if (file) {
+          files = [...files, file];
+          view.update({ documents: files });
+        }
+        reveal(() => view, target);
+      }
       document.getElementById("save-all").addEventListener("click", () => view.saveAll());
       window.documentsView = view;
       // For tests: a document's own fields, as the host would change them.

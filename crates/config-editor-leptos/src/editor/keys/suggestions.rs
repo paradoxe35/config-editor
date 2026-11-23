@@ -29,15 +29,15 @@ pub(super) fn request(state: EditorState, event: &KeyboardEvent) -> bool {
         replace_word,
         heeded: true,
     });
-    // The user asked: nothing to offer is said, with the reason shown where
-    // the text is protected (a read-only value, a secret placeholder). That
-    // refusal ends the request: the caret moving on to other lines opens
-    // no list there.
+    // The user asked: nothing to offer is said and shown at the caret, with
+    // the reason where the text is protected (a read-only value, a secret
+    // placeholder). That refusal ends the request: the caret moving on to
+    // other lines opens no list there.
     if state.completion().suggestions.with_untracked(Vec::is_empty) {
         if super::super::a11y::show_protected_at_caret(state) {
             state.close_suggestions();
         } else {
-            super::super::a11y::say_no_suggestions(state);
+            super::super::a11y::show_no_suggestions(state);
         }
     }
     true

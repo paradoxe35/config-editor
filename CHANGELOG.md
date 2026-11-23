@@ -23,6 +23,24 @@ versions move together.
   it fades in (not with reduced motion) and goes when the pointer leaves
   the text. A refused edit's tip and `Ctrl+K Ctrl+I` still show at once.
 
+### Changed
+
+- `F12` and `Shift+F12` that find nothing at the caret now say so there
+  for a moment ("No definition for 'listen'", "No uses of 'listen'", "No
+  definition here"), to screen readers too, in an editor whose schema
+  names keys (`x-config-editor-keys`); there the key no longer reaches the
+  browser (Chrome's `F12` opened its developer tools). Elsewhere `F12` is
+  left to the browser as before. New strings: `noDefinitionFor`,
+  `noDefinitionHere`, `noUsesOf`, `noUsesHere`.
+
+- `Ctrl+Space` with nothing to suggest now also shows "No suggestions" at
+  the caret for a moment (it was only said to screen readers), as VS Code
+  does. A list emptied by typing still closes without a tip.
+
+- The documents example pages (`?keys`) open a file that is not open as a
+  tab when a definition or a use in it is chosen, and go there (they only
+  logged it).
+
 ### Fixed
 
 - A host's own change (`applyChanges`) made while the save is held (a key

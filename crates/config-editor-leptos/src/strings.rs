@@ -508,8 +508,16 @@ pub struct EditorStrings {
     pub key_name_detail: String,
     /// The hover card's line on a value that is a known name: where it is defined.
     pub key_name_defined_in: String,
-    /// Said when Ctrl+Space finds nothing to offer, and when typing empties a list opened with Ctrl+Space or moved in; a list that opened by itself closes silently.
+    /// Said and shown at the caret for a moment when Ctrl+Space finds nothing to offer; said when typing empties a list opened with Ctrl+Space or moved in (a list that opened by itself closes silently).
     pub no_suggestions: String,
+    /// Said and shown at the caret for a moment when F12 finds no definition of the word at the caret (where the schema names keys).
+    pub no_definition_for: String,
+    /// `no_definition_for` when there is no word at the caret.
+    pub no_definition_here: String,
+    /// Said and shown at the caret for a moment when Shift+F12 finds nothing to list the uses of (where the schema names keys).
+    pub no_uses_of: String,
+    /// `no_uses_of` when there is no word at the caret.
+    pub no_uses_here: String,
     /// The hover card's link on a known name to its definition (shown on a use, not on the definition itself).
     pub definition_link: String,
     /// The accessible name and tooltip of the hover card's Definition link.
@@ -963,6 +971,10 @@ impl Default for EditorStrings {
             key_name_detail: text("{source} · {detail}"),
             key_name_defined_in: text("defined in {source}"),
             no_suggestions: text("No suggestions"),
+            no_definition_for: text("No definition for '{name}'"),
+            no_definition_here: text("No definition here"),
+            no_uses_of: text("No uses of '{name}'"),
+            no_uses_here: text("No uses here"),
             definition_link: text("Definition"),
             definition_link_label: text("Go to definition (F12)"),
             uses_link: text("Uses"),

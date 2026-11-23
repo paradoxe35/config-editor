@@ -5,11 +5,13 @@ import {
   type ConfigDocumentsHandle,
   type DocumentSpec,
   type EditorSettings,
+  type GoToDefinition,
+  type GoToUse,
   type LanguageName,
 } from "@pngwasi/config-editor-vue";
 import { loadConfigEditor } from "@pngwasi/config-editor";
 import { later } from "./echo-delay";
-import { findUses, keys, keyFiles, keyNames } from "./key-names.js";
+import { closedFile, findUses, keys, keyFiles, keyNames, reveal } from "./key-names.js";
 
 // The same page as documents-react.html, for the same tests. The documents
 // live in a reactive array the handlers change in place, as Vue apps do.
@@ -64,17 +66,29 @@ const App = defineComponent({
         },
       },
     });
+    // A definition or use in a file that is not open: the host opens it.
+    const goTo = (target: GoToDefinition | GoToUse) => {
+      const file = closedFile(target.source, files.value);
+      if (file) files.value.push(file);
+      reveal(() => tabs.value, target);
+    };
     return {
       files,
       // `?keys`: the host's names of every file; a name no open file
-      // defines goes to the host.
+      // defines goes to the host, which opens its file there.
       keyNames: keys ? keyNames : undefined,
       onGoToDefinition: keys
-        ? ({ name, source }: { name: string; source: string | null }) => note(`goto ${source} ${name}`)
+        ? (target: GoToDefinition) => {
+            note(`goto ${target.source} ${target.name}`);
+            goTo(target);
+          }
         : undefined,
       onFindUses: keys ? findUses : undefined,
       onGoToUse: keys
-        ? ({ source, path }: { source: string; path: string }) => note(`use ${source} ${path}`)
+        ? (target: GoToUse) => {
+            note(`use ${target.source} ${target.path}`);
+            goTo(target);
+          }
         : undefined,
       log,
       tabs,

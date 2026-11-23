@@ -125,7 +125,7 @@ for (const [language, typed] of NOTHING_TO_OFFER) {
   test.describe(`${language}: Ctrl+Space with nothing to offer`, () => {
     setupEditor(test, `?language=${language}&schema=help`);
 
-    test('says "No suggestions"', async ({ page }) => {
+    test('says "No suggestions" and shows it at the caret for a moment', async ({ page }) => {
       await input(page).click();
       await page.keyboard.press('Control+End');
       await page.keyboard.type(typed);
@@ -133,6 +133,11 @@ for (const [language, typed] of NOTHING_TO_OFFER) {
       await page.keyboard.press('Control+Space');
       await expect(page.locator('.config-editor__completion')).toHaveCount(0);
       await expect(said(page)).toHaveText(/^No suggestions ?$/);
+      const notice = page.locator('.config-editor__caret-notice');
+      await expect(notice).toBeVisible();
+      await expect(notice).toHaveText('No suggestions');
+      // Gone after its moment.
+      await expect(notice).toHaveCount(0, { timeout: 5000 });
     });
   });
 }
@@ -145,6 +150,7 @@ test.describe('Ctrl+Space with something to offer', () => {
     await page.keyboard.press('Control+Space');
     await expect(page.locator('.config-editor__completion').first()).toBeVisible();
     await expect(said(page)).not.toHaveText(/No suggestions/);
+    await expect(page.locator('.config-editor__caret-notice')).toHaveCount(0);
   });
 });
 

@@ -60,7 +60,7 @@ use When::*;
 pub(super) const KEYS: &[Row] = &[
     row(
         "`Ctrl+Space`",
-        "Open suggestions (with schema examples)",
+        "Open suggestions (with schema examples); with none, says so at the caret",
         &[Suggestions],
     ),
     row(
@@ -128,12 +128,12 @@ pub(super) const KEYS: &[Row] = &[
     row("`F8` / `Shift+F8`", "Next / previous problem", &[Problems]),
     row(
         "`F12`",
-        "Go to the definition of the name at the caret (a field's `x-config-editor-keys`; `Ctrl+click` too): its key, else the host opens its source",
+        "Go to the definition of the name at the caret (a field's `x-config-editor-keys`; `Ctrl+click` too): its key, else the host opens its source; with none, says so at the caret",
         &[Always],
     ),
     row(
         "`Shift+F12`",
-        "Find the uses of the name at the caret (or of the key defining it), grouped by file: `↑` `↓` move, `Enter` goes there, `Escape` closes",
+        "Find the uses of the name at the caret (or of the key defining it), grouped by file: `↑` `↓` move, `Enter` goes there, `Escape` closes; with no name, says so at the caret",
         &[Always],
     ),
     row(

@@ -1634,7 +1634,8 @@
 }
 
 :not(#\#):not(#\#) .config-editor__protect-tip,
-:not(#\#):not(#\#) .config-editor__read-only-notice {
+:not(#\#):not(#\#) .config-editor__read-only-notice,
+:not(#\#):not(#\#) .config-editor__caret-notice {
   position: fixed;
   z-index: 61;
   width: max-content;

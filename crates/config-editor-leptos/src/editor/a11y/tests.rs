@@ -635,7 +635,7 @@ fn every_edit_refused_in_a_read_only_editor_says_so() {
             ((0, 5), "// first\nsecond\n", 8),
         ] {
             state.a11y().announcement.set(String::new());
-            state.hide_read_only_notice();
+            state.hide_caret_notice();
             let edit = Edit::new_units(text.into(), selection, updated.into(), caret);
             assert!(!state.commit(edit), "{language:?}");
             assert_eq!(state.doc().text.get_untracked(), text, "{language:?}");
@@ -645,7 +645,11 @@ fn every_edit_refused_in_a_read_only_editor_says_so() {
                 "{language:?} {updated:?}"
             );
             assert!(
-                state.a11y().read_only_notice.get_untracked().is_some(),
+                state
+                    .a11y()
+                    .caret_notice
+                    .get_untracked()
+                    .is_some_and(|notice| notice.refused),
                 "{language:?}"
             );
         }

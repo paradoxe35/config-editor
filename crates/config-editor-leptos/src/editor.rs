@@ -136,8 +136,8 @@ use crate::EditorSettings;
 use crate::cssom::cssom;
 use changes::DiffPeekPopup;
 use components::{
-    Announcer, BaselineNotice, CodeLayer, CompletionList, DiagnosticOverlay, EditAsNotice, Gutter,
-    HoverCardView, ProblemTip, ReadOnlyNotice, SourceInput, StatusBar, Toolbar, UsesListView,
+    Announcer, BaselineNotice, CaretNoticeView, CodeLayer, CompletionList, DiagnosticOverlay,
+    EditAsNotice, Gutter, HoverCardView, ProblemTip, SourceInput, StatusBar, Toolbar, UsesListView,
 };
 use fill::FillProbe;
 use positioning::frame_probe_style;
@@ -577,7 +577,7 @@ pub fn ConfigEditor(
                         <HoverCardView state=state />
                         <ProblemTip state=state />
                         <ProtectTipView state=state />
-                        <ReadOnlyNotice state=state />
+                        <CaretNoticeView state=state />
                         <CompletionList state=state />
                         <UsesListView state=state />
                         <Kept when=shown.search view=move || view! { <FindWidget state=state /> } />

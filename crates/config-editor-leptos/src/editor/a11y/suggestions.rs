@@ -82,9 +82,16 @@ pub(in crate::editor) fn say_no_suggestions_after(state: EditorState, listed: bo
     }
 }
 
-/// Says there is nothing to suggest: `Ctrl+Space` found nothing, or typing
-/// emptied a list the user asked for.
-pub(in crate::editor) fn say_no_suggestions(state: EditorState) {
+/// Says there is nothing to suggest: typing emptied a list the user asked
+/// for.
+fn say_no_suggestions(state: EditorState) {
     let said = state.strings_untracked(|strings| strings.no_suggestions.clone());
     state.a11y().announce(said);
+}
+
+/// `Ctrl+Space` found nothing to suggest: says so, and shows it at the
+/// caret for a moment (the key did something visible).
+pub(in crate::editor) fn show_no_suggestions(state: EditorState) {
+    let said = state.strings_untracked(|strings| strings.no_suggestions.clone());
+    state.note_nothing_found(said);
 }

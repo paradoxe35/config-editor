@@ -74,7 +74,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
     }
     state.protect().hide_tip(false);
     if !matches!(event.key().as_str(), "Shift" | "Control" | "Alt" | "Meta") {
-        state.hide_read_only_notice();
+        state.hide_caret_notice();
     }
     // A page key keeps the column it paged from only from where it left
     // the caret, and only until another key moves it there.
@@ -135,11 +135,18 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
 }
 
 /// `F12`: to the definition of the known name at the caret (see
-/// `key_names`); the key is left to the browser where there is none.
+/// `key_names`). Where the schema names keys, finding none says so; where
+/// it names none, the key is left to the browser.
 fn go_to_definition(state: EditorState, event: &KeyboardEvent) -> bool {
     let plain = !event.ctrl_key() && !event.meta_key() && !event.alt_key() && !event.shift_key();
-    if event.key() != "F12" || !plain || !state.go_to_definition() {
+    if event.key() != "F12" || !plain {
         return false;
+    }
+    if !state.go_to_definition() {
+        if !state.names_keys() {
+            return false;
+        }
+        state.say_no_definition();
     }
     event.prevent_default();
     true
