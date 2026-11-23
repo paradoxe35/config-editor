@@ -60,6 +60,26 @@ fn the_stacks_keep_the_latest_places_up_to_the_cap() {
     assert_eq!(gone_back.last(), Some(&TextSize::from(10)));
 }
 
+/// Memory: the stacks hold the same buffers from the first jump on, so a
+/// long session of jumps keeps nothing more once it reached the cap.
+#[test]
+fn the_stacks_take_their_room_once_and_keep_it() {
+    let mut trail = Trail::default();
+    trail.leave(at(1, 0));
+    assert!(trail.back(at(1, 1), any).is_some());
+    let room = (trail.back.capacity(), trail.forward.capacity());
+    assert!(room.0 >= CAP && room.1 >= CAP);
+    let count = u32::try_from(CAP).unwrap() * 3;
+    for caret in 0..count {
+        trail.leave(at(1, caret));
+        if caret % 7 == 0 {
+            trail.back(at(1, caret + 1), any);
+            trail.forward(at(1, caret), any);
+        }
+    }
+    assert_eq!((trail.back.capacity(), trail.forward.capacity()), room);
+}
+
 #[test]
 fn leaving_the_same_selection_twice_keeps_one_place() {
     let mut trail = Trail::default();
@@ -117,4 +137,16 @@ fn places_of_a_gone_editor_are_skipped_and_forgotten() {
     assert_eq!(trail.back(at(1, 50), alive), Some(at(1, 5)));
     trail.forget(1);
     assert!(!trail.can_forward(at(3, 0), any));
+}
+
+#[test]
+fn keep_drops_the_places_of_editors_not_listed() {
+    let mut trail = Trail::default();
+    trail.leave(at(1, 5));
+    trail.leave(at(2, 8));
+    trail.leave(at(1, 9));
+    assert_eq!(trail.back(at(1, 50), any), Some(at(1, 9)));
+    trail.keep(|editor| editor == 1);
+    assert_eq!(trail.back.as_slice(), &[at(1, 5)]);
+    assert_eq!(trail.forward.as_slice(), &[at(1, 50)]);
 }

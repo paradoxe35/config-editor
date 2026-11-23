@@ -71,13 +71,18 @@ pub(crate) enum Direction {
 
 impl EditorState {
     /// Lists the editor in its history once it is made; `handle` shows it
-    /// when going back to it from another editor.
+    /// when going back to it from another editor. The editors gone by now
+    /// leave the list, and their places the trail.
     pub(super) fn join_history(self, handle: Option<EditorHandle>) {
         let link = self.back_forward();
         link.shared.update_value(|navigation| {
             navigation
                 .members
                 .retain(|member| member.state.is_alive() && member.key != link.key);
+            let members = &navigation.members;
+            navigation.trail.keep(|editor| {
+                editor == link.key || members.iter().any(|member| member.key == editor)
+            });
             navigation.members.push(Member {
                 key: link.key,
                 state: self,

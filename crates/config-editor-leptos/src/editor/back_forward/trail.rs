@@ -118,18 +118,31 @@ impl Trail {
         self.back.retain(|spot| spot.editor != editor);
         self.forward.retain(|spot| spot.editor != editor);
     }
+
+    /// Keeps only the places of the editors `listed` takes.
+    pub(super) fn keep(&mut self, listed: impl Fn(u64) -> bool) {
+        self.back.retain(|spot| listed(spot.editor));
+        self.forward.retain(|spot| listed(spot.editor));
+    }
 }
 
 /// Pushes `spot` onto `stack`, replacing a top with the same selection, and
 /// keeping at most [`CAP`] places.
+///
+/// The first push takes room for all [`CAP`] places at once: a stack that
+/// grew by doubling as it filled would keep a larger buffer after every few
+/// dozen jumps, which reads as memory kept by each jump until the cap.
 fn push(stack: &mut Vec<Spot>, spot: Spot) {
     if stack.last().is_some_and(|top| top.same(&spot)) {
         stack.pop();
     }
-    stack.push(spot);
-    if stack.len() > CAP {
+    if stack.len() == CAP {
         stack.remove(0);
     }
+    if stack.capacity() < CAP {
+        stack.reserve_exact(CAP - stack.len());
+    }
+    stack.push(spot);
 }
 
 /// Takes the latest usable place of `from` that is not `here`, pushing
