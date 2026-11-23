@@ -86,7 +86,13 @@ impl Sticky {
         let sticky = Self { scopes, layout };
         sync_rows(state, rows, sticky);
         keep_caret_clear(state, sticky);
+        state.fold().sticky.set_value(Some(sticky));
         sticky
+    }
+
+    /// How far down the lines drawn cover the text area, in pixels.
+    pub(super) fn covered(self) -> f64 {
+        self.layout.with_untracked(|layout| layout.height)
     }
 
     /// The lines drawn, as `(depth, line)` (tracked).

@@ -6,7 +6,7 @@ use leptos::prelude::*;
 use super::super::fold_ranges::FoldRange;
 use super::super::history::{Made, Record, Selection, Snapshot, ViewState};
 use super::super::languages::Language;
-use super::super::positioning::set_caret_visible;
+use super::super::positioning::{reveal_jump, set_caret_visible};
 use super::super::state::{EditorState, directed_selection, select};
 use super::super::text::TextSize;
 use super::{After, Assoc, Change, Edit, Origin};
@@ -258,10 +258,18 @@ impl EditorState {
                     self.note_caret(caret);
                     return (anchor, caret);
                 };
+                // Undo and redo bring back a change made anywhere: shown as
+                // a jump is, centered unless comfortably in view, never at
+                // an edge where it goes unnoticed (as VS Code does).
+                let stepped = matches!(edit.origin, Origin::Undo | Origin::Redo);
                 if reveal {
-                    self.doc()
-                        .text
-                        .with_untracked(|text| set_caret_visible(&area, text, caret));
+                    self.doc().text.with_untracked(|text| {
+                        if stepped {
+                            reveal_jump(&area, text, caret, 0.0);
+                        } else {
+                            set_caret_visible(&area, text, caret);
+                        }
+                    });
                 }
                 // The text between the anchor and the caret stays selected,
                 // the caret at its own end.

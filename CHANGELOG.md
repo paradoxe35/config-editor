@@ -56,6 +56,10 @@ versions move together.
   arrows, page keys, folding and clicks still scroll as little as they can.
 - Go to definition selects the defining key, as going to a use selects
   the use.
+- Undo and redo bring the change back into view as a jump does: centered
+  when it is out of view or near an edge, no longer the top row under the
+  sticky lines; a change well in view does not scroll. Jumps count the
+  sticky lines as part of the top edge.
 
 ### Fixed
 

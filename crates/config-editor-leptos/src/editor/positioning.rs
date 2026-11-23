@@ -408,7 +408,8 @@ const JUMP_EDGE_LINES: f64 = 3.0;
 /// Scrolls byte `offset` into view after a jump (go to definition, a use, a
 /// problem, a line, a change, a find match, the host's `reveal`), as VS Code
 /// reveals: left alone when comfortably in view, else its line centered.
-/// `top_inset` pixels at the top are covered (the find widget).
+/// `top_inset` pixels at the top are covered (the find widget); the sticky
+/// lines' cover counts too.
 pub(super) fn reveal_jump(editor: &SourceArea, text: &str, offset: TextSize, top_inset: f64) {
     let offset = offset.min(TextSize::of(text));
     let line = editor.row_of_line(line_at(text, offset)) as f64;
@@ -420,7 +421,9 @@ pub(super) fn reveal_jump(editor: &SourceArea, text: &str, offset: TextSize, top
         line_height: metrics.line_height,
         scroll_top: f64::from(editor.scroll_top()),
         height: client_height,
-        top_inset: top_inset.max(metrics.padding_top),
+        top_inset: top_inset
+            .max(metrics.padding_top)
+            .max(editor.state().sticky_inset()),
         bottom_inset: padding_bottom(target),
         max_scroll: (f64::from(editor.scroll_height()) - client_height).max(0.0),
     });

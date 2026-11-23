@@ -19,6 +19,10 @@ impl EditorState {
         f(&[])
     }
 
+    pub(super) fn sticky_inset(&self) -> f64 {
+        0.0
+    }
+
     pub(super) fn foldable_untracked(&self) -> Vec<FoldRange> {
         Vec::new()
     }

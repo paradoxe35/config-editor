@@ -74,6 +74,8 @@ pub(crate) struct FoldState {
     /// The closed folds before an editing key opened some for its edit:
     /// put back if the edit is then refused (a read-only value).
     pub(crate) before_edit: StoredValue<Option<Vec<FoldRange>>>,
+    /// The sticky lines, once mounted: what they cover is a jump's inset.
+    sticky: StoredValue<Option<sticky::Sticky>>,
 }
 
 impl FoldState {
@@ -106,6 +108,7 @@ impl FoldState {
             fold_ranges,
             blocks,
             before_edit: StoredValue::new(None),
+            sticky: StoredValue::new(None),
         }
     }
 }
@@ -119,6 +122,15 @@ impl EditorState {
     /// Calls `f` with the closed folds, sorted (untracked).
     pub(super) fn with_closed_folds_untracked<R>(&self, f: impl FnOnce(&[FoldRange]) -> R) -> R {
         self.fold().folded.with_untracked(|folds| f(folds))
+    }
+
+    /// How far down the sticky lines cover the text area now, in pixels
+    /// (0 with none drawn).
+    pub(super) fn sticky_inset(&self) -> f64 {
+        self.fold()
+            .sticky
+            .get_value()
+            .map_or(0.0, sticky::Sticky::covered)
     }
 
     /// What can fold in the text on screen (untracked).
