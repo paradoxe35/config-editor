@@ -131,6 +131,15 @@ classifier="x">`) is a problem (new string `xsd_element_as_attribute`),
   `(value, revision)`. The React Ref section shows `applyChanges`; the
   React snippets and the Svelte "Saving" example type-check as written.
 
+### Known limits
+
+- Text committed by an input method (IME: Chinese, Japanese, Korean) in a
+  document of several thousand lines takes longer per insertion the further
+  down the caret is: Chrome's own work for an insertion into a large text
+  area grows with the lines above it (a plain `<textarea>` shows the same).
+  The editor's own work per key stays linear. Ordinary typing is not
+  affected.
+
 ## 0.2.2 — 2026-11-22
 
 ### Find uses
