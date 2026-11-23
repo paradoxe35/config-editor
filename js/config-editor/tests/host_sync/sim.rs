@@ -9,7 +9,8 @@
 
 use leptos_config_editor::RangesFor;
 use leptos_config_editor::js_support::{
-    Echo, HostChannel, HostUpdate, List, Listed, Reading, echo_clock as clock, statement_of,
+    AnchorError, Echo, HostChannel, HostUpdate, List, Listed, Reading, echo_clock as clock,
+    statement_of,
 };
 
 use crate::host::{HostDoc, Queued};
@@ -180,7 +181,13 @@ impl DocSim {
         if std::env::var_os("HOST_SYNC_TRACE").is_some() {
             eprintln!("  update {value:?} over {latest:?}: {taken:?}");
         }
-        if !taken.warnings.is_empty() && taken.ranges {
+        // A range cutting a word of a text naming none is only told, and
+        // taken: the warning for a list that could not be read is the class.
+        let unread = taken
+            .warnings
+            .iter()
+            .any(|warning| !matches!(warning, AnchorError::CutsWord { .. }));
+        if unread && taken.ranges {
             return Err(Failure::new(
                 Class::AnchorOutOfDateTaken,
                 format!("{:?} with {taken:?}", taken.warnings),

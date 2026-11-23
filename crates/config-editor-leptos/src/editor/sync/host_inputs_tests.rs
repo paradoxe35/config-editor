@@ -415,3 +415,75 @@ fn a_text_no_host_heard_stays_while_a_list_names_it() {
     assert_eq!(link.log.named(revision), super::Named::Kept);
     assert_eq!(locked(&link), ["b: 2"]);
 }
+
+/// A host's own new text with its ranges, naming no text (`ranges_for`,
+/// `value_revision` left out).
+fn own_text_with(link: &mut Link, value: &str, items: Vec<Lines>) -> super::Taken {
+    take(
+        link,
+        HostUpdate {
+            value: Some(value.to_string()),
+            ranges: Some(Listed::new(items)),
+            ..HostUpdate::default()
+        },
+        LOADED,
+    )
+}
+
+const OWN: &str = "name: demo\npublic_address: x\n";
+
+#[test]
+fn ranges_cutting_a_word_of_an_unnamed_own_text_are_taken_with_a_warning() {
+    let mut link = loaded();
+    let lic = on(2, 4, 7);
+    let taken = own_text_with(&mut link, OWN, vec![on(1, 1, 5), lic]);
+    assert_eq!(taken.warnings, [AnchorError::CutsWord { range: lic }]);
+    assert!(taken.warnings[0].is_warning());
+    let said = taken.warnings[0].to_string();
+    assert!(said.contains("2:4-2:7"), "{said}");
+    assert!(
+        said.contains("rangesFor") && said.contains("valueRevision"),
+        "{said}"
+    );
+    assert!(said.contains("Hosts that echo"), "{said}");
+    // Nothing else changes: read in the value, as before.
+    assert_eq!(locked(&link), ["name", "lic"]);
+}
+
+#[test]
+fn ranges_on_whole_words_or_naming_their_text_warn_nothing() {
+    // Whole words.
+    let mut link = loaded();
+    let taken = own_text_with(&mut link, OWN, vec![on(2, 1, 15), on(1, 7, 11)]);
+    assert_eq!(taken.warnings, []);
+    // Mid word, the text named.
+    let mut link = loaded();
+    let taken = take(
+        &mut link,
+        HostUpdate {
+            value: Some(OWN.to_string()),
+            ranges: Some(Listed::new(vec![on(2, 4, 7)])),
+            ranges_for: Some(RangesFor::Text(Arc::from(OWN))),
+            ..HostUpdate::default()
+        },
+        LOADED,
+    );
+    assert_eq!(taken.warnings, []);
+    assert_eq!(locked(&link), ["lic"]);
+}
+
+#[test]
+fn ranges_cutting_a_word_of_an_echo_warn_nothing() {
+    let mut link = loaded();
+    let (sent, _) = typed_and_sent(&mut link, 3, 4, "public_address");
+    let taken = take(
+        &mut link,
+        HostUpdate {
+            value: Some(sent.clone()),
+            ranges: Some(Listed::new(vec![on(1, 6, 9)])),
+            ..HostUpdate::default()
+        },
+        &sent,
+    );
+    assert_eq!(taken.warnings, []);
+}

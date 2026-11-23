@@ -51,6 +51,8 @@ pub(crate) struct UsesList {
     pub(crate) searching: bool,
     /// The host searches files beyond the open ones (`on_find_uses`).
     pub(crate) host_searches: bool,
+    /// The host's search failed: its files' uses are not known.
+    pub(crate) host_failed: bool,
     /// Which request it answers: a host's answer to another is dropped.
     pub(crate) request: u64,
     /// The caret and the text's version when it opened: either moving on

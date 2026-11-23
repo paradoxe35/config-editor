@@ -862,6 +862,12 @@ export interface EditorStrings {
    */
   hoverFocused?: string;
   /**
+   * Added to `hover_focused` when the focused card or problem tip holds links (Definition, Uses, its docs): how to reach them.
+   *
+   * @default "Tab reaches its links."
+   */
+  hoverLinks?: string;
+  /**
    * The focused hover card's accessible name: the `{key}` it documents.
    *
    * @default "About {key}"
@@ -1305,6 +1311,12 @@ export interface EditorStrings {
    * @default "Searching other files…"
    */
   usesSearching?: string;
+  /**
+   * The list of uses when the host's search of its other files failed (`onFindUses` threw, rejected or answered no list of uses): shown under the open documents' uses, or alone.
+   *
+   * @default "The other files could not be searched"
+   */
+  usesSearchFailed?: string;
   /**
    * A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.
    *

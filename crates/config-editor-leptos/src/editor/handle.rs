@@ -522,11 +522,34 @@ impl EditorHandle {
     /// Lists the uses of the name at the caret (or of the key defining
     /// it), as `Shift+F12` does: the open documents' at once, the files'
     /// the `on_find_uses` prop answers with when they come. For a host's
-    /// button or menu. Returns whether there was a name at the caret;
-    /// `false` before the editor mounts.
+    /// button or menu. The focus goes to the text, as for `Shift+F12`, so
+    /// the list's keys (arrows, Enter, Escape) work at once. Returns
+    /// whether there was a name at the caret; `false` before the editor
+    /// mounts.
     pub fn find_uses(&self) -> bool {
-        self.editor()
-            .is_some_and(|state| untrack(|| state.find_uses()))
+        let found = self
+            .editor()
+            .is_some_and(|state| untrack(|| state.find_uses()));
+        if found {
+            self.focus();
+        }
+        found
+    }
+
+    /// Hides what the lines of `hits` (uses found in `text`, written in
+    /// `language`) quote of a secret, by this editor's schema and
+    /// placeholders. Returns `false` before the editor mounts.
+    pub(crate) fn hide_use_secrets(
+        self,
+        text: &str,
+        language: crate::Language,
+        hits: &mut [super::key_names::UseHit],
+    ) -> bool {
+        let Some(state) = self.editor() else {
+            return false;
+        };
+        untrack(|| state.hide_use_secrets(text, language.behavior(), hits));
+        true
     }
 
     /// Focuses the editor, keeping its selection; in `ConfigDocuments`,

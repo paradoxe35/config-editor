@@ -146,17 +146,16 @@ fn ranges_given_while_an_edit_is_held_lock_the_hosts_text() {
     let _owner = Owner::new();
     _owner.set();
     let host = Host {
-        paths: RwSignal::new(Vec::new()),
-        ranges: RwSignal::new(vec![TextRange::new(
-            TextPosition::new(1, 2),
-            TextPosition::new(1, 12),
-        )]),
+        paths: RwSignal::new(vec![FieldPath::from("/listen")]),
+        ranges: RwSignal::new(Vec::new()),
         heard: RwSignal::new(Vec::new()),
     };
     let state = mount(text, &host);
-    // A key renamed past a range covering part of it is held: not sent,
-    // so the host is a text behind the screen.
-    assert!(write(state, 0..0, "por"), "the edit is taken");
+    // A locked key written again after it is held: not sent, so the host
+    // is a text behind the screen. (A range touching a key locks it, so
+    // renaming it past one is refused.)
+    let end = text.len();
+    assert!(write(state, end..end, "listen: 1\n"), "the edit is taken");
     assert!(state.changes_held(), "held");
     // The host locks `n: ` of `listen: 7835`, in its own text.
     host.ranges.set(vec![TextRange::new(

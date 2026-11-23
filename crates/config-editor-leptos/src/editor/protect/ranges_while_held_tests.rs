@@ -67,13 +67,15 @@ fn mount(language: Language, text: &str, host: &Host) -> EditorState {
         })),
         channel: None,
         protect: ProtectInit {
-            // In XML, where typing into one tag breaks the text, `listen`
-            // is held by its path instead (see `hold`).
-            paths: Some(Signal::stored(if language == Language::XML {
-                vec![FieldPath::from("/config/server/listen")]
-            } else {
-                Vec::new()
-            })),
+            // `listen` is locked by its path, and held by a copy of it
+            // written after the fields (see `hold`).
+            paths: Some(Signal::stored(vec![FieldPath::from(
+                if language == Language::XML {
+                    "/config/server/listen"
+                } else {
+                    "/listen"
+                },
+            )])),
             secrets: None,
             foreign: None,
         },
@@ -148,26 +150,34 @@ fn locked(state: EditorState) -> Vec<String> {
     })
 }
 
-/// A lock the parse then reads otherwise: a range on part of the key
-/// `listen`, the key typed into before it (in XML, where typing into one
-/// tag breaks the text, `listen` locked by its path and another copy of
-/// its block written after it). Taken, held, so the host stays a text
-/// behind the screen.
-fn hold(language: Language, state: EditorState, host: &Host, text: &str) {
-    let key = text.find("listen").expect("the key");
-    let taken = if language == Language::XML {
-        // Another copy of its block after it, read in its place.
-        let after = text.find("</server>").expect("the block") + "</server>".len();
-        input(
-            state,
-            after..after,
+/// What [`hold`] writes in `language`: the text, the text it goes after,
+/// and the text that follows it there (to find it again).
+fn hold_edit(language: Language) -> (&'static str, &'static str, &'static str) {
+    if language == Language::XML {
+        // Another copy of the block, read in its place.
+        (
             "\n  <server>\n    <listen>1</listen>\n  </server>",
-            "insertFromPaste",
+            "</server>",
+            "\n  <public",
         )
+    } else if language == Language::JSON {
+        // A copy of the key after the fields, read in its place.
+        (",\n  \"listen\": 1", "\"tunnel.example.com\"", "\n}")
     } else {
-        give(state, host, text, key + 1..key + 6);
-        input(state, key..key, "por", "insertText")
-    };
+        // The field commented out.
+        ("# ", "notes\n", "listen")
+    }
+}
+
+/// A lock the parse then reads otherwise: `listen`, locked by its path,
+/// commented out (in JSON, which has no comments, and XML, another copy of
+/// it read in its place). Taken, held, so the host stays a text behind the
+/// screen; the text still parses. (A range touching a key locks that key,
+/// so typing into it is no way to hold.)
+fn hold(language: Language, state: EditorState, _host: &Host, text: &str) {
+    let (written, after, _) = hold_edit(language);
+    let at = text.find(after).expect("the field") + after.len();
+    let taken = input(state, at..at, written, "insertFromPaste");
     assert!(taken, "{language:?}: taken");
     assert!(state.changes_held(), "{language:?}: held");
 }
@@ -254,12 +264,10 @@ fn a_range_across_a_line_copied_while_held_locks_its_text_in_every_language() {
 /// it held reads as the host gave it again.
 fn unhold(language: Language, state: EditorState) {
     let shown = state.doc().text.get_untracked();
-    let written = if language == Language::XML {
-        "\n  <server>\n    <listen>1</listen>\n  </server>"
-    } else {
-        "por"
-    };
-    let at = shown.find(written).expect("what hold wrote");
+    let (written, _, next) = hold_edit(language);
+    let at = shown
+        .find(&format!("{written}{next}"))
+        .expect("what hold wrote");
     assert!(
         input(state, at..at + written.len(), "", "deleteContentForward"),
         "{language:?}: taken back"

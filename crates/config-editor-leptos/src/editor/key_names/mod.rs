@@ -9,6 +9,7 @@
 mod definition;
 mod find;
 mod go_to;
+mod hidden;
 mod keyword;
 mod list;
 mod names;
@@ -22,6 +23,7 @@ mod uses;
 #[cfg(all(test, feature = "yaml"))]
 pub(in crate::editor) use find::{UseTarget, uses_said};
 pub(in crate::editor) use find::{close_uses_on_moves, empty_text, title};
+pub(crate) use hidden::hide_use_secrets_by_schema;
 pub(crate) use keyword::{KEYWORD, key_places, pointers_in};
 pub(crate) use list::{UseGroup, UsesList, UsesState};
 pub use names::{GoToDefinition, KeyName, KeyNames};
@@ -29,8 +31,8 @@ pub(crate) use names::{KeptKeys, KeyNameSource, NoKeyNames, SchemaIdentity, keys
 pub(crate) use offer::{KeyOrigin, NameLookup, Offered};
 pub(crate) use open_uses::{DocumentUses, NoOpenUses, OpenUses};
 pub(crate) use property_names::key_branches;
-pub(crate) use use_types::UsesReply;
 pub use use_types::{FindUses, FoundUse, GoToUse, Use};
+pub(crate) use use_types::{HostAnswer, UsesReply};
 // Only the language matrix, which needs every built-in language, reads it.
 #[cfg(all(
     test,
@@ -75,5 +77,13 @@ impl Default for KeyNamesInput {
 
 #[cfg(all(test, feature = "yaml"))]
 mod tests;
+#[cfg(all(
+    test,
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "schema-validation"
+))]
+mod uses_list_tests;
 #[cfg(all(test, feature = "yaml"))]
 mod uses_tests;

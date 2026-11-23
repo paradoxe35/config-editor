@@ -153,7 +153,7 @@ export interface EditorOptions extends EditorSettings {
   keyNames?: KeyNames[];
   /** Called when the user asks for the definition of such a name (`F12`, `Ctrl`/`Cmd`+click) that the document does not define itself (one it defines moves the caret to its key), for the host to open its source. */
   onGoToDefinition?: (target: GoToDefinition) => void;
-  /** Called when the user asks for the uses of such a name (`Shift+F12`, the hover card's Uses link, `findUses()`), for the uses in files that are not open: return them, or a promise of them (`usesAt` finds them in a file). The document's own uses show at once, yours join them when they come; an answer to a list the user left is dropped. Without it, an empty list says "No uses in open files". */
+  /** Called when the user asks for the uses of such a name (`Shift+F12`, the hover card's Uses link, `findUses()`), for the uses in files that are not open: return them, or a promise of them (`usesAt` finds them in a file). The document's own uses show at once, yours join them when they come; an answer to a list the user left is dropped. Without it, an empty list says "No uses in open files"; when it throws, rejects or answers no list of uses, the list says the other files could not be searched (the console names why). */
   onFindUses?: (request: FindUses) => Use[] | Promise<Use[]>;
   /** Called when the user chooses a use `onFindUses` listed, for the host to open its file there. */
   onGoToUse?: (target: GoToUse) => void;

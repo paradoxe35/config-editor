@@ -392,7 +392,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (254 texts)</summary>
+<summary>Every text and its default (256 texts)</summary>
 
 | Field                           | Default                                                                                                                                                                         |                                                                                                                                                                                                                                                                                                                                                   |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -516,6 +516,7 @@ they come.
 | `one_of`                        | `"One of"`                                                                                                                                                                      | The hover card's row listing the titles of the options (`oneOf`, `anyOf`) a field's object may take, while none matches it yet.                                                                                                                                                                                                                   |
 | `documentation`                 | `"Documentation"`                                                                                                                                                               | The hover card's link to the schema's documentation.                                                                                                                                                                                                                                                                                              |
 | `hover_focused`                 | `"In the docs: arrows, Page Up, Page Down, Home and End scroll them. Escape returns to the text."`                                                                              | Announced when a second `Ctrl+K Ctrl+I` moves the focus into the hover card, to scroll it.                                                                                                                                                                                                                                                        |
+| `hover_links`                   | `"Tab reaches its links."`                                                                                                                                                      | Added to `hover_focused` when the focused card or problem tip holds links (Definition, Uses, its docs): how to reach them.                                                                                                                                                                                                                        |
 | `hover_label`                   | `"About {key}"`                                                                                                                                                                 | The focused hover card's accessible name: the `{key}` it documents.                                                                                                                                                                                                                                                                               |
 | `problem_tip_label`             | `"Problems here"`                                                                                                                                                               | The problem tip's accessible name while it has the focus (a second `Ctrl+K Ctrl+I`).                                                                                                                                                                                                                                                              |
 | `open_docs`                     | `"Open docs ↗ (Alt+Enter)"`                                                                                                                                                     | The link under a host problem's message.                                                                                                                                                                                                                                                                                                          |
@@ -590,6 +591,7 @@ they come.
 | `no_uses`                       | `"No uses"`                                                                                                                                                                     | The list of uses when nothing uses the name.                                                                                                                                                                                                                                                                                                      |
 | `no_uses_in_open_files`         | `"No uses in open files"`                                                                                                                                                       | The list of uses when no open document uses the name and the host does not search its other files (no `onFindUses`).                                                                                                                                                                                                                              |
 | `uses_searching`                | `"Searching other files…"`                                                                                                                                                      | The list of uses while the host searches its other files.                                                                                                                                                                                                                                                                                         |
+| `uses_search_failed`            | `"The other files could not be searched"`                                                                                                                                       | The list of uses when the host's search of its other files failed (`onFindUses` threw, rejected or answered no list of uses): shown under the open documents' uses, or alone.                                                                                                                                                                     |
 | `key_not_allowed`               | `"\"{key}\" is not allowed here"`                                                                                                                                               | A key the schema does not allow (`{key}`); its object's pointer goes before it (`/web: `), as before every schema problem but at the root.                                                                                                                                                                                                        |
 | `text_not_allowed`              | `"text is not allowed here, only elements"`                                                                                                                                     | Text in an element the schema wants elements in (XML); the element's pointer goes before it.                                                                                                                                                                                                                                                      |
 | `key_deprecated`                | `"{pointer}: \"{key}\" is deprecated"`                                                                                                                                          | A deprecated key.                                                                                                                                                                                                                                                                                                                                 |
@@ -1229,7 +1231,10 @@ A field is read-only when the schema says `readOnly: true` (its reason, if
 any, in `x-readonly-reason`), when the host names it in `read_only_paths`
 (a whole subtree each), or when it lies in one of the host's
 `read_only_ranges`. Both props may be signals that change at runtime; the
-whole-document `read_only` stays as it is.
+whole-document `read_only` stays as it is. A range that touches a key (even
+part of its name) locks that whole field, its key name included: typing in
+the key is refused at once with the read-only reason, as for a path. A range
+over a value alone leaves its key free.
 
 Ranges name places in a text: `read_only_ranges_for` says which one, a
 `RangesFor::Revision` (`EditorHandle::sent_revision` gave it, read in
@@ -1241,6 +1246,11 @@ document through its record of the edits, exactly. Set it (and
 those change. A revision the editor never sent is refused, one it can no
 longer name (64 newer texts sent since, a text of the host's own given
 since, or an editor it replaced sent it) is out of date (the console says so; the locks stay).
+Ranges given with a text of the host's own and nothing naming their text
+(no `read_only_ranges_for`, no `value_revision`), one of which starts or
+ends inside a word of that text, are read in it all the same, with a
+console warning: they were often worked out on another text (see "Hosts
+that echo" in the npm package's README).
 `host_diagnostics_for` does the same for `host_diagnostics`.
 
 A host that knows its change sends it instead of a whole text:
@@ -1622,9 +1632,14 @@ never count. The document's own uses show at once; `on_find_uses` gets a
 `on_go_to_use` gets a [`GoToUse`] when the user chooses one of those.
 `tools::uses_at(text, language, &schema, pointer, name, of)` finds a file's
 uses with the editor's engine ([`FoundUse::into_use`] makes the answer).
-Without `on_find_uses`, an empty list says "No uses in open files". The
-hover card on a name ends with **Definition · Uses** links, and the
-handle's `go_to_definition()` / `find_uses()` act at the caret.
+Without `on_find_uses`, an empty list says "No uses in open files"; a
+search that failed ([`FindUses::fail`]) says the other files could not be
+searched (under the open documents' uses, and announced), never "No
+uses". The list starts on the use at the caret (on the definition, on the
+first use). The hover card on a name ends with **Definition · Uses**
+links, and the handle's `go_to_definition()` / `find_uses()` act at the
+caret; `find_uses()` moves the focus to the text, as `Shift+F12` leaves
+it, so the list's keys work from a button of yours.
 
 ```rust,ignore
 on_find_uses=move |request: FindUses| {
@@ -1708,9 +1723,8 @@ pass the [`Schema`].
 - **Resources.** The editor never fetches anything. A schema that refers to
   other files (an include, an import, an external `$ref`) gets them from
   `resources`, by location: resolved against the schema's location (its
-  `SchemaInput::at`, else a JSON Schema's `$id`; a file's own references
-  resolve against the file), then as written, then under any key naming
-  the same file (`./common.json`, `types\common.xsd`); an XSD import without a location is the resource
+  `SchemaInput::at`, which a file's own references resolve against too),
+  then as written; an XSD import without a location is the resource
   `urn:` and its namespace. A missing one is a compile error naming it and
   where to pass it. JSON Schema files are bundled into the schema's `$defs`
   (`#/$defs/common.json/…`), so completion and hover follow them too.
@@ -1774,23 +1788,15 @@ let format = SchemaFormat::new(&FIELDS);
 or YAML with the `yaml` feature) and makes one of its named schemas
 (`components.schemas`, Swagger's `definitions`) the document's schema: the
 option `schema` names it (`{"schema": "ServerConfig"}`; needless when there
-is one), the ones it refers to are its `$defs` (the others are left out,
-with their losses). OpenAPI 3.1 schemas are
+is one), the others are `$defs` it refers to. OpenAPI 3.1 schemas are
 JSON Schema 2020-12 as they are; 3.0 and Swagger ones are rewritten where
-they differ (`nullable: true` and Swagger's `x-nullable: true` add `null`
-to the type, a boolean
+they differ (`nullable: true` adds `null` to the type, a boolean
 `exclusiveMinimum`/`exclusiveMaximum` takes its bound, `example` becomes
-`examples`, Swagger's `type: file` is checked as a string, a loss); a JSON
-Schema keyword they do not define (`contains`, `const`,
+`examples`); a JSON Schema keyword they do not define (`contains`, `const`,
 `if`, `prefixItems`, Swagger's missing `oneOf`) is kept and checked as JSON
 Schema says. The XML object is kept, so `"xml": {"attribute": true}` writes
-attributes in an XML view. A `discriminator` picks the schema a value is
-checked by: beside `oneOf`/`anyOf` options (references to named schemas),
-the `mapping`'s values, else each option's name; on a base schema
-(Swagger 2.0's polymorphism), the named schemas extending it by `allOf`
-and the base itself, by name. Completion offers the values and then the
-picked schema's keys. An option written in place, which no value names,
-keeps the options as they are and is a loss.
+attributes in an XML view. A `discriminator` is a loss: the options are
+matched by their schemas.
 
 ### XML Schema (XSD)
 
@@ -1876,14 +1882,8 @@ for loss in pom.losses() { log::info!("{loss}"); } // what is not checked
     `xs:notation`;
   - a name two namespaces both define (the data model keys by local name:
     the one read first is used).
-- **Attributes in an XML text** are checked against the declarations
-  even where the JSON Schema cannot tell them from elements: an attribute
-  named like a child element (`<dependency classifier="x">`) is a
-  problem.
 - **Several files**: `xs:include`, `xs:import` and `xs:redefine` read
-  their files from the resources (a location resolved against the file
-  naming it, a backslash read as a slash; a key naming the same file, such
-  as `./types.xsd`, does too) (an import without a `schemaLocation` from
+  their files from the resources (an import without a `schemaLocation` from
   `urn:` and its namespace; the XML namespace's own needs none); a
   redefinition replaces the definition it names and may derive from it.
   `imports(text)` lists the `schemaLocation`s a text names, for the host to
@@ -2206,10 +2206,7 @@ object, which other views ignore) is written as an attribute where the XML
 text does not write it already: converting `{"server": {"port": 80}}` writes
 `<server port="80"/>`, and a key added in another view of an XML file is an
 attribute there. In a start tag, completion then offers the element's
-attributes only, and in its content only its elements; a schema saying
-`"xml": {"attribute": false}` of its child elements (as an XSD's does)
-tells them apart too, so an element declaring no attribute offers nothing
-in its start tag.
+attributes only, and in its content only its elements.
 
 Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
 Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever

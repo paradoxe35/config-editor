@@ -23,6 +23,7 @@ use super::super::super::text_change::changed_bytes;
 use super::super::carry::Moves;
 use super::super::locate::LineIndex;
 use super::super::locks::{Lock, Protected};
+use super::super::save::Overlaps;
 use super::super::texts::Reason;
 use super::closing::Closing;
 use super::content::{content_areas, in_lock, in_locked_content};
@@ -68,6 +69,8 @@ pub(super) fn kept(
         after,
         locks: &protected.locks,
         next,
+        ranges: (was, now),
+        hosts: OnceCell::new(),
         strict,
         lines: OnceCell::new(),
         content: OnceCell::new(),
@@ -128,6 +131,10 @@ struct Spans<'a> {
     /// The locks before.
     locks: &'a [Lock],
     next: &'a Protected,
+    /// The host's ranges before and after (followed through the edit).
+    ranges: (&'a [TextRange], &'a [TextRange]),
+    /// Them, sorted for overlap queries when a lock asks.
+    hosts: OnceCell<(Overlaps, Overlaps)>,
     strict: bool,
     /// The lines of both texts, read when a span's spacing changed.
     lines: OnceCell<(LineIndex<'a>, LineIndex<'a>)>,
@@ -232,10 +239,30 @@ impl Spans<'_> {
         })
     }
 
-    /// The spans whose text `lock` keeps: its value's stretches (past its
-    /// key for a field a host range covers, which keeps only the range's
-    /// text) and its own key.
-    fn own_spans(lock: &Lock) -> Vec<TextRange> {
+    /// Whether `lock` (of the text after with `after`, else before) keeps
+    /// its key: a field named by path always; a field a host range covers
+    /// when a host range touches its key, as the range then locks the whole
+    /// field, its name too (typing in the key is refused at once, as for a
+    /// path, instead of holding the field under each half-typed name).
+    fn keeps_key(&self, lock: &Lock, after: bool) -> bool {
+        let Some(key) = lock.key else {
+            return false;
+        };
+        if lock.reason != Reason::Range {
+            return true;
+        }
+        let hosts = self
+            .hosts
+            .get_or_init(|| (Overlaps::new(self.ranges.0), Overlaps::new(self.ranges.1)));
+        let hosts = if after { &hosts.1 } else { &hosts.0 };
+        hosts.any(key)
+    }
+
+    /// The spans whose text `lock` (of the text after with `after`) keeps:
+    /// its value's stretches (past its key for a field a host range covers,
+    /// which keeps only the range's text) and its own key when it keeps it
+    /// (see [`Self::keeps_key`]), last.
+    fn own_spans(&self, lock: &Lock, after: bool) -> Vec<TextRange> {
         let range = lock.reason == Reason::Range;
         let value = |stretch: &TextRange| match &lock.key {
             Some(key)
@@ -249,7 +276,7 @@ impl Spans<'_> {
             _ => *stretch,
         };
         let mut spans: Vec<TextRange> = lock.ranges.iter().map(value).collect();
-        if !range {
+        if self.keeps_key(lock, after) {
             spans.extend(lock.key);
         }
         spans
@@ -264,22 +291,23 @@ impl Spans<'_> {
 
     /// Whether `now` (of the text after) holds `was`'s text.
     fn same_text(&self, was: &Lock, now: &Lock) -> bool {
-        Self::texts(self.before, &Self::own_spans(was))
-            == Self::texts(self.after, &Self::own_spans(now))
+        Self::texts(self.before, &self.own_spans(was, false))
+            == Self::texts(self.after, &self.own_spans(now, true))
     }
 
-    /// Whether `now`'s value stretches hold `was`'s value text (its key
-    /// left out: a list item has none, a range none of its own).
+    /// Whether `now`'s value stretches hold `was`'s value text (a path's
+    /// key left out: a list item has none, a range none of its own; the
+    /// key a host range touches kept in, as the range locks it).
     fn same_value_text(&self, was: &Lock, now: &Lock) -> bool {
-        let value = |text: &str, lock: &Lock| {
-            let mut spans = Self::own_spans(lock);
+        let value = |text: &str, lock: &Lock, after: bool| {
+            let mut spans = self.own_spans(lock, after);
             if lock.reason != Reason::Range && lock.key.is_some() {
                 spans.pop();
             }
             Self::texts(text, &spans).concat()
         };
-        let text = value(self.before, was);
-        !text.is_empty() && text == value(self.after, now)
+        let text = value(self.before, was, false);
+        !text.is_empty() && text == value(self.after, now, true)
     }
 
     /// Whether `now` holds `was`'s text but for whitespace between its
@@ -290,8 +318,10 @@ impl Spans<'_> {
     /// span is read as blank there, so one that takes a value's text in
     /// (a line commented out) still changes it.
     fn respaced(&self, was: &Lock, now: &Lock) -> bool {
-        let (Some(old), Some(new)) = (hull(&Self::own_spans(was)), hull(&Self::own_spans(now)))
-        else {
+        let (Some(old), Some(new)) = (
+            hull(&self.own_spans(was, false)),
+            hull(&self.own_spans(now, true)),
+        ) else {
             return false;
         };
         let (old_comments, new_comments) = self.comments.get_or_init(|| {
@@ -300,8 +330,8 @@ impl Spans<'_> {
                 self.behavior.comments(self.after),
             )
         });
-        let solid = |text: &str, lock: &Lock, comments: &[Range<usize>], hull: TextRange| {
-            Self::own_spans(lock)
+        let solid = |text: &str, lock: &Lock, after: bool, comments: &[Range<usize>], hull| {
+            self.own_spans(lock, after)
                 .iter()
                 .filter_map(|span| uncommented(text, *span, comments, hull))
                 .collect::<String>()
@@ -309,7 +339,9 @@ impl Spans<'_> {
                 .filter(|character| !is_blank(*character))
                 .collect::<String>()
         };
-        if solid(self.before, was, old_comments, old) != solid(self.after, now, new_comments, new) {
+        if solid(self.before, was, false, old_comments, old)
+            != solid(self.after, now, true, new_comments, new)
+        {
             return false;
         }
         let (old_lines, new_lines) = self
@@ -371,7 +403,7 @@ impl Spans<'_> {
     /// holds them: stretch by stretch when they are as many, else at the
     /// ends of all of them.
     fn glued(&self, was: &Lock, now: &Lock) -> bool {
-        let (old, new) = (Self::own_spans(was), Self::own_spans(now));
+        let (old, new) = (self.own_spans(was, false), self.own_spans(now, true));
         let pairs: Vec<(TextRange, TextRange)> = if old.len() == new.len() {
             old.into_iter().zip(new).collect()
         } else {

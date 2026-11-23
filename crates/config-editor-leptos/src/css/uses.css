@@ -8,7 +8,7 @@
   width: min(460px, calc(100vw - 16px));
   max-height: min(320px, 45vh, calc(100vh - 64px));
   grid-template-rows: auto minmax(0, 1fr) auto;
-  border: 1px solid var(--config-editor-raised-border);
+  border: 1px solid var(--config-editor-popup-edge, var(--config-editor-raised-border));
   border-radius: 4px;
   background: var(--config-editor-raised);
   color: var(--config-editor-raised-text);
@@ -52,6 +52,21 @@
 :not(#\#):not(#\#) .config-editor__use--active {
   background: var(--config-editor-completion-active);
   color: var(--config-editor-raised-text);
+}
+
+/* Forced colors drop backgrounds: the row the keyboard is on is drawn in
+   the system's selection colors, as the active suggestion is. */
+@media (forced-colors: active) {
+  :not(#\#):not(#\#) .config-editor__use--active {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+  .config-editor__use--active *,
+  :not(#\#):not(#\#) .config-editor__use--active .config-editor__use-line,
+  :not(#\#):not(#\#) .config-editor__use--active .config-editor__use-text {
+    color: HighlightText;
+  }
 }
 
 :not(#\#):not(#\#) .config-editor__use-line {

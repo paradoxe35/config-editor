@@ -36,6 +36,51 @@ classifier="x">`) is a problem (new string `xsd_element_as_attribute`),
   is no location, `./` and backslashes name the same file, and a missing
   external `$ref` names the resource key to pass.
 
+### Find uses
+
+- `findUses()` from a button of the host (the editor's and the documents
+  view's handle, every framework component) moves the focus to the text, as
+  `Shift+F12` leaves it: the list's arrows, `Enter` and `Escape` work at
+  once.
+- A failed host search (`onFindUses` throws, rejects or answers no list of
+  uses; Rust `FindUses::fail`, new) says "The other files could not be
+  searched" (new `usesSearchFailed` string), under the open documents' uses
+  or alone, and announces it; it never says "No uses". The console names
+  the host's own error, and the React, Vue and Svelte components hand a
+  throw or a rejection to `onError`.
+- The list starts on the use at the caret (on the definition: the first
+  use).
+- A row quoting a line that holds a secret (a value the schema marks
+  secret, a string a placeholder is glued into) hides it as problems do
+  (`…`), in the row and its accessible name.
+- Wrapping to the first row (or `Home`) shows its group's title; the active
+  row stays visible in forced colours; under `prefers-contrast: more` the
+  list gets the strong edge the other popups have. Every popup now draws
+  its edge with one variable (`--config-editor-popup-edge`) that more
+  contrast sets, so none can miss it.
+
+### Locks
+
+- A `readOnlyRanges` range that touches a key, even part of its name, locks
+  that whole field, its key name included: typing in the key is refused at
+  once with the read-only reason, as for `readOnlyPaths` (before, each
+  keystroke was taken and held the field under a half-typed name). A range
+  over a value alone leaves its key free.
+- Ranges given with a text of the host's own and nothing naming their text
+  (no `rangesFor`, no `valueRevision`), one of which starts or ends inside
+  a word, log a console warning naming the range and pointing to
+  `rangesFor` / `valueRevision`; they are read as before.
+- `Ctrl+Space` on a read-only value or a secret shows why at the caret, as
+  a refused edit does, and the request ends there: moving to another line
+  opens no list.
+
+### Accessibility
+
+- A second `Ctrl+K Ctrl+I` says "Tab reaches its links." when the card or
+  problem tip holds links (new `hoverLinks` string).
+- The Edit-as notice's live region is its message alone: its dismiss button
+  ("×") is no longer read with it.
+
 ## 0.2.2 — 2026-11-22
 
 ### Find uses

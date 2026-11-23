@@ -130,14 +130,21 @@ impl FindUses {
     /// text). A use whose `source` is an open document of a documents view
     /// is left out: its live uses are listed already.
     pub fn reply(&self, uses: Vec<Use>) {
-        (self.reply.0)(Some(uses));
+        (self.reply.0)(HostAnswer::Uses(uses));
+    }
+
+    /// Answers that the files could not be searched (the search failed):
+    /// the list then says so, with the open documents' uses, and never
+    /// that nothing uses the name.
+    pub fn fail(&self) {
+        (self.reply.0)(HostAnswer::Failed);
     }
 
     /// Answers that the host searches no files beyond the open ones (a
     /// binding whose host set no handler): an empty list then says "No
     /// uses in open files".
     pub(crate) fn decline(&self) {
-        (self.reply.0)(None);
+        (self.reply.0)(HostAnswer::Declined);
     }
 }
 
@@ -152,9 +159,20 @@ impl std::fmt::Debug for FindUses {
     }
 }
 
+/// What a host answered one request with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum HostAnswer {
+    /// The uses in its files.
+    Uses(Vec<Use>),
+    /// It searches no files beyond the open ones.
+    Declined,
+    /// Its search failed.
+    Failed,
+}
+
 /// Where a host's answer to one request goes.
 #[derive(Clone)]
-pub(crate) struct UsesReply(pub(crate) Arc<dyn Fn(Option<Vec<Use>>) + Send + Sync>);
+pub(crate) struct UsesReply(pub(crate) Arc<dyn Fn(HostAnswer) + Send + Sync>);
 
 /// The user chose a use the host listed (a file the editor does not have
 /// open): what `on_go_to_use` hears, for the host to open it there.

@@ -115,8 +115,9 @@ const USE_KEYS: &[&str] = &["source", "path", "line", "text", "version", "range"
 /// Asks `callback` (`onFindUses`) for the uses of `request`'s name in the
 /// files that are not open: with `{ schema, pointer, name }`; it returns
 /// the uses, or a promise of them. They join the list when they come; a
-/// throw, a rejection or an answer that is no list of uses ends the
-/// search with none (the console says why).
+/// throw, a rejection or an answer that is no list of uses fails the
+/// search: the list says the other files could not be searched, and the
+/// console says why (the host's own error for a throw or a rejection).
 pub(crate) fn find_uses_from_host(callback: &js_sys::Function, request: FindUses) {
     let argument = Object::new();
     let text = |value: Option<&str>| value.map_or(JsValue::NULL, JsValue::from_str);
@@ -127,8 +128,9 @@ pub(crate) fn find_uses_from_host(callback: &js_sys::Function, request: FindUses
     ] {
         let _ = Reflect::set(&argument, &JsValue::from_str(key), &value);
     }
+    // A throw: the console names it (`ask_host`).
     let Some(answer) = crate::mount::ask_host(callback, &argument) else {
-        request.reply(Vec::new());
+        request.fail();
         return;
     };
     // Nothing returned: the host searches no other files (a framework
@@ -137,20 +139,37 @@ pub(crate) fn find_uses_from_host(callback: &js_sys::Function, request: FindUses
         leptos_config_editor::js_support::decline_find_uses(&request);
         return;
     }
-    // One function for both outcomes: called once, then freed.
-    let settle = Closure::once_into_js(move |found: JsValue| {
-        request.reply(uses_from(&found).unwrap_or_else(|error| {
+    // One function for both outcomes, told apart by a bound first
+    // argument: called once, then freed (a second closure would never be
+    // called, and never freed).
+    let settle = Closure::once_into_js(move |kept: JsValue, found: JsValue| {
+        if !kept.is_truthy() {
+            // A rejection: the host's own error.
             web_sys::console::error_2(
-                &JsValue::from_str(&format!("config-editor: onFindUses: {error}")),
+                &JsValue::from_str("config-editor: onFindUses failed:"),
                 &found,
             );
-            Vec::new()
-        }));
+            request.fail();
+            return;
+        }
+        match uses_from(&found) {
+            Ok(uses) => request.reply(uses),
+            Err(error) => {
+                web_sys::console::error_2(
+                    &JsValue::from_str(&format!("config-editor: onFindUses: {error}")),
+                    &found,
+                );
+                request.fail();
+            }
+        }
     });
+    let settle: &js_sys::Function = settle.unchecked_ref();
+    let fulfilled = settle.bind1(&JsValue::NULL, &JsValue::TRUE);
+    let rejected = settle.bind1(&JsValue::NULL, &JsValue::FALSE);
     let promise = js_sys::Promise::resolve(&answer);
     if let Ok(then) = Reflect::get(&promise, &JsValue::from_str("then")) {
         let then: &js_sys::Function = then.unchecked_ref();
-        let _ = then.call2(&promise, &settle, &settle);
+        let _ = then.call2(&promise, &fulfilled, &rejected);
     }
 }
 

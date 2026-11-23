@@ -16,7 +16,12 @@ test.describe('a YAML file with a comment, edited as TOML', () => {
 
   test('says the comments are not shown here, and a click dismisses it', async ({ page }) => {
     await expect(notice(page)).toBeVisible();
-    await expect(notice(page)).toHaveAttribute('role', 'status');
+    // The message alone is the live region: the dismiss button is not read with it.
+    await expect(message(page)).toHaveAttribute('role', 'status');
+    await expect(notice(page)).not.toHaveAttribute('role', /./);
+    expect(await page.locator('.config-editor__edit-as-notice [aria-live]').evaluateAll((all) => all.map((e) => e.textContent))).toEqual([
+      "The YAML file's comments and formatting are not shown while editing as TOML; saving keeps them.",
+    ]);
     await expect(message(page)).toHaveText(
       "The YAML file's comments and formatting are not shown while editing as TOML; saving keeps them.",
     );
@@ -47,6 +52,23 @@ test.describe('a YAML file with a comment, edited as TOML', () => {
     const host = await saved(page);
     expect(host).toContain('# Tunnel server configuration');
     expect(host).not.toContain('typed in TOML');
+  });
+
+  test('F8 leaves the notice as it is: nothing in it is said again', async ({ page }) => {
+    await expect(message(page)).toBeVisible();
+    await message(page).evaluate((element) => {
+      window.noticeChanges = 0;
+      new MutationObserver((records) => (window.noticeChanges += records.length)).observe(element, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+      });
+    });
+    await editor(page).input.click();
+    await page.keyboard.press('F8');
+    await page.keyboard.press('F8');
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.noticeChanges)).toBe(0);
   });
 
   test('the keyboard reaches the dismiss button', async ({ page }) => {

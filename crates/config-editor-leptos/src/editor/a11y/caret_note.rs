@@ -74,16 +74,22 @@ fn protected_text(strings: &EditorStrings, label: &str, message: &str) -> String
     )
 }
 
-/// Says what the protected text at the caret is, when a key asked for
-/// something it cannot give there (suggestions on a secret placeholder),
-/// as the note describes it. Returns whether it said anything.
-pub(in crate::editor) fn say_protected_at_caret(state: EditorState) -> bool {
-    let caret = state.doc().caret.get_untracked();
+/// Shows what the protected text at the caret is, when a key asked for
+/// something it cannot give there (suggestions on a read-only value or a
+/// secret placeholder), as the note describes it: at the caret for a
+/// moment, as a refused edit's reason is, which also says it to screen
+/// readers. Returns whether there was anything to show.
+pub(in crate::editor) fn show_protected_at_caret(state: EditorState) -> bool {
+    // Where the text area has it now: a key just moved it.
+    let caret = state.caret_now();
     let Some((label, message)) = state.protected_note(caret, true) else {
         return false;
     };
     let said = state.strings_untracked(|strings| protected_text(strings, &label, &message));
-    state.a11y().announce(said);
+    state
+        .doc()
+        .text
+        .with_untracked(|text| state.protect().flash(said, text, caret));
     true
 }
 

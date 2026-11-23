@@ -343,6 +343,9 @@ pub struct EditorStrings {
     /// Announced when a second `Ctrl+K Ctrl+I` moves the focus into the
     /// hover card, to scroll it.
     pub hover_focused: String,
+    /// Added to `hover_focused` when the focused card or problem tip holds
+    /// links (Definition, Uses, its docs): how to reach them.
+    pub hover_links: String,
     /// The focused hover card's accessible name: the `{key}` it documents.
     pub hover_label: String,
     /// The problem tip's accessible name while it has the focus (a second
@@ -527,6 +530,10 @@ pub struct EditorStrings {
     pub no_uses_in_open_files: String,
     /// The list of uses while the host searches its other files.
     pub uses_searching: String,
+    /// The list of uses when the host's search of its other files failed
+    /// (`onFindUses` threw, rejected or answered no list of uses): shown
+    /// under the open documents' uses, or alone.
+    pub uses_search_failed: String,
 
     // Problems the editor words.
     /// A key the schema does not allow (`{key}`); its object's pointer
@@ -851,6 +858,7 @@ impl Default for EditorStrings {
             hover_focused: text(
                 "In the docs: arrows, Page Up, Page Down, Home and End scroll them. Escape returns to the text.",
             ),
+            hover_links: text("Tab reaches its links."),
             hover_label: text("About {key}"),
             problem_tip_label: text("Problems here"),
             open_docs: text("Open docs ↗ (Alt+Enter)"),
@@ -965,6 +973,7 @@ impl Default for EditorStrings {
             no_uses: text("No uses"),
             no_uses_in_open_files: text("No uses in open files"),
             uses_searching: text("Searching other files…"),
+            uses_search_failed: text("The other files could not be searched"),
             key_not_allowed: text("\"{key}\" is not allowed here"),
             text_not_allowed: text("text is not allowed here, only elements"),
             key_deprecated: text("{pointer}: \"{key}\" is deprecated"),

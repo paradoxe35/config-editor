@@ -726,10 +726,29 @@ pub(super) fn save_message(
     behavior: &dyn ConfigLanguage,
     placeholders: Placeholders<'_>,
 ) -> String {
-    hide_secret_texts(
-        message,
-        &secret_texts(source, None, schema, behavior, placeholders),
-    )
+    SecretQuotes::of(source, schema, behavior, placeholders).hide(message)
+}
+
+/// The texts of one source no message may quote (see [`save_message`]),
+/// found once for every message quoting that source (each line of a list
+/// of uses).
+pub(super) struct SecretQuotes(Vec<String>);
+
+impl SecretQuotes {
+    /// The secret texts of `source`, written in `behavior`.
+    pub(super) fn of(
+        source: &str,
+        schema: Option<&SchemaBundle>,
+        behavior: &dyn ConfigLanguage,
+        placeholders: Placeholders<'_>,
+    ) -> Self {
+        Self(secret_texts(source, None, schema, behavior, placeholders))
+    }
+
+    /// `message` with each secret text it quotes shown as `…`.
+    pub(super) fn hide(&self, message: &str) -> String {
+        hide_secret_texts(message, &self.0)
+    }
 }
 
 /// The texts of `source` (in `behavior`; `reading`: its reading by the

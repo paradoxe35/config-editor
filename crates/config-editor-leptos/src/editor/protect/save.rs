@@ -111,13 +111,13 @@ fn children<'v>(value: &'v Value, pointer: &str, every: &mut dyn FnMut(String, &
 
 /// Ranges sorted by their start, with the furthest end so far: whether a
 /// field overlaps any is a binary search, not a look at each.
-struct Overlaps {
+pub(super) struct Overlaps {
     starts: Vec<TextSize>,
     furthest: Vec<TextSize>,
 }
 
 impl Overlaps {
-    fn new(ranges: &[TextRange]) -> Self {
+    pub(super) fn new(ranges: &[TextRange]) -> Self {
         let mut sorted = ranges.to_vec();
         sorted.sort_by_key(|range| range.start());
         let mut furthest = Vec::with_capacity(sorted.len());
@@ -134,7 +134,7 @@ impl Overlaps {
 
     /// Whether `field` overlaps a range: one starting before its end ends
     /// after its start.
-    fn any(&self, field: TextRange) -> bool {
+    pub(super) fn any(&self, field: TextRange) -> bool {
         let before = self.starts.partition_point(|start| *start < field.end());
         before > 0 && self.furthest[before - 1] > field.start()
     }

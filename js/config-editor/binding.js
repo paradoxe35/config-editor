@@ -133,6 +133,28 @@ class Binding {
     }
   }
 
+  /**
+   * Asks the host's `onFindUses` for the uses in its files. A throw or a
+   * rejection also reaches `onError` when it is set; it goes on to the
+   * editor all the same, whose list then says the other files could not be
+   * searched and whose console message names it.
+   */
+  findUses(request) {
+    const find = this.props.onFindUses;
+    if (!find) return undefined;
+    const told = (error) => {
+      if (this.props.onError) this.report(error);
+      throw error;
+    };
+    let answer;
+    try {
+      answer = find(request);
+    } catch (error) {
+      told(error);
+    }
+    return typeof answer?.then === "function" ? answer.then(undefined, told) : answer;
+  }
+
   /** Runs `apply` on the instance, if mounted, reporting what it throws. */
   guard(apply) {
     const instance = this.instance;
@@ -317,7 +339,7 @@ export class EditorBinding extends Binding {
       onBaselineConflict: (event) => this.props.onBaselineConflict?.(event),
       keyNames: props.keyNames ?? [],
       onGoToDefinition: (target) => this.props.onGoToDefinition?.(target),
-      onFindUses: (request) => this.props.onFindUses?.(request),
+      onFindUses: (request) => this.findUses(request),
       onGoToUse: (target) => this.props.onGoToUse?.(target),
       onSchemaWarning: (message) => {
         const warn = this.props.onSchemaWarning;
@@ -575,7 +597,7 @@ export class DocumentsBinding extends Binding {
       onSyncChange: (id, inSync) => this.props.onSyncChange?.(id, inSync),
       keyNames: props.keyNames ?? [],
       onGoToDefinition: (target) => this.props.onGoToDefinition?.(target),
-      onFindUses: (request) => this.props.onFindUses?.(request),
+      onFindUses: (request) => this.findUses(request),
       onGoToUse: (target) => this.props.onGoToUse?.(target),
     });
   }

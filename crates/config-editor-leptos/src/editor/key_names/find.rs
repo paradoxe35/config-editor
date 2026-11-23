@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use super::definition::{Searched, searched_at};
 use super::list::{UseGroup, UsePlace, UseRow, UsesList};
 use super::uses::name_written_at;
-use super::{FindUses, GoToUse, Use, UseHit, UsesReply, uses_in};
+use super::{FindUses, GoToUse, HostAnswer, Use, UseHit, UsesReply, uses_in};
 use crate::FieldPath;
 use crate::editor::a11y::caret_position;
 use crate::editor::completion::{FieldHit, field_at};
@@ -112,14 +112,25 @@ impl EditorState {
         let input = self.config().key_names.get_value();
         let name = searched.name;
         let own = self.doc().text.with_untracked(|text| {
-            uses_in(
+            let mut own = uses_in(
                 text,
                 self.behavior(),
                 &schema.schema,
                 &schema.identity,
                 &name,
-            )
+            );
+            self.hide_use_secrets(text, self.behavior(), &mut own);
+            own
         });
+        // On a use, the list starts on it (the use at the caret); on the
+        // definition, on the first use.
+        let active = if searched.definition {
+            0
+        } else {
+            own.iter()
+                .position(|hit| hit.range.start() <= at && at <= hit.range.end())
+                .unwrap_or(0)
+        };
         let mut groups = Vec::new();
         if !own.is_empty() {
             groups.push(UseGroup {
@@ -139,22 +150,23 @@ impl EditorState {
         self.hide_hover();
         self.close_suggestions();
         self.hide_shown_problem();
-        uses.active.set(0);
+        uses.active.set(active);
         uses.list.set(Some(UsesList {
             name: name.name.clone(),
             anchor: at,
             groups,
             searching: input.on_find_uses.is_some(),
             host_searches: input.on_find_uses.is_some(),
+            host_failed: false,
             request,
             opened: (self.caret_now(), self.doc().version.get_value()),
         }));
         self.say_uses();
         if let Some(on_find_uses) = input.on_find_uses {
             let state = *self;
-            let reply = UsesReply(Arc::new(move |found: Option<Vec<Use>>| {
+            let reply = UsesReply(Arc::new(move |answer: HostAnswer| {
                 if !state.is_disposed() {
-                    state.take_host_uses(request, found);
+                    state.take_host_uses(request, answer);
                 }
             }));
             on_find_uses.run(FindUses::new(
@@ -183,8 +195,9 @@ impl EditorState {
     /// The host's answer to request `request`: its files' uses join the
     /// list, grouped by file (those of open documents left out: their live
     /// uses are listed). An answer to an older request, or after the list
-    /// closed, is dropped. `None`: the host searches no other files.
-    fn take_host_uses(&self, request: u64, found: Option<Vec<Use>>) {
+    /// closed, is dropped. A declined or failed search adds none, and
+    /// the list says which.
+    fn take_host_uses(&self, request: u64, answer: HostAnswer) {
         let current = self.uses().list.with_untracked(|list| {
             list.as_ref()
                 .is_some_and(|list| list.request == request && list.searching)
@@ -198,9 +211,16 @@ impl EditorState {
                 return;
             };
             list.searching = false;
-            let Some(found) = found else {
-                list.host_searches = false;
-                return;
+            let found = match answer {
+                HostAnswer::Uses(found) => found,
+                HostAnswer::Declined => {
+                    list.host_searches = false;
+                    return;
+                }
+                HostAnswer::Failed => {
+                    list.host_failed = true;
+                    return;
+                }
             };
             for found in found {
                 if input.open.is_open(&found.source) {
@@ -291,19 +311,28 @@ impl EditorState {
     }
 }
 
-/// What the list says of itself: its count, or why it is empty.
+/// What the list says of itself: its count, or why it is empty; and that
+/// the host's files could not be searched, when its search failed.
 pub(in crate::editor) fn uses_said(list: &UsesList, strings: &crate::EditorStrings) -> String {
     match list.count() {
         0 => empty_text(list, strings),
+        count if list.host_failed => format!(
+            "{}. {}",
+            counted(&strings.uses_one, &strings.uses_other, count),
+            strings.uses_search_failed
+        ),
         count => counted(&strings.uses_one, &strings.uses_other, count),
     }
 }
 
-/// What an empty list shows: the host still searching, nothing anywhere,
-/// or nothing in the open documents (no host search).
+/// What an empty list shows: the host still searching, its search failed
+/// (never "No uses": its files were not read), nothing anywhere, or
+/// nothing in the open documents (no host search).
 pub(in crate::editor) fn empty_text(list: &UsesList, strings: &crate::EditorStrings) -> String {
     if list.searching {
         strings.uses_searching.clone()
+    } else if list.host_failed {
+        strings.uses_search_failed.clone()
     } else if list.host_searches {
         strings.no_uses.clone()
     } else {

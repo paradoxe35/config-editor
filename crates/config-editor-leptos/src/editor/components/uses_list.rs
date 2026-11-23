@@ -39,6 +39,7 @@ pub(crate) fn UsesListView(state: EditorState) -> impl IntoView {
         let empty =
             (list.count() == 0).then(|| state.strings(|strings| empty_text(&list, strings)));
         let searching = list.searching && list.count() > 0;
+        let failed = list.host_failed && list.count() > 0;
         let firsts = list.firsts();
         let groups = list
             .groups
@@ -61,6 +62,9 @@ pub(crate) fn UsesListView(state: EditorState) -> impl IntoView {
                 {empty.map(|text| view! { <div class="config-editor__uses-empty">{text}</div> })}
                 {searching.then(|| view! {
                     <div class="config-editor__uses-empty">{state.text(|strings| &strings.uses_searching)}</div>
+                })}
+                {failed.then(|| view! {
+                    <div class="config-editor__uses-empty">{state.text(|strings| &strings.uses_search_failed)}</div>
                 })}
             </div>
         })
@@ -141,7 +145,14 @@ fn scroll_to_row(state: EditorState, body: NodeRef<Div>, index: usize) {
     let Some(row) = row.dyn_ref::<web_sys::HtmlElement>() else {
         return;
     };
-    let (top, height) = (row.offset_top(), row.offset_height());
+    // A group's first row shows with its group's title above it: the
+    // title says which file the row is in.
+    let top = row
+        .previous_element_sibling()
+        .filter(|title| title.matches(".config-editor__uses-file").unwrap_or(false))
+        .and_then(|title| title.dyn_into::<web_sys::HtmlElement>().ok())
+        .map_or_else(|| row.offset_top(), |title| title.offset_top());
+    let height = row.offset_top() + row.offset_height() - top;
     let (scroll, room) = (body.scroll_top(), body.client_height());
     if top < scroll {
         body.set_scroll_top(top);

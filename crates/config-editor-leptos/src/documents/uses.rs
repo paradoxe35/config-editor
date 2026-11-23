@@ -8,7 +8,9 @@ use leptos::prelude::*;
 use super::entries::{Documents, Focus};
 use crate::FieldPath;
 use crate::SchemaSource;
-use crate::editor::key_names::{DocumentUses, NameRef, OpenUses, SchemaIdentity, uses_in_language};
+use crate::editor::key_names::{
+    DocumentUses, NameRef, OpenUses, SchemaIdentity, hide_use_secrets_by_schema, uses_in_language,
+};
 
 /// One document's editor's view of the others.
 pub(super) struct ViewUses {
@@ -33,13 +35,19 @@ impl OpenUses for ViewUses {
                 };
                 let language = entry.setup.language;
                 let hits = entry.value.try_with_untracked(|text| {
-                    uses_in_language(
+                    let mut hits = uses_in_language(
                         text,
                         language,
                         &schema.bundle.schema,
                         &schema.bundle.identity,
                         name,
-                    )
+                    );
+                    // A line quoting a secret shows as its document's
+                    // problems would quote it.
+                    if !entry.handle.hide_use_secrets(text, language, &mut hits) {
+                        hide_use_secrets_by_schema(text, language, &schema.bundle, &mut hits);
+                    }
+                    hits
                 })?;
                 (!hits.is_empty()).then(|| DocumentUses {
                     id: entry.id.clone(),

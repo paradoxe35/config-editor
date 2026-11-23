@@ -145,6 +145,13 @@ pub enum AnchorError {
     /// A revision no editor on the page issued.
     #[allow(missing_docs, reason = "the list and the revision it names")]
     Unknown { list: List, revision: u64 },
+    /// Read-only ranges given with a value the editor did not send, naming
+    /// no text (no `ranges_for`, no `value_revision`), one of which starts
+    /// or ends inside a word of that value: often a sign they were worked
+    /// out on another text. They are taken, read in the value; only a
+    /// warning.
+    #[allow(missing_docs, reason = "the first such range")]
+    CutsWord { range: paths::TextRange },
 }
 
 impl AnchorError {
@@ -161,6 +168,7 @@ impl AnchorError {
         matches!(
             self,
             AnchorError::OutOfDate { .. }
+                | AnchorError::CutsWord { .. }
                 | AnchorError::Unknown {
                     list: List::Diagnostics,
                     ..
@@ -184,6 +192,14 @@ impl std::fmt::Display for AnchorError {
                 write!(
                     formatter,
                     "{anchor} names revision {revision}, which no editor sent: give the revision onChange sent the text with, or the text itself"
+                )
+            }
+            AnchorError::CutsWord { range } => {
+                let (start, end) = (range.start, range.end);
+                write!(
+                    formatter,
+                    "readOnlyRanges: the range {}:{}-{}:{} starts or ends inside a word of the value it came with, a text the editor did not send, and names no text: it is read in that value. If it was worked out on another text (one onChange sent), name that text with rangesFor or the value's revision with valueRevision (see \"Hosts that echo\" in the README)",
+                    start.line, start.column, end.line, end.column
                 )
             }
         }
@@ -468,6 +484,15 @@ impl Link {
         rewrite: Rewrite<'_>,
     ) -> Result<Taken, AnchorError> {
         let mut taken = Taken::default();
+        // Ranges with a value of the host's own and nothing naming the text
+        // they were worked out on: read in the value, which may not be it.
+        let unanchored = update.ranges.is_some()
+            && update.ranges_for.is_none()
+            && update.value_revision.is_none()
+            && update
+                .value
+                .as_deref()
+                .is_some_and(|value| self.echoes.is_own(value, None));
         if update.reset
             && let Some(value) = update.value.as_deref()
         {
@@ -569,6 +594,11 @@ impl Link {
         {
             let anchor = resolve(self, anchor, ranges_text);
             if anchor != Anchor::Again {
+                if unanchored
+                    && let Some(range) = value.and_then(|value| cutting_word(value, &listed.items))
+                {
+                    taken.warnings.push(AnchorError::CutsWord { range });
+                }
                 self.give(anchor, &listed.items);
                 self.ranges_listed = Some((listed, update.ranges_for.clone()));
                 self.carried_list = None;
@@ -860,6 +890,23 @@ fn bytes(text: &str, ranges: &[paths::TextRange]) -> Vec<TextRange> {
         .iter()
         .map(|range| byte_range(&lines, *range))
         .collect()
+}
+
+/// The first of `ranges` (of `text`) starting or ending inside a word: a
+/// letter, digit or `_` on both sides of its edge.
+fn cutting_word(text: &str, ranges: &[paths::TextRange]) -> Option<paths::TextRange> {
+    let word = |character: Option<char>| {
+        character.is_some_and(|character| character.is_alphanumeric() || character == '_')
+    };
+    let inside = |at: TextSize| {
+        word(slice::before(text, at).and_then(|before| before.chars().next_back()))
+            && word(slice::after(text, at).and_then(|after| after.chars().next()))
+    };
+    bytes(text, ranges)
+        .iter()
+        .zip(ranges)
+        .find(|(range, _)| inside(range.start()) || inside(range.end()))
+        .map(|(_, given)| *given)
 }
 
 /// What each of `ranges` holds in `text` (what is in the text of a range

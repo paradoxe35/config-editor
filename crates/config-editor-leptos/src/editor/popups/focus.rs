@@ -49,8 +49,7 @@ impl EditorState {
             self.note_card_focus(false);
             return false;
         }
-        let said = self.strings_untracked(|strings| strings.hover_focused.clone());
-        self.a11y().announce(said);
+        self.say_popup_focused(&card);
         true
     }
 
@@ -76,9 +75,26 @@ impl EditorState {
             self.popups().focused.set(false);
             return false;
         }
-        let said = self.strings_untracked(|strings| strings.hover_focused.clone());
-        self.a11y().announce(said);
+        self.say_popup_focused(&tip);
         true
+    }
+
+    /// Says how to scroll the focused `popup` and get back, and, when it
+    /// holds links or buttons, that Tab reaches them.
+    fn say_popup_focused(&self, popup: &HtmlElement) {
+        let links = popup
+            .query_selector("a[href], button")
+            .ok()
+            .flatten()
+            .is_some();
+        let said = self.strings_untracked(|strings| {
+            if links {
+                format!("{} {}", strings.hover_focused, strings.hover_links)
+            } else {
+                strings.hover_focused.clone()
+            }
+        });
+        self.a11y().announce(said);
     }
 }
 
