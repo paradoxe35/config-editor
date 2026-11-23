@@ -5,7 +5,7 @@ All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
-## Unreleased
+## 0.2.4 — 2026-11-23
 
 ### Fixed
 
@@ -40,6 +40,14 @@ versions move together.
   so a YAML `!!str 5`, a TOML `'5'` or a JSON `"5"` left alone is saved as
   written, not as the number `5`. Text the view reads with the line break
   in it is still saved as the user's.
+- A host with revisions that forgets the newest one and takes back an
+  older echo now hears the document again: the editor waited for a copy
+  of the document it had sent before the newest text came back, which the
+  host drops, so the host could keep the older text for good.
+- Whether a key that adds one more item to a list written by repeating it
+  is suggested no longer depends on how deep the document is: it is judged
+  by what the new item changes, so an item already refused deep inside no
+  longer hides the key near the top and shows it further down.
 
 ## 0.2.3 — 2026-11-23
 
