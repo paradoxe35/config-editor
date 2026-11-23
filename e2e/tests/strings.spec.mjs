@@ -78,6 +78,7 @@ const ELSEWHERE = {
     "a check registered from JavaScript that throws: schema-formats spec (a format's checks run where the editor validates)",
   xsdNotDeclared:
     "an XSD check (the opt-in xsd feature, not in this page's build): xsd checks tests (the_checks_word_their_problems_with_the_editors_texts)",
+  xsdElementAsAttribute: "as xsdNotDeclared",
   xsdNoMoreElements: "as xsdNotDeclared",
   xsdElementNotExpected: "as xsdNotDeclared",
   xsdElementMissing: "as xsdNotDeclared",

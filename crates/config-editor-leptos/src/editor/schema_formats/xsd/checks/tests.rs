@@ -182,6 +182,98 @@ const RULES: &[Rule] = &[
             ("<r><m><v>1</v><v>1</v></m></r>", false),
         ],
     },
+    // A choice taken once inside a sequence is a `oneOf` in the JSON
+    // Schema: the option not taken is no problem the order waits for.
+    Rule {
+        name: "xs:choice inside a sequence",
+        body: r#"<xs:element name="r"><xs:complexType><xs:sequence>
+<xs:element name="a" type="xs:string"/><xs:choice><xs:element name="b" type="xs:string"/><xs:element name="c" type="xs:string"/></xs:choice><xs:element name="d" type="xs:string"/>
+</xs:sequence></xs:complexType></xs:element>"#,
+        documents: &[
+            ("<r><a>1</a><b>2</b><d>3</d></r>", true),
+            ("<r><a>1</a><c>2</c><d>3</d></r>", true),
+            ("<r><d>3</d><a>1</a><b>2</b></r>", false),
+            ("<r><a>1</a><d>3</d><b>2</b></r>", false),
+            ("<r><b>2</b><a>1</a><d>3</d></r>", false),
+            ("<r><a>1</a><b>2</b><c>2</c><d>3</d></r>", false),
+            ("<r><a>1</a><d>3</d></r>", false),
+        ],
+    },
+    Rule {
+        name: "an optional xs:choice first in a sequence",
+        body: r#"<xs:element name="r"><xs:complexType><xs:sequence>
+<xs:choice minOccurs="0"><xs:element name="b" type="xs:string"/><xs:element name="c" type="xs:string"/></xs:choice><xs:element name="a" type="xs:string"/>
+</xs:sequence></xs:complexType></xs:element>"#,
+        documents: &[
+            ("<r><a>1</a></r>", true),
+            ("<r><c>1</c><a>2</a></r>", true),
+            ("<r><a>1</a><b>2</b></r>", false),
+            ("<r><a>1</a><c>2</c></r>", false),
+        ],
+    },
+    Rule {
+        name: "an xs:choice of sequences inside a sequence inside a child",
+        body: r#"<xs:element name="r"><xs:complexType><xs:sequence><xs:element name="m"><xs:complexType><xs:sequence>
+<xs:element name="a" type="xs:string"/><xs:choice><xs:sequence><xs:element name="b" type="xs:string"/><xs:element name="e" type="xs:string"/></xs:sequence><xs:element name="c" type="xs:string"/></xs:choice><xs:element name="d" type="xs:string" minOccurs="0"/>
+</xs:sequence></xs:complexType></xs:element></xs:sequence></xs:complexType></xs:element>"#,
+        documents: &[
+            ("<r><m><a>1</a><b>2</b><e>3</e><d>4</d></m></r>", true),
+            ("<r><m><a>1</a><c>2</c></m></r>", true),
+            ("<r><m><a>1</a><e>3</e><b>2</b></m></r>", false),
+            ("<r><m><d>4</d><a>1</a><c>2</c></m></r>", false),
+            ("<r><m><a>1</a><d>4</d><c>2</c></m></r>", false),
+        ],
+    },
+    Rule {
+        name: "two xs:choices in a sequence",
+        body: r#"<xs:element name="r"><xs:complexType><xs:sequence>
+<xs:choice><xs:element name="a" type="xs:string"/><xs:element name="b" type="xs:string"/></xs:choice><xs:choice><xs:element name="c" type="xs:string"/><xs:element name="d" type="xs:string"/></xs:choice>
+</xs:sequence></xs:complexType></xs:element>"#,
+        documents: &[
+            ("<r><a>1</a><d>2</d></r>", true),
+            ("<r><b>1</b><c>2</c></r>", true),
+            ("<r><d>2</d><a>1</a></r>", false),
+            ("<r><c>2</c><b>1</b></r>", false),
+        ],
+    },
+    // In an XML text an attribute is not a child element of the same name:
+    // whether the model's other declarations are open or closed, whether
+    // the element is optional or required, local or a reference.
+    Rule {
+        name: "an attribute named like an optional child element",
+        body: r#"<xs:element name="r"><xs:complexType><xs:sequence>
+<xs:element name="a" type="xs:string" minOccurs="0"/>
+</xs:sequence></xs:complexType></xs:element>"#,
+        documents: &[
+            ("<r><a>1</a></r>", true),
+            ("<r/>", true),
+            (r#"<r a="1"/>"#, false),
+            (r#"<r a="1"><a>2</a></r>"#, false),
+        ],
+    },
+    Rule {
+        name: "an attribute named like a required child element, beside declared attributes",
+        body: r#"<xs:element name="r"><xs:complexType><xs:all>
+<xs:element name="a" type="xs:string"/>
+</xs:all><xs:attribute name="z" type="xs:string"/></xs:complexType></xs:element>"#,
+        documents: &[
+            (r#"<r z="1"><a>1</a></r>"#, true),
+            (r#"<r a="1"/>"#, false),
+            (r#"<r z="1" a="1"/>"#, false),
+        ],
+    },
+    Rule {
+        name: "an attribute named like a referenced element, in an open model",
+        body: r###"<xs:element name="a" type="xs:string"/>
+<xs:element name="r"><xs:complexType><xs:sequence>
+<xs:element ref="a" minOccurs="0"/><xs:any namespace="##other" processContents="skip" minOccurs="0"/>
+</xs:sequence><xs:anyAttribute namespace="##other" processContents="skip"/></xs:complexType></xs:element>"###,
+        documents: &[
+            ("<r><a>1</a></r>", true),
+            (r#"<r xmlns:x="urn:x" x:a="1"/>"#, true),
+            (r#"<r a="1"/>"#, false),
+        ],
+    },
 ];
 
 #[test]
@@ -251,6 +343,45 @@ fn a_problem_names_what_is_expected_on_the_element_it_is_about() {
     // A required element missing is the JSON Schema's problem, told once.
     let problems = messages(&schema, Language::XML, "<r><b>2</b></r>");
     assert_eq!(problems.len(), 1, "{problems:?}");
+}
+
+/// Each problem of a choice, or of an attribute named like an element, is
+/// told once, naming what is written as the text writes it: the elements
+/// of a choice taken twice, an attribute by its name (no data-model
+/// spelling), alone or beside the element it is named like.
+#[test]
+fn a_choice_or_an_attribute_problem_is_told_once_in_the_texts_words() {
+    let choice = compile(
+        r#"<xs:element name="r"><xs:complexType><xs:sequence>
+<xs:element name="a" type="xs:string"/><xs:choice><xs:element name="b" type="xs:string"/><xs:element name="c" type="xs:string"/></xs:choice>
+</xs:sequence></xs:complexType></xs:element>"#,
+    );
+    assert_eq!(
+        messages(&choice, Language::XML, "<r><a>1</a><b>2</b><c>3</c></r>"),
+        ["/r: matches more than one of the oneOf options (\"b\", \"c\"); only one may match"]
+    );
+    let attribute = compile(
+        r#"<xs:element name="r"><xs:complexType><xs:sequence>
+<xs:element name="type" type="xs:string" minOccurs="0"/>
+</xs:sequence></xs:complexType></xs:element>"#,
+    );
+    for (document, expected) in [
+        (
+            r#"<r type="1"/>"#,
+            "/r/type: \"type\" is a child element here, not an attribute",
+        ),
+        (
+            r#"<r type="1"><type>2</type></r>"#,
+            "/r: \"type\" is not allowed here",
+        ),
+        (r#"<r q="1"/>"#, "/r: \"q\" is not allowed here"),
+    ] {
+        assert_eq!(
+            messages(&attribute, Language::XML, document),
+            [expected],
+            "{document}"
+        );
+    }
 }
 
 /// The checks word their problems with the editor's texts (the `strings`

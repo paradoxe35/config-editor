@@ -1504,6 +1504,12 @@ export interface EditorStrings {
    */
   xsdNotDeclared?: string;
   /**
+   * An XSD check: an attribute named `{name}` in an XML text, where its element declares a child element of that name and no such attribute.
+   *
+   * @default "\"{name}\" is a child element here, not an attribute"
+   */
+  xsdElementAsAttribute?: string;
+  /**
    * An XSD check: child element `{name}` where its element's content model allows no more.
    *
    * @default "<{name}> is not expected here: no more elements are allowed"

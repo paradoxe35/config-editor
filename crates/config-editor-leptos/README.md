@@ -392,7 +392,7 @@ they come.
 <!-- Generated from crates/config-editor-leptos/src/strings.rs by js/config-editor/tests/settings.rs; do not edit. Regenerate with `UPDATE_GENERATED=1 cargo test -p config-editor-js --test settings`. -->
 
 <details>
-<summary>Every text and its default (253 texts)</summary>
+<summary>Every text and its default (254 texts)</summary>
 
 | Field                           | Default                                                                                                                                                                         |                                                                                                                                                                                                                                                                                                                                                   |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -623,6 +623,7 @@ they come.
 | `empty_schema`                  | `"Invalid JSON Schema: the schema text is empty"`                                                                                                                               | A schema whose text is empty, or only spaces and line breaks.                                                                                                                                                                                                                                                                                     |
 | `schema_check_failed`           | `"{format}'s check \"{check}\" did not run: {reason}"`                                                                                                                          | A schema format's check that could not run (a JavaScript check that threw, or gave something else than problems): the format's `{format}`, the check's name (`{check}`) and why (`{reason}`).                                                                                                                                                     |
 | `xsd_not_declared`              | `"\"{name}\" is neither declared here nor allowed by a wildcard"`                                                                                                               | An XSD check (cargo feature `xsd`): an attribute, or another language's key, named `{name}`, that its element neither declares nor allows by a wildcard.                                                                                                                                                                                          |
+| `xsd_element_as_attribute`      | `"\"{name}\" is a child element here, not an attribute"`                                                                                                                        | An XSD check: an attribute named `{name}` in an XML text, where its element declares a child element of that name and no such attribute.                                                                                                                                                                                                          |
 | `xsd_no_more_elements`          | `"<{name}> is not expected here: no more elements are allowed"`                                                                                                                 | An XSD check: child element `{name}` where its element's content model allows no more.                                                                                                                                                                                                                                                            |
 | `xsd_element_not_expected`      | `"<{name}> is not expected here; expected {expected}"`                                                                                                                          | An XSD check: child element `{name}` where its element's content model wants another (`{expected}`, worded as `xsd_one_of`).                                                                                                                                                                                                                      |
 | `xsd_element_missing`           | `"an element is missing at the end: expected {expected}"`                                                                                                                       | An XSD check: the child elements end before their element's content model does; it wants `{expected}` (worded as `xsd_one_of`).                                                                                                                                                                                                                   |
@@ -1707,8 +1708,9 @@ pass the [`Schema`].
 - **Resources.** The editor never fetches anything. A schema that refers to
   other files (an include, an import, an external `$ref`) gets them from
   `resources`, by location: resolved against the schema's location (its
-  `SchemaInput::at`, which a file's own references resolve against too),
-  then as written; an XSD import without a location is the resource
+  `SchemaInput::at`, else a JSON Schema's `$id`; a file's own references
+  resolve against the file), then as written, then under any key naming
+  the same file (`./common.json`, `types\common.xsd`); an XSD import without a location is the resource
   `urn:` and its namespace. A missing one is a compile error naming it and
   where to pass it. JSON Schema files are bundled into the schema's `$defs`
   (`#/$defs/common.json/…`), so completion and hover follow them too.
@@ -1772,15 +1774,23 @@ let format = SchemaFormat::new(&FIELDS);
 or YAML with the `yaml` feature) and makes one of its named schemas
 (`components.schemas`, Swagger's `definitions`) the document's schema: the
 option `schema` names it (`{"schema": "ServerConfig"}`; needless when there
-is one), the others are `$defs` it refers to. OpenAPI 3.1 schemas are
+is one), the ones it refers to are its `$defs` (the others are left out,
+with their losses). OpenAPI 3.1 schemas are
 JSON Schema 2020-12 as they are; 3.0 and Swagger ones are rewritten where
-they differ (`nullable: true` adds `null` to the type, a boolean
+they differ (`nullable: true` and Swagger's `x-nullable: true` add `null`
+to the type, a boolean
 `exclusiveMinimum`/`exclusiveMaximum` takes its bound, `example` becomes
-`examples`); a JSON Schema keyword they do not define (`contains`, `const`,
+`examples`, Swagger's `type: file` is checked as a string, a loss); a JSON
+Schema keyword they do not define (`contains`, `const`,
 `if`, `prefixItems`, Swagger's missing `oneOf`) is kept and checked as JSON
 Schema says. The XML object is kept, so `"xml": {"attribute": true}` writes
-attributes in an XML view. A `discriminator` is a loss: the options are
-matched by their schemas.
+attributes in an XML view. A `discriminator` picks the schema a value is
+checked by: beside `oneOf`/`anyOf` options (references to named schemas),
+the `mapping`'s values, else each option's name; on a base schema
+(Swagger 2.0's polymorphism), the named schemas extending it by `allOf`
+and the base itself, by name. Completion offers the values and then the
+picked schema's keys. An option written in place, which no value names,
+keeps the options as they are and is a loss.
 
 ### XML Schema (XSD)
 
@@ -1866,8 +1876,14 @@ for loss in pom.losses() { log::info!("{loss}"); } // what is not checked
     `xs:notation`;
   - a name two namespaces both define (the data model keys by local name:
     the one read first is used).
+- **Attributes in an XML text** are checked against the declarations
+  even where the JSON Schema cannot tell them from elements: an attribute
+  named like a child element (`<dependency classifier="x">`) is a
+  problem.
 - **Several files**: `xs:include`, `xs:import` and `xs:redefine` read
-  their files from the resources (an import without a `schemaLocation` from
+  their files from the resources (a location resolved against the file
+  naming it, a backslash read as a slash; a key naming the same file, such
+  as `./types.xsd`, does too) (an import without a `schemaLocation` from
   `urn:` and its namespace; the XML namespace's own needs none); a
   redefinition replaces the definition it names and may derive from it.
   `imports(text)` lists the `schemaLocation`s a text names, for the host to
@@ -2190,7 +2206,10 @@ object, which other views ignore) is written as an attribute where the XML
 text does not write it already: converting `{"server": {"port": 80}}` writes
 `<server port="80"/>`, and a key added in another view of an XML file is an
 attribute there. In a start tag, completion then offers the element's
-attributes only, and in its content only its elements.
+attributes only, and in its content only its elements; a schema saying
+`"xml": {"attribute": false}` of its child elements (as an XSD's does)
+tells them apart too, so an element declaring no attribute offers nothing
+in its start tag.
 
 Namespace declarations (`xmlns`, `xmlns:m`) and the attributes of the XML
 Schema instance namespace (`xsi:schemaLocation`, `xsi:type`, with whatever

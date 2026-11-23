@@ -78,15 +78,19 @@ impl<'a> Compiler<'a> {
         if let Some(namespace) = self.target_namespace(node) {
             annotation["namespace"] = Value::String(namespace);
         }
+        // The declared attributes: an XML text's attribute named like a
+        // child element reads as that element's key, which only the check
+        // tells apart.
+        let attributes: Vec<&str> = model
+            .props
+            .iter()
+            .filter(|(_, prop)| prop.attribute)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        annotation["attributes"] = json!(attributes);
         if model.open && !self.settings.lax {
-            // Open for a wildcard: the attributes are checked here.
-            let attributes: Vec<&str> = model
-                .props
-                .iter()
-                .filter(|(_, prop)| prop.attribute)
-                .map(|(name, _)| name.as_str())
-                .collect();
-            annotation["attributes"] = json!(attributes);
+            // Open for a wildcard: every attribute is checked here.
+            annotation["open"] = Value::Bool(true);
             if let Some(namespaces) = &model.any_attribute {
                 annotation["anyAttribute"] = namespaces.to_json();
             }

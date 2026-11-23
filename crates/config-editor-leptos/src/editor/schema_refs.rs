@@ -36,8 +36,16 @@ pub(super) fn message(kind: &ValidationErrorKind, schema: &Value) -> Option<Stri
                 ),
             };
             let at = at.map(|at| format!(" at {at}")).unwrap_or_default();
+            // The file, as the resources take it (as written, or resolved
+            // against the schema's location).
+            let file = named.split('#').next().unwrap_or_default();
+            let under = if file.is_empty() {
+                String::new()
+            } else {
+                format!(" under \"{file}\"")
+            };
             format!(
-                "the $ref{at} names \"{named}\", outside this schema: the editor follows references inside the schema only and fetches nothing. Pass that file in the schema's resources, put it under $defs with its $id, or inline it"
+                "the $ref{at} names \"{named}\", outside this schema: the editor follows references inside the schema only and fetches nothing. Pass that file in the schema's resources{under}, put it under $defs with its $id, or inline it"
             )
         }
         ReferencingError::PointerToNowhere { pointer } => {

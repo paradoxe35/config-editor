@@ -472,10 +472,87 @@ fn an_external_ref_with_no_resource_is_refused_saying_how_to_pass_it() {
     )
     .expect_err("refused");
     assert!(
-        error.0.contains("Pass that file in the schema's resources"),
+        error
+            .0
+            .contains("Pass that file in the schema's resources under \"common.json\""),
         "{}",
         error.0
     );
+}
+
+/// A resource is found under any key naming its file: as written or
+/// resolved, with or without `./`, with backslashes for folders; a schema
+/// without a location resolves against its `$id`; and an XSD included by
+/// an included file resolves against that file's folder.
+#[test]
+fn a_resource_is_found_under_any_key_naming_its_file() {
+    let main =
+        r#"{"properties":{"db":{"$ref":"./db.json#/$defs/db"},"port":{"$ref":"types/port.json"}}}"#;
+    let db = r#"{"$defs":{"db":{"type":"string"}}}"#;
+    let port = r#"{"type":"integer"}"#;
+    for (db_key, port_key) in [
+        ("db.json", "types/port.json"),
+        ("./db.json", "./types/port.json"),
+        ("db.json", "types\\port.json"),
+    ] {
+        let resources = SchemaResources::new().with(db_key, db).with(port_key, port);
+        let schema = Schema::compile_as(
+            SchemaFormat::JSON_SCHEMA,
+            &SchemaInput::new(main).resources(&resources),
+        )
+        .unwrap_or_else(|error| panic!("{db_key} {port_key}: {}", error.0));
+        assert_eq!(
+            schema.json()["properties"]["port"]["$ref"],
+            json!("#/$defs/types~1port.json"),
+            "{db_key} {port_key}"
+        );
+    }
+    let identified = r#"{"$id":"https://example.com/schemas/main.json","properties":{"x":{"$ref":"item.json"}}}"#;
+    for key in ["https://example.com/schemas/item.json", "item.json"] {
+        let resources = SchemaResources::new().with(key, r#"{"type":"string"}"#);
+        let schema = Schema::compile_as(
+            SchemaFormat::JSON_SCHEMA,
+            &SchemaInput::new(identified).resources(&resources),
+        )
+        .unwrap_or_else(|error| panic!("{key}: {}", error.0));
+        assert_eq!(
+            schema.json()["properties"]["x"]["$ref"],
+            json!("#/$defs/https:~1~1example.com~1schemas~1item.json"),
+            "{key}"
+        );
+    }
+    #[cfg(feature = "xsd")]
+    {
+        let xs = "xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"";
+        let main = format!(
+            "<xs:schema {xs}><xs:include schemaLocation=\"build\\common.xsd\"/><xs:element name=\"r\" type=\"t\"/></xs:schema>"
+        );
+        let common =
+            format!("<xs:schema {xs}><xs:include schemaLocation=\"core.xsd\"/></xs:schema>");
+        let core = format!(
+            "<xs:schema {xs}><xs:simpleType name=\"t\"><xs:restriction base=\"xs:int\"/></xs:simpleType></xs:schema>"
+        );
+        let other = format!(
+            "<xs:schema {xs}><xs:simpleType name=\"t\"><xs:restriction base=\"xs:string\"/></xs:simpleType></xs:schema>"
+        );
+        for core_key in ["build/core.xsd", "build\\core.xsd"] {
+            // The core beside the main schema is another file.
+            let resources = SchemaResources::new()
+                .with("build\\common.xsd", common.clone())
+                .with(core_key, core.clone())
+                .with("core.xsd", other.clone());
+            let schema = Schema::compile_as(
+                SchemaFormat::XSD,
+                &SchemaInput::new(&main).resources(&resources),
+            )
+            .unwrap_or_else(|error| panic!("{core_key}: {}", error.0));
+            assert!(
+                schema.json().to_string().contains("\"integer\""),
+                "{core_key}: {}",
+                schema.json()
+            );
+        }
+    }
 }
 
 /// JSON Schema written in YAML bundles its files the same way, read as

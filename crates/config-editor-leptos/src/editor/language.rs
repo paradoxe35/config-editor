@@ -194,9 +194,10 @@ pub struct InsertContext<'a> {
     /// ([`Typing::rewritable_keys`]): the entry is one more item,
     /// written the same way (another HCL block).
     pub another_item: bool,
-    /// The schema marks some property of the container an XML attribute
-    /// (`"xml": {"attribute": true}`): a start tag offers those alone, and
-    /// the content the others.
+    /// The schema says of some property of the container whether it is
+    /// an XML attribute (`"xml": {"attribute": true}`, or `false` for an
+    /// element): a start tag offers the attributes alone, and the content
+    /// the others.
     pub attributes_marked: bool,
 }
 
@@ -1938,9 +1939,11 @@ pub trait Markup {
         None
     }
 
-    /// The property a schema's `required` entry `name` names, as the
-    /// language spells it (XML lists a required attribute `a` as `@a`).
-    /// Default: `name` itself.
+    /// The property a schema's key `name` names, as the language's text
+    /// spells it (XML keys an attribute `a` beside a child element `a` as
+    /// `@a`, and writes it `a`): what a fill writes for a `required`
+    /// entry, and what a problem with the key calls it. Default: `name`
+    /// itself.
     fn required_property<'a>(&self, name: &'a str) -> &'a str {
         name
     }

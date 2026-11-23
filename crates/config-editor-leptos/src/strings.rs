@@ -626,6 +626,10 @@ pub struct EditorStrings {
     /// language's key, named `{name}`, that its element neither declares
     /// nor allows by a wildcard.
     pub xsd_not_declared: String,
+    /// An XSD check: an attribute named `{name}` in an XML text, where
+    /// its element declares a child element of that name and no such
+    /// attribute.
+    pub xsd_element_as_attribute: String,
     /// An XSD check: child element `{name}` where its element's content
     /// model allows no more.
     pub xsd_no_more_elements: String,
@@ -1000,6 +1004,7 @@ impl Default for EditorStrings {
             empty_schema: text("Invalid JSON Schema: the schema text is empty"),
             schema_check_failed: text("{format}'s check \"{check}\" did not run: {reason}"),
             xsd_not_declared: text("\"{name}\" is neither declared here nor allowed by a wildcard"),
+            xsd_element_as_attribute: text("\"{name}\" is a child element here, not an attribute"),
             xsd_no_more_elements: text(
                 "<{name}> is not expected here: no more elements are allowed",
             ),

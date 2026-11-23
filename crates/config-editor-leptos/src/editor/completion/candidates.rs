@@ -359,12 +359,12 @@ pub(super) fn property_completions<'s>(
     let choices = &object.choices;
     let branches = &object.branches;
     let forbidden = forbidden_keys(&object.certain);
-    // Some property of the object is marked an XML attribute.
+    // Some property of the object says whether it is an XML attribute.
     let attributes_marked = branches
         .iter()
         .filter_map(|branch| branch.get("properties").and_then(Value::as_object))
         .flat_map(|properties| properties.values())
-        .any(|property| super::insert_plan::marks_attribute(&Here::of(property, root)));
+        .any(|property| super::insert_plan::tells_attribute(&Here::of(property, root)));
     // An object holding its `maxProperties` takes no other key.
     let full = existing.is_some_and(|existing| {
         object

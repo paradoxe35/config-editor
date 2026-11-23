@@ -8,7 +8,9 @@
 //!
 //! An element is `{"n": name, "min": 0|1, "max": 1|2|"u", "named": bool}`
 //! with `"s": simple` (text content) or `"seq"`/`"alt": [elements]` and
-//! `"at": [{"n", "s", "req"}]` (attributes). A simple type is
+//! `"at": [{"n", "s", "req"}]` (attributes); an item of a `"seq"` may be a
+//! choice of elements nested in it, `{"alt": [elements], "min": 0|1}`
+//! (taken once at most, no name). A simple type is
 //! `{"int": [low, high]}`, `{"dec": [low, high]}`, `{"bool": 1}` or
 //! `{"text": [values…], "len": most}` (no values: any letters). A document
 //! is `{"n": name, "a": {attribute: text}, "c": [children], "t": text}`.
@@ -28,22 +30,28 @@ const VALUES: &[&str] = &["tcp", "udp", "auto", "off"];
 
 /// A random model: a root element with element-only content.
 pub(super) fn model(rng: &mut Rng) -> Value {
+    model_with(rng, false)
+}
+
+/// A random model whose sequences may hold choices nested in them
+/// (`nested`).
+pub(super) fn model_with(rng: &mut Rng, nested: bool) -> Value {
     let most = 2 + rng.below(2);
-    let mut root = complex(rng, 0, most);
+    let mut root = complex(rng, 0, most, nested);
     root["n"] = json!("config");
     root["min"] = json!(1);
     root["max"] = json!(1);
     root
 }
 
-fn complex(rng: &mut Rng, depth: usize, most: usize) -> Value {
+fn complex(rng: &mut Rng, depth: usize, most: usize, nested: bool) -> Value {
     let mut names: Vec<&str> = ELEMENTS.to_vec();
     let count = 1 + rng.below(4);
     let mut children = Vec::new();
     for _ in 0..count {
         let name = names.remove(rng.below(names.len()));
         let mut child = if depth + 1 < most && rng.chance(30) {
-            complex(rng, depth + 1, most)
+            complex(rng, depth + 1, most, nested)
         } else {
             json!({"s": simple(rng)})
         };
@@ -66,6 +74,14 @@ fn complex(rng: &mut Rng, depth: usize, most: usize) -> Value {
         at.push(json!({"n": name, "s": simple(rng), "req": rng.chance(40)}));
     }
     let group = if rng.chance(25) { "alt" } else { "seq" };
+    // Two or more neighbours of a sequence as a choice nested in it.
+    if nested && group == "seq" && children.len() >= 2 && rng.chance(50) {
+        let start = rng.below(children.len() - 1);
+        let length = 2 + rng.below(children.len() - start - 1);
+        let options: Vec<Value> = children.drain(start..start + length).collect();
+        let choice = json!({"alt": options, "min": usize::from(rng.chance(60))});
+        children.insert(start, choice);
+    }
     let mut node = Map::new();
     node.insert(group.into(), Value::Array(children));
     node.insert("at".into(), Value::Array(at));
@@ -101,6 +117,23 @@ fn simple(rng: &mut Rng) -> Value {
             node
         }
     }
+}
+
+/// Whether `item` (of a sequence) is a choice nested in it.
+pub(super) fn is_choice(item: &Value) -> bool {
+    item.get("n").is_none() && item.get("alt").is_some()
+}
+
+/// The element declarations of `items`, a nested choice's options in its
+/// place.
+fn flattened(items: &[Value]) -> Vec<&Value> {
+    items
+        .iter()
+        .flat_map(|item| match item.get("alt").and_then(Value::as_array) {
+            Some(options) if is_choice(item) => options.iter().collect(),
+            _ => vec![item],
+        })
+        .collect()
 }
 
 /// An element's children and whether they are a choice; `None` for text
@@ -150,9 +183,21 @@ pub(super) fn well_formed(element: &Value) -> bool {
         return false;
     }
     match children(element) {
-        Some((items, _)) => {
+        Some((items, choice)) => {
+            let nested_ok = items.iter().all(|item| {
+                !is_choice(item)
+                    || (!choice
+                        && item
+                            .get("alt")
+                            .and_then(Value::as_array)
+                            .is_some_and(|options| !options.is_empty())
+                        && min(item) <= 1)
+            });
+            if !nested_ok {
+                return false;
+            }
             let mut seen: Vec<&str> = Vec::new();
-            for item in items {
+            for item in flattened(items) {
                 let Some(name) = name(item) else { return false };
                 if seen.contains(&name) || !well_formed(item) {
                     return false;
@@ -241,7 +286,21 @@ fn element_decl(
             let group = if choice { "choice" } else { "sequence" };
             let inner: String = items
                 .iter()
-                .map(|item| element_decl(item, globals, counter, false))
+                .map(|item| match item.get("alt").and_then(Value::as_array) {
+                    Some(options) if is_choice(item) => {
+                        let options: String = options
+                            .iter()
+                            .map(|option| element_decl(option, globals, counter, false))
+                            .collect();
+                        let low = if min(item) == 0 {
+                            " minOccurs=\"0\""
+                        } else {
+                            ""
+                        };
+                        format!("<xs:choice{low}>{options}</xs:choice>")
+                    }
+                    _ => element_decl(item, globals, counter, false),
+                })
                 .collect();
             let attributes: String = attributes(element)
                 .iter()
@@ -378,6 +437,22 @@ pub(super) fn document(rng: &mut Rng, element: &Value) -> Value {
             };
             let mut children = Vec::new();
             for item in chosen {
+                // A nested choice: one option, or none when it may be left
+                // out.
+                if let Some(options) = item.get("alt").and_then(Value::as_array)
+                    && is_choice(item)
+                {
+                    if min(item) == 0 && rng.chance(30) {
+                        continue;
+                    }
+                    let option = &options[rng.below(options.len())];
+                    let low = min(option).max(1);
+                    let most = max(option).unwrap_or(3).min(3);
+                    for _ in 0..low + rng.below(most - low.min(most) + 1) {
+                        children.push(document(rng, option));
+                    }
+                    continue;
+                }
                 let low = min(item).max(usize::from(choice));
                 let most = max(item).unwrap_or(3).min(3);
                 for _ in 0..low + rng.below(most - low.min(most) + 1) {
@@ -549,6 +624,32 @@ pub(super) fn valid(element: &Value, document: &Value) -> Option<bool> {
     let mut next = 0;
     let mut at = 0;
     for item in items {
+        if let Some(options) = item.get("alt").and_then(Value::as_array)
+            && is_choice(item)
+        {
+            let taken = runs.get(next).and_then(|(name, count)| {
+                let option = options
+                    .iter()
+                    .find(|option| self::name(option) == Some(*name))?;
+                Some((option, *count))
+            });
+            match taken {
+                Some((option, count)) => {
+                    if count < min(option).max(1) || max(option).is_some_and(|most| count > most) {
+                        return Some(false);
+                    }
+                    match all_valid(option, &found[at..at + count]) {
+                        Some(true) => {}
+                        other => return other,
+                    }
+                    next += 1;
+                    at += count;
+                }
+                None if min(item) == 0 || options.iter().any(|option| min(option) == 0) => {}
+                None => return Some(false),
+            }
+            continue;
+        }
         let count = match runs.get(next) {
             Some((name, count)) if Some(*name) == self::name(item) => {
                 next += 1;
@@ -629,7 +730,8 @@ fn write(node: &Value, depth: usize, out: &mut String) {
 /// `document` changed in one place chosen by `pick`: a text made another
 /// value, a child left out, written twice or swapped with the next, a
 /// child or an attribute the model does not have added, an attribute left
-/// out (or none of these). The model then says whether it is still valid.
+/// out, a child's text written as an attribute of its name (or none of
+/// these). The model then says whether it is still valid.
 pub(super) fn mutate(document: &Value, pick: usize) -> Value {
     let mut out = document.clone();
     let mut nodes = Vec::new();
@@ -642,7 +744,7 @@ pub(super) fn mutate(document: &Value, pick: usize) -> Value {
         return out;
     };
     const WRONG: [&str; 6] = ["x", "999999", "-5", "true", "zzz", "1.5"];
-    match pick % 8 {
+    match pick % CHANGES {
         1 => {
             if node.get("t").is_some() {
                 node["t"] = json!(WRONG[(pick / 64) % WRONG.len()]);
@@ -687,10 +789,33 @@ pub(super) fn mutate(document: &Value, pick: usize) -> Value {
                 attributes.insert("zz".into(), json!("1"));
             }
         }
+        8 => {
+            let lifted = node
+                .get_mut("c")
+                .and_then(Value::as_array_mut)
+                .and_then(|children| {
+                    let index = children.iter().position(|child| child.get("t").is_some())?;
+                    Some(children.remove(index))
+                });
+            if let Some(child) = lifted
+                && let (Some(name), Some(text)) = (name(&child), child.get("t"))
+            {
+                let (name, text) = (name.to_string(), text.clone());
+                match node.get_mut("a") {
+                    Some(Value::Object(attributes)) => {
+                        attributes.insert(name, text);
+                    }
+                    _ => node["a"] = json!({ name: text }),
+                }
+            }
+        }
         _ => {}
     }
     out
 }
+
+/// How many kinds of change [`mutate`] makes (`pick % CHANGES`).
+pub(super) const CHANGES: usize = 9;
 
 /// The JSON pointer of each element in `node`, outermost first.
 fn pointers(node: &Value, at: String, out: &mut Vec<String>) {

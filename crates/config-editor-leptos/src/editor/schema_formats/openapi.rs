@@ -1,16 +1,21 @@
 //! OpenAPI (and Swagger 2.0) documents as schema sources: one of their
 //! named schemas (`components.schemas`, Swagger's `definitions`) is the
-//! document's schema, the others its `$defs`. OpenAPI 3.1 schemas are
-//! JSON Schema 2020-12 already; 3.0 and Swagger ones are rewritten where
-//! they differ (`nullable`, boolean `exclusiveMinimum`/`exclusiveMaximum`,
-//! `example`); a JSON Schema keyword they do not define (`contains`,
-//! `const`, `if`, Swagger's missing `oneOf`) is kept as JSON Schema means
-//! it, as the document says it. The OpenAPI XML object (`xml.attribute`) is kept, so an
-//! XML view writes attributes where the API says.
+//! document's schema, the ones it refers to its `$defs` (the others are
+//! left out). OpenAPI 3.1 schemas are JSON Schema 2020-12 already; 3.0 and
+//! Swagger ones are rewritten where they differ (`nullable` and Swagger's
+//! `x-nullable`, boolean `exclusiveMinimum`/`exclusiveMaximum`,
+//! `example`, Swagger's `type: file` as a string); a JSON Schema keyword
+//! they do not define (`contains`, `const`, `if`, Swagger's missing
+//! `oneOf`) is kept as JSON Schema means it, as the document says it. A
+//! `discriminator` picks the option a value is checked by (see
+//! `discriminator`). The OpenAPI XML object (`xml.attribute`) is kept, so
+//! an XML view writes attributes where the API says.
+
+use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
 
-use super::super::language::pointer_key;
+use super::super::language::{pointer_key, unescaped_key};
 use super::super::schema::{SchemaError, each_schema, each_schema_mut};
 use super::{
     CompiledSchema, LossEffect, SchemaCompiler, SchemaFormatInfo, SchemaInput, SchemaLoss,
@@ -66,7 +71,7 @@ impl SchemaCompiler for OpenApi {
             })
             .ok_or_else(|| {
                 SchemaError(
-                    "the document is no OpenAPI (it has no \"openapi\" or \"swagger\" version)"
+                    "the document is not an OpenAPI or Swagger document (it has no \"openapi\" or \"swagger\" version)"
                         .to_string(),
                 )
             })?;
@@ -109,24 +114,76 @@ impl SchemaCompiler for OpenApi {
             )));
         }
         let legacy = !version.starts_with("3.1");
-        let mut losses = Vec::new();
+        let mut losses: Vec<(String, SchemaLoss)> = Vec::new();
         let mut defs = Map::new();
         for (key, schema) in schemas {
             let mut schema = schema.clone();
-            losses.extend(discriminator_losses(
-                &schema,
-                &format!("{prefix}{}", pointer_key(key)),
-            ));
+            if legacy {
+                let at = format!("{prefix}{}", pointer_key(key));
+                losses.extend(
+                    file_losses(&schema, &at)
+                        .into_iter()
+                        .map(|loss| (key.clone(), loss)),
+                );
+            }
             rewrite(&mut schema, prefix, legacy);
             defs.insert(key.clone(), schema);
+        }
+        losses.extend(super::discriminator::compile(&mut defs, prefix));
+        // What the named schema never reaches is not its schema: neither
+        // checked nor told (a validator may refuse it, a loss in it is
+        // none of this schema's).
+        if let Some(reached) = reached(&defs, &name) {
+            defs.retain(|key, _| reached.contains(key));
+            losses.retain(|(key, _)| reached.contains(key));
         }
         let schema = json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "$ref": format!("#/$defs/{}", pointer_key(&name)),
             "$defs": defs,
         });
-        Ok(CompiledSchema::new(schema).with_losses(losses))
+        Ok(CompiledSchema::new(schema)
+            .with_losses(losses.into_iter().map(|(_, loss)| loss).collect()))
     }
+}
+
+/// The named schemas `name` reaches through `$ref`s (itself included);
+/// `None` when a reference names something else in the schema (an
+/// anchor, which may be in any of them), so that all are kept.
+fn reached(defs: &Map<String, Value>, name: &str) -> Option<HashSet<String>> {
+    let mut reached = HashSet::from([name.to_string()]);
+    let mut queue = vec![name.to_string()];
+    while let Some(next) = queue.pop() {
+        let Some(def) = defs.get(&next) else {
+            continue;
+        };
+        let mut elsewhere = false;
+        each_schema(def, &(), &mut |_, members, ()| {
+            for keyword in ["$ref", "$dynamicRef"] {
+                let Some(reference) = members.get(keyword).and_then(Value::as_str) else {
+                    continue;
+                };
+                match reference.strip_prefix("#/$defs/") {
+                    Some(rest) => {
+                        let token = rest.split('/').next().unwrap_or_default();
+                        let target = unescaped_key(token);
+                        if reached.insert(target.clone()) {
+                            queue.push(target);
+                        }
+                    }
+                    None if reference.starts_with('#') || keyword == "$dynamicRef" => {
+                        elsewhere = true;
+                    }
+                    None => {}
+                }
+            }
+            Some(())
+        });
+        if elsewhere {
+            return None;
+        }
+    }
+    Some(reached)
 }
 
 impl OpenApi {
@@ -159,18 +216,16 @@ fn rewrite(schema: &mut Value, prefix: &str, legacy: bool) {
     });
 }
 
-/// The losses of `schema` (at `pointer` in the document): each
-/// discriminator, which is not checked.
-fn discriminator_losses(schema: &Value, pointer: &str) -> Vec<SchemaLoss> {
+/// The losses of `schema` (at `pointer` in the document): each Swagger
+/// `type: file`, which JSON Schema has not (checked as a string).
+fn file_losses(schema: &Value, pointer: &str) -> Vec<SchemaLoss> {
     let mut losses = Vec::new();
     each_schema(schema, &(), &mut |at, members, ()| {
-        if members.contains_key("discriminator") {
+        if members.get("type").and_then(Value::as_str) == Some(FILE) {
             losses.push(SchemaLoss::new(
-                "discriminator",
-                LossEffect::Approximated,
-                format!(
-                    "{pointer}{at}: the discriminator is not checked; the options are matched by their schemas"
-                ),
+                "type: file",
+                LossEffect::Loosened,
+                format!("{pointer}{at}: type: file is checked as a string"),
             ));
         }
         Some(())
@@ -178,9 +233,18 @@ fn discriminator_losses(schema: &Value, pointer: &str) -> Vec<SchemaLoss> {
     losses
 }
 
-/// OpenAPI 3.0 / Swagger keywords as 2020-12 says them.
+/// Swagger's type of an uploaded or downloaded file.
+const FILE: &str = "file";
+
+/// OpenAPI 3.0 / Swagger keywords as 2020-12 says them (Swagger's
+/// `x-nullable` extension as 3.0's `nullable`).
 fn legacy_keywords(map: &mut Map<String, Value>) {
-    if map.remove("nullable") == Some(Value::Bool(true)) {
+    if map.get("type").and_then(Value::as_str) == Some(FILE) {
+        map.insert("type".to_string(), json!("string"));
+    }
+    let nullable = map.remove("nullable") == Some(Value::Bool(true));
+    let extension = map.remove("x-nullable") == Some(Value::Bool(true));
+    if nullable || extension {
         match map.get_mut("type") {
             Some(Value::String(name)) => {
                 let name = name.clone();

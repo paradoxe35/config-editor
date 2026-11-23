@@ -13,7 +13,8 @@ use super::random::Rng;
 use super::reference::messages;
 use super::runner::{Case, Property, Verdict, failure, run};
 use super::xsd_model::{
-    attributes, children, document, max, model, mutate, name, valid, well_formed, xml, xsd,
+    CHANGES, attributes, children, document, max, model, model_with, mutate, name, valid,
+    well_formed, xml, xsd,
 };
 use crate::editor::Language;
 use crate::editor::diagnostics::Severity;
@@ -21,8 +22,8 @@ use crate::editor::schema::Schema;
 use crate::editor::schema_formats::CheckedDocument;
 use crate::editor::{SchemaFormat, SchemaInput};
 
-/// What each `pick % 8` changes in the document ([`mutate`]).
-const CHANGES: [&str; 8] = [
+/// What each `pick % CHANGES` changes in the document ([`mutate`]).
+const CHANGE_NAMES: [&str; CHANGES] = [
     "unchanged",
     "another value",
     "a child left out",
@@ -31,6 +32,7 @@ const CHANGES: [&str; 8] = [
     "an unknown child",
     "an attribute left out",
     "an unknown attribute",
+    "a child written as an attribute",
 ];
 
 fn options() -> Map<String, Value> {
@@ -46,6 +48,20 @@ fn compile(text: &str, options: &Map<String, Value>) -> Result<Schema, String> {
 
 pub(super) fn draw(rng: &mut Rng, _index: usize) -> Case {
     let schema = model(rng);
+    let doc = document(rng, &schema);
+    Case {
+        language: Language::XML,
+        pick: rng.below(1 << 12),
+        schema,
+        doc,
+        other: Value::Null,
+    }
+}
+
+/// A case of the validation property: its sequences may hold choices
+/// nested in them.
+fn validation_draw(rng: &mut Rng, _index: usize) -> Case {
+    let schema = model_with(rng, true);
     let doc = document(rng, &schema);
     Case {
         language: Language::XML,
@@ -128,7 +144,7 @@ pub(super) fn validation_check(case: &Case) -> Verdict {
         Ok(None) => return Verdict::Skipped,
         Err(verdict) => return verdict,
     };
-    let change = CHANGES[case.pick % 8];
+    let change = CHANGE_NAMES[case.pick % CHANGES];
     let changed = mutate(&case.doc, case.pick);
     let Some(expected) = valid(&case.schema, &changed) else {
         return Verdict::Skipped;
@@ -596,7 +612,7 @@ fn random_documents_get_problems_exactly_when_the_xsd_finds_them_invalid() {
         check_path: "super::xsd::validation_check",
         cases: 300,
         shrink_budget: 1500,
-        draw,
+        draw: validation_draw,
         check: validation_check,
     });
 }

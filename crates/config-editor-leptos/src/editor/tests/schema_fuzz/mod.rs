@@ -13,6 +13,7 @@
 //! class a known finding explains is allowed by name (see [`known`]).
 
 mod data_reading;
+mod discriminated;
 mod documents;
 mod edit_as;
 mod fill;
