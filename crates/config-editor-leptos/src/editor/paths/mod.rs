@@ -66,7 +66,6 @@ fn spellings(behavior: &dyn ConfigLanguage, source: &str, pointer: &str) -> Vec<
 /// Where the value of the field at `pointer` is written, in any spelling of
 /// the pointer, inside an inline container or not; also in a text that
 /// does not parse, where the language finds it.
-#[cfg(feature = "protect")]
 pub(crate) fn written_value_span(
     behavior: &dyn ConfigLanguage,
     source: &str,
@@ -75,6 +74,18 @@ pub(crate) fn written_value_span(
     spellings(behavior, source, pointer)
         .iter()
         .find_map(|pointer| value_span(behavior, source, pointer))
+}
+
+/// Where the key of the field at `pointer` is written, in any spelling of
+/// the pointer, inside an inline container or not.
+pub(crate) fn written_key_span(
+    behavior: &dyn ConfigLanguage,
+    source: &str,
+    pointer: &str,
+) -> Option<Span> {
+    spellings(behavior, source, pointer)
+        .iter()
+        .find_map(|pointer| key_span(behavior, source, pointer))
 }
 
 /// The key written for `pointer`, inside an inline container or not.
@@ -148,10 +159,7 @@ pub(crate) fn key_range(
     source: &str,
     pointer: &str,
 ) -> Option<TextRange> {
-    spellings(behavior, source, pointer)
-        .iter()
-        .find_map(|pointer| key_span(behavior, source, pointer))
-        .map(range)
+    written_key_span(behavior, source, pointer).map(range)
 }
 
 /// [`field_range`] of one spelling of a pointer.

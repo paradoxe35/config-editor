@@ -31,7 +31,9 @@ pub(crate) use open_uses::{DocumentUses, NoOpenUses, OpenUses};
 pub(crate) use property_names::key_branches;
 pub(crate) use use_types::UsesReply;
 pub use use_types::{FindUses, FoundUse, GoToUse, Use};
-// Only the language matrix, which needs every built-in language, reads it.
+// Only the language matrices and the random suites, which need every
+// built-in language, read them.
+pub(crate) use uses::{NameRef, UseHit, uses_in, uses_in_language};
 #[cfg(all(
     test,
     feature = "yaml",
@@ -40,8 +42,10 @@ pub use use_types::{FindUses, FoundUse, GoToUse, Use};
     feature = "hcl",
     feature = "xml"
 ))]
-pub(crate) use uses::UsePart;
-pub(crate) use uses::{NameRef, UseHit, uses_in, uses_in_language};
+pub(crate) use {
+    definition::{name_at, searched_at},
+    uses::UsePart,
+};
 
 /// What an editor reads the names of its `x-config-editor-keys` fields
 /// from, where go to definition goes for a name it does not hold, and

@@ -10,6 +10,7 @@ mod excluded;
 mod fill;
 mod headless;
 mod hover;
+mod inline_field;
 mod insert_plan;
 mod kept;
 mod key_info;

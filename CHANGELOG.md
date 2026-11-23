@@ -36,6 +36,15 @@ classifier="x">`) is a problem (new string `xsd_element_as_attribute`),
   is no location, `./` and backslashes name the same file, and a missing
   external `$ref` names the resource key to pass.
 
+### Fixed
+
+- The hover card, go to definition (`F12`) and Find uses work on a key
+  name inside an item written on one line (a YAML flow map or list, a TOML
+  inline table or array, an HCL or JSON object on one line, XML elements on
+  one line) as in block form: all three find the field under the pointer
+  or caret with one lookup, by where the parsed document writes each
+  member.
+
 ## 0.2.2 — 2026-11-22
 
 ### Find uses

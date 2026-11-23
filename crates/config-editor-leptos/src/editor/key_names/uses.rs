@@ -122,15 +122,8 @@ pub(crate) fn uses_in(
         return Vec::new();
     };
     note(Work::UsesWalk);
-    let found = walked(document, behavior, schema, identity, Wanted::Name(name));
-    placed(
-        source,
-        behavior,
-        found
-            .into_iter()
-            .map(|(path, part, _)| (path, part))
-            .collect(),
-    )
+    let found = walked(document, behavior, schema, identity, name);
+    placed(source, behavior, found)
 }
 
 /// [`uses_in`] a document in `language`.
@@ -144,57 +137,14 @@ pub(crate) fn uses_in_language(
     uses_in(source, language.behavior(), schema, identity, name)
 }
 
-/// The name written over byte `at` of `source`: a value, or a key read
-/// through `propertyNames`, whose schemas carry the keyword, as a key of
-/// the first map it names (of its first `from` schema, if any). Found by
-/// where each such name is written, so it reaches places the caret's own
-/// reading of the line does not (an item of a list written inline).
-pub(crate) fn name_written_at(
-    source: &str,
-    behavior: &dyn ConfigLanguage,
-    schema: &Value,
-    identity: &SchemaIdentity,
-    at: TextSize,
-) -> Option<NameRef> {
-    let parsed = crate::editor::parse_cache::parsed(behavior, source);
-    let document = parsed.as_ref().as_ref().ok()?;
-    note(Work::UsesWalk);
-    let found = walked(document, behavior, schema, identity, Wanted::Any);
-    let hits = placed(
-        source,
-        behavior,
-        found
-            .iter()
-            .map(|(path, part, _)| (path.clone(), *part))
-            .collect(),
-    );
-    let hit = hits
-        .iter()
-        .find(|hit| hit.range.start() <= at && at <= hit.range.end())?;
-    found
-        .into_iter()
-        .find(|(path, part, _)| *path == hit.path && *part == hit.part)
-        .and_then(|(_, _, name)| name)
-}
-
-/// What a walk looks for.
-#[derive(Clone, Copy)]
-enum Wanted<'w> {
-    /// The uses of this name.
-    Name(&'w NameRef),
-    /// Every name, each with the map it names.
-    Any,
-}
-
-/// The places of `document` a walk for `wanted` finds, in document order,
-/// each with its name when every name is wanted.
+/// The places of `document` that use `name`, in document order.
 fn walked(
     document: &Value,
     behavior: &dyn ConfigLanguage,
     schema: &Value,
     identity: &SchemaIdentity,
-    wanted: Wanted<'_>,
-) -> Vec<(FieldPath, UsePart, Option<NameRef>)> {
+    name: &NameRef,
+) -> Vec<(FieldPath, UsePart)> {
     let read = || Some(document);
     let applies = Applies::new(
         schema,
@@ -205,7 +155,7 @@ fn walked(
     let mut walk = Walk {
         applies: &applies,
         identity,
-        wanted,
+        name,
         found: &mut found,
     };
     walk.value(document, &mut Vec::new(), 0);
@@ -216,8 +166,8 @@ fn walked(
 struct Walk<'w, 's, 'd> {
     applies: &'w Applies<'s, 'd>,
     identity: &'w SchemaIdentity,
-    wanted: Wanted<'w>,
-    found: &'w mut Vec<(FieldPath, UsePart, Option<NameRef>)>,
+    name: &'w NameRef,
+    found: &'w mut Vec<(FieldPath, UsePart)>,
 }
 
 impl Walk<'_, '_, '_> {
@@ -232,17 +182,16 @@ impl Walk<'_, '_, '_> {
         }
         match value {
             Value::Object(members) => {
-                // The keys' schemas, read only where a key may be wanted.
-                let keys = match self.wanted {
-                    Wanted::Name(name) if !members.contains_key(&name.name) => Vec::new(),
-                    _ => key_branches(&here.branches(), self.applies.root()),
-                };
-                for (key, member) in members {
-                    if let Some(name) = self.names(&keys, key) {
+                // The keys' schemas, read only where the name is a key.
+                if members.contains_key(&self.name.name) {
+                    let keys = key_branches(&here.branches(), self.applies.root());
+                    if self.uses(&keys, &self.name.name) {
                         let mut at = path.clone();
-                        at.push(SchemaPathSegment::Key(key.clone()));
-                        self.found.push((FieldPath::from(at), UsePart::Key, name));
+                        at.push(SchemaPathSegment::Key(self.name.name.clone()));
+                        self.found.push((FieldPath::from(at), UsePart::Key));
                     }
+                }
+                for (key, member) in members {
                     path.push(SchemaPathSegment::Key(key.clone()));
                     self.value(member, path, depth + 1);
                     path.pop();
@@ -256,40 +205,17 @@ impl Walk<'_, '_, '_> {
                 }
             }
             scalar => {
-                if let Some(name) = self.names(&here.branches(), &scalar_text(scalar)) {
+                if self.uses(&here.branches(), &scalar_text(scalar)) {
                     self.found
-                        .push((FieldPath::from(path.clone()), UsePart::Value, name));
+                        .push((FieldPath::from(path.clone()), UsePart::Value));
                 }
             }
         }
     }
 
-    /// Whether `text`, read by `branches`, is what the walk looks for:
-    /// `Some(None)` for a use of the wanted name, `Some(Some(name))` for a
-    /// name when every name is wanted.
-    fn names(&self, branches: &[&Value], text: &str) -> Option<Option<NameRef>> {
-        if branches.is_empty() {
-            return None;
-        }
-        match self.wanted {
-            Wanted::Name(name) => {
-                (text == name.name && name.named_by(branches, self.identity)).then_some(None)
-            }
-            Wanted::Any => {
-                let place = branches
-                    .iter()
-                    .flat_map(|branch| key_places(branch))
-                    .next()?;
-                Some(Some(NameRef {
-                    schema: place.from.first().map_or_else(
-                        || self.identity.clone(),
-                        |id| SchemaIdentity::Id(id.clone()),
-                    ),
-                    pointer: place.pointer,
-                    name: text.to_string(),
-                }))
-            }
-        }
+    /// Whether `text`, read by `branches`, is a use of the name.
+    fn uses(&self, branches: &[&Value], text: &str) -> bool {
+        text == self.name.name && self.name.named_by(branches, self.identity)
     }
 }
 

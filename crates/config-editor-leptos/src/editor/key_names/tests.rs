@@ -20,6 +20,10 @@ const SCHEMA: &str = r##"{
     "clients": {"type": "object"},
     "default_client": {"type": "string", "x-config-editor-keys": "/clients"},
     "port": {"type": "integer"},
+    "routes": {
+      "type": "array",
+      "items": {"type": "object", "properties": {"client": {"$ref": "#/$defs/client"}}}
+    },
     "reach": {
       "type": "object",
       "propertyNames": {"$ref": "#/$defs/client"},
@@ -268,5 +272,65 @@ fn hover_and_go_to_definition_on_a_key_name() {
         // A key of an object with no such `propertyNames` is no name.
         state.doc().caret.set(text_size(defined + 2));
         assert_eq!(state.definition_at_caret(), None, "{language}");
+    }
+}
+
+/// A name used in an item written on one line (a YAML flow map, a TOML
+/// inline table): `(language, text)`, the use the last `home`.
+fn one_line_cases() -> Vec<(Language, &'static str)> {
+    #[cfg_attr(not(feature = "toml"), allow(unused_mut))]
+    let mut cases = vec![
+        (
+            Language::YAML,
+            "clients:\n  home: {}\n  work: {}\nroutes:\n  - {path: /x, client: home}\n",
+        ),
+        // The definition on one line too.
+        (
+            Language::YAML,
+            "clients: {home: {}, work: {}}\nroutes: [{path: /x, client: home}]\n",
+        ),
+    ];
+    #[cfg(feature = "toml")]
+    cases.push((
+        Language::TOML,
+        "clients = {home = {}, work = {}}\nroutes = [{path = \"/x\", client = \"home\"}]\n",
+    ));
+    cases
+}
+
+/// On a name in an item written on one line, the hover card says where it
+/// is defined, go to definition goes to its key and Find uses lists it, as
+/// in block form.
+#[test]
+fn a_name_in_an_item_on_one_line_is_hovered_gone_to_and_searched() {
+    for (language, text) in one_line_cases() {
+        let (_owner, state, _) = mounted_as(language, text);
+        let used = text.rfind("home").unwrap();
+        let line = text[..used].matches('\n').count();
+        let start = text[..used].rfind('\n').map_or(0, |at| at + 1);
+        let column = text[start..used].chars().count() + 1;
+        let field = field_at(text, line, column, state.behavior()).expect("a field");
+        let card = state
+            .field_docs(text, &field)
+            .and_then(|hover| hover.value?.doc.description);
+        assert_eq!(
+            card.as_deref(),
+            Some("defined in this document"),
+            "{language}"
+        );
+        let defined = text.find("home").unwrap();
+        for caret in [used + 1, used + "home".len()] {
+            state.doc().caret.set(text_size(caret));
+            let Some(Definition::Key(at)) = state.definition_at_caret() else {
+                panic!("{language}: no key to go to from {caret}");
+            };
+            let at = usize::from(at);
+            assert!(
+                at <= defined && !text[at..defined].contains('\n'),
+                "{language}: goes to {at}"
+            );
+            assert!(state.find_uses(), "{language}: no uses from {caret}");
+            state.close_uses();
+        }
     }
 }

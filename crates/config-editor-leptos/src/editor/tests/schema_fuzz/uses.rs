@@ -8,13 +8,17 @@
 //!
 //! The schemas mix the places a name is used (a value, list items, an
 //! object's field, an `anyOf` option, an object's keys) with places it
-//! never is (free text, `examples`, the keyword naming another map).
+//! never is (free text, `examples`, the keyword naming another map). Half
+//! the YAML and JSON documents are written on one line (YAML in flow form),
+//! and on every use the one lookup hover, go to definition and Find uses
+//! share (`completion::field_at`) reaches the name.
 
 use serde_json::{Map, Value, json};
 
 use super::random::Rng;
 use super::runner::{Case, Property, Verdict, failure, language, run};
-use crate::editor::key_names::{NameRef, uses_in_language};
+use crate::editor::completion::field_at;
+use crate::editor::key_names::{NameRef, NoKeyNames, name_at, searched_at, uses_in_language};
 use crate::editor::schema::build_schema;
 
 const KEYWORD: &str = "x-config-editor-keys";
@@ -101,7 +105,8 @@ fn draw(rng: &mut Rng, index: usize) -> Case {
     doc["clients"] = json!({"home": {}, "work": {}});
     Case {
         language: language(index),
-        pick: 0,
+        // 1: written on one line where the language can (YAML, JSON).
+        pick: rng.below(2),
         schema,
         doc,
         other: Value::Null,
@@ -169,7 +174,13 @@ pub(super) fn check(case: &Case) -> Verdict {
     let Ok(bundle) = build_schema(&case.schema.to_string()) else {
         return Verdict::Skipped;
     };
-    let Ok(text) = case.language.serialize(&case.doc) else {
+    let one_line = case.pick == 1 && matches!(case.language.label(), "YAML" | "JSON");
+    let written = if one_line {
+        Ok(format!("{}\n", case.doc))
+    } else {
+        case.language.serialize(&case.doc)
+    };
+    let Ok(text) = written else {
         return Verdict::Skipped;
     };
     let Ok(read) = case.language.parse(&text) else {
@@ -206,8 +217,43 @@ pub(super) fn check(case: &Case) -> Verdict {
                 format!("{} covers {written:?}\n{text}", hit.path),
             ));
         }
+        if let Some(failed) = unreached(&text, case, &bundle, hit) {
+            return Verdict::Fails(failed);
+        }
     }
     Verdict::Holds
+}
+
+/// Why the use `hit` of `text` is not the name `NAME` to the lookup hover,
+/// go to definition and Find uses share, on its middle character; `None`
+/// when it is.
+fn unreached(
+    text: &str,
+    case: &Case,
+    bundle: &crate::editor::schema::SchemaBundle,
+    hit: &crate::editor::key_names::UseHit,
+) -> Option<super::runner::Failure> {
+    let behavior = case.language.behavior();
+    let start = usize::from(hit.range.start());
+    let end = usize::from(hit.range.end());
+    let line_start = text[..start].rfind('\n').map_or(0, |at| at + 1);
+    let column = text[line_start..start].chars().count() + text[start..end].chars().count() / 2;
+    let detail = || format!("{} column {column}\n{text}", hit.path);
+    let Some(field) = field_at(text, hit.line, column, behavior) else {
+        return Some(failure("no field under a use", detail()));
+    };
+    let known = name_at(text, &field, bundle, behavior, &NoKeyNames).map(|known| known.name);
+    if known.as_deref() != Some(NAME) {
+        return Some(failure(
+            "a use is no known name to hover and go to definition",
+            detail(),
+        ));
+    }
+    let searched = searched_at(text, &field, bundle, behavior, &NoKeyNames, &|_| false);
+    if searched.map(|searched| searched.name.name).as_deref() != Some(NAME) {
+        return Some(failure("Find uses searches for nothing on a use", detail()));
+    }
+    None
 }
 
 #[test]
