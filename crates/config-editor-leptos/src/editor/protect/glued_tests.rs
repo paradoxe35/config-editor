@@ -289,3 +289,93 @@ fn text_typed_beside_a_placeholder_while_the_text_does_not_parse_is_refused() {
     }
     report(failures);
 }
+
+/// How a test writes a token at the place of `x` (byte `at`) in the text.
+type WriteAt = fn(EditorState, usize, &str) -> bool;
+
+/// The mirror of text typed beside a placeholder while the text does not
+/// parse: the placeholder pasted (or typed to its last character) right
+/// against text already there. Its field's value replaced by `x`, the
+/// token written back after `x`, before it, or typed after it a character
+/// at a time, is refused in every host language and view, and the host
+/// never hears it glued; pasted back over `x` (alone in its field) it is
+/// taken. (It was let through, and listed nowhere, while the text did not
+/// parse.)
+#[test]
+fn a_placeholder_pasted_against_text_while_the_text_does_not_parse_is_refused() {
+    let ways: [(&str, WriteAt); 3] = [
+        ("pasted after x", |state, at, token| {
+            paste(state, at + 1..at + 1, token)
+        }),
+        ("pasted before x", |state, at, token| {
+            paste(state, at..at, token)
+        }),
+        ("typed after x", |state, at, token| {
+            type_at(state, at + 1, token);
+            true
+        }),
+    ];
+    let glued = |text: &str, token: &str| {
+        text.contains(&format!("x{token}")) || text.contains(&format!("{token}x"))
+    };
+    let mut failures = Vec::new();
+    for tokens in &HOSTS {
+        for host in ALL {
+            for view in ALL {
+                let case = format!("{host} host as {view} ({})", tokens.pattern);
+                for (way, write) in ways {
+                    let (_owner, state, heard) = mount(host, view, tokens);
+                    let shown = state.doc().text.get_untracked();
+                    let Some(start) = shown.find(tokens.same) else {
+                        failures.push(format!("{case}: no token in\n{shown}"));
+                        break;
+                    };
+                    let end = shown.trim_end().len();
+                    paste(state, end..end, breaking(view));
+                    if !paste(state, start..start + tokens.same.len(), "x") {
+                        failures.push(format!("{case}, {way}: replacing it refused"));
+                        continue;
+                    }
+                    state.protect().hide_tip(false);
+                    write(state, start, tokens.same);
+                    let now = state.doc().text.get_untracked();
+                    if glued(&now, tokens.same) {
+                        failures.push(format!("{case}, {way}: glued while broken: {now:?}"));
+                    }
+                    if !state
+                        .protect()
+                        .tip()
+                        .is_some_and(|tip| tip.message.starts_with(SAYS))
+                    {
+                        failures.push(format!(
+                            "{case}, {way}: refusal {:?}",
+                            state.protect().tip()
+                        ));
+                    }
+                    if let Some(text) = heard
+                        .get_untracked()
+                        .iter()
+                        .find(|text| glued(text, tokens.same))
+                    {
+                        failures.push(format!("{case}, {way}: the host heard {text:?}"));
+                    }
+                }
+                // Written back alone over `x`: taken.
+                let (_owner, state, _) = mount(host, view, tokens);
+                let shown = state.doc().text.get_untracked();
+                if let Some(start) = shown.find(tokens.same) {
+                    let end = shown.trim_end().len();
+                    paste(state, end..end, breaking(view));
+                    paste(state, start..start + tokens.same.len(), "x");
+                    if !paste(state, start..start + 1, tokens.same) {
+                        failures.push(format!(
+                            "{case}: written back over x refused: {:?}",
+                            state.doc().text.get_untracked()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    report(failures);
+}

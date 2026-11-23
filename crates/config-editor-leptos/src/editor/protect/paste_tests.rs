@@ -71,7 +71,14 @@ fn a_placeholder_pasted_whole_stays_whole_in_every_language() {
             let cut_from = pin - 1;
             let cut_to = pin + "«secret 0".len();
             paste(state, cut_from..cut_to, SECRET, known);
-            let cutting = format!("{}{SECRET}{}", &text[..cut_from], &text[pin_end..]);
+            // In XML the character before the token is the start tag's
+            // `>`: the paste would glue the token to the tag's name in a
+            // text that does not parse, and is refused.
+            let cutting = if language.label() == "XML" {
+                text.clone()
+            } else {
+                format!("{}{SECRET}{}", &text[..cut_from], &text[pin_end..])
+            };
             check(
                 "over a selection cutting into a placeholder",
                 state,

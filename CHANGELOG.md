@@ -19,6 +19,13 @@ versions move together.
   host change rewriting its own locked value keeps the lock over what it
   wrote (it locked nothing before).
 
+- A secret placeholder pasted (or typed to its last character) right
+  against other text while the document does not parse (`secret: x`, a
+  key written twice) is now refused, as text typed against a placeholder
+  already was: it was taken, listed as no problem, and reached the host
+  glued (`secret: x«secret 3f2a»`). Pasted alone as a field's value, in
+  its quotes or element, it is still taken.
+
 - Accepting a suggested key that adds one more item to a list written by
   repeating it (an XML element, an HCL block, a TOML `[[array]]` table) no
   longer moves the items already written when the list's items have places

@@ -17,14 +17,16 @@ fn a_paste_inside_a_placeholder_is_refused_after_its_key_was_split() {
     let mut editor = TestEditor::new(Language::TOML, &text);
     editor.secrets = Some(SecretOptions::default());
     let (_owner, state) = editor.mount();
-    // The placeholder and its closing quote copied into the key.
+    // The placeholder and its closing quote copied into the key, after a
+    // space (right against `sec` the paste would glue the token to the
+    // key's text in a text that does not parse, and is refused).
     let key = text.find("secret =").expect("the key") + "sec".len();
-    let copied = format!("{TOKEN}\"\n");
+    let copied = format!(" {TOKEN}\"\n");
     assert!(paste(state, key..key, &copied), "the copy is taken");
     let shown = state.doc().text.get_untracked();
     assert_eq!(
         shown,
-        format!("[clients.acme]\nsec{TOKEN}\"\nret = \"{TOKEN}\"\n")
+        format!("[clients.acme]\nsec {TOKEN}\"\nret = \"{TOKEN}\"\n")
     );
     // Another placeholder pasted inside the field's own: refused, or taken
     // over the whole placeholder (the same token), never inside it.
