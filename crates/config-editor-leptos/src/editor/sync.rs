@@ -452,11 +452,13 @@ impl EditorState {
         } else if *origin == Origin::Switch && left != self.config().host_language {
             // Unsaved edits converted: each item at the same pointer.
             let mut links = before.links.clone();
+            let schema = self.config().schema.get_value();
             links.converted(
                 left.behavior(),
                 &edit.before,
                 language.behavior(),
                 &edit.text,
+                schema.as_deref().map(|bundle| &bundle.schema),
             )
         } else {
             // A text of the view the editor did not write from the host's
@@ -488,7 +490,11 @@ impl EditorState {
         let (told, untouched) = super::paths::sharing_spans(language.behavior(), text, || {
             (
                 links.told(language.behavior(), text, previous, identity),
-                links.untouched(language.behavior(), text),
+                links.untouched(
+                    language.behavior(),
+                    text,
+                    bridge.schema.as_deref().map(|bundle| &bundle.schema),
+                ),
             )
         });
         self.sync().links.set_value(links);

@@ -45,7 +45,11 @@ fn saved_after_typing(
     }
     let identity = language.behavior().items_hold_unshown(host);
     let told = links.told(xml, &next, host, identity);
-    let untouched = links.untouched(xml, &next);
+    let untouched = links.untouched(
+        xml,
+        &next,
+        bridge.schema.as_deref().map(|bundle| &bundle.schema),
+    );
     bridge
         .to_host_linked(&next, host, host, told.as_ref(), untouched.as_deref())
         .unwrap_or_else(|error| panic!("{error:?}: {next}"))

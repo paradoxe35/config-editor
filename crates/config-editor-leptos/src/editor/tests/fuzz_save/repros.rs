@@ -3153,3 +3153,19 @@ fn a_yaml_str_tag_left_alone_keeps_its_tag_when_its_element_lines_are_joined_in_
         }],
     );
 }
+
+/// P2: a YAML `!!str` value left alone in an XML view keeps its tag when
+/// the user splits its element's line before the element's text.
+#[test]
+fn a_yaml_str_tag_left_alone_keeps_its_tag_when_its_element_line_is_split_in_xml() {
+    super::replay_typed(
+        Language::YAML,
+        Language::XML,
+        315510804,
+        "alpha:\n  k1: plain words # note 1\n  k2: ~\nbeta:\n  k3: !!str 5\n  k4: ~\n",
+        &[Op::Enter {
+            line: 13,
+            column: 6,
+        }],
+    );
+}

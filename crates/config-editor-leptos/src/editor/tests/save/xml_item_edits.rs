@@ -102,7 +102,7 @@ fn session(
             Step::Pause => {
                 let identity = Language::XML.behavior().items_hold_unshown(&saved);
                 let told = links.told(edit.behavior(), &view, &saved, identity);
-                let untouched = links.untouched(edit.behavior(), &view);
+                let untouched = links.untouched(edit.behavior(), &view, None);
                 saved = bridge
                     .to_host_linked(&view, &saved, host, told.as_ref(), untouched.as_deref())
                     .map_err(|error| format!("{error:?}"))?;

@@ -17,6 +17,12 @@ versions move together.
   end of the list, and not in front of them. A suggested XML element
   written above `<a>x</a>` used to push `x` to the next index, where the
   schema refused it.
+- Pressing Enter around a value's text in an XML view (`<k3>` then the
+  value on the next line) no longer changes the value's host form when
+  the schema reads the text as a number there: the line break is layout,
+  so a YAML `!!str 5`, a TOML `'5'` or a JSON `"5"` left alone is saved as
+  written, not as the number `5`. Text the view reads with the line break
+  in it is still saved as the user's.
 
 ## 0.2.3 — 2026-11-23
 

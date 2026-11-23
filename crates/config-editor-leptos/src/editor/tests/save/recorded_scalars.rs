@@ -47,7 +47,7 @@ fn first_item_written_again(source: Inserted) -> (Bridge, String, Result<String,
     links.edited(xml, &view, &[piece], &mut clipboard);
     let identity = Language::JSON.behavior().items_hold_unshown(HOST);
     let told = links.told(xml, &next, HOST, identity);
-    let untouched = links.untouched(xml, &next);
+    let untouched = links.untouched(xml, &next, None);
     let saved = bridge.to_host_linked(&next, HOST, HOST, told.as_ref(), untouched.as_deref());
     (bridge, next, saved)
 }
@@ -106,7 +106,7 @@ fn a_switch_from_an_xml_view_of_nested_lists_keeps_each_untouched_leaf() {
         let next = format!("{}2{}", &view[..at], &view[at + 1..]);
         let mut links = Links::fresh(host, &view, Some(bridge.reading()));
         links.edited(xml, &view, &[piece], &mut Clipboard::default());
-        let untouched = links.untouched(xml, &next);
+        let untouched = links.untouched(xml, &next, None);
         let shown = bridge
             .to_other_view(&next, Language::JSON, untouched.as_deref())
             .unwrap()

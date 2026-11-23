@@ -58,24 +58,24 @@ fn saved_with_copies(
         next = edited;
     }
     if let Some(other) = through {
-        let untouched = links.untouched(xml, &next);
+        let untouched = links.untouched(xml, &next, schema);
         let shown = bridge
             .to_other_view(&next, other, untouched.as_deref())
             .map_err(|error| format!("{error:?}: {next}"))?
             .text;
-        links = links.converted(xml, &next, other.behavior(), &shown);
-        let untouched = links.untouched(other.behavior(), &shown);
+        links = links.converted(xml, &next, other.behavior(), &shown, schema);
+        let untouched = links.untouched(other.behavior(), &shown, schema);
         let back = Bridge::new(language, other, bundle)
             .unwrap()
             .to_other_view(&shown, Language::XML, untouched.as_deref())
             .map_err(|error| format!("{error:?}: {shown}"))?
             .text;
-        links = links.converted(other.behavior(), &shown, xml, &back);
+        links = links.converted(other.behavior(), &shown, xml, &back, schema);
         next = back;
     }
     let identity = language.behavior().items_hold_unshown(host);
     let told = links.told(xml, &next, host, identity);
-    let untouched = links.untouched(xml, &next);
+    let untouched = links.untouched(xml, &next, schema);
     bridge
         .to_host_linked(&next, host, host, told.as_ref(), untouched.as_deref())
         .map_err(|error| format!("{error:?}: {next}"))

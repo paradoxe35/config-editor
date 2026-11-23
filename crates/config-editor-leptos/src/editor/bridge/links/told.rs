@@ -526,14 +526,15 @@ impl Links {
     }
 
     /// The links of `text` (in `language`), the text of these links
-    /// (`from_text`, in `from_language`) converted: each item takes the
-    /// source of the item at its pointer.
+    /// (`from_text`, in `from_language`, read under `schema`) converted:
+    /// each item takes the source of the item at its pointer.
     pub(crate) fn converted(
         &mut self,
         from_language: &dyn ConfigLanguage,
         from_text: &str,
         language: &dyn ConfigLanguage,
         text: &str,
+        schema: Option<&serde_json::Value>,
     ) -> Links {
         if *self == Links::Unrecorded {
             return Links::Unrecorded;
@@ -541,7 +542,7 @@ impl Links {
         // The scalars the user left as the editor wrote them, which the
         // new text writes at the same pointers.
         let kept: Arc<super::KeptScalars> = Arc::new(
-            self.untouched(from_language, from_text)
+            self.untouched(from_language, from_text, schema)
                 .unwrap_or_default()
                 .into_iter()
                 .map(|untouched| (untouched.pointer.clone(), untouched))

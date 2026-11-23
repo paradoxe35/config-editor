@@ -34,6 +34,7 @@ mod known;
 mod ops;
 mod repros;
 mod shrink;
+mod split_lines;
 mod typing;
 
 use std::collections::BTreeMap;

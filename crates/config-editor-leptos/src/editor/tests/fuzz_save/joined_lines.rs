@@ -17,13 +17,13 @@ use crate::editor::test_state::TestEditor;
 /// number the schema takes where it refuses the host's string (the first
 /// item's text, or any number), which a save of a value the user wrote
 /// would keep.
-const SCHEMAS: &[&str] = &[
+pub(super) const SCHEMAS: &[&str] = &[
     r#"{"type": ["integer", "string"]}"#,
     r#"{"anyOf": [{"type": "integer"}, {"enum": ["x"]}]}"#,
 ];
 
 /// The schema of the documents, `value` the value's.
-fn schema(value: &str) -> String {
+pub(super) fn schema(value: &str) -> String {
     format!(
         r#"{{"properties": {{"spec": {{"properties": {{"env": {{"type": "array",
         "items": {{"properties": {{"name": {{"type": "string"}}, "value": {value}}}}}}}}}}}}}}}"#
@@ -32,7 +32,7 @@ fn schema(value: &str) -> String {
 
 /// Each host's document: a list of two maps inside a map, the second's
 /// last value the string `3` in a form of the host's.
-const HOSTS: &[(Language, &str)] = &[
+pub(super) const HOSTS: &[(Language, &str)] = &[
     (
         Language::YAML,
         "spec:\n  env:\n    - name: a\n      value: x\n    - name: b\n      value: !!str 3\n",

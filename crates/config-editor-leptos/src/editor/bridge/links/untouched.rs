@@ -9,6 +9,7 @@
 //! writers keep as written. A scalar typed otherwise is the user's value.
 
 use super::super::super::codec::{self, written_text_range};
+use super::super::super::data_reading;
 use super::super::super::language::{ConfigLanguage, pointer_key};
 use super::super::super::parse_cache;
 use super::super::super::paths;
@@ -91,14 +92,50 @@ fn written(
     })
 }
 
+/// A text read as the save reads it, read once when first asked; `None`
+/// inside when it does not read.
+type Reading = Option<Option<std::rc::Rc<data_reading::DataReading>>>;
+
+/// Whether the whitespace put around the scalar at `pointer` of `text`
+/// (spelled as the one at `at` of `shown`, the text the editor wrote, but
+/// for that whitespace) is no part of its value as the save reads it
+/// (under `schema`): it reads as `shown` does, or as a number, boolean or
+/// null, which hold no whitespace. A language reading the whitespace around
+/// a scalar as part of it (XML element text, which holds the line breaks
+/// a split puts around it) reads a number without it where the schema
+/// wants one; then the scalar is still the one the editor wrote, the
+/// user only laid it out anew. Read as text holding the whitespace, it is
+/// the user's.
+fn layout_only(
+    (language, schema): (&dyn ConfigLanguage, Option<&Value>),
+    (text, reading, pointer): (&str, &mut Reading, &str),
+    (shown, shown_reading, at): (&str, &mut Reading, &str),
+) -> bool {
+    let value = |text: &str, reading: &mut Reading, pointer: &str| {
+        let reading = reading
+            .get_or_insert_with(|| data_reading::read(language, text, schema).ok())
+            .as_ref()?;
+        reading
+            .value()
+            .pointer(&reading.read_pointer(pointer))
+            .cloned()
+    };
+    match value(text, reading, pointer) {
+        Some(Value::Number(_) | Value::Bool(_) | Value::Null) => true,
+        Some(now) => Some(now) == value(shown, shown_reading, at),
+        None => false,
+    }
+}
+
 impl Links {
-    /// The scalars of `text` (in `language`) the user left as the editor
-    /// wrote them, with their sources; `None` for a text with no record
-    /// ([`Links::Unrecorded`]).
+    /// The scalars of `text` (in `language`, read under `schema`) the user
+    /// left as the editor wrote them, with their sources; `None` for a text
+    /// with no record ([`Links::Unrecorded`]).
     pub(crate) fn untouched(
         &mut self,
         language: &dyn ConfigLanguage,
         text: &str,
+        schema: Option<&Value>,
     ) -> Option<Vec<Untouched>> {
         if *self == Links::Unrecorded {
             return None;
@@ -234,8 +271,10 @@ impl Links {
                     asked[index] = false;
                     continue;
                 };
-                let apart = place.end() <= text_size(*start) || place.start() >= changed_end;
-                if !same || apart {
+                // One inside them reading otherwise may still be written
+                // as the editor wrote it but for the whitespace around it
+                // (asked below).
+                if place.end() <= text_size(*start) || place.start() >= changed_end {
                     asked[index] = false;
                     if same {
                         was[index] = now[index].map(str::to_string);
@@ -247,6 +286,10 @@ impl Links {
             Work::SaveItemJudged,
             asked.iter().filter(|asked| **asked).count(),
         );
+        // The text read as the save reads it (under the schema), read only
+        // for a scalar spelled as the editor wrote it but for the
+        // whitespace around it.
+        let mut reading = None;
         let mut texts: Vec<&Arc<str>> = Vec::new();
         for (candidate, _) in candidates.iter().zip(&asked).filter(|(_, asked)| **asked) {
             if !texts.iter().any(|text| Arc::ptr_eq(text, &candidate.shown)) {
@@ -263,18 +306,35 @@ impl Links {
             // YAML scalar running on).
             let read = parse_cache::parsed(language, shown);
             let held = read.as_ref().as_ref().ok();
+            let mut shown_reading = None;
             for (index, place) in at.into_iter().zip(written(language, shown, &pointers)) {
                 let spelled = place.and_then(|place| slice::slice(shown, place));
                 let candidate = &candidates[index];
                 let same = held.and_then(|held| held.pointer(&candidate.at))
-                    == value.pointer(&candidate.pointer);
+                    == value.pointer(&candidate.pointer)
+                    || spelled.zip(now[index]).is_some_and(|(spelled, now)| {
+                        spelled != now
+                            && spelled.trim() == now.trim()
+                            && layout_only(
+                                (language, schema),
+                                (text, &mut reading, &candidate.pointer),
+                                (shown, &mut shown_reading, &candidate.at),
+                            )
+                    });
                 was[index] = spelled.filter(|_| same).map(str::to_string);
             }
         }
+        // Spelled alike but for the whitespace around it, and read alike
+        // (`was` is only kept where it does): a written form taking in the
+        // whitespace about its value (XML element text, from its start tag
+        // to its end tag) changes as lines are split or joined around it,
+        // and is still the editor's.
         candidates
             .into_iter()
             .zip(now.into_iter().zip(was))
-            .filter(|(_, (now, was))| now.is_some() && now.map(str::to_string) == *was)
+            .filter(|(_, (now, was))| {
+                now.is_some_and(|now| was.as_deref().is_some_and(|was| now.trim() == was.trim()))
+            })
             .map(|(candidate, _)| Untouched {
                 pointer: candidate.pointer,
                 host: candidate.host,
