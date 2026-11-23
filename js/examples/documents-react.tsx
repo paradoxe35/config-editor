@@ -1,4 +1,5 @@
 import { StrictMode, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import {
   ConfigDocuments,
@@ -124,6 +125,9 @@ function App() {
   );
 }
 
+// For tests: a call that renders before it returns (React renders a
+// state change in a later task, which a late `onChange` may come before).
+(window as unknown as { flushSync: typeof flushSync }).flushSync = flushSync;
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

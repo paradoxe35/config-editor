@@ -81,3 +81,47 @@ test.describe('the fuzz host gives ranges in its own text', () => {
     });
   }
 });
+
+// React renders a parent's state change in a later task: a late echo
+// landing before that render would be listed with the ranges the host
+// worked out on its newer text, and read in the older one. Vue and Svelte
+// render in a microtask, which no echo comes before. The fuzz host's calls
+// take effect at once (the lock lands where it was worked out).
+test.describe('the fuzz host lists its ranges with their own text', () => {
+  test.skip(!BUILT, 'js packages not built: run `npm run build` in js/');
+
+  for (const name of ['react', 'documents-react']) {
+    test(`a lock on ${name} with an older echo landing right after it`, async ({ browser }) => {
+      const { context, page, errors, run, locks } = await open(browser, name, '?manual');
+      await page.evaluate(() => window.__fz.root()?.querySelector('.config-editor__input')?.focus());
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.type(TYPED);
+      const held = await page.evaluate(() => window.heldEchoes());
+      expect(held).toBeGreaterThan(1);
+      await page.evaluate((last) => window.releaseEchoes([last]), held - 1);
+      expect(await settle(page)).toBe(true);
+      // The first edit's echo lands right after the call that gives the
+      // lock (a microtask: before any later task).
+      await page.evaluate((single) => {
+        const key = single ? 'setExtraProps' : 'updateFile';
+        const give = window[key];
+        window[key] = (...args) => {
+          window[key] = give;
+          give(...args);
+          queueMicrotask(() => window.releaseEchoes([0]));
+        };
+      }, run.kind === 'single');
+      const length = await page.evaluate(() => window.__fz.host().length);
+      // The 3 characters after the typed text, the first one's echo shorter by 3.
+      await giveLock(run, { at: (TYPED.length + 0.5) / length, length: 3, line: false });
+      expect(run.locked).toBe(true);
+      const [lock] = locks;
+      expect(lock.text).toBe((await page.evaluate(() => window.__fz.editor().value)).slice(TYPED.length, TYPED.length + 3));
+      await expect
+        .poll(() => page.evaluate(() => [...window.__fz.root().querySelectorAll('.config-editor__locked')].map((span) => span.textContent).join('')))
+        .toContain(lock.text);
+      expect(errors).toEqual([]);
+      await context.close();
+    });
+  }
+});

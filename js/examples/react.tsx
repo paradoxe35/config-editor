@@ -1,4 +1,5 @@
 import { Activity, StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import * as core from "@pngwasi/config-editor";
 import * as tools from "@pngwasi/config-editor/tools";
@@ -282,6 +283,9 @@ function App({ schema }: { schema: string }) {
 }
 
 const schema = await (await fetch("../../schema.json")).text();
+// For tests: a call that renders before it returns (React renders a
+// state change in a later task, which a late `onChange` may come before).
+(window as unknown as { flushSync: typeof flushSync }).flushSync = flushSync;
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App schema={schema} />

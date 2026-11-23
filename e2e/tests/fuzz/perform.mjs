@@ -119,9 +119,9 @@ async function markedLock(page, state, lock) {
 // What `host` returns when the text it was to give ranges with moved.
 export const MOVED = 'moved';
 
-// Calls the page's host. With `onText`, only while the text ranges given
-// alone name places in is still `onText` (see `fz.rangesText`): else
-// gives nothing and returns `MOVED`.
+// Calls the page's host, rendered before the call returns. With `onText`,
+// only while the text ranges given alone name places in is still `onText`
+// (see `fz.rangesText`): else gives nothing and returns `MOVED`.
 export async function host(page, call, arg, onText) {
   return page.evaluate(
     ([call, arg, onText, moved]) => {
@@ -214,7 +214,10 @@ export async function host(page, call, arg, onText) {
           }
         },
       };
-      calls[call](arg);
+      // A React parent renders in a later task, which a late echo may come
+      // before: listed with these ranges, it would be read in its older
+      // text. Rendered at once, the call lists them with their own text.
+      (window.flushSync ?? ((apply) => apply()))(() => calls[call](arg));
     },
     [call, arg, onText, MOVED],
   );
