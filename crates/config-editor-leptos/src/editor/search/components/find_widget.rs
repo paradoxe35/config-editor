@@ -6,6 +6,7 @@ use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
 use super::super::super::state::EditorState;
+use super::super::space::fit_find_space;
 use super::super::{self as search, SearchOptions};
 use crate::EditorStrings;
 use crate::reactive::size_observer;
@@ -32,6 +33,13 @@ pub(crate) fn FindWidget(state: EditorState) -> impl IntoView {
                     untrack(|| size_observer(&row, move || crate::focus::keep_in_view(&watched)));
                 }
             }
+        }
+    });
+    // The room above the first line follows the widget's height: a
+    // replace row shown, a message that wraps.
+    Effect::new(move |_| {
+        if let Some(widget) = search.widget_ref.get() {
+            untrack(|| size_observer(&widget, move || fit_find_space(state)));
         }
     });
     view! {

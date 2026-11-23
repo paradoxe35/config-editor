@@ -544,7 +544,7 @@
   /* A finger dragging over the line numbers scrolls the text (the editor
      moves it), not the page; two fingers still zoom. */
   touch-action: pinch-zoom;
-  padding: var(--config-editor-padding-top)
+  padding: calc(var(--config-editor-padding-top) + var(--config-editor-find-space, 0px))
     calc(var(--config-editor-gutter-padding) + var(--config-editor-fold-gutter))
     var(--config-editor-padding-bottom) 0;
   color: var(--config-editor-line-number);
@@ -866,7 +866,10 @@
 :not(#\#):not(#\#) .config-editor__highlight,
 :not(#\#):not(#\#) .config-editor__input {
   min-height: var(--config-editor-min-height, min(240px, var(--config-editor-height, 240px), 100vh - 80px));
-  padding: var(--config-editor-padding-top) 20px var(--config-editor-padding-bottom) 0;
+  /* While find is open, the room above the first line as tall as its
+     widget (set on the surface): no match has to stay under it. */
+  padding: calc(var(--config-editor-padding-top) + var(--config-editor-find-space, 0px)) 20px
+    var(--config-editor-padding-bottom) 0;
   border: 0;
   margin: 0;
   tab-size: 2;

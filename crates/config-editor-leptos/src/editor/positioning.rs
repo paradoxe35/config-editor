@@ -9,7 +9,7 @@ use super::paths::split_line;
 use super::source_area::SourceArea;
 use super::state::EditorState;
 use crate::cssom::Declarations;
-use crate::editor::text::{TextSize, slice};
+use crate::editor::text::{TextRange, TextSize, slice};
 use crate::reactive::later;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -411,6 +411,19 @@ const JUMP_EDGE_LINES: f64 = 3.0;
 /// `top_inset` pixels at the top are covered (the find widget); the sticky
 /// lines' cover counts too.
 pub(super) fn reveal_jump(editor: &SourceArea, text: &str, offset: TextSize, top_inset: f64) {
+    reveal_jump_range(editor, text, offset, offset, top_inset);
+}
+
+/// [`reveal_jump`] to bytes `offset..end` on one line: sideways, the whole
+/// range shows, and the text is not scrolled sideways at all when the
+/// range fits without it.
+pub(super) fn reveal_jump_range(
+    editor: &SourceArea,
+    text: &str,
+    offset: TextSize,
+    end: TextSize,
+    top_inset: f64,
+) {
     let offset = offset.min(TextSize::of(text));
     let line = editor.row_of_line(line_at(text, offset)) as f64;
     let target: &web_sys::Element = editor.element().unchecked_ref();
@@ -434,7 +447,63 @@ pub(super) fn reveal_jump(editor: &SourceArea, text: &str, offset: TextSize, top
         )]
         editor.set_scroll_top(next as i32);
     }
-    reveal_column(editor, text, offset, &metrics);
+    // The range's part on its first line, measured from the line's start.
+    let before = slice::before(text, offset).unwrap_or(text);
+    let head = before
+        .get(before.rfind('\n').map_or(0, |index| index + 1)..)
+        .unwrap_or_default();
+    let rest = slice::slice(text, TextRange::new(offset, end.max(offset))).unwrap_or_default();
+    let rest = rest.split('\n').next().unwrap_or_default();
+    let start_x = metrics.widths.columns(head) * metrics.char_width;
+    let end_x = start_x + metrics.widths.columns(rest) * metrics.char_width;
+    let next = jump_scroll_left(&JumpColumns {
+        start: start_x,
+        end: end_x,
+        left: f64::from(editor.scroll_left()),
+        width: f64::from(editor.client_width()) - metrics.padding_left - padding_right(target),
+        margin: 4.0 * metrics.char_width,
+    });
+    if let Some(next) = next {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a scroll position in pixels, inside the scroll width (an `i32`)"
+        )]
+        editor.set_scroll_left(next as i32);
+    }
+}
+
+/// What a jump's sideways scroll is computed from, in pixels of the line.
+#[derive(Clone, Copy, Debug)]
+struct JumpColumns {
+    /// Where the target starts and ends on its line.
+    start: f64,
+    end: f64,
+    /// The view's scroll and width (inside its paddings).
+    left: f64,
+    width: f64,
+    /// Room kept beside the target.
+    margin: f64,
+}
+
+/// The sideways scroll a jump moves to: `None` when the target shows
+/// where it is; none at all (0) when it fits from the line's start; else
+/// its end in view with a margin, never past its start.
+fn jump_scroll_left(view: &JumpColumns) -> Option<f64> {
+    let next = if view.end + view.margin <= view.width {
+        0.0
+    } else if view.start >= view.left && view.end + view.margin <= view.left + view.width {
+        view.left
+    } else {
+        (view.end + view.margin - view.width)
+            .min(view.start - view.margin)
+            .max(0.0)
+    };
+    #[expect(
+        clippy::float_cmp,
+        reason = "the same arithmetic on the same inputs: equal means no move"
+    )]
+    let moves = next != view.left;
+    moves.then_some(next)
 }
 
 /// What a jump's scroll is computed from, in pixels of the scrolled text.
@@ -494,9 +563,19 @@ fn line_at(text: &str, offset: TextSize) -> usize {
 
 /// The element's bottom padding, in pixels.
 fn padding_bottom(target: &web_sys::Element) -> f64 {
+    padding(target, "padding-bottom")
+}
+
+/// The element's right padding, in pixels.
+fn padding_right(target: &web_sys::Element) -> f64 {
+    padding(target, "padding-right")
+}
+
+/// The element's padding `side` (`padding-bottom`), in pixels.
+fn padding(target: &web_sys::Element, side: &str) -> f64 {
     web_sys::window()
         .and_then(|window| window.get_computed_style(target).ok().flatten())
-        .and_then(|style| style.get_property_value("padding-bottom").ok())
+        .and_then(|style| style.get_property_value(side).ok())
         .and_then(|value| {
             value
                 .trim()
@@ -542,7 +621,9 @@ pub(super) fn row_box(
 ) -> Declarations {
     let style = Declarations::new().set("left", format!("{left}ch")).set(
         "top",
-        format!("calc(var(--config-editor-padding-top) + {row} * 1lh)"),
+        format!(
+            "calc(var(--config-editor-padding-top) + var(--config-editor-find-space, 0px) + {row} * 1lh)"
+        ),
     );
     match width {
         Some(width) => style.set("width", format!("{width}ch")),
@@ -617,6 +698,35 @@ mod tests {
         let mut tall = view(150.0, 0.0);
         tall.top_inset = 300.0;
         assert_eq!(jump_scroll_top(&tall), Some(3_000.0 - 300.0));
+    }
+
+    /// A 300 px wide view scrolled `left`, a target at `start..end`, a
+    /// 30 px margin.
+    fn columns(start: f64, end: f64, left: f64) -> JumpColumns {
+        JumpColumns {
+            start,
+            end,
+            left,
+            width: 300.0,
+            margin: 30.0,
+        }
+    }
+
+    #[test]
+    fn a_jump_to_a_target_that_fits_from_the_lines_start_scrolls_back_to_it() {
+        assert_eq!(jump_scroll_left(&columns(100.0, 150.0, 0.0)), None);
+        assert_eq!(jump_scroll_left(&columns(100.0, 150.0, 80.0)), Some(0.0));
+        assert_eq!(jump_scroll_left(&columns(200.0, 270.0, 500.0)), Some(0.0));
+    }
+
+    #[test]
+    fn a_jump_far_along_a_line_shows_the_whole_target() {
+        // The end in view with its margin.
+        assert_eq!(jump_scroll_left(&columns(460.0, 500.0, 0.0)), Some(230.0));
+        // Already shown: no move.
+        assert_eq!(jump_scroll_left(&columns(460.0, 500.0, 250.0)), None);
+        // Wider than the view: its start shows.
+        assert_eq!(jump_scroll_left(&columns(460.0, 900.0, 0.0)), Some(430.0));
     }
 
     #[test]

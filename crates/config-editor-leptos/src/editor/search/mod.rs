@@ -6,6 +6,7 @@
 //! - `actions`: what the widget's keys and buttons do to the editor.
 //! - `go_to_line`: the go-to-line field.
 //! - `keys`: the shortcuts; `components`: the widgets and match boxes.
+//! - `space`: the room above the first line while the widget is open.
 //!
 //! Matches are only searched while the widget is open, and only those in
 //! view are drawn (`search_marks`, for `components::TextMarks`).
@@ -27,6 +28,7 @@ mod go_to_line;
 mod keys;
 mod matcher;
 mod replace;
+mod space;
 mod template;
 
 pub(super) use components::{FindWidget, GoToLineWidget};

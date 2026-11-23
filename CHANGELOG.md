@@ -29,6 +29,13 @@ versions move together.
 
 ### Changed
 
+- While the find widget is open, the text has room above its first line
+  as tall as the widget, as in VS Code: a match on the first lines no
+  longer stays under the widget. The text does not move as the widget
+  opens or closes. A match is shown whole, and the text is no longer
+  scrolled sideways for a match that fits without it (on a phone, a match
+  near the end of a line showed only its first letters).
+
 - A narrow editor (under 480px wide, as on a phone or in a narrow column
   of a page; the editor's own width counts, not the window's) has a
   narrower gutter, about 50px instead of 76px, so more of each line

@@ -6,10 +6,11 @@ use leptos::prelude::*;
 
 use super::super::edit::Edit;
 use super::super::input::flush_input;
-use super::super::positioning::reveal_jump;
+use super::super::positioning::reveal_jump_range;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 use super::matcher::MAX_MATCHES;
 use super::replace;
+use super::space::fit_find_space;
 use super::{SearchOptions, SearchResults};
 use crate::EditorStrings;
 use crate::editor::text::{TextRange, byte_range, slice};
@@ -48,6 +49,7 @@ pub(in crate::editor) fn open(state: EditorState, replacing: bool) {
     if let Some(row) = search.replace_row_ref.get_untracked() {
         row.set_hidden(!search.replacing.get_untracked());
     }
+    fit_find_space(state);
     state.close_suggestions();
     state.hide_hover();
     let query_empty = search.query.with_untracked(String::is_empty);
@@ -88,6 +90,7 @@ pub(in crate::editor) fn dismiss(state: EditorState) {
     if let Some(widget) = search.widget_ref.get_untracked() {
         widget.set_hidden(true);
     }
+    fit_find_space(state);
 }
 
 /// Makes the first match at or after the selection current (as the query
@@ -341,7 +344,7 @@ fn show_current(state: EditorState) {
     state
         .doc()
         .text
-        .with_untracked(|text| reveal_jump(&element, text, start, inset));
+        .with_untracked(|text| reveal_jump_range(&element, text, start, end, inset));
     state.forget_typing_aids();
     state.close_suggestions();
 }
