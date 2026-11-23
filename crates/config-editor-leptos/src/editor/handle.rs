@@ -281,8 +281,11 @@ impl EditorHandle {
 
     /// Makes the host's own change of its text (as CodeMirror's dispatch):
     /// `changes` (ranges by lines and columns, sorted and apart) made on the
-    /// text `on_change` sent at `base` ([`sent_revision`](Self::sent_revision)),
-    /// else on the host's text now. Edits the user made since are kept, the
+    /// text `base` names: the revision `on_change` sent it with
+    /// ([`sent_revision`](Self::sent_revision); `7.into()`), or the text
+    /// itself (a text the editor sent or was given, the host's text now or
+    /// the document; `"…".into()`), else on the host's text now (the text
+    /// `on_change` sent last, or the host gave last). Edits the user made since are kept, the
     /// host's rebased over them (at one place, the host's first); locks,
     /// folds, secret placeholders and the caret follow it exactly, and Undo
     /// does not undo it. Returns the revision of the new document (pass it
@@ -292,11 +295,15 @@ impl EditorHandle {
     pub fn apply_changes(
         &self,
         changes: Vec<super::sync::HostChange>,
-        base: Option<u64>,
+        base: Option<super::sync::RangesFor>,
     ) -> Option<u64> {
         let state = self.editor()?;
         untrack(|| {
-            super::sync::apply_host_changes(state, &super::sync::HostEdits::Lines(changes), base)
+            super::sync::apply_host_changes(
+                state,
+                &super::sync::HostEdits::Lines(changes),
+                base.as_ref(),
+            )
         })
         .ok()
         .flatten()
@@ -306,7 +313,7 @@ impl EditorHandle {
     pub(crate) fn apply_edits(
         &self,
         edits: &super::sync::HostEdits,
-        base: Option<u64>,
+        base: Option<&super::sync::RangesFor>,
     ) -> Result<Option<u64>, super::sync::ChangeError> {
         let state = self.editor().ok_or(super::sync::ChangeError::Unmounted)?;
         untrack(|| super::sync::apply_host_changes(state, edits, base))

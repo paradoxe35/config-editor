@@ -553,10 +553,16 @@ pub(super) fn connect(state: EditorState, mut host: Host) {
     record_echoes(
         state,
         host.echoes,
-        host.echo_key.as_deref(),
         host.handed.take(),
         host.value_revision.get_untracked(),
     );
+    // Mounted on the newest text the editor it replaces sent, in place of
+    // the host's older one: the host may have dropped that text's answer
+    // (a text of its own given meanwhile), so once the pause is over a
+    // host still on an older text hears it again.
+    if state.sync().link(Link::take_caught_up) == Some(true) {
+        settle_later(state);
+    }
     follow_lists(state, host.lists);
     if let Some(value) = host.value {
         follow_value(state, value, host.value_revision, host.lists);
@@ -570,22 +576,56 @@ pub(super) fn connect(state: EditorState, mut host: Host) {
     switch_languages(state, host);
 }
 
-/// With `echoes`, records the texts sent from now on: over the record of
-/// the editor that showed this document before, `handed` (a documents
-/// view's), else the one kept under the editor's name, `echo_key`, the host
-/// giving its text at `revision`. A record kept under the name is taken
-/// either way: the name keeps none once an editor with it starts.
-fn record_echoes(
-    state: EditorState,
-    echoes: bool,
-    echo_key: Option<&str>,
-    handed: Option<Handoff>,
-    revision: Option<u64>,
-) {
-    let kept = echo_key.and_then(HostChannel::left);
+/// What a mounting editor knows of the editor that showed its document
+/// before (see [`mount_channel`]).
+pub(super) struct Handed<'a> {
+    /// The host hands every `on_change` text back.
+    pub(super) echoes: bool,
+    /// The host's name for the slot (see `echo_key`).
+    pub(super) echo_key: Option<&'a str>,
+    /// The record a documents view handed on.
+    pub(super) handed: Option<Handoff>,
+    /// The revision the host gave its text with.
+    pub(super) revision: Option<u64>,
+}
+
+/// The channel a mounting editor starts on, the record it still has to
+/// take over once mounted (see [`record_echoes`]) and the text it mounts
+/// with. With `echoes` and no channel `taken` over, the channel is made
+/// here, over the record of the editor that showed this document before
+/// (a documents view's, else the one kept under the editor's name): when
+/// that record holds the newest text the gone editor sent, the editor
+/// mounts with it in place of the host's older `host_text`, so what is
+/// typed next goes on from that typing (P4). A record kept under the
+/// name is taken either way: the name keeps none once an editor with it
+/// starts.
+pub(super) fn mount_channel(
+    taken: Option<HostChannel>,
+    handed: Handed<'_>,
+    host_text: String,
+) -> (Option<HostChannel>, Option<Handoff>, String) {
+    let record = handed
+        .handed
+        .or_else(|| handed.echo_key.and_then(HostChannel::left));
+    match taken {
+        Some(channel) => (Some(channel), record, host_text),
+        None if handed.echoes => {
+            let channel = HostChannel::new(true, &host_text, handed.revision, record);
+            let shown = channel
+                .caught_up()
+                .map_or(host_text, |newest| newest.to_string());
+            (Some(channel), None, shown)
+        }
+        None => (None, None, host_text),
+    }
+}
+
+/// With `echoes`, records the texts sent from now on, over `handed`, the
+/// record of the editor that showed this document before, the host giving
+/// its text at `revision` (a channel taken over that did not record them).
+fn record_echoes(state: EditorState, echoes: bool, handed: Option<Handoff>, revision: Option<u64>) {
     if echoes {
         let host_text = state.sync().host_text.get_value();
-        let handed = handed.or(kept);
         state
             .sync()
             .link(|link| link.echoing(&host_text, handed, revision));
@@ -658,11 +698,18 @@ pub(super) fn take_lists(state: EditorState, lists: Lists) {
     }
 }
 
-/// A list a Leptos host gave that the editor refused (a revision it never
-/// sent), said on the console: the locks stay as they were.
+/// What the editor said of a Leptos host's update, on the console: a list
+/// refused (a revision it never sent; the locks stay as they were) as an
+/// error, one not taken (out of date) as a warning. The JavaScript classes
+/// say it themselves (once per update, see `take_host_update`).
 fn report_refused(taken: Result<Taken, AnchorError>) {
-    if let Err(error) = taken {
-        leptos::logging::error!("config-editor: {error}");
+    match taken {
+        Ok(taken) => {
+            for warning in &taken.warnings {
+                leptos::logging::warn!("config-editor: {warning}");
+            }
+        }
+        Err(error) => leptos::logging::error!("config-editor: {error}"),
     }
 }
 
@@ -724,7 +771,7 @@ pub(super) fn take_host_value(state: EditorState, external: String) {
 /// of the host's own is shown; the lists are placed where they name
 /// places. Nothing changes when a list names a revision the editor never
 /// sent (the error says so); a list that can no longer be named is not
-/// taken (a warning on the console).
+/// taken (`Taken::warnings`: the caller says it, once).
 pub(crate) fn take_host_update(
     state: EditorState,
     update: HostUpdate,
@@ -741,9 +788,6 @@ pub(crate) fn take_host_update(
         .sync()
         .link(|link| link.take(update, &host, &rewrite))
         .unwrap_or_else(|| Ok(Taken::default()))?;
-    for warning in &taken.warnings {
-        leptos::logging::warn!("config-editor: {warning}");
-    }
     match taken.echo {
         Some(Echo::Settle) => settle_later(state),
         // Left behind the document by a late echo: the host hears it

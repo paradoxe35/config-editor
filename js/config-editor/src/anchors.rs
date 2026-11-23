@@ -62,12 +62,34 @@ pub(crate) fn changes_from(list: &JsValue) -> Result<Vec<(usize, usize, String)>
         .collect()
 }
 
-/// `name` of `options`, a revision, when it is one.
-pub(crate) fn revision_named(options: &JsValue, name: &str) -> Option<u64> {
-    given(options, name)
-        .and_then(|revision| revision.as_f64())
-        .filter(|revision| *revision >= 0.0 && revision.is_finite())
-        .map(|revision| revision as u64)
+/// The text `applyChanges`'s changes were made on (`options.revision`): a
+/// revision `onChange` gave, or the text itself (as `rangesFor` names
+/// one); `None` left out (the host's text now).
+pub(crate) fn change_base(options: &JsValue) -> Result<Option<RangesFor>, JsError> {
+    if options.is_undefined() || options.is_null() {
+        return Ok(None);
+    }
+    anchor_of(options, "revision").map_err(|_| {
+        JsError::new(
+            "applyChanges: revision must be the number onChange gave with a text, or the text the changes were made on",
+        )
+    })
+}
+
+/// The mounted editor of a documents view's document `id`, for its
+/// `applyChanges`: a document has one once it is shown, until it is left
+/// out of the list (listed again, it gets a new one when shown again).
+pub(crate) fn editor_to_change(
+    editor: Option<leptos_config_editor::EditorHandle>,
+    id: &str,
+) -> Result<leptos_config_editor::EditorHandle, JsError> {
+    editor
+        .filter(leptos_config_editor::EditorHandle::is_mounted)
+        .ok_or_else(|| {
+            JsError::new(&format!(
+                "applyChanges: the document {id:?} has no editor yet (it has not been shown since it was listed): list its new value instead"
+            ))
+        })
 }
 
 /// `valueRevision` of `options`, when it is a revision.

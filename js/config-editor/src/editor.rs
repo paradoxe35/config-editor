@@ -232,7 +232,7 @@ impl ConfigEditor {
                 .map(|text| text_arg(&text, name))
                 .transpose()
         };
-        let value = text_option("value")?.unwrap_or_default();
+        let mut value = text_option("value")?.unwrap_or_default();
         let baseline = text_option("baseline")?.unwrap_or_else(|| value.clone());
         let file_name = string_option(&options, "fileName")?;
         let class = string_option(&options, "className")?;
@@ -295,8 +295,17 @@ impl ConfigEditor {
                 HostChannel::new(echoes, &value, value_revision, left)
             }
         };
+        // The newest text the editor it replaces sent, while the host
+        // still renders an older one: shown at once, so what is typed next
+        // goes on from it (the host's text is the `value` given, as the
+        // lists given with it are read in it).
+        let host_value = value.clone();
+        if fresh && let Some(newest) = channel.caught_up() {
+            value = newest.to_string();
+            *latest.lock().unwrap_or_else(PoisonError::into_inner) = newest;
+        }
         let head = HostUpdate {
-            value: fresh.then(|| value.clone()),
+            value: fresh.then(|| host_value.clone()),
             value_revision: value_revision.filter(|_| fresh),
             ranges_for,
             diagnostics_for,
@@ -304,9 +313,12 @@ impl ConfigEditor {
         };
         let update = with_lists(&channel, &options, head, &value, "")?;
         if update.ranges.is_some() || update.diagnostics.is_some() {
-            channel
+            let taken = channel
                 .take_unmounted(update, &value)
                 .map_err(|error| JsError::new(&error.to_string()))?;
+            for warning in &taken.warnings {
+                web_sys::console::warn_1(&format!("config-editor: {warning}").into());
+            }
         }
         // Made in the editor's owner, as everything the editor holds: made
         // outside it, the handle's values would stay after `destroy`.
@@ -659,8 +671,10 @@ impl ConfigEditor {
 
     /// Makes the host's own change of its text, as CodeMirror's dispatch:
     /// `changes` (string indices `from`..`to`, sorted and apart, of the text
-    /// they were made on: `options.revision`, a text `onChange` gave, else
-    /// the host's text now) replaced by their `insert`. What the user typed
+    /// they were made on: `options.revision`, the revision `onChange` gave
+    /// it or the text itself; else the host's text now, the text `onChange`
+    /// gave last or you gave last, which is not your store's text while its
+    /// echo is still to come) replaced by their `insert`. What the user typed
     /// since is kept, the host's change rebased over it (where both wrote
     /// at one place, the host's first); the read-only ranges, folds, secret
     /// placeholders and the caret follow it exactly, and Undo does not undo
@@ -668,8 +682,9 @@ impl ConfigEditor {
     /// did not know. Lists given in `options` are read in the new document
     /// (or where `rangesFor` names). Returns the revision of the new
     /// document (pass it back as `valueRevision`), `null` when nothing
-    /// changed. A revision out of date or never sent, or changes that do
-    /// not fit the text, throw and change nothing.
+    /// changed. A revision out of date or never sent, a text the editor
+    /// cannot name, or changes that do not fit the text, throw and change
+    /// nothing.
     #[wasm_bindgen(js_name = applyChanges)]
     pub fn apply_changes(
         &self,
@@ -682,7 +697,7 @@ impl ConfigEditor {
         } else {
             options
         };
-        let base = crate::anchors::revision_named(&options, "revision");
+        let base = crate::anchors::change_base(&options)?;
         let ranges_for = anchor_of(&options, "rangesFor")?;
         let diagnostics_for = anchor_of(&options, "diagnosticsFor")?;
         let _ = self
@@ -694,7 +709,7 @@ impl ConfigEditor {
         let revision = js_support::apply_changes(
             &self.state.handle,
             &leptos_config_editor::js_support::HostEdits::Utf16(edits),
-            base,
+            base.as_ref(),
         )
         .map_err(|error| JsError::new(&error.to_string()))?;
         if let Some(text) = self.state.handle.value() {

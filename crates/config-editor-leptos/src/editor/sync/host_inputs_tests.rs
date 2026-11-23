@@ -190,18 +190,20 @@ fn a_revision_never_sent_is_refused_and_changes_nothing() {
     ));
     assert!(link.take(update, LOADED, &no_rewrite).is_err());
     assert_eq!(locked(&link), ["b: 2"]);
-    // Diagnostics are not locks: only dropped.
-    let taken = take(
-        &mut link,
-        HostUpdate {
-            diagnostics: Some(Listed::new(Vec::new())),
-            diagnostics_for: Some(RangesFor::Revision(u64::MAX)),
-            ..HostUpdate::default()
-        },
-        LOADED,
-    );
-    assert!(taken.diagnostics.is_none());
-    assert_eq!(taken.warnings.len(), 1);
+    // Diagnostics naming it are refused the same way: the host's mistake
+    // is said, not dropped with a warning.
+    let update = HostUpdate {
+        diagnostics: Some(Listed::new(Vec::new())),
+        diagnostics_for: Some(RangesFor::Revision(u64::MAX)),
+        ..HostUpdate::default()
+    };
+    assert!(matches!(
+        link.take(update, LOADED, &no_rewrite),
+        Err(AnchorError::Unknown {
+            list: List::Diagnostics,
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -238,6 +240,73 @@ fn ranges_for_the_file_as_loaded_land_on_their_text_after_a_hide_and_show() {
         state,
     );
     assert_eq!(locked(&link), ["b: 2"]);
+}
+
+/// P4 and P1: made for a document an editor that is gone showed (its
+/// record handed on), while the host still renders an older text, the new
+/// document is the newest text the gone editor sent; the locks the host
+/// gives with its older text (named by its revision, or not at all) land
+/// on their text in it, and the late echoes keep what is typed next.
+#[test]
+fn a_record_holding_the_newest_text_sent_shows_it_with_the_locks_on_their_text() {
+    // What the channel's locks cover in its document (texts no edit made
+    // followed by the safe diff, as a binding's record does).
+    let texts = |channel: &super::HostChannel| {
+        let document = channel.document();
+        channel
+            .placed()
+            .into_iter()
+            .map(|(range, _)| document[range].to_string())
+            .collect::<Vec<_>>()
+    };
+    for revision in [true, false] {
+        let gone = super::HostChannel::new(true, LOADED, None, None);
+        let host = gone.sent_revision().filter(|_| revision);
+        gone.edited(0..0, "top: 0\n");
+        let first = gone.sent("top: 0\na: 1\nb: 2\n");
+        gone.edited(4..5, "9");
+        let newest = "top: 9\na: 1\nb: 2\n";
+        let second = gone.sent(newest);
+        let fresh = super::HostChannel::new(true, LOADED, host, gone.handoff());
+        assert_eq!(
+            fresh.caught_up().as_deref(),
+            Some(newest),
+            "revision {revision}"
+        );
+        assert_eq!(*fresh.document(), *newest);
+        fresh
+            .take_unmounted(
+                HostUpdate {
+                    value: Some(LOADED.to_string()),
+                    value_revision: host,
+                    ranges: ranges(vec![on(2, 1, 5)]),
+                    ranges_for: host.map(RangesFor::Revision),
+                    ..HostUpdate::default()
+                },
+                newest,
+            )
+            .expect("taken");
+        assert_eq!(texts(&fresh), ["b: 2"], "revision {revision}");
+        // Typed in the new editor, then the gone editor's echoes come.
+        fresh.edited(newest.len()..newest.len(), "c: 3\n");
+        let typed = format!("{newest}c: 3\n");
+        fresh.sent(&typed);
+        for (text, sent) in [("top: 0\na: 1\nb: 2\n", first), (newest, second)] {
+            let taken = fresh
+                .take_unmounted(
+                    HostUpdate {
+                        value: Some(text.to_string()),
+                        value_revision: revision.then_some(sent),
+                        ..HostUpdate::default()
+                    },
+                    &typed,
+                )
+                .expect("taken");
+            assert!(!taken.shown, "revision {revision}: {text:?} is an echo");
+        }
+        assert_eq!(*fresh.document(), *typed);
+        assert_eq!(texts(&fresh), ["b: 2"], "revision {revision}");
+    }
 }
 
 #[test]

@@ -42,6 +42,8 @@ pub(super) struct TestEditor {
     pub(super) clipboard: Option<StoredValue<super::bridge::links::Clipboard>>,
     /// The `key_names` and `on_go_to_definition` props.
     pub(super) key_names: super::key_names::KeyNamesInput,
+    /// The channel the editor starts on (a binding's).
+    pub(super) channel: Option<super::sync::HostChannel>,
 }
 
 impl TestEditor {
@@ -65,6 +67,7 @@ impl TestEditor {
             foreign: None,
             clipboard: None,
             key_names: Default::default(),
+            channel: None,
         }
     }
 
@@ -88,7 +91,7 @@ impl TestEditor {
             read_only_reason: Signal::stored(self.read_only_reason),
             settings: self.settings,
             host_on_change: self.on_change,
-            channel: None,
+            channel: self.channel,
             protect: ProtectInit {
                 paths: Some(Signal::stored(self.read_only_paths)),
                 secrets: self.secrets,

@@ -11,7 +11,9 @@ use super::super::paths;
 use super::super::state::EditorState;
 use super::super::text::{TextRange, TextSize, byte_of, text_size, utf16_of};
 use super::HostUpdate;
+use super::echoes::Print;
 use super::host_inputs::carry::Lines;
+use super::host_inputs::{Link, RangesFor};
 use super::host_log::Named;
 
 /// One replacement the host made: `range` (lines and columns of the text
@@ -52,6 +54,9 @@ pub enum ChangeError {
     OutOfDate(u64),
     /// A base revision the editor never sent.
     Unknown(u64),
+    /// A base text that is none the editor can name: not one it sent or
+    /// was given (kept), nor the host's text now, nor the document.
+    UnknownText,
     /// The replacements are not sorted and apart inside the base text.
     BadRanges,
     /// No editor is mounted.
@@ -68,6 +73,10 @@ impl std::fmt::Display for ChangeError {
             ChangeError::Unknown(revision) => write!(
                 formatter,
                 "applyChanges: revision {revision} was never sent by an editor"
+            ),
+            ChangeError::UnknownText => write!(
+                formatter,
+                "applyChanges: revision names a text the editor does not know: give the revision onChange sent it with, or a text the editor sent or was given, the host's text now or the document"
             ),
             ChangeError::BadRanges => write!(
                 formatter,
@@ -114,8 +123,23 @@ fn utf16_byte(text: &str, units: usize) -> Option<TextSize> {
     (units <= utf16_of(text, TextSize::of(text))).then(|| byte_of(text, units))
 }
 
-/// Makes the host's `edits`, made on its text at `base` (else its text
-/// now), in the document (see the module). Returns the revision of the
+/// The revision of `text`, a text a host made its change on: a version the
+/// log keeps of it (a text sent or given, as the editor reads it), else the
+/// host's text now, else the document (named by a mark).
+fn revision_of_text(link: &mut Link, text: &str) -> Option<u64> {
+    if let Some(revision) = link.log.printed(Print::of(text)) {
+        return Some(revision);
+    }
+    let text = crate::editor::line_endings::editor_text(text.to_string());
+    let host = link.log.host_revision();
+    if link.log.text_at(host).is_some_and(|host| *host == *text) {
+        return Some(host);
+    }
+    (**link.log.document() == *text).then(|| link.log.mark())
+}
+
+/// Makes the host's `edits`, made on its text at `base` (a revision, or
+/// the text itself; else its text now), in the document (see the module). Returns the revision of the
 /// new document (recorded as sent: an exact echo when the host renders it
 /// with that revision), or `None` when the edits change nothing. When the
 /// edits were rebased over the user's newer ones, `on_change` hears the
@@ -123,14 +147,20 @@ fn utf16_byte(text: &str, units: usize) -> Option<TextSize> {
 pub(crate) fn apply_host_changes(
     state: EditorState,
     edits: &HostEdits,
-    base: Option<u64>,
+    base: Option<&RangesFor>,
 ) -> Result<Option<u64>, ChangeError> {
     let in_host_language =
         state.config().host_language == state.sync().edit_language.get_untracked();
     let prepared = state
         .sync()
         .link(|link| {
-            let base = base.unwrap_or_else(|| link.log.host_revision());
+            let base = match base {
+                None => link.log.host_revision(),
+                Some(RangesFor::Revision(revision)) => *revision,
+                Some(RangesFor::Text(text)) => {
+                    revision_of_text(link, text).ok_or(ChangeError::UnknownText)?
+                }
+            };
             match link.log.named(base) {
                 Named::Kept => {}
                 Named::OutOfDate => return Err(ChangeError::OutOfDate(base)),

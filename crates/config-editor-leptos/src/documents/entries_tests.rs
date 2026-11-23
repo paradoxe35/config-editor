@@ -371,7 +371,8 @@ fn a_document_not_shown_is_dirty_by_the_editors_rule() {
 /// P4, a v0.1.0 host listing every edit back late: a document left out of
 /// the list and listed again with its id (hidden and shown), and one
 /// re-mounted (another language), take over the texts their gone editor
-/// sent, so a late echo of one keeps what is typed in the new editor.
+/// sent and show the newest at once, so what is typed in the new editor
+/// goes on from it and a late echo keeps both.
 #[cfg(all(feature = "yaml", feature = "json"))]
 #[test]
 fn a_document_shown_again_with_its_id_takes_its_gone_editors_echoes() {
@@ -399,18 +400,20 @@ fn a_document_shown_again_with_its_id_takes_its_gone_editors_echoes() {
     gone.unmount();
     list(&[main("a: 1\n"), tls.clone()]);
     let shown = mount();
+    assert_eq!(shown.text(), "a: 1x\n");
     shown.type_at_line_end("y");
     list(&[main("a: 1x\n"), tls.clone()]);
-    assert_eq!(shown.text(), "a: 1y\n");
-    list(&[main("a: 1y\n"), tls.clone()]);
-    assert_eq!(shown.text(), "a: 1y\n");
+    assert_eq!(shown.text(), "a: 1xy\n");
+    list(&[main("a: 1xy\n"), tls.clone()]);
+    assert_eq!(shown.text(), "a: 1xy\n");
     // Re-mounted for another language.
     shown.type_at_line_end("z");
-    list(&[json("a: 1y\n"), tls.clone()]);
+    list(&[json("a: 1xy\n"), tls.clone()]);
     shown.unmount();
     let remounted = mount();
+    assert_eq!(remounted.text(), "a: 1xyz\n");
     remounted.type_at_line_end("w");
-    list(&[json("a: 1yz\n"), tls.clone()]);
-    assert_eq!(remounted.text(), "a: 1yw\n");
+    list(&[json("a: 1xyz\n"), tls.clone()]);
+    assert_eq!(remounted.text(), "a: 1xyzw\n");
     remounted.unmount();
 }

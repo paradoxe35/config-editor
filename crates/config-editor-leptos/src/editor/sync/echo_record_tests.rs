@@ -12,7 +12,10 @@ use super::super::handle::EditorHandle;
 use super::super::languages::Language;
 use super::super::state::EditorState;
 use super::super::test_state::TestEditor;
-use super::{HostChannel, Lists, follow_value, kept_echoes, record_echoes, save_on_unmount};
+use super::{
+    Handed, HostChannel, Lists, follow_value, kept_echoes, mount_channel, record_echoes,
+    save_on_unmount,
+};
 
 /// An editor with `echoes`, following the host's `value` as the
 /// component does, its echo record kept as the component keeps it.
@@ -33,23 +36,30 @@ impl EchoingEditor {
     ) -> Self {
         let heard = Arc::new(Mutex::new(Vec::new()));
         let told = heard.clone();
+        // As the component starts it: the record of the editor that showed
+        // the document before taken over as it mounts.
+        let (channel, handed, text) = mount_channel(
+            None,
+            Handed {
+                echoes: true,
+                echo_key,
+                handed: handle.and_then(EditorHandle::take_handed),
+                revision: None,
+            },
+            value.get_untracked(),
+        );
         let (owner, state) = TestEditor {
             on_change: Some(Callback::new(move |text: String| {
                 told.lock().expect("heard").push(text);
             })),
-            ..TestEditor::new(Language::YAML, &value.get_untracked())
+            channel,
+            ..TestEditor::new(Language::YAML, &text)
         }
         .mount();
         if let Some(handle) = handle {
             handle.attach(state);
         }
-        record_echoes(
-            state,
-            true,
-            echo_key,
-            handle.and_then(EditorHandle::take_handed),
-            None,
-        );
+        record_echoes(state, true, handed, None);
         follow_value(state, value.into(), MaybeProp::default(), Lists::default());
         save_on_unmount(state, echo_key.map(str::to_string));
         Self {
@@ -103,19 +113,20 @@ fn hidden_and_shown(
 }
 
 /// P4, a v0.1.0 host: a conditional render shows a new editor with the
-/// same `echo_key`. It takes over the gone editor's texts on their way, so
-/// their late echo keeps what is typed in it; with nothing typed there, it
-/// brings the gone editor's typing back.
+/// same `echo_key`. It takes over the gone editor's texts on their way and
+/// shows the newest at once, so what is typed in it goes on from the gone
+/// editor's typing, and their late echo keeps both.
 #[test]
 fn a_new_editor_with_the_same_echo_key_keeps_the_typing() {
     let value = RwSignal::new("a: 1\n".to_string());
     let shown = hidden_and_shown(value, Some("typed"), Some("typed"));
     assert_eq!(kept_echoes::count_of("typed"), 0, "taken");
+    assert_eq!(shown.text(), "a: 1x\n", "the gone editor's typing at once");
     shown.type_at_line_end("y");
     value.set("a: 1x\n".to_string());
-    assert_eq!(shown.text(), "a: 1y\n");
-    value.set("a: 1y\n".to_string());
-    assert_eq!(shown.text(), "a: 1y\n");
+    assert_eq!(shown.text(), "a: 1xy\n");
+    value.set("a: 1xy\n".to_string());
+    assert_eq!(shown.text(), "a: 1xy\n");
     shown.unmount();
 
     let value = RwSignal::new("a: 1\n".to_string());

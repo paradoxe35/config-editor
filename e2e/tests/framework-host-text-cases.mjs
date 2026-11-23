@@ -160,13 +160,14 @@ export function hostTextCases(name) {
     // `v-if`, `{#if}`): a new component, on the parent's state, a v0.1.0
     // parent (no `valueRevision`) handing each edit back late. With an
     // `echoKey` (`?echo-key`), the new component takes over the texts the
-    // one that is gone sent: the late answers keep what is typed in it.
-    // Without one, the first late answer is the parent's own text for it
-    // and replaces the typing, as before (the README says to use
-    // `valueRevision` or `echoKey`).
+    // one that is gone sent and shows the newest at once: what is typed in
+    // it goes on from the gone editor's typing, and the late answers keep
+    // both. Without one, the first late answer is the parent's own text for
+    // it and replaces the typing (the README says to use `valueRevision` or
+    // `echoKey`).
     for (const named of [true, false]) {
       const title = named
-        ? 'with an echoKey, hidden and shown by a conditional render while echoes are late, a v0.1.0 parent keeps the typing'
+        ? 'with an echoKey, hidden and shown by a conditional render while echoes are late, a v0.1.0 parent keeps both editors\' typing'
         : 'without an echoKey, hidden and shown by a conditional render while echoes are late, the first late answer replaces the typing';
       test(title, async ({ page }) => {
         const { errors } = await open(page, name, `?manual${named ? '&echo-key' : ''}`);
@@ -176,8 +177,9 @@ export function hostTextCases(name) {
         await expect(input(page)).toHaveCount(0);
         await page.evaluate(() => window.setShown(true));
         await input(page).waitFor();
-        // A new component: the parent's state, its answers still to come.
-        await expect(input(page)).toHaveValue(initialText);
+        // A new component, its parent's answers still to come: the gone
+        // editor's newest text with the name, else the parent's state.
+        await expect(input(page)).toHaveValue(named ? `c: 3\na: 1\n${initialText}` : initialText);
         await typeAtTop(page, 'b: 2\n');
         await page.evaluate(() => window.releaseEchoes([0]));
         await page.waitForTimeout(100);
@@ -186,15 +188,55 @@ export function hostTextCases(name) {
           expect(errors).toEqual([]);
           return;
         }
-        await expect(input(page)).toHaveValue(`b: 2\n${initialText}`);
+        const typed = `b: 2\nc: 3\na: 1\n${initialText}`;
+        await expect(input(page)).toHaveValue(typed);
         const held = await releaseFrom(page, 1);
         await page.waitForTimeout(400);
         await releaseFrom(page, held);
-        await expect(saved(page)).toHaveText(`b: 2\n${initialText}`);
-        await expect(input(page)).toHaveValue(`b: 2\n${initialText}`);
+        await expect(saved(page)).toHaveText(typed);
+        await expect(input(page)).toHaveValue(typed);
         expect(errors).toEqual([]);
       });
     }
+
+    // The same with a parent keeping revisions (`?revisions`, as the READMEs
+    // show) and no `echoKey`: the new component knows nothing of the texts
+    // the one that is gone sent, but each late answer comes with its
+    // revision, newer than the one before: it ends on the newest and never
+    // sends an older text back over it.
+    test('without an echoKey, hidden and shown by a conditional render while echoes are late, a parent keeping revisions ends on the newest text', async ({ page }) => {
+      const { errors } = await open(page, name, '?manual&revisions');
+      await typeAtTop(page, 'a: 1\n');
+      await typeAtTop(page, 'c: 3\n');
+      await page.evaluate(() => window.setShown(false));
+      await expect(input(page)).toHaveCount(0);
+      await page.evaluate(() => window.setShown(true));
+      await input(page).waitFor();
+      await expect(input(page)).toHaveValue(initialText);
+      const held = await page.evaluate(() => window.heldEchoes());
+      for (let at = 0; at < held; at += 1) {
+        await page.evaluate((at) => window.releaseEchoes([at]), at);
+        await page.waitForTimeout(50);
+      }
+      // The pause after a value given (250 ms), with a margin: nothing sent back.
+      await page.waitForTimeout(600);
+      expect(await page.evaluate(() => window.heldEchoes())).toBe(held);
+      await expect(saved(page)).toHaveText(`c: 3\na: 1\n${initialText}`);
+      await expect(input(page)).toHaveValue(`c: 3\na: 1\n${initialText}`);
+      expect(errors).toEqual([]);
+    });
+
+    test('problems naming a revision no editor sent are reported as ranges are', async ({ page }) => {
+      const { errors } = await open(page, name, '?revisions');
+      await extra(page, {
+        hostDiagnostics: [{ range: { start: 0, end: 3 }, message: 'checked', source: 'server' }],
+        diagnosticsFor: 999999,
+      });
+      await expect.poll(() => errors.some((error) => error.includes('diagnosticsFor names revision 999999'))).toBe(true);
+      await expect(page.locator('.config-editor__diagnostic-marker-host')).toHaveCount(0);
+      await typeAtTop(page, 'x');
+      await expect(input(page)).toHaveValue(`x${initialText}`);
+    });
 
     test('setValue and the parent\'s own text, with revisions and late echoes: the next typing is kept', async ({ page }) => {
       const { errors } = await open(page, name, '?manual&revisions');

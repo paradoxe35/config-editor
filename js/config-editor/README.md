@@ -626,8 +626,14 @@ const revision = editor.applyChanges([
 ]);
 ```
 
-The changes are string indices of the text they were made on: your text
-now, or `{ revision }`, a text `onChange` gave. What the user typed since is
+The changes are string indices of the text they were made on: `{ revision }`
+names it, the revision `onChange` gave it or the text itself (as `rangesFor`
+does: a text the editor sent or was given, such as your store's text while
+its echo is still to come, or the document). Left out, it is your text now
+as the editor knows it: the text `onChange` gave last or you gave last
+(`editor.text` when nothing is typed since), not your store's text while an
+echo is on its way, so a host that works on its store names it. A text the
+editor cannot name throws and changes nothing. What the user typed since is
 kept and your change rebased over it; the locks, folds, secret
 placeholders and the caret follow it exactly, and Undo does not undo it.
 `onChange` hears the result only when it holds edits you did not know. It
@@ -687,15 +693,16 @@ handed back: a `ConfigEditor` made in the element another was destroyed in
 (`destroy()`, then `new ConfigEditor(element, …)` on that element; a
 framework component unmounted and mounted again, as React's `<Activity>`
 does), and a `ConfigDocuments` document listed again with its
-id after a list left it out. A late answer for one of those texts then
-keeps what is typed in the new editor; one newer than the `value` it was
-made with, coming before anything is typed there, brings the gone editor's
-typing back. An editor made anywhere else (another element, a component a
+id after a list left it out. The new editor then shows at once the newest
+text the one that is gone sent (when that editor still held it as its
+document), in place of an older `value` (the `readOnlyRanges` given with
+that value move onto it): what is typed next goes on from that typing, and
+a late answer for one of those texts keeps it. An editor made anywhere else (another element, a component a
 conditional render made new, `{shown && <ConfigEditor />}`) does not know
 it shows the same document: name the place you show it in with the
 `echoKey` option (any text, one per place on the page, such as the file's
 path). `destroy()` then keeps the texts still on their way under that name
-(a short print of each, never the text), and the next editor made with the
+(a short print of each, and the newest text), and the next editor made with the
 same `echoKey` takes them over, as above. One record is kept per name, the
 newest; it goes when an editor with that name is made (and takes it), or
 when the editor's `channel` goes on in a new one. A name you never use
@@ -706,7 +713,9 @@ elsewhere knows only the texts it sent itself: without revisions, an answer
 still to come for a text the editor that is gone sent is your own text for
 the new one, and replaces what was typed since. Drop those answers when you
 show the editor again, or keep revisions (below): an answer older than a
-text the new editor sent then keeps the typing.
+text the new editor sent then keeps the typing, and the answers for the
+gone editor's texts, given in order with their revisions, bring its typing
+back, ending on the newest (never an older text sent back over it).
 
 With revisions there is no pause. `onChange(text, revision)` gives each text
 a revision; store it beside the text, keep only the newest revision you were

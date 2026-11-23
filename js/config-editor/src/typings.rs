@@ -88,8 +88,8 @@ export interface FoundUse {
 
 /** What `applyChanges` takes beside the changes. */
 export interface ApplyChangesOptions {
-  /** The revision of the text the changes were made on (`onChange` gave it); left out, the host's text now. One the editor can no longer name, or never sent, throws and changes nothing. */
-  revision?: number;
+  /** The text the changes were made on: the revision `onChange` gave it, or the text itself (one the editor sent or was given, as your store holds it before its echo comes back, or the document). Left out: the host's text now, the text `onChange` gave last or you gave last (the indices are read in it, not in your store's text while an echo is still to come). A revision the editor can no longer name or never sent, or a text it cannot name, throws and changes nothing. */
+  revision?: number | string;
   /** Read-only ranges given with the change: in the new document, unless `rangesFor` names another text. */
   readOnlyRanges?: TextRangeInput[] | null;
   rangesFor?: number | string;

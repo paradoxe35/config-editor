@@ -19,7 +19,9 @@ const LOCKED = 'host: h';
 
 async function open(page) {
   const errors = [];
+  page.warnings = [];
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+  page.on('console', (message) => message.type() === 'warning' && page.warnings.push(message.text()));
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.goto(example('vanilla.html'));
   await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 20000 });
@@ -64,6 +66,7 @@ async function mount(page, kind) {
             held.push(() => keep(value, revision) && set({ value, valueRevision: revision })),
         });
         window.lock = (range, rangesFor) => set({ readOnlyRanges: [range], rangesFor });
+        window.problems = (list, diagnosticsFor) => set({ hostDiagnostics: list, diagnosticsFor });
         window.change = (changes, revision) => view.applyChanges('m', changes, { revision });
       } else {
         const view = new module.ConfigEditor(element, {
@@ -74,6 +77,7 @@ async function mount(page, kind) {
             held.push(() => keep(value, revision) && view.update({ value, valueRevision: revision })),
         });
         window.lock = (range, rangesFor) => view.update({ readOnlyRanges: [range], rangesFor });
+        window.problems = (list, diagnosticsFor) => view.update({ hostDiagnostics: list, diagnosticsFor });
         window.change = (changes, revision) => view.applyChanges(changes, { revision });
       }
     },
@@ -142,6 +146,90 @@ test.describe('locks named by their text', () => {
       expect(errors).toEqual([]);
     });
   }
+
+  for (const kind of ['editor', 'documents']) {
+    // A host whose store has not heard the typing yet (its echo is late)
+    // names the text it made its change on: the change lands there, rebased
+    // over the typing. A text the editor cannot name throws.
+    test(`${kind}: applyChanges named by the host's own text while its echo is late lands on that text`, async ({ page }) => {
+      const errors = await open(page);
+      await mount(page, kind);
+      await typeAt(page, 0, 'a: 1\n');
+      const at = TEXT.indexOf('80');
+      await page.evaluate(([at, text]) => window.change([{ from: at, to: at + 2, insert: '8080' }], text), [at, TEXT]);
+      await expect(input(page)).toHaveValue(`a: 1\n${TEXT.replace('port: 80', 'port: 8080')}`);
+      const refused = await page.evaluate(() => {
+        try {
+          window.change([{ from: 0, to: 0, insert: 'x' }], 'not: a text it knows\n');
+          return 'no throw';
+        } catch (error) {
+          return String(error.message);
+        }
+      });
+      expect(refused).toContain('a text the editor does not know');
+      expect(errors).toEqual([]);
+    });
+
+    test(`${kind}: diagnostics naming a revision no editor sent are refused as ranges are`, async ({ page }) => {
+      const errors = await open(page);
+      await mount(page, kind);
+      const message = await page.evaluate(() => {
+        try {
+          window.problems([{ range: { start: 0, end: 4 }, message: 'checked' }], 999999);
+          return 'no throw';
+        } catch (error) {
+          return String(error.message);
+        }
+      });
+      expect(message).toContain('diagnosticsFor names revision 999999, which no editor sent');
+      await expect(page.locator('[data-host] .config-editor__diagnostic-marker-host')).toHaveCount(0);
+      expect(errors).toEqual([]);
+    });
+
+    test(`${kind}: a list out of date is said once per update`, async ({ page }) => {
+      const errors = await open(page);
+      await mount(page, kind);
+      await typeAt(page, 0, 'a: 1\n');
+      await page.evaluate(() => window.flushEchoes());
+      await page.evaluate(() => window.lock({ start: 0, end: 4 }, 0));
+      await page.waitForTimeout(100);
+      expect(page.warnings.filter((warning) => warning.includes('out of date'))).toHaveLength(1);
+      expect(errors).toEqual([]);
+    });
+  }
+
+  // A document left out of the list and listed again has no editor until
+  // it is shown again: the view's and the document editor's applyChanges
+  // both say so, and neither drops the change silently.
+  test("applyChanges on a document listed again before it is shown says it has no editor yet, as its editor's does", async ({ page }) => {
+    const errors = await open(page);
+    const messages = await page.evaluate(async (text) => {
+      const element = document.createElement('div');
+      element.dataset.host = '';
+      element.style.height = '300px';
+      document.body.prepend(element);
+      const files = [{ id: 'a', fileName: 'a.yaml', value: text }, { id: 'b', fileName: 'b.yaml', value: text }];
+      const view = new module.ConfigDocuments(element, { documents: files, echoes: true });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      view.update({ documents: files.slice(1) });
+      view.update({ documents: files });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const tried = (call) => {
+        try {
+          return `returned ${call()}`;
+        } catch (error) {
+          return String(error.message);
+        }
+      };
+      const change = [{ from: 0, to: 0, insert: 'x' }];
+      return [tried(() => view.applyChanges('a', change)), tried(() => view.editor('a').applyChanges(change))];
+    }, TEXT);
+    expect(messages).toEqual([
+      'applyChanges: the document "a" has no editor yet (it has not been shown since it was listed): list its new value instead',
+      'applyChanges: the document "a" has no editor yet (it has not been shown since it was listed): list its new value instead',
+    ]);
+    expect(errors).toEqual([]);
+  });
 
   test("a document editor's applyChanges is its value at once, as the view's", async ({ page }) => {
     const errors = await open(page);

@@ -1,7 +1,7 @@
 // How the pages' parents hand each edit back late (`later(apply)`):
 //
 // - `?random`: 0-200 ms late, in whatever order the delays give (a fetch
-//   per edit);
+//   per edit); `?random=600` up to 600 ms (a slow store);
 // - `?manual`: when a test says so, `releaseEchoes([3, 2])` applying the
 //   edits held (numbered as they came) in one task, so the framework
 //   renders once for all of them; `heldEchoes()` counts the edits held;
@@ -9,6 +9,7 @@
 
 const query = new URLSearchParams(location.search);
 const random = query.has("random");
+const spread = Number(query.get("random")) || 200;
 export const manual = query.has("manual");
 const held: (() => void)[] = [];
 
@@ -21,6 +22,6 @@ hooks.heldEchoes = () => held.length;
 
 export function later(apply: () => void) {
   if (manual) held.push(apply);
-  else if (random) setTimeout(apply, Math.random() * 200);
+  else if (random) setTimeout(apply, Math.random() * spread);
   else apply();
 }

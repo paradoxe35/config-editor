@@ -1364,13 +1364,12 @@ test.describe(() => {
 // editor hidden and shown again where the editor knows it shows the same
 // document: a `ConfigEditor` made in the element one was destroyed in, a
 // `ConfigDocuments` document listed again with its id. The new editor
-// takes over the texts the gone one sent: their late answers keep what is
-// typed in it, and with nothing typed there they bring the gone editor's
-// typing back. Before, an answer still to come was the host's own text for
-// the new editor and replaced the typing. A conditional render makes the
-// new editor in a new element: with the same `echoKey` it takes the texts
-// over just the same (`keyed editor`); with none (`editor elsewhere`) an
-// answer still to come is the host's own text, as before.
+// takes over the texts the gone one sent and shows the newest at once (the
+// host still renders its older text): what is typed in it goes on from the
+// gone editor's typing, and the late answers keep both. A conditional
+// render makes the new editor in a new element: with the same `echoKey` it
+// takes the texts over just the same (`keyed editor`); with none (`editor
+// elsewhere`) an answer still to come is the host's own text.
 test.describe('shown again where the editor was, with answers still to come', () => {
   test.skip(!built, 'js packages not built: run `npm run build` in js/');
   for (const host of ['editor', 'keyed editor', 'editor elsewhere', 'documents']) {
@@ -1382,8 +1381,8 @@ test.describe('shown again where the editor was, with answers still to come', ()
           ? 'a late answer replaces the typing in the new editor'
           : "the gone editor's typing comes back"
         : typed
-          ? 'the typing in the new editor is kept'
-          : "the gone editor's typing comes back";
+          ? "the gone editor's typing is shown at once and the typing in the new editor goes on from it"
+          : "the gone editor's typing is shown at once and stays";
       test(`${host}: ${title}`, async ({ page }) => {
         await open(page);
         await page.evaluate((host) => {
@@ -1461,11 +1460,12 @@ test.describe('shown again where the editor was, with answers still to come', ()
         await typeAtEnd('ab');
         await page.evaluate(() => window.hideAndShow());
         await page.waitForTimeout(300);
-        // The host's text when it was shown again: its answers are still to come.
-        expect(await page.evaluate(() => window.textOf())).toBe('name: x\n');
+        // Shown again while the answers are still to come: the newest text
+        // the gone editor sent, or (not knowing it) the host's text.
+        expect(await page.evaluate(() => window.textOf())).toBe(asBefore ? 'name: x\n' : 'name: x\nab');
         if (typed) await typeAtEnd('c');
         const seen = await page.evaluate(() => window.answerAll());
-        const expected = typed ? 'name: x\nc' : 'name: x\nab';
+        const expected = typed ? (asBefore ? 'name: x\nc' : 'name: x\nabc') : 'name: x\nab';
         if (asBefore && typed) {
           // The first answer, the gone editor's, is the host's own text.
           expect(seen[0]).toBe('name: x\na');
@@ -1479,4 +1479,58 @@ test.describe('shown again where the editor was, with answers still to come', ()
       });
     }
   }
+
+  // With revisions, nothing hands the new editor the gone one's record, but
+  // the host passes each answer back with its revision: each is newer than
+  // the one before (the host keeps the newest), so the new editor ends on
+  // the gone editor's newest text and never sends an older one back over it.
+  test('editor elsewhere, with revisions: the answers in order end on the newest, nothing older is sent back', async ({ page }) => {
+    await open(page);
+    await page.evaluate(() => {
+      window.held = [];
+      window.sent = [];
+      window.store = { text: 'name: x\n', revision: undefined };
+      const make = () => {
+        const editor = new window.module.ConfigEditor(window.mountPoint(), {
+          value: window.store.text,
+          valueRevision: window.store.revision,
+          echoes: true,
+          onChange: (text, revision) => {
+            window.sent.push(text);
+            window.held.push(() => {
+              if (window.store.revision !== undefined && revision < window.store.revision) return;
+              window.store = { text, revision };
+              window.shown.update({ value: text, valueRevision: revision });
+            });
+          },
+        });
+        return editor;
+      };
+      window.shown = make();
+      window.hideAndShow = () => {
+        window.shown.destroy();
+        window.sent = [];
+        window.shown = make();
+      };
+    });
+    const input = page.locator('.config-editor__input:visible');
+    await input.focus();
+    await input.evaluate((element) => element.setSelectionRange(element.value.length, element.value.length));
+    await page.keyboard.type('abc', { delay: 20 });
+    await page.evaluate(() => window.hideAndShow());
+    expect(await page.evaluate(() => window.shown.value)).toBe('name: x\n');
+    const seen = await page.evaluate(async () => {
+      const seen = [];
+      while (window.held.length) {
+        window.held.shift()();
+        seen.push(window.shown.value);
+        await window.pause(20);
+      }
+      await window.pause(400);
+      return seen;
+    });
+    expect(seen).toEqual(['name: x\na', 'name: x\nab', 'name: x\nabc']);
+    expect(await page.evaluate(() => [window.shown.value, window.store.text, window.sent])).toEqual(['name: x\nabc', 'name: x\nabc', []]);
+    expect(page.errors).toEqual([]);
+  });
 });

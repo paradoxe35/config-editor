@@ -72,3 +72,20 @@ export function Revisions({ loaded }: { loaded: string }) {
       readOnlyRanges={[{ startLine: 1, startColumn: 1, endLine: 2, endColumn: 1 }]} rangesFor={loaded} diagnosticsFor={doc.revision ?? doc.text} />
   );
 }
+// The sticky-scroll and keyboard snippets, and the handle's own change, as written.
+export function Snippets({ text, setText, revision }: { text: string; setText: (text: string) => void; revision?: number }) {
+  const ref = useRef<ConfigEditorHandle>(null);
+  ref.current?.applyChanges([{ from: 8, to: 12, insert: "8080" }], { revision });
+  ref.current?.applyChanges([{ from: 8, to: 12, insert: "8080" }], { revision: text });
+  void [
+    <ConfigEditor value={text} stickyScrollMaxLines={3} />, // at most three lines
+    <ConfigEditor value={text} stickyScroll={false} />, // off
+  ];
+  return (
+    <>
+      <label htmlFor="after">Next field</label>
+      <ConfigEditor value={text} onChange={setText} />
+      <input id="after" /> {/* Ctrl+M, Tab (or Escape, Tab) lands here */}
+    </>
+  );
+}

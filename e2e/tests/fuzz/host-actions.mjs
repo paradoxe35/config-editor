@@ -1,7 +1,7 @@
 // The host's actions beside values and locks: its own change through the
 // handle (`applyChanges`), unmounting and mounting the component again
 // (`setShown`), and problems it found on a text it holds, given late.
-import { lockIndices } from './perform.mjs';
+import { lockIndices, settle } from './perform.mjs';
 
 // A line put in at a line start of the text the host holds (named by its
 // revision, maybe behind the editor's: the editor rebases it over the
@@ -74,9 +74,15 @@ export async function hostChange(run, action) {
 // that shows it, and names that text too. A late answer for a text the
 // gone editor sent is the parent's own text for the new one (no
 // `echoKey`): rendered with it, a list naming no text would be read in it.
+// A revisions parent passes each late answer back with its revision, newer
+// than the one before: with nothing typed meanwhile, the new editor ends on
+// the text the gone one sent last (P4), however many answers were still to
+// come.
 export async function hideShow(run, { wait }) {
   const { page } = run;
   if (!(await page.evaluate(() => typeof window.setShown === 'function' && !window.editor))) return null;
+  // The text the gone editor sent last (its `value`: what it told the parent).
+  const gone = run.revisions ? await page.evaluate(() => window.__fz.editor()?.value ?? null) : null;
   await page.evaluate(() => window.setShown(false));
   if (wait) await page.waitForTimeout(wait);
   // The range lock's text (as `keepLocks` finds it again).
@@ -103,6 +109,29 @@ export async function hideShow(run, { wait }) {
   run.reached('hide and show');
   run.hostReplaced = true;
   run.hostText = undefined;
+  if (gone !== null) {
+    // The answers still to come may arrive any time in the parent's delay
+    // (up to 600 ms): the editor and the parent agreeing on an older text
+    // before then is no end state, so wait for the gone editor's text.
+    const reached = await page
+      .waitForFunction((gone) => window.__fz.editor()?.value === gone && window.__fz.host() === gone, gone, {
+        timeout: 2500,
+        polling: 50,
+      })
+      .then(
+        () => true,
+        () => false,
+      );
+    const settled = reached && (await settle(page));
+    const now = await page.evaluate(() => [window.__fz.editor()?.value, window.__fz.host()]);
+    if (!settled || now[0] !== gone || now[1] !== gone) {
+      return {
+        check: 'host',
+        detail: `after a hide and show with answers still to come, editor and parent hold ${JSON.stringify(now).slice(0, 240)}, not the text the gone editor sent last ${JSON.stringify(gone).slice(0, 120)}`,
+      };
+    }
+    run.reached('hide and show, late answers in order');
+  }
   return null;
 }
 

@@ -465,17 +465,26 @@ impl DocSim {
     fn made_again(&mut self, handed: Option<leptos_config_editor::js_support::Handoff>) -> Outcome {
         let store = self.host.store.clone();
         let revision = self.host.store_revision.filter(|_| self.host.revisions);
-        self.core = Core {
-            text: store.clone(),
-            channel: HostChannel::new(true, &store, revision, handed),
-        };
+        let channel = HostChannel::new(true, &store, revision, handed);
+        // The newest text the gone editor sent, when its record holds it,
+        // is the document at once (as the bindings mount it).
+        let caught_up = channel.caught_up().map(|newest| newest.to_string());
+        let text = caught_up.clone().unwrap_or_else(|| store.clone());
+        self.core = Core { text, channel };
         self.settle_armed = false;
         self.typed_since_fresh = false;
         let given = Given {
             anchor: revision.map(RangesFor::Revision),
             worked_on: store.clone(),
         };
-        self.update(Some(store), revision, Some(given), true, None)
+        self.update(Some(store), revision, Some(given), true, None)?;
+        // As the bindings' editor does once mounted: after the pause, a host
+        // still on its older text hears the newest one (its echo may never
+        // come: the host dropped the answers for it).
+        if caught_up.is_some() {
+            self.settle_armed = true;
+        }
+        Ok(())
     }
 
     /// The locks as the next key finds them.

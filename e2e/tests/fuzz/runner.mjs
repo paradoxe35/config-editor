@@ -19,8 +19,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 export function sequenceFor(name, seed, steps) {
   const r = rng(seed);
   const page = PAGES[name];
-  // Half the hosts keep revisions and name the text of their lists.
-  const query = page.vanilla ? r.pick(['', '?revisions']) : r.pick(['', '?random', '?revisions', '?random&revisions']);
+  // Half the hosts keep revisions and name the text of their lists; some
+  // framework parents hand each edit back up to 600 ms late (a slow store),
+  // so a hide and show finds several answers still to come.
+  const query = page.vanilla
+    ? r.pick(['', '?revisions'])
+    : r.pick(['', '?random', '?revisions', '?random&revisions', '?random=600&revisions']);
   const userOnly = r.chance(0.35);
   const actions = Array.from({ length: steps }, () => generate(r, page, { userOnly }));
   // Most edits of a locked text happen long after the lock: start half the

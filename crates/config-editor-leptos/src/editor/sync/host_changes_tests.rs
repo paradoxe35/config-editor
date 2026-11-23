@@ -87,7 +87,7 @@ fn a_change_on_an_older_revision_is_rebased_over_the_typing_and_told() {
     // before, changes `a`'s value and adds a line above `b`.
     typed(state, 4, "1");
     let edits = HostEdits::Utf16(vec![(3, 4, "7".to_string()), (5, 5, "c: 3\n".to_string())]);
-    apply_host_changes(state, &edits, Some(base)).expect("applied");
+    apply_host_changes(state, &edits, Some(&base.into())).expect("applied");
     assert_eq!(state.doc().text.get_untracked(), "a: 71\nc: 3\nb: 2\n");
     assert_eq!(locked_text(state), ["b: 2"]);
     assert_eq!(
@@ -96,11 +96,41 @@ fn a_change_on_an_older_revision_is_rebased_over_the_typing_and_told() {
     );
 }
 
+/// A host that keeps no revision (its store has not heard the typing yet)
+/// names the text it made its change on: rebased over the typing, as with
+/// that text's revision; a text the editor cannot name changes nothing.
+#[test]
+fn a_change_named_by_its_text_is_rebased_over_the_typing() {
+    let loaded = "a: 1\nb: 2\n";
+    let (_owner, state, _) = mounted(loaded, vec![line(2, 1, 5)]);
+    typed(state, 4, "1");
+    let edits = HostEdits::Utf16(vec![(3, 4, "7".to_string()), (5, 5, "c: 3\n".to_string())]);
+    apply_host_changes(state, &edits, Some(&loaded.into())).expect("applied");
+    assert_eq!(state.doc().text.get_untracked(), "a: 71\nc: 3\nb: 2\n");
+    assert_eq!(locked_text(state), ["b: 2"]);
+    // The document itself is a text the host may name too.
+    let document = state.doc().text.get_untracked();
+    apply_host_changes(
+        state,
+        &utf16(0, 0, "top: 0\n"),
+        Some(&document.as_str().into()),
+    )
+    .expect("applied");
+    assert_eq!(
+        state.doc().text.get_untracked(),
+        format!("top: 0\n{document}")
+    );
+    assert_eq!(
+        apply_host_changes(state, &utf16(0, 0, "x"), Some(&"other: 1\n".into())),
+        Err(ChangeError::UnknownText)
+    );
+}
+
 #[test]
 fn a_base_never_sent_or_out_of_date_changes_nothing() {
     let (_owner, state, _) = mounted("a: 1\n", Vec::new());
     assert_eq!(
-        apply_host_changes(state, &utf16(0, 0, "x"), Some(u64::MAX)),
+        apply_host_changes(state, &utf16(0, 0, "x"), Some(&u64::MAX.into())),
         Err(ChangeError::Unknown(u64::MAX))
     );
     assert_eq!(
@@ -158,7 +188,7 @@ fn host_changes_on_older_revisions_meet_the_users_edits() {
         // The host inserts at a line start of the base text.
         let at = [0, 5, base_text.len()][rng.below(3)];
         let insert = ["h: 1\n", "#\n", ""][rng.below(3)];
-        apply_host_changes(state, &utf16(at, at, insert), Some(base)).expect("applied");
+        apply_host_changes(state, &utf16(at, at, insert), Some(&base.into())).expect("applied");
         let text = state.doc().text.get_untracked();
         assert_eq!(locked_text(state), ["keep: me"], "case {case}: {text:?}");
         assert!(text.contains(insert), "case {case}: {text:?}");

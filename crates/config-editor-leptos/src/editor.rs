@@ -426,6 +426,16 @@ pub fn ConfigEditor(
     // state's copy of it, no other kept here.
     let mounted_baseline =
         baseline.map_or_else(|| host_text.clone(), |baseline| baseline.get_untracked());
+    let (channel, handed, host_text) = sync::mount_channel(
+        handle.and_then(EditorHandle::take_channel),
+        sync::Handed {
+            echoes,
+            echo_key: echo_key.as_deref(),
+            handed: handle.and_then(EditorHandle::take_handed),
+            revision: value_revision.get_untracked(),
+        },
+        host_text,
+    );
     // The parses and schema readings are kept from the state's first reads
     // on: its secrets read the document as the first validation does.
     parse_cache::hold();
@@ -442,7 +452,7 @@ pub fn ConfigEditor(
         read_only_reason: Signal::derive(move || read_only_reason.get()),
         settings,
         host_on_change: on_change,
-        channel: handle.and_then(EditorHandle::take_channel),
+        channel,
         protect: protect::ProtectInit {
             paths: read_only_paths,
             #[cfg(not(feature = "protect"))]
@@ -484,7 +494,7 @@ pub fn ConfigEditor(
             on_sync_change,
             echoes,
             echo_key,
-            handed: handle.and_then(EditorHandle::take_handed),
+            handed,
             lists: sync::Lists {
                 read_only_ranges,
                 read_only_ranges_for,

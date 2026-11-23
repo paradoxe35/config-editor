@@ -90,6 +90,47 @@ classifier="x">`) is a problem (new string `xsd_element_as_attribute`),
   or caret with one lookup, by where the parsed document writes each
   member.
 
+### Hosts that echo
+
+- An editor shown again by a conditional render (or in another element)
+  with no `echoKey`, whose parent passes each late answer back with its
+  `valueRevision`, ends on the newest text the gone editor sent. Before, it
+  took the first late answer as the parent's own text, read the newer ones
+  as a step back and sent that older text back over the newest.
+- An editor that takes over the record of the one that is gone (`echoKey`,
+  the same element, a `ConfigDocuments` document listed again with its id,
+  a Leptos `echo_key`) shows the newest text that editor sent at once, in
+  place of the older value the parent still renders: what is typed next
+  goes on from the gone editor's typing, which a late answer no longer
+  loses. The record keeps that one text beside the prints.
+- `diagnosticsFor` naming a revision no editor sent throws (JS `update`) or
+  reaches `onError` (React, Vue, Svelte), as `rangesFor` does; it was a
+  console warning.
+- An out-of-date list's console warning is logged once per update (it was
+  logged twice).
+
+### Host changes
+
+- `applyChanges`'s `revision` also takes the text the changes were made on
+  (as `rangesFor` does): a text the editor sent or was given, such as the
+  store's text while its echo is still to come, or the document. Left out,
+  the indices are read in the text `onChange` gave last (or the host gave
+  last), not in a store that has not heard the typing yet. A text the
+  editor cannot name throws. Rust: `EditorHandle::apply_changes` takes
+  `Option<RangesFor>` (`Some(revision.into())`, `Some(text.into())`).
+- `ConfigDocuments.applyChanges` on a document listed again and not shown
+  since says so (it said "it was never shown"), and the document editor's
+  `editor(id).applyChanges` throws the same instead of returning `null`.
+
+### Docs
+
+- The React, Vue and Svelte props tables list `valueRevision`, `keyNames`,
+  `onGoToDefinition`, `onFindUses` and `onGoToUse` (Vue: `ranges-for`,
+  `diagnostics-for`, and why `on-find-uses` is a prop while
+  `@go-to-definition` and `@go-to-use` are events), and type `onChange` as
+  `(value, revision)`. The React Ref section shows `applyChanges`; the
+  React snippets and the Svelte "Saving" example type-check as written.
+
 ## 0.2.2 — 2026-11-22
 
 ### Find uses

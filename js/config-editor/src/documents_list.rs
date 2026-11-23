@@ -330,21 +330,27 @@ fn with_protection<'a>(
     let diagnostics_for = anchor_of(item, "diagnosticsFor")
         .map_err(|error| prefixed(&format!("documents[{index}]"), error))?;
     let before = current(&document.id).zip(kept.channels.get(&document.id).cloned());
+    let listed = document.value.clone();
     let (channel, host_text, fresh) = match before {
         Some((current, channel)) => (channel, current.to_string(), false),
-        None => (
-            HostChannel::new(
+        None => {
+            let channel = HostChannel::new(
                 kept.echoing,
                 &document.value,
                 value_revision,
                 kept.handed.remove(&document.id),
-            ),
-            document.value.clone(),
-            true,
-        ),
+            );
+            // Listed again while the newest text its editor sent is still
+            // on its way: shown at once, so what is typed next goes on from
+            // it (the lists listed with the older text are read in that).
+            if let Some(newest) = channel.caught_up() {
+                document.value = newest.to_string();
+            }
+            (channel, document.value.clone(), true)
+        }
     };
     let head = HostUpdate {
-        value: Some(document.value.clone()),
+        value: Some(listed),
         value_revision,
         ranges_for,
         diagnostics_for,

@@ -52,6 +52,18 @@ pub enum RangesFor {
     Text(Arc<str>),
 }
 
+impl From<u64> for RangesFor {
+    fn from(revision: u64) -> Self {
+        RangesFor::Revision(revision)
+    }
+}
+
+impl From<&str> for RangesFor {
+    fn from(text: &str) -> Self {
+        RangesFor::Text(Arc::from(text))
+    }
+}
+
 /// A list as the host gave it, and what it is compared by when given again
 /// (rule 5): the caller's statement (a JavaScript list's JSON) or, without
 /// one, its items.
@@ -162,17 +174,15 @@ impl AnchorError {
         }
     }
 
-    /// Whether the list is only dropped (a warning), not refused: an out
-    /// of date anchor, or any anchor of diagnostics (no lock).
+    /// Whether this is only a warning, not a refusal: an out of date anchor
+    /// (an app doing nothing wrong can name one; the list is dropped), or
+    /// ranges cutting a word of a text the editor did not send (taken). A
+    /// revision no editor issued is the host's mistake, refused for both
+    /// lists alike.
     pub fn is_warning(&self) -> bool {
         matches!(
             self,
-            AnchorError::OutOfDate { .. }
-                | AnchorError::CutsWord { .. }
-                | AnchorError::Unknown {
-                    list: List::Diagnostics,
-                    ..
-                }
+            AnchorError::OutOfDate { .. } | AnchorError::CutsWord { .. }
         )
     }
 }
@@ -280,6 +290,9 @@ pub(crate) struct Link {
     after_reset: bool,
     /// The diagnostics given last, in the log's document as it was then.
     pub(crate) diagnostics: Vec<HostDiagnostic>,
+    /// Made showing the newest text an editor that is gone sent, in place
+    /// of the host's older one (see [`Echoes::handed`]).
+    caught_up: bool,
 }
 
 impl Link {
@@ -293,17 +306,24 @@ impl Link {
         revision: Option<u64>,
         handed: Option<Handoff>,
     ) -> Self {
-        let echoes = match handed.filter(|_| echoing) {
+        let (echoes, caught_up) = match handed.filter(|_| echoing) {
             Some(handed) => Echoes::handed(handed, value, revision),
             None => {
                 let mut echoes = Echoes::new(echoing);
                 echoes.given(value);
-                echoes
+                (echoes, None)
             }
         };
-        let revision = revision.unwrap_or_else(issue);
-        let mut log = HostLog::new(Arc::from(value), revision, echoing);
-        log.printed_as(revision, Print::of(value));
+        let shows_newest = caught_up.is_some();
+        let log = match caught_up {
+            Some((sent, newest)) => Self::caught_up_log(value, revision, sent, newest),
+            None => {
+                let revision = revision.unwrap_or_else(issue);
+                let mut log = HostLog::new(Arc::from(value), revision, echoing);
+                log.printed_as(revision, Print::of(value));
+                log
+            }
+        };
         Self {
             echoes,
             log,
@@ -313,7 +333,39 @@ impl Link {
             carried_list: None,
             after_reset: false,
             diagnostics: Vec::new(),
+            caught_up: shows_newest,
         }
+    }
+
+    /// The log of a document that shows `newest`, the text an editor that
+    /// is gone sent at `sent`, in place of `value`, the host's older text
+    /// (at `revision`, when it gave one; see [`Echoes::handed`]). No edit
+    /// made the one of the other here (the gone editor's edits are not
+    /// kept), so a list worked out on `value` follows into `newest` as
+    /// across a text no edit made (by fields, else the safe diff), never
+    /// guessed from where the two texts differ. With no revision older
+    /// than `sent` to name it, `value` is a text from outside (the safe
+    /// diff).
+    fn caught_up_log(value: &str, revision: Option<u64>, sent: u64, newest: Arc<str>) -> HostLog {
+        let print = Print::of(&newest);
+        let Some(revision) = revision.filter(|revision| *revision < sent) else {
+            let mut log = HostLog::new(newest, sent, true);
+            log.printed_as(sent, print);
+            return log;
+        };
+        let value: Arc<str> = Arc::from(value);
+        let mut log = HostLog::new(value.clone(), revision, true);
+        log.printed_as(revision, Print::of(&value));
+        log.moved_to(&newest);
+        log.sent(sent, &newest, Some(print));
+        log
+    }
+
+    /// Whether the document was made showing the newest text an editor
+    /// that is gone sent (see [`HostChannel::caught_up`]), once: the
+    /// editor mounted on it checks after the pause that the host holds it.
+    pub(crate) fn take_caught_up(&mut self) -> bool {
+        std::mem::take(&mut self.caught_up)
     }
 
     /// The host hands every `on_change` text back (`echoes`), the document
@@ -325,8 +377,10 @@ impl Link {
     /// [`Echoes::handed`].
     pub(crate) fn echoing(&mut self, text: &str, handed: Option<Handoff>, revision: Option<u64>) {
         if !self.echoes.is_on() {
+            // The document is built already: the gone editor's newest text
+            // comes back as its echo comes, as without a text kept.
             self.echoes = match handed {
-                Some(handed) => Echoes::handed(handed, text, revision),
+                Some(handed) => Echoes::handed(handed.without_newest(), text, revision).0,
                 None => {
                     let mut echoes = Echoes::new(true);
                     echoes.given(text);
@@ -969,7 +1023,20 @@ impl HostChannel {
     /// editor a binding makes next for the same document (see
     /// [`HostChannel::new`]); `None` when none is on its way.
     pub fn handoff(&self) -> Option<Handoff> {
-        self.with(|link| link.echoes.handoff())
+        self.with(|link| {
+            let document = link.log.document().clone();
+            link.echoes
+                .handoff()
+                .map(|handoff| handoff.holding(&document))
+        })
+    }
+
+    /// The text the editor made on this channel shows in place of the
+    /// host's `value`: the newest text the editor it replaces sent, which
+    /// the host has not handed back yet (see [`HostChannel::new`]); `None`
+    /// when it shows the host's text.
+    pub fn caught_up(&self) -> Option<Arc<str>> {
+        self.with(|link| link.caught_up.then(|| link.log.document().clone()))
     }
 
     /// Keeps the texts on their way (see [`HostChannel::handoff`]) page-wide

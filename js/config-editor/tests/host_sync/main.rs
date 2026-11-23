@@ -97,6 +97,39 @@ mod repros {
     use crate::run::Setup;
     use crate::run::View::*;
 
+    /// Shown again on a reset's first text that the host stored as its own
+    /// (dropping the answers still to come), the new editor shows the
+    /// newest text the gone one sent; the host, whose answer for it never
+    /// comes, hears it after the pause and ends on it.
+    #[test]
+    fn repro_documents_shown_again_on_the_newest_text_tells_a_host_that_dropped_its_answer() {
+        assert_ok(
+            Setup {
+                view: Documents,
+                base: 2,
+                other: 0,
+                form: Index,
+                revisions: true,
+                slips: true,
+            },
+            &[
+                Act::Reset {
+                    doc: 0,
+                    kind: Twice(22323),
+                    same_task: false,
+                    via: Via::SetValue,
+                },
+                Act::Own {
+                    doc: 0,
+                    edit: 57063,
+                    ranges: true,
+                    same_task: false,
+                },
+                Act::Hide { doc: 0 },
+            ],
+        );
+    }
+
     /// A reset to the text the editor holds (`false`: nothing replaced),
     /// then a reset and typing: the host lists no text of its own for it.
     #[test]

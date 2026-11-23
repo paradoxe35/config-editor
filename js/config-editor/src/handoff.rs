@@ -4,8 +4,9 @@
 //! element is the slot the host shows the document in, so a hide and show
 //! there (a component that unmounts and mounts again, a host that rebuilds
 //! its editor) keeps telling that editor's late echoes apart. The record
-//! is kept on the element itself, as numbers, not in the module: it goes
-//! with the element when no editor takes it over.
+//! is kept on the element itself, as numbers (and the newest text sent,
+//! when the editor held it, for the next editor to show at once), not in
+//! the module: it goes with the element when no editor takes it over.
 
 use js_sys::{BigUint64Array, Reflect, Symbol};
 use leptos_config_editor::js_support::Handoff;
@@ -14,6 +15,11 @@ use wasm_bindgen::{JsCast, JsValue};
 /// The element's property that holds the record.
 fn key() -> JsValue {
     Symbol::for_("@pngwasi/config-editor:handoff").into()
+}
+
+/// The element's property that holds the newest text of the record.
+fn newest_key() -> JsValue {
+    Symbol::for_("@pngwasi/config-editor:handoff-newest").into()
 }
 
 /// Leaves `handoff` (the record of an editor `element` held) for the next
@@ -26,17 +32,37 @@ pub(crate) fn leave(element: &web_sys::HtmlElement, handoff: Option<Handoff>) {
             let array = BigUint64Array::new_with_length(words.len() as u32);
             array.copy_from(&words);
             let _ = Reflect::set(element, &key, &array);
+            match handoff.newest() {
+                Some(text) => {
+                    let _ = Reflect::set(element, &newest_key(), &JsValue::from_str(text));
+                }
+                None => forget(element, &newest_key()),
+            }
         }
         None => {
-            let _ = Reflect::delete_property(element.unchecked_ref::<js_sys::Object>(), &key);
+            forget(element, &key);
+            forget(element, &newest_key());
         }
     }
+}
+
+fn forget(element: &web_sys::HtmlElement, key: &JsValue) {
+    let _ = Reflect::delete_property(element.unchecked_ref::<js_sys::Object>(), key);
 }
 
 /// Takes the record an editor destroyed in `element` left, if any.
 pub(crate) fn take(element: &web_sys::HtmlElement) -> Option<Handoff> {
     let key = key();
     let left = Reflect::get(element, &key).ok()?;
-    let _ = Reflect::delete_property(element.unchecked_ref::<js_sys::Object>(), &key);
-    Handoff::from_words(&left.dyn_into::<BigUint64Array>().ok()?.to_vec())
+    let newest = Reflect::get(element, &newest_key())
+        .ok()
+        .and_then(|text| text.as_string());
+    forget(element, &key);
+    forget(element, &newest_key());
+    let handoff = Handoff::from_words(&left.dyn_into::<BigUint64Array>().ok()?.to_vec())?;
+    // Kept only when it is the newest copy's text (read again here).
+    Some(match newest {
+        Some(text) => handoff.holding(&std::sync::Arc::from(text)),
+        None => handoff,
+    })
 }

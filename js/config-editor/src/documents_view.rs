@@ -727,8 +727,9 @@ impl ConfigDocuments {
     /// Makes the host's own change of the document `id`'s text, as
     /// `ConfigEditor.applyChanges` does (`options.revision` names the text
     /// the changes were made on); its editor must be mounted (the document
-    /// was shown): list a new `value` otherwise. Returns the revision of the
-    /// new text, `null` when nothing changed.
+    /// was shown since it was listed, as `editor(id).applyChanges` needs
+    /// too): it throws otherwise, list a new `value` instead. Returns the
+    /// revision of the new text, `null` when nothing changed.
     #[wasm_bindgen(js_name = applyChanges)]
     pub fn apply_changes(
         &self,
@@ -738,26 +739,13 @@ impl ConfigDocuments {
     ) -> Result<Option<f64>, JsError> {
         let id = text_arg(&id, "id")?;
         let edits = crate::anchors::changes_from(&changes)?;
-        let base = if options.is_undefined() || options.is_null() {
-            None
-        } else {
-            crate::anchors::revision_named(&options, "revision")
-        };
+        let base = crate::anchors::change_base(&options)?;
         leptos_config_editor::js_support::flush_pending_input();
-        let editor = self
-            .state
-            .handle
-            .editor(&id)
-            .filter(leptos_config_editor::EditorHandle::is_mounted)
-            .ok_or_else(|| {
-                JsError::new(&format!(
-                    "applyChanges: the document {id:?} has no editor yet (it was never shown): list its new value instead"
-                ))
-            })?;
+        let editor = crate::anchors::editor_to_change(self.state.handle.editor(&id), &id)?;
         let revision = leptos_config_editor::js_support::apply_changes(
             &editor,
             &leptos_config_editor::js_support::HostEdits::Utf16(edits),
-            base,
+            base.as_ref(),
         )
         .map_err(|error| JsError::new(&error.to_string()))?;
         self.state.took_host_change(&id, &editor);

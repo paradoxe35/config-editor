@@ -207,8 +207,9 @@ impl DocumentEditorView {
 
     /// Makes the host's own change of the document, as
     /// `ConfigEditor.applyChanges` does (`options.revision` names the text
-    /// the changes were made on); `null` while its editor is not mounted
-    /// (the document was never shown) or when nothing changed.
+    /// the changes were made on), as `ConfigDocuments.applyChanges(id, …)`
+    /// does: it throws while the document's editor is not mounted (it was
+    /// not shown since it was listed); `null` when nothing changed.
     #[wasm_bindgen(js_name = applyChanges)]
     pub fn apply_changes(
         &self,
@@ -216,19 +217,13 @@ impl DocumentEditorView {
         #[wasm_bindgen(unchecked_optional_param_type = "ApplyChangesOptions")] options: JsValue,
     ) -> Result<Option<f64>, JsError> {
         let edits = crate::anchors::changes_from(&changes)?;
-        let base = if options.is_undefined() || options.is_null() {
-            None
-        } else {
-            crate::anchors::revision_named(&options, "revision")
-        };
+        let base = crate::anchors::change_base(&options)?;
         leptos_config_editor::js_support::flush_pending_input();
-        let Some(editor) = self.handle().filter(EditorHandle::is_mounted) else {
-            return Ok(None);
-        };
+        let editor = crate::anchors::editor_to_change(self.handle(), &self.id)?;
         let revision = leptos_config_editor::js_support::apply_changes(
             &editor,
             &leptos_config_editor::js_support::HostEdits::Utf16(edits),
-            base,
+            base.as_ref(),
         )
         .map_err(|error| JsError::new(&error.to_string()))?;
         self.state.took_host_change(&self.id, &editor);

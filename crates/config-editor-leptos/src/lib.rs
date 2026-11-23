@@ -237,7 +237,7 @@ pub mod js_support {
     pub fn apply_changes(
         handle: &crate::EditorHandle,
         edits: &HostEdits,
-        base: Option<u64>,
+        base: Option<&crate::RangesFor>,
     ) -> Result<Option<u64>, ChangeError> {
         handle.apply_edits(edits, base)
     }
