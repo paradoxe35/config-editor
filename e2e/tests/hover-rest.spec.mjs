@@ -16,10 +16,15 @@ const PROBLEM = 9;
 
 const POPUPS = '.config-editor__hover, .config-editor__problem-tip:not([hidden])';
 
-/** Starts counting the popups that show from now on (`window.__shown`). */
+/**
+ * Starts counting the popups that show from now on (`window.__shown`), and
+ * keeps the time of the pointer's last move (`window.__lastMove`).
+ */
 function countShown(page) {
   return page.evaluate((selector) => {
     window.__shown = 0;
+    window.__lastMove = performance.now();
+    document.addEventListener('pointermove', () => (window.__lastMove = performance.now()), { capture: true });
     const root = document.querySelector('.config-editor');
     let was = false;
     const look = () => {
@@ -32,14 +37,16 @@ function countShown(page) {
 }
 
 /**
- * Milliseconds from now until a popup shows (`key`: a card for that key),
- * or null within `limit`.
+ * Milliseconds from now (`fromRest`: from the pointer's last move, see
+ * `countShown`) until a popup shows (`key`: a card for that key), or null
+ * within `limit`. From the rest, a slow machine's gap between the last move
+ * and this call doesn't shorten the delay measured.
  */
-function msUntilShown(page, key = null, limit = 2000) {
+function msUntilShown(page, key = null, limit = 2000, fromRest = false) {
   return page.evaluate(
-    ([selector, key, limit]) =>
+    ([selector, key, limit, fromRest]) =>
       new Promise((resolve) => {
-        const start = performance.now();
+        const start = fromRest ? window.__lastMove : performance.now();
         const check = () => {
           const shown = [...document.querySelectorAll(selector)].some(
             (element) =>
@@ -52,7 +59,7 @@ function msUntilShown(page, key = null, limit = 2000) {
         };
         check();
       }),
-    [POPUPS, key, limit],
+    [POPUPS, key, limit, fromRest],
   );
 }
 
@@ -80,7 +87,7 @@ test.describe('hover opens on rest', () => {
     // `public_address` is wide: the pass stays on it well over the delay.
     await slowPass(page, ADDRESS, 0, 26);
     expect(await page.evaluate(() => window.__shown), 'no popup while the pointer moves').toBe(0);
-    const ms = await msUntilShown(page, 'public_address');
+    const ms = await msUntilShown(page, 'public_address', 2000, true);
     expect(ms, 'the card opens once the pointer rests').not.toBeNull();
     expect(ms).toBeGreaterThan(200);
     expect(ms).toBeLessThan(900);
@@ -90,7 +97,7 @@ test.describe('hover opens on rest', () => {
     await countShown(page);
     await slowPass(page, PROBLEM, 20, 23);
     expect(await page.evaluate(() => window.__shown), 'no popup while the pointer moves').toBe(0);
-    const ms = await msUntilShown(page);
+    const ms = await msUntilShown(page, null, 2000, true);
     expect(ms).not.toBeNull();
     expect(ms).toBeGreaterThan(200);
     // The card of the key lists the problem.

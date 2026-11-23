@@ -70,7 +70,15 @@ for (const name of ['documents.html', ...DOCUMENTS_FRAMEWORK_PAGES]) {
       // home.yaml's names stand replaced by its live ones.
       await caretAfter(page, SERVER, 'default_client: ');
       await page.keyboard.press('Control+Space');
-      await expect.poll(() => suggested(page, SERVER)).toContain('typed-now');
+      // A list asked for while the page was still busy may not open: ask
+      // again until it shows (what it lists is the test).
+      await expect
+        .poll(async () => {
+          const names = await suggested(page, SERVER);
+          if (names.length === 0) await page.keyboard.press('Control+Space');
+          return names;
+        })
+        .toContain('typed-now');
       const names = await suggested(page, SERVER);
       for (const wanted of ['main', 'typed-now', 'home', 'lab', 'office', 'self']) expect(names).toContain(wanted);
       expect(names).not.toContain('home-saved');
