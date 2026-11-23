@@ -198,10 +198,16 @@ fn repeats_as_elements(
         &crate::editor::applies::Entry::schema(property),
         root,
     );
-    let items = match read {
-        Value::Array(items) => items,
-        lone => vec![lone],
+    let (items, lone) = match read {
+        Value::Array(items) => (items, None),
+        lone => (vec![lone.clone()], Some(lone)),
     };
+    // Each check asks what the one more item (or reading the lone value as
+    // an item) changes, never whether the items written are valid: an
+    // item refused deep inside is refused with or without another, and
+    // `decides` stops reading past a fixed depth, so a check of the whole
+    // list would offer the key only once the items are too deep to read.
+    let refused = |value: Value| decides(property, &value, root) == Some(false);
     let most = array.get("maxItems").and_then(Value::as_u64);
     let next = item_schema(array, items.len()).and_then(|item| {
         kept_default(behavior, item, root).or_else(|| kept_const(behavior, item, root))
@@ -209,11 +215,12 @@ fn repeats_as_elements(
     let takes_next = next.is_none_or(|next| {
         let mut more = items.clone();
         more.push(next.clone());
-        decides(property, &Value::Array(more), root) != Some(false)
+        !refused(Value::Array(more)) || refused(Value::Array(items.clone()))
     });
-    most.is_none_or(|most| (items.len() as u64) < most)
-        && takes_next
-        && (written.is_array() || decides(property, &Value::Array(items), root) != Some(false))
+    let read_as_item = lone.is_none_or(|lone| {
+        written.is_array() || !refused(Value::Array(items.clone())) || refused(lone)
+    });
+    most.is_none_or(|most| (items.len() as u64) < most) && takes_next && read_as_item
 }
 
 /// Whether one more item of a list written by repeating its key, written

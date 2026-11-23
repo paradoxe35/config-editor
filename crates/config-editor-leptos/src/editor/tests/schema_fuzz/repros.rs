@@ -1592,3 +1592,20 @@ fn another_element_of_a_list_with_item_places_keeps_the_items_in_place() {
         json!({"a": []}),
     );
 }
+
+/// Key suggestions deep in a list of nodes written by repeating its key
+/// (XML elements) walk the schemas at the list once, not once more for
+/// each level above the caret.
+#[test]
+fn key_suggestions_in_a_deep_repeated_list_grow_with_the_document() {
+    holds_but_known(
+        "work",
+        super::work::check,
+        (
+            json!({"$defs":{"node":{"anyOf":[{"then":{"properties":{"b":{}}},"if":{"properties":{"d":{"const":"fast"}},"required":["d"]},"required":["b","port"],"dependentRequired":{"b":["d"]}},{"type":"object","properties":{"c":{"type":"array","items":{"$ref":"#/$defs/node"}}},"required":["c"]}]}},"properties":{"root":{"$ref":"#/$defs/node"}}}),
+            json!({}),
+            Value::Null,
+        ),
+        2,
+    );
+}
