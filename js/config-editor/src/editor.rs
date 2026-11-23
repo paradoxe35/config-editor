@@ -681,7 +681,7 @@ impl ConfigEditor {
     /// it. `onChange` hears the result only when it holds edits the host
     /// did not know. Lists given in `options` are read in the new document
     /// (or where `rangesFor` names). Returns the revision of the new
-    /// document (pass it back as `valueRevision`), `null` when nothing was
+    /// document (pass it back as `valueRevision`), `undefined` when nothing was
     /// sent: no change, or the save is held (the host's change reaches the
     /// host with the next `onChange` once the save goes through). A revision out of date or never sent, a text the editor
     /// cannot name, or changes that do not fit the text, throw and change

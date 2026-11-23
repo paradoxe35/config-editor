@@ -87,7 +87,8 @@ versions move together.
   held text out: `onChange` heard the renamed text with the host's change,
   and the call returned its revision. The locked values are now read in
   the host's text with its change and the user's edits judged against
-  them: the save keeps waiting, `applyChanges` returns `null`, and
+  them: the save keeps waiting, `applyChanges` returns no revision
+  (`undefined`; `null` in the React, Vue and Svelte components), and
   renaming the key back sends the host's change with the user's text. A
   host change rewriting its own locked value keeps the lock over what it
   wrote (it locked nothing before).
