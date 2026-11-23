@@ -137,7 +137,10 @@ pub(super) fn check_with(both: &Both, case: &Case) -> Verdict {
             }
             let keyword = error.kind().keyword();
             let unmet = || {
-                let read = written_empty(both, language, &option.label, &read);
+                let mut read = written_empty(both, language, &option.label, &read);
+                if language == Language::XML {
+                    empty_element_as_empty_list(&mut read, &at);
+                }
                 unmet(both, language, (&case.schema, &case.doc), &read, &at)
             };
             let class = match keyword {
@@ -247,6 +250,21 @@ fn written_empty(both: &Both, language: Language, label: &str, read: &Value) -> 
         return read.clone();
     }
     yaml_fill(both, label).map_or_else(|| read.clone(), |yaml| empty_lists_back(read, &yaml))
+}
+
+/// The list at `at` (the problem's own place) made `[]` where XML read an
+/// empty element as `[{}]`. XML writes an empty list, and an empty slot
+/// left to type, as an empty element (documented, README "required
+/// children on accept"), also where YAML's fill writes nothing to compare
+/// it with (in the first item of a key's own list). Asking the search of
+/// the empty list there excuses the problem only when no list at all meets
+/// the schema there, which `[{}]` does not either.
+fn empty_element_as_empty_list(read: &mut Value, at: &str) {
+    if let Some(value) = read.pointer_mut(at)
+        && *value == serde_json::json!([{}])
+    {
+        *value = Value::Array(Vec::new());
+    }
 }
 
 /// `read` with each `[{}]` that `full` holds as `[]` made `[]`.
@@ -392,6 +410,18 @@ fn only_an_empty_element_where_the_fill_wrote_an_empty_list_reads_empty() {
     );
 }
 
+/// Only an empty element at the problem's own place is read as the empty
+/// list; a written item, or an empty element elsewhere, stays.
+#[test]
+fn only_an_empty_element_at_the_problem_reads_as_an_empty_list() {
+    use serde_json::json;
+    let mut read = json!({"a": [{"m": [{}], "n": [{}]}], "b": [{"x": 1}]});
+    empty_element_as_empty_list(&mut read, "/a/0/m");
+    empty_element_as_empty_list(&mut read, "/b");
+    empty_element_as_empty_list(&mut read, "/c");
+    assert_eq!(read, json!({"a": [{"m": [], "n": [{}]}], "b": [{"x": 1}]}));
+}
+
 /// A list no item can meet (a `contains` nothing matches, or nothing of
 /// the items' type; nested, in an `anyOf`) is filled as the documented
 /// class in every language: in XML the empty list it writes reads as
@@ -404,6 +434,11 @@ fn a_list_no_item_meets_is_the_documented_class_in_every_language() {
         json!({"properties":{"d":{"allOf":[{"properties":{"mode":{"type":"array","contains":{"enum":[]}}}}],"properties":{"mode":{"description":"d"}},"required":["mode"]}}}),
         json!({"properties":{"d":{"properties":{"mode":{"type":"array","items":{"type":"object"},"contains":{"enum":[1.5,2]},"minContains":2}},"required":["mode"]}}}),
         json!({"properties":{"d":{"properties":{"e":{"properties":{"mode":{"anyOf":[{"type":"array","contains":{"enum":[]}}]}},"required":["mode"]}},"required":["e"]}}}),
+        // A `maxContains` below the `minContains` asked leaves an empty
+        // slot to type, XML's empty element; also in the first item of a
+        // key's own list, which YAML's fill does not write.
+        json!({"properties":{"d":{"required":["mode"],"properties":{"mode":{"type":"array","maxContains":0,"contains":{}}}}}}),
+        json!({"properties":{"d":{"type":"array","items":{"required":["mode"],"properties":{"mode":{"type":"array","maxContains":0,"contains":{}}}}}}}),
     ];
     for schema in schemas {
         for language in Language::ALL {
