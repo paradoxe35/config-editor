@@ -16,8 +16,6 @@ versions move together.
   is as wide as the chevron; each control keeps its 24px hit area, so on
   a line that folds a tap on the line number folds it.
 
-### Changed
-
 - The tip on protected text under the pointer (`readOnlyRanges`, locked
   fields, secret placeholders) now waits for the pointer to rest
   (`hoverDelay`), as the hover card and the problem tip do: a pass across
