@@ -136,7 +136,10 @@ pub(super) fn check_with(both: &Both, case: &Case) -> Verdict {
                 continue;
             }
             let keyword = error.kind().keyword();
-            let unmet = || unmet(both, language, (&case.schema, &case.doc), &read, &at);
+            let unmet = || {
+                let read = written_empty(both, language, &option.label, &read);
+                unmet(both, language, (&case.schema, &case.doc), &read, &at)
+            };
             let class = match keyword {
                 // Each language's insert writes a key's own list empty or
                 // with its one first item, the caret inside to type the
@@ -205,6 +208,20 @@ fn only_unwritable_left_out(
     if !matches!(language.label(), "TOML" | "XML") {
         return false;
     }
+    let Some(yaml) = yaml_fill(both, label) else {
+        return false;
+    };
+    let restored = put_back(read, &yaml, &unwritable);
+    restored != *read
+        && !both
+            .reference
+            .iter_errors(&restored)
+            .any(|error| error.instance_path().as_str() == at && error.kind().keyword() == keyword)
+}
+
+/// YAML's fill of the key `label` at the root, read: a language that
+/// writes every value (an empty list, `null`) as itself.
+fn yaml_fill(both: &Both, label: &str) -> Option<Value> {
     let source = root(Language::YAML).replacen('|', "", 1);
     let offered = completions(
         &source,
@@ -214,19 +231,53 @@ fn only_unwritable_left_out(
         true,
         Language::YAML.behavior(),
     );
-    let Some(yaml) = offered
+    offered
         .iter()
         .find(|option| !option.is_value && option.label == label)
         .and_then(|option| both.read(Language::YAML, &apply_completion(&source, option).0))
-    else {
-        return false;
-    };
-    let restored = put_back(read, &yaml, &unwritable);
-    restored != *read
-        && !both
-            .reference
-            .iter_errors(&restored)
-            .any(|error| error.instance_path().as_str() == at && error.kind().keyword() == keyword)
+}
+
+/// `read`, with each list XML wrote as an empty element (read as `[{}]`)
+/// where YAML's fill of the key `label` writes an empty list read as that
+/// empty list: XML writes an empty list as an empty element (documented,
+/// README "required children on accept"), so whether some list meets the
+/// schema there is asked of the empty list the fill wrote.
+fn written_empty(both: &Both, language: Language, label: &str, read: &Value) -> Value {
+    if language != Language::XML {
+        return read.clone();
+    }
+    yaml_fill(both, label).map_or_else(|| read.clone(), |yaml| empty_lists_back(read, &yaml))
+}
+
+/// `read` with each `[{}]` that `full` holds as `[]` made `[]`.
+fn empty_lists_back(read: &Value, full: &Value) -> Value {
+    match (read, full) {
+        (Value::Array(items), Value::Array(full)) if full.is_empty() => {
+            if items.len() == 1 && items[0] == Value::Object(serde_json::Map::new()) {
+                Value::Array(Vec::new())
+            } else {
+                Value::Array(items.clone())
+            }
+        }
+        (Value::Object(read), Value::Object(full)) => Value::Object(
+            read.iter()
+                .map(|(key, value)| {
+                    let value = full
+                        .get(key)
+                        .map_or_else(|| value.clone(), |full| empty_lists_back(value, full));
+                    (key.clone(), value)
+                })
+                .collect(),
+        ),
+        (Value::Array(items), Value::Array(full)) if items.len() == full.len() => Value::Array(
+            items
+                .iter()
+                .zip(full)
+                .map(|(item, full)| empty_lists_back(item, full))
+                .collect(),
+        ),
+        _ => read.clone(),
+    }
 }
 
 /// `read` with each value of `full` that `unwritable` names and `read`
@@ -319,6 +370,59 @@ fn only_a_list_in_a_list_is_left_alone() {
     }
     for at in ["", "/a", "/a/1", "/a/1/b", "/a/1/b/0", "/c", "/c/0", "/x/0"] {
         assert!(!in_a_list_in_a_list(&read, at), "{at}");
+    }
+}
+
+/// Only a list XML reads as `[{}]` where the full fill holds an empty
+/// list is read as that empty list; a written item stays.
+#[test]
+fn only_an_empty_element_where_the_fill_wrote_an_empty_list_reads_empty() {
+    use serde_json::json;
+    let full = json!({"a": [], "b": [{}], "c": {"d": []}, "e": [[], 1]});
+    assert_eq!(
+        empty_lists_back(
+            &json!({"a": [{}], "b": [{}], "c": {"d": [{}]}, "e": [[{}], 1]}),
+            &full
+        ),
+        json!({"a": [], "b": [{}], "c": {"d": []}, "e": [[], 1]})
+    );
+    assert_eq!(
+        empty_lists_back(&json!({"a": [{"x": 1}], "c": {"d": [{}, {}]}}), &full),
+        json!({"a": [{"x": 1}], "c": {"d": [{}, {}]}})
+    );
+}
+
+/// A list no item can meet (a `contains` nothing matches, or nothing of
+/// the items' type; nested, in an `anyOf`) is filled as the documented
+/// class in every language: in XML the empty list it writes reads as
+/// `[{}]`.
+#[test]
+fn a_list_no_item_meets_is_the_documented_class_in_every_language() {
+    use super::runner::Case;
+    use serde_json::json;
+    let schemas = [
+        json!({"properties":{"d":{"allOf":[{"properties":{"mode":{"type":"array","contains":{"enum":[]}}}}],"properties":{"mode":{"description":"d"}},"required":["mode"]}}}),
+        json!({"properties":{"d":{"properties":{"mode":{"type":"array","items":{"type":"object"},"contains":{"enum":[1.5,2]},"minContains":2}},"required":["mode"]}}}),
+        json!({"properties":{"d":{"properties":{"e":{"properties":{"mode":{"anyOf":[{"type":"array","contains":{"enum":[]}}]}},"required":["mode"]}},"required":["e"]}}}),
+    ];
+    for schema in schemas {
+        for language in Language::ALL {
+            let case = Case {
+                language: *language,
+                pick: 0,
+                schema: schema.clone(),
+                doc: json!({"d": null}),
+                other: Value::Null,
+            };
+            if let Verdict::Fails(found) = check(&case) {
+                assert!(
+                    super::known::excused("fill", &found.class, &case).is_some(),
+                    "{language}: {}\n{}",
+                    found.class,
+                    found.detail
+                );
+            }
+        }
     }
 }
 
