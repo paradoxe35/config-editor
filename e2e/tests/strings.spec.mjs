@@ -205,6 +205,9 @@ const ELSEWHERE = {
   noUses: "as usesTitle",
   noUsesInOpenFiles: "as usesTitle",
   usesSearching: "as usesTitle",
+  usesSearchFailed: "a host search that throws or rejects: find-uses-list.spec",
+  hoverLinks:
+    "a second Ctrl+K Ctrl+I on a card with links: find-uses-list.spec",
   keyNotAllowed: "diagnostics tests",
   textNotAllowed: "diagnostics tests",
   keyDeprecated: "schema help tests",

@@ -94,8 +94,10 @@ test.describe('tooltips on a phone', () => {
     const marker = page.locator('.config-editor__diagnostic-marker');
     await expect(marker).toHaveCount(1);
     await pointerOn(page, marker);
-    const tip = page.locator('.config-editor__problem-tip');
-    await expect(tip).toBeVisible();
+    // The message shows in the problem tip, or in the card of the documented
+    // key it sits on (here inside a one-line map): either stays inside.
+    const tip = page.locator('.config-editor__problem-tip:visible, .config-editor__hover:visible').first();
+    await expect(tip).toContainText('99999');
     const overflow = await tip.evaluate(
       (element) => element.getBoundingClientRect().right - document.querySelector('.config-editor__input').getBoundingClientRect().right,
     );
