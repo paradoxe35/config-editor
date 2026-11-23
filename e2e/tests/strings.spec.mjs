@@ -279,8 +279,10 @@ function marked(texts) {
 /** The marked keys on screen, in accessible names and tooltips, and said. */
 const seenKeys = (page) =>
   page.evaluate(() => {
-    const parts = [document.querySelector("#editor").innerText];
-    for (const element of document.querySelectorAll("#editor *")) {
+    // `#keys`: the second editor, for texts only a schema naming keys shows.
+    const roots = document.querySelectorAll("#editor, #keys");
+    const parts = [...roots].map((root) => root.innerText);
+    for (const element of document.querySelectorAll("#editor *, #keys *")) {
       for (const name of ["title", "aria-label", "placeholder"]) {
         const value = element.getAttribute(name);
         if (value) parts.push(value);
@@ -474,6 +476,57 @@ test("every built-in text comes from the strings setting", async ({ page }) => {
   await expect(page.locator(".config-editor__notice")).toBeVisible();
   await look();
   await page.locator(".config-editor__notice-keep").click();
+
+  // Where the schema names keys (x-config-editor-keys), F12 and Shift+F12
+  // with nothing to find say so at the caret: on a word, then off one. The
+  // schema is fixed for a mounted editor, so a second one shows them, with
+  // the same strings.
+  await page.evaluate((strings) => {
+    const element = document.createElement("div");
+    element.id = "keys";
+    document.querySelector("#editor").after(element);
+    window.keysEditor = new window.editor.constructor(element, {
+      language: "yaml",
+      schema: JSON.stringify({
+        type: "object",
+        properties: {
+          clients: { type: "object" },
+          default_client: { type: "string", "x-config-editor-keys": "/clients" },
+          note: { type: "string" },
+        },
+      }),
+      value: "clients:\n  main: {}\ndefault_client: main\nnote: main\n",
+      strings,
+    });
+  }, marked(texts));
+  const keys = page.locator("#keys .config-editor__input");
+  const notice = page.locator("#keys .config-editor__caret-notice");
+  await keys.click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("ArrowUp");
+  for (const [key, text] of [
+    ["F12", "«noDefinitionFor»note"],
+    ["Shift+F12", "«noUsesOf»note"],
+  ]) {
+    await page.keyboard.press(key);
+    await expect(notice).toHaveText(text);
+    await look();
+  }
+  // Just past `note:`, before the space: no word at the caret.
+  for (let column = 0; column < "note:".length; column += 1)
+    await page.keyboard.press("ArrowRight");
+  for (const [key, text] of [
+    ["F12", "«noDefinitionHere»"],
+    ["Shift+F12", "«noUsesHere»"],
+  ]) {
+    await page.keyboard.press(key);
+    await expect(notice).toHaveText(text);
+    await look();
+  }
+  await page.evaluate(() => {
+    window.keysEditor.destroy();
+    document.querySelector("#keys").remove();
+  });
 
   // Editing as JSON: the notice about the file's comments; then as TOML
   // with a comment typed in it.
