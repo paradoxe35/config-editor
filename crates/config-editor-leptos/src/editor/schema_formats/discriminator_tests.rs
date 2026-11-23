@@ -29,14 +29,13 @@ fn pets() -> Value {
 /// into `definitions`), the schema `Owner` holding `pet`.
 fn document(version: &str, mut schemas: Value, pet: Value) -> String {
     schemas["Owner"] = json!({"type": "object", "properties": {"pet": pet}});
-    let text = if version == "2.0" {
+    if version == "2.0" {
         json!({"swagger": "2.0", "definitions": schemas})
             .to_string()
             .replace("#/components/schemas/", "#/definitions/")
     } else {
         json!({"openapi": version, "components": {"schemas": schemas}}).to_string()
-    };
-    text
+    }
 }
 
 fn compile(text: &str, name: &str) -> Schema {
@@ -161,10 +160,11 @@ fn the_discriminator_picks_the_option_a_value_is_checked_by() {
 #[test]
 fn completion_offers_the_values_and_the_picked_options_keys() {
     let labels = |schema: &Schema, marked: &str| -> Vec<String> {
-        let at = marked.find('|').unwrap();
+        // The caret's place in UTF-16 units: the text before the mark.
+        let (before, _) = marked.split_once('|').unwrap();
         let text = marked.replace('|', "");
         let mut labels: Vec<String> = schema
-            .suggestions(Language::JSON, &text, text[..at].encode_utf16().count())
+            .suggestions(Language::JSON, &text, before.encode_utf16().count())
             .iter()
             .map(|option| option.label().to_string())
             .collect();
