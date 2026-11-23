@@ -162,6 +162,8 @@ export async function lateDiagnostics(run, { at, by, wait }) {
       // F8 also walks onto the host's problem (at a line start, or in the
       // footer once the text has no such line).
       fz.hostDiagnosed = true;
+      // Per document: a text of the host's own given to it later takes them.
+      (fz.diagnosedIds ??= new Set()).add(fz.kind === 'single' ? '' : fz.activeId());
       fz.hostMessage = hostDiagnostics[0].message;
       if (fz.kind === 'single' && window.editor) window.editor.update(props);
       else if (fz.kind === 'single') {
@@ -178,13 +180,16 @@ export async function lateDiagnostics(run, { at, by, wait }) {
   return null;
 }
 
-// Takes the problems `lateDiagnostics` gave back, before the host gives a
-// text of its own: they were for the text it replaces.
+// Takes the problems `lateDiagnostics` gave the active document back,
+// before the host gives it a text of its own: they were for the text it
+// replaces (given alone, they would be read in the new one).
 export async function clearHostDiagnostics(page) {
   await page.evaluate(() => {
     const fz = window.__fz;
-    if (!fz.hostDiagnosed) return;
-    fz.hostDiagnosed = false;
+    const id = fz.kind === 'single' ? '' : fz.activeId();
+    if (!fz.diagnosedIds?.has(id)) return;
+    fz.diagnosedIds.delete(id);
+    fz.hostDiagnosed = fz.diagnosedIds.size > 0;
     const props = { hostDiagnostics: [], diagnosticsFor: undefined };
     if (fz.kind === 'single' && window.editor) window.editor.update({ hostDiagnostics: [] });
     else if (fz.kind === 'single') {

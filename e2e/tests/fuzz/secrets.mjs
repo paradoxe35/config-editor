@@ -6,6 +6,7 @@
 // standing for them: what the host gives is all a page could show.
 import { DOC_LANGUAGE, copyFits, host, settle } from './perform.mjs';
 import { docsFor } from './corpus.mjs';
+import { clearHostDiagnostics } from './host-actions.mjs';
 
 const short = (value) => JSON.stringify(value).slice(0, 160);
 
@@ -112,6 +113,8 @@ export async function crossCopy(run, action) {
       run.hostReplaced = true;
       const ranges = run.keepLocks(id, text);
       run.give(id, text);
+      // A file of the host's own: the problems it found on the old text go.
+      await clearHostDiagnostics(page);
       await host(page, 'docValue', { text, how: 'file', ranges });
       await settle(page);
     }
