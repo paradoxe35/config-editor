@@ -2298,6 +2298,17 @@
   }
   :not(#\#):not(#\#) .config-editor__fold-toggle { width: 24px; }
   :not(#\#):not(#\#) .config-editor__fold-toggle::before { left: 14px; }
+  /* The room the gutter gives goes to the text alone: the find widget
+     keeps the width it has beside the wider gutter, so it never narrows as
+     the editor widens past this width. The gutter gives 16px (the marker
+     column's 12px, the padding's 4px), 26px with chevrons (12px, and the
+     chevrons' 14px). */
+  :not(#\#):not(#\#) .config-editor__surface:has(> .config-editor__gutter) .config-editor__find {
+    width: min(440px, calc(100% - 22px - 16px));
+  }
+  :not(#\#):not(#\#) .config-editor__surface:has(> .config-editor__gutter-folding) .config-editor__find {
+    width: min(440px, calc(100% - 22px - 26px));
+  }
 }
 
 /* The footer's and the notices' buttons too (their rows have the room). */

@@ -48,9 +48,9 @@ const MINIMUM = 24 - 0.5;
  * pseudo-elements'), as [name, width, height]. Targets: buttons, links,
  * fields, tabs, options and what shows a pointer cursor, not inside
  * another target. Left out, as WCAG 2.5.8 leaves out targets in a line of
- * text: the text area itself, the gutter's line numbers and the underlined
- * problems in the text (each a line of the text tall), and links within a
- * sentence.
+ * text: the text area itself, the gutter's line numbers, the sticky header
+ * lines and their numbers, and the underlined problems in the text (each a
+ * line of the text tall), and links within a sentence.
  */
 function targets(page) {
   return page.evaluate(() => {
@@ -58,7 +58,7 @@ function targets(page) {
       element.matches('button, a[href], input, select, [role="tab"], [role="option"]') ||
       getComputedStyle(element).cursor === 'pointer';
     const exempt = (element) =>
-      element.matches('textarea, .config-editor__gutter-content > div, .config-editor__diagnostic-marker') ||
+      element.matches('textarea, .config-editor__gutter-content > div, .config-editor__sticky-line, .config-editor__sticky-number, .config-editor__diagnostic-marker') ||
       (element.matches('a') && element.parentElement.textContent.trim() !== element.textContent.trim());
     const out = [];
     for (const element of document.querySelectorAll('.config-editor *, .config-editor-documents *')) {
