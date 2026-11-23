@@ -581,13 +581,17 @@ fn choices_picked(model: &Value, document: &mut Value) {
     }
 }
 
-/// `found` (the children of an element of sequence `model`) with a valid
-/// one of each required child `wanted` says the fill leaves out, in its
-/// place.
+/// `found` (the children of an element of sequence `model`, or of a
+/// choice of one option, which XSD requires as a sequence of it) with a
+/// valid one of each required child `wanted` says the fill leaves out, in
+/// its place.
 fn missing_added(model: &Value, found: &mut Vec<Value>, wanted: &dyn Fn(&Value) -> bool) {
-    let Some((items, false)) = children(model) else {
+    let Some((items, choice)) = children(model) else {
         return;
     };
+    if choice && items.len() != 1 {
+        return;
+    }
     for (rank, item) in items.iter().enumerate() {
         let missing = !found.iter().any(|child| name(child) == name(item));
         if missing && wanted(item) && item.get("min").and_then(Value::as_u64) != Some(0) {
@@ -602,6 +606,28 @@ fn missing_added(model: &Value, found: &mut Vec<Value>, wanted: &dyn Fn(&Value) 
                 .map_or(0, |index| index + 1);
             found.insert(at, super::xsd_model::document(&mut Rng::new(7), item));
         }
+    }
+}
+
+/// An `xs:choice` of one element requires it as a sequence of it would:
+/// a required list there whose items are a choice of several is left out
+/// for the user to pick, as in a sequence.
+#[test]
+fn a_choice_of_one_list_is_judged_as_a_sequence_of_it() {
+    let case = Case {
+        language: Language::XML,
+        pick: 1861,
+        schema: json!({"seq":[{"s":{"text":[]},"n":"mode"},{"s":{"dec":[0,0]},"n":"i","min":0},{"alt":[{"alt":[{"s":{"text":["tcp"]},"n":"mode"},{"s":{"text":[]},"n":"opt","min":1,"max":1,"named":true}],"max":"u","n":"path"}],"min":0,"n":"host"},{"seq":[{"alt":[{"s":{"text":[]},"n":"mode","min":1,"max":1},{"s":{"text":["udp","tcp","auto"]},"n":"user","min":1,"max":1}],"at":[{"n":"id","s":{"text":["tcp"]},"req":true},{"n":"on","s":{"text":["tcp"]},"req":true}],"named":true,"n":"path","min":0,"max":2},{"s":{"text":["udp","off"]},"n":"port","min":1,"max":1,"named":true}],"at":[{"n":"on","s":{"text":["tcp","off"]},"req":false},{"n":"id","s":{"bool":1},"req":false}],"n":"rule","min":1,"max":2}],"at":[{"n":"kind","s":{"dec":[0,2]},"req":true}],"n":"config"}),
+        doc: json!({"n":"config","a":{"kind":"1"},"c":[{"n":"mode","t":"a"},{"n":"rule","c":[{"n":"port","t":"udp"}]}]}),
+        other: Value::Null,
+    };
+    if let Verdict::Fails(found) = assist_check(&case) {
+        assert!(
+            super::known::excused("xsd_assist", &found.class, &case).is_some(),
+            "{}\n{}",
+            found.class,
+            found.detail
+        );
     }
 }
 

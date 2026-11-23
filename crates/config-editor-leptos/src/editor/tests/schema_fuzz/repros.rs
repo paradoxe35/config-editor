@@ -548,6 +548,29 @@ fn a_fill_writes_no_object_or_list_the_schemas_at_the_key_refuse() {
     }
 }
 
+/// A key the object requires whichever option it takes is filled: one
+/// beside a choice of several options (which stays the user's to pick),
+/// and one every option of a `oneOf`/`anyOf` requires (a choice of one
+/// option, or of options asking the same key).
+#[test]
+fn a_key_every_option_requires_is_filled() {
+    for schema in [
+        json!({"properties":{"mode":{"allOf":[{"required":["s"]},{"anyOf":[{"required":["x"]},{"required":["x_two"]}]}]}}}),
+        json!({"properties":{"mode":{"required":["s"],"properties":{"s":{"type":"string"}},"oneOf":[{"required":["x"]},{"required":["y"]}]}}}),
+        json!({"properties":{"mode":{"allOf":[{"required":["s"]},{"anyOf":[{"required":["x"]},{"required":["x"]}]}]}}}),
+        json!({"properties":{"mode":{"type":"object","properties":{"p":{"type":"string"}},"oneOf":[{"required":["p"]}]}}}),
+        json!({"properties":{"mode":{"anyOf":[{"required":["x","a"]},{"allOf":[{"required":["x"]}],"required":["b"]}]}}}),
+    ] {
+        holds_everywhere_but_known(
+            "fill",
+            super::fill::check,
+            schema,
+            json!({"mode": "x"}),
+            json!(null),
+        );
+    }
+}
+
 /// A required child is filled as the schemas its object then takes say:
 /// the `else` of an `if` the filled object does not meet, the dependent
 /// schema of a sibling the fill writes, the schema of a list's first item.

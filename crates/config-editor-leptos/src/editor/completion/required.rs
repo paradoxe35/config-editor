@@ -219,10 +219,12 @@ fn children<'a>(
         }
         // None is taken, and the option the keys were written for takes
         // them: another option takes them too, so no value typed there is
-        // ever taken. The object is left to type.
+        // ever taken. Which option is the user's to type; the keys the
+        // object requires whichever it takes are written.
         if first.is_some_and(|first| decides(first, &preview(&found, root), root) == Some(true)) {
             *caret = caret_before;
-            return Vec::new();
+            let certain = certain_keys(language, object, at, root);
+            return written(language, certain, root, caret, depth);
         }
     }
     *caret = caret_after;
@@ -400,11 +402,39 @@ pub(super) fn required_keys<'a>(
     root: &'a Value,
     value: Option<&Value>,
 ) -> Vec<RequiredKey<'a>> {
+    keys_required(
+        language,
+        (schema, object_branch(schema, root)),
+        at,
+        root,
+        value,
+    )
+}
+
+/// [`required_keys`] of the schemas certain to apply alone, not of an
+/// option the object branch may be: the keys the object holds whichever
+/// option it takes.
+fn certain_keys<'a>(
+    language: &dyn ConfigLanguage,
+    schema: &'a Value,
+    at: Option<&Entry<'a>>,
+    root: &'a Value,
+) -> Vec<RequiredKey<'a>> {
+    keys_required(language, (schema, None), at, root, None)
+}
+
+/// [`required_keys`], the object `branch` (where given) read as applying.
+fn keys_required<'a>(
+    language: &dyn ConfigLanguage,
+    (schema, branch): (&'a Value, Option<&'a Value>),
+    at: Option<&Entry<'a>>,
+    root: &'a Value,
+    value: Option<&Value>,
+) -> Vec<RequiredKey<'a>> {
     let here = match at {
         Some(at) => Here::walk(at.clone(), root, Seen::default()),
         None => Here::of(schema, root),
     };
-    let branch = object_branch(schema, root);
     // The keys `walked` requires, and each key a required one makes
     // required in turn (`dependentRequired`, draft 7's `dependencies`
     // lists, a dependent schema's `required`).
@@ -421,6 +451,11 @@ pub(super) fn required_keys<'a>(
             .filter_map(|source| source.get("required").and_then(Value::as_array))
             .flatten()
             .filter_map(Value::as_str)
+            .chain(
+                sources
+                    .iter()
+                    .flat_map(|source| every_option_requires(source, root)),
+            )
         {
             if !names.contains(&name) {
                 names.push(name);
@@ -478,6 +513,34 @@ pub(super) fn required_keys<'a>(
         found.push((key, child, at));
     }
     found
+}
+
+/// The keys every option of a `oneOf`/`anyOf` of `source` requires: the
+/// object takes some option, so it holds them whichever it takes (a choice
+/// of one option, or of options asking the same keys, is no choice). A key
+/// only some options require stays the user's pick.
+fn every_option_requires<'a>(source: &'a Value, root: &'a Value) -> Vec<&'a str> {
+    let requires = |option: &'a Value| -> Vec<&'a str> {
+        Here::of(option, root)
+            .certain()
+            .into_iter()
+            .filter_map(|schema| schema.get("required").and_then(Value::as_array))
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect()
+    };
+    ["oneOf", "anyOf"]
+        .iter()
+        .filter_map(|keyword| source.get(*keyword).and_then(Value::as_array))
+        .flat_map(|options| {
+            let mut each = options.iter().map(requires);
+            let first = each.next().unwrap_or_default();
+            let rest: Vec<Vec<&'a str>> = each.collect();
+            first
+                .into_iter()
+                .filter(move |name| rest.iter().all(|other| other.contains(name)))
+        })
+        .collect()
 }
 
 /// Most required keys one object's fill writes.
