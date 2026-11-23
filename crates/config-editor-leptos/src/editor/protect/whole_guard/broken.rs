@@ -16,6 +16,7 @@
 use super::super::super::paths::path_at;
 use super::super::super::text_change::changed_bytes;
 use super::super::glued::written_alone;
+use super::super::texts::shown_pointer;
 use super::Placeholders;
 
 /// Whether an edit replacing bytes `first..last` changes part of the
@@ -134,7 +135,10 @@ impl Placeholders<'_> {
                 return None;
             }
             self.index.first_of(token)?;
-            Some(self.field_written(before, token, units))
+            Some(shown_pointer(
+                &self.field_written(before, token, units),
+                &[token],
+            ))
         })
     }
 
@@ -206,9 +210,11 @@ impl Placeholders<'_> {
                     return None;
                 }
                 let field = self.field_written(after, token, units);
+                // The refusal names the field: a broken text's key may hold
+                // a piece of the token, which no message shows.
                 written_alone(self.behavior, after, &field, range)
                     .is_none()
-                    .then_some(field)
+                    .then(|| shown_pointer(&field, &[token]))
             })
     }
 }
