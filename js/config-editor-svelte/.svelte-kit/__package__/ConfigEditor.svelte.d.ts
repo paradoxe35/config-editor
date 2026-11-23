@@ -32,6 +32,10 @@ declare const ConfigEditor: import("svelte").Component<ConfigEditorProps, {
     unfoldAll: () => void;
     goToDefinition: () => boolean;
     findUses: () => boolean;
+    goBack: () => boolean;
+    goForward: () => boolean;
+    canGoBack: () => boolean;
+    canGoForward: () => boolean;
     focus: () => void;
     save: () => boolean;
     editAs: (language: LanguageName) => boolean;

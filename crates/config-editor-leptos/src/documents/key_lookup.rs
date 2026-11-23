@@ -114,10 +114,12 @@ impl Documents {
         else {
             return false;
         };
+        self.note_leaving(from);
         self.select(&target.id, Focus::Editor);
         self.mount_waiting();
         let path = FieldPath::from_pointer(pointer).key(name);
         untrack(|| target.handle.reveal(path));
+        self.forget_leaving();
         true
     }
 }

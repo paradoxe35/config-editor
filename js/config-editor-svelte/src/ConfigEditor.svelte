@@ -140,6 +140,22 @@
   export function findUses(): boolean {
     return handle.findUses();
   }
+  /** Goes back to where the caret was before the last jump, as `Alt+←` does; `false` when there is nowhere to go back to. */
+  export function goBack(): boolean {
+    return handle.goBack();
+  }
+  /** Goes forward again after `goBack()`, as `Alt+→` does; `false` when there is nowhere to go. */
+  export function goForward(): boolean {
+    return handle.goForward();
+  }
+  /** Whether `goBack()` would move now. */
+  export function canGoBack(): boolean {
+    return handle.canGoBack();
+  }
+  /** Whether `goForward()` would move now. */
+  export function canGoForward(): boolean {
+    return handle.canGoForward();
+  }
   /** Focuses the editor, keeping its selection. */
   export function focus(): void {
     handle.focus();

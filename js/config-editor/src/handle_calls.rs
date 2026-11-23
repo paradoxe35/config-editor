@@ -136,3 +136,27 @@ pub(crate) fn find_uses(handle: Option<EditorHandle>) -> bool {
     leptos_config_editor::js_support::flush_pending_input();
     untrack(|| handle.is_some_and(|handle| handle.find_uses()))
 }
+
+/// `goBack()`: from the place the text last left.
+pub(crate) fn go_back(handle: Option<EditorHandle>) -> bool {
+    leptos_config_editor::js_support::flush_pending_input();
+    untrack(|| handle.is_some_and(|handle| handle.go_back()))
+}
+
+/// `goForward()`: from the place the text last left.
+pub(crate) fn go_forward(handle: Option<EditorHandle>) -> bool {
+    leptos_config_editor::js_support::flush_pending_input();
+    untrack(|| handle.is_some_and(|handle| handle.go_forward()))
+}
+
+/// `canGoBack()`.
+pub(crate) fn can_go_back(handle: Option<EditorHandle>) -> bool {
+    leptos_config_editor::js_support::flush_pending_input();
+    untrack(|| handle.is_some_and(|handle| handle.can_go_back()))
+}
+
+/// `canGoForward()`.
+pub(crate) fn can_go_forward(handle: Option<EditorHandle>) -> bool {
+    leptos_config_editor::js_support::flush_pending_input();
+    untrack(|| handle.is_some_and(|handle| handle.can_go_forward()))
+}

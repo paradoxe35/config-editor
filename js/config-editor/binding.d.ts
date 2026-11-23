@@ -145,6 +145,14 @@ export interface ConfigEditorHandle {
   goToDefinition(): boolean;
   /** Lists the uses of the name at the caret, as `Shift+F12` does; `false` when the caret is on no name or the editor is not mounted. */
   findUses(): boolean;
+  /** Goes back to where the caret was before the last jump (go to definition, a use, a problem, a line, a change, `reveal`), as `Alt+←` does (in a documents view, in whichever document it was): its selection and scroll as they were; `false` when there is nowhere to go back to. */
+  goBack(): boolean;
+  /** Goes forward again after `goBack()`, as `Alt+→` does; `false` when there is nowhere to go. */
+  goForward(): boolean;
+  /** Whether `goBack()` would move now. */
+  canGoBack(): boolean;
+  /** Whether `goForward()` would move now. */
+  canGoForward(): boolean;
   /** Focuses the editor, keeping its selection. */
   focus(): void;
   /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, not mounted, or an `editAs` edit that cannot convert back yet). */
@@ -212,6 +220,14 @@ export interface ConfigDocumentsHandle {
   goToDefinition(): boolean;
   /** Lists the uses of the name at the active editor's caret, as `Shift+F12` does; `false` when there is none. */
   findUses(): boolean;
+  /** Goes back to where the caret was before the last jump (go to definition, a use, a problem, a line, a change, `reveal`), as `Alt+←` does (in a documents view, in whichever document it was): its selection and scroll as they were; `false` when there is nowhere to go back to. */
+  goBack(): boolean;
+  /** Goes forward again after `goBack()`, as `Alt+→` does; `false` when there is nowhere to go. */
+  goForward(): boolean;
+  /** Whether `goBack()` would move now. */
+  canGoBack(): boolean;
+  /** Whether `goForward()` would move now. */
+  canGoForward(): boolean;
   /** Focuses the active document's editor. */
   focus(): void;
   /**

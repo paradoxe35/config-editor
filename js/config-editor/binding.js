@@ -538,6 +538,10 @@ export class EditorBinding extends Binding {
       focus: () => binding.guard((editor) => editor.focus()),
       goToDefinition: () => binding.ask((editor) => editor.goToDefinition(), false),
       findUses: () => binding.ask((editor) => editor.findUses(), false),
+      goBack: () => binding.ask((editor) => editor.goBack(), false),
+      goForward: () => binding.ask((editor) => editor.goForward(), false),
+      canGoBack: () => binding.ask((editor) => editor.canGoBack(), false),
+      canGoForward: () => binding.ask((editor) => editor.canGoForward(), false),
       save: () => binding.ask((editor) => editor.save(), false),
       editAs: (language) =>
         binding.ask((editor) => {
@@ -660,6 +664,10 @@ export class DocumentsBinding extends Binding {
       focus: () => binding.guard((view) => view.focus()),
       goToDefinition: () => binding.ask((view) => view.goToDefinition(), false),
       findUses: () => binding.ask((view) => view.findUses(), false),
+      goBack: () => binding.ask((view) => view.goBack(), false),
+      goForward: () => binding.ask((view) => view.goForward(), false),
+      canGoBack: () => binding.ask((view) => view.canGoBack(), false),
+      canGoForward: () => binding.ask((view) => view.canGoForward(), false),
       editor: (id) => binding.ask((view) => view.editor(id) ?? null, null),
       setValue: (id, value) => binding.#setValue(id, value),
       applyChanges: (id, changes, options) =>

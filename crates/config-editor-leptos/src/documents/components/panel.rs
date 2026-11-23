@@ -181,6 +181,7 @@ fn editor(
     entry
         .handle
         .share_clipboard(documents.clipboard_for(entry.setup.language));
+    entry.handle.share_history(documents.history);
     let read_only_reason = entry.read_only_reason;
     let edit_as = entry.edit_as;
     let edit_as = Signal::derive(move || edit_as.get());

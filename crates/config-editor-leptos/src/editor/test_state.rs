@@ -103,6 +103,7 @@ impl TestEditor {
             on_baseline_conflict: None,
             clipboard: self.clipboard,
             key_names: self.key_names,
+            history: None,
         });
         super::sync::take_lists(
             state,

@@ -15,6 +15,18 @@ versions move together.
   token `JumpFlash` (`--config-editor-jump-flash`, `"jump-flash"`), which
   follows the accent color unless set.
 
+- Go back and go forward, as in VS Code: `Alt+←` returns to where the
+  caret was before a jump (`F12`, a use, `F8`, go to line, a change, a
+  problem link, the host's `reveal`), with the selection and the scroll as
+  they were, and `Alt+→` goes forward again (on macOS `Ctrl+-` and
+  `Ctrl+Shift+-`, since `Option+←` moves by word there). The places follow
+  the edits made since; up to 50 are kept. In `ConfigDocuments`, going
+  back after a jump into another document returns to the document it
+  left. With nowhere to go the key is left to the browser. For a host's
+  buttons: `goBack()`, `goForward()`, `canGoBack()` and `canGoForward()`
+  (Rust `go_back()`, `go_forward()`, `can_go_back()`, `can_go_forward()`)
+  on the editor and documents handles and every framework component.
+
 ### Changed
 
 - A narrow editor (under 480px wide, as on a phone or in a narrow column

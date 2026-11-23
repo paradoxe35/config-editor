@@ -60,6 +60,7 @@ fn mount(language: Language, text: &str) -> (Owner, EditorState, RwSignal<Vec<Fi
         on_baseline_conflict: None,
         clipboard: None,
         key_names: Default::default(),
+        history: None,
     });
     (owner, state, paths)
 }

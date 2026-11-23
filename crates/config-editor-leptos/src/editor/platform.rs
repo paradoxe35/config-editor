@@ -17,7 +17,7 @@ fn name_for(text: &str, apple: bool) -> String {
 }
 
 /// Whether the browser runs on an Apple platform, read once.
-fn apple_platform() -> bool {
+pub(super) fn apple_platform() -> bool {
     static APPLE: OnceLock<bool> = OnceLock::new();
     *APPLE.get_or_init(|| {
         web_sys::window().is_some_and(|window| {

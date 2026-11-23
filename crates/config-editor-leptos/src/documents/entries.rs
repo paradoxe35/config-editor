@@ -12,7 +12,9 @@ use super::plan::{Fate, SchemaCache, Setup, active_after, reconcile};
 use super::tab_names::TabNames;
 use crate::EditorStrings;
 use crate::KeyNames;
-use crate::editor::{Clipboard, DocumentPlaceholders, Handoff, HostChannel, same_document};
+use crate::editor::{
+    Clipboard, DocumentPlaceholders, Handoff, HostChannel, Navigation, same_document,
+};
 use crate::reactive::{Relay, detached_owner, later};
 use crate::{
     Diagnostic, EditorHandle, EditorSettings, FieldPath, HostDiagnostic, Language, RangesFor,
@@ -140,6 +142,8 @@ impl Entry {
         let show = self.owner.with(|| {
             Callback::new(move |()| {
                 if documents.active_id().as_deref() != Some(id.as_str()) {
+                    // A jump into this document leaves the one shown.
+                    documents.note_leaving_active();
                     documents.select(&id, Focus::Editor);
                 } else if documents.panel_inert(&id) {
                     documents.focus_editor.set(Some(id.clone()));
@@ -351,6 +355,9 @@ pub(super) struct Documents {
     /// One clipboard per host language for every editor of the view: an
     /// item copied in one document and pasted in another keeps its source.
     clipboards: StoredValue<Vec<(Language, StoredValue<Clipboard>)>>,
+    /// The go back / go forward places of every editor of the view: going
+    /// back from a jump into another document returns to the one it left.
+    pub(super) history: StoredValue<Navigation>,
     /// The documents whose host's record a binding keeps (the JavaScript
     /// `ConfigDocuments`): their editors take it over, and the binding
     /// hands each update to them (no `value` or list props).
@@ -413,6 +420,7 @@ impl Documents {
             tab_names,
             said: RwSignal::new(String::new()),
             clipboards: StoredValue::new(Vec::new()),
+            history: StoredValue::new(Navigation::default()),
             channels: StoredValue::new_local(std::collections::HashMap::new()),
             handed: StoredValue::new(std::collections::HashMap::new()),
             names: StoredValue::new_local(NamesIndex::default()),
@@ -507,6 +515,27 @@ impl Documents {
         self.clipboards
             .update_value(|clipboards| clipboards.push((language, clipboard)));
         clipboard
+    }
+
+    /// Notes the shown document's place as the one the jump about to show
+    /// another document leaves (see the editor's `back_forward`).
+    pub(super) fn note_leaving(&self, id: &str) {
+        if let Some(entry) = self.entry(id) {
+            entry.handle.note_leaving();
+        }
+    }
+
+    /// Forgets a place noted with [`Self::note_leaving`] no jump took (the
+    /// other document's editor not mounted yet, or its field not found).
+    pub(super) fn forget_leaving(&self) {
+        let _ = self.history.try_update_value(Navigation::forget_leaving);
+    }
+
+    /// [`Self::note_leaving`] for the document shown now.
+    fn note_leaving_active(&self) {
+        if let Some(id) = self.active_id() {
+            self.note_leaving(&id);
+        }
     }
 
     pub(super) fn entry(&self, id: &str) -> Option<Entry> {

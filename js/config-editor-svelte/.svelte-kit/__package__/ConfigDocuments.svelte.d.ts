@@ -21,6 +21,10 @@ declare const ConfigDocuments: import("svelte").Component<ConfigDocumentsProps, 
     editAs: (id: string, language: LanguageName) => boolean;
     goToDefinition: () => boolean;
     findUses: () => boolean;
+    goBack: () => boolean;
+    goForward: () => boolean;
+    canGoBack: () => boolean;
+    canGoForward: () => boolean;
     focus: () => void;
     editor: (id: string) => EditorView | null;
     setValue: (id: string, value: string) => boolean;

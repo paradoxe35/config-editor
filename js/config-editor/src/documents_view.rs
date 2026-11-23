@@ -698,6 +698,37 @@ impl ConfigDocuments {
         untrack(|| self.state.handle.find_uses())
     }
 
+    /// Goes back to where the caret was before the last jump, in whichever
+    /// document it was, as `Alt+←` does; `false` when there is nowhere to
+    /// go back to.
+    #[wasm_bindgen(js_name = goBack)]
+    pub fn go_back(&self) -> bool {
+        leptos_config_editor::js_support::flush_pending_input();
+        untrack(|| self.state.handle.go_back())
+    }
+
+    /// Goes forward again after `goBack()`, as `Alt+→` does; `false` when
+    /// there is nowhere to go.
+    #[wasm_bindgen(js_name = goForward)]
+    pub fn go_forward(&self) -> bool {
+        leptos_config_editor::js_support::flush_pending_input();
+        untrack(|| self.state.handle.go_forward())
+    }
+
+    /// Whether `goBack()` would move now.
+    #[wasm_bindgen(js_name = canGoBack)]
+    pub fn can_go_back(&self) -> bool {
+        leptos_config_editor::js_support::flush_pending_input();
+        untrack(|| self.state.handle.can_go_back())
+    }
+
+    /// Whether `goForward()` would move now.
+    #[wasm_bindgen(js_name = canGoForward)]
+    pub fn can_go_forward(&self) -> bool {
+        leptos_config_editor::js_support::flush_pending_input();
+        untrack(|| self.state.handle.can_go_forward())
+    }
+
     /// The view's settings in effect: every key of `EditorSettings`, set.
     #[wasm_bindgen(getter)]
     pub fn settings(&self) -> SettingsResult {

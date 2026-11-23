@@ -121,6 +121,10 @@ const HANDLE = {
   focus: { member: 'focus' },
   go_to_definition: { member: 'goToDefinition' },
   find_uses: { member: 'findUses' },
+  go_back: { member: 'goBack' },
+  go_forward: { member: 'goForward' },
+  can_go_back: { member: 'canGoBack' },
+  can_go_forward: { member: 'canGoForward' },
 };
 
 const LANGUAGE = {
@@ -344,6 +348,10 @@ const DOCUMENTS_HANDLE = {
   focus: { member: 'focus' },
   go_to_definition: { member: 'goToDefinition' },
   find_uses: { member: 'findUses' },
+  go_back: { member: 'goBack' },
+  go_forward: { member: 'goForward' },
+  can_go_back: { member: 'canGoBack' },
+  can_go_forward: { member: 'canGoForward' },
   sent_revision: { exempt: 'a component\'s `onChange` gets the revision as its third argument (and a `ConfigDocuments` has `sentRevision(id)`)' },
 };
 

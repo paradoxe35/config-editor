@@ -51,6 +51,9 @@ pub struct EditorHandle {
     /// `ConfigDocuments` view's editors of one host language), taken when
     /// it mounts.
     clipboard: StoredValue<Option<StoredValue<Clipboard>>>,
+    /// The go back / go forward history the editor mounting next shares
+    /// (a `ConfigDocuments` view's editors), taken when it mounts.
+    history: StoredValue<Option<StoredValue<super::back_forward::Navigation>>>,
     /// The document's record of its host the editor mounting next takes
     /// over (a binding's, or a documents view's), taken when it mounts.
     channel: StoredValue<Option<super::sync::HostChannel>, LocalStorage>,
@@ -88,6 +91,7 @@ impl EditorHandle {
             opening: StoredValue::new(None),
             foreign: StoredValue::new(None),
             clipboard: StoredValue::new(None),
+            history: StoredValue::new(None),
             channel: StoredValue::new_local(None),
             handed: StoredValue::new(None),
             key_names: StoredValue::new(None),
@@ -97,6 +101,7 @@ impl EditorHandle {
     /// Attaches the editor that mounted with this handle, until it unmounts.
     pub(super) fn attach(self, state: EditorState) {
         self.state.set(Some(state));
+        state.join_history(Some(self));
         on_cleanup(move || {
             let _ = self.state.try_set(None);
         });
@@ -187,6 +192,18 @@ impl EditorHandle {
         self.key_names.try_update_value(std::mem::take).flatten()
     }
 
+    /// The editor mounting next with this handle keeps its go back / go
+    /// forward places in `history`, with the other editors of a documents
+    /// view: going back can return to another document.
+    pub(crate) fn share_history(self, history: StoredValue<super::back_forward::Navigation>) {
+        let _ = self.history.try_set_value(Some(history));
+    }
+
+    /// The history to share, once.
+    pub(super) fn take_history(self) -> Option<StoredValue<super::back_forward::Navigation>> {
+        self.history.try_update_value(std::mem::take).flatten()
+    }
+
     /// The clipboard to share, once.
     pub(super) fn take_clipboard(self) -> Option<StoredValue<Clipboard>> {
         self.clipboard.try_update_value(std::mem::take).flatten()
@@ -221,7 +238,7 @@ impl EditorHandle {
     }
 
     /// Shows the editor where it is hidden, before it takes the focus.
-    fn show(self) {
+    pub(super) fn show(self) {
         if let Some(show) = self.show.try_get_value().flatten() {
             show.run(());
         }
@@ -562,11 +579,65 @@ impl EditorHandle {
         true
     }
 
+    /// Goes back to where the caret was before the last jump (go to
+    /// definition, a use, a problem, a line, a change, [`reveal`](Self::reveal)),
+    /// as `Alt+←` does: its selection and scroll as they were, moved with
+    /// the edits made since; in `ConfigDocuments`, in the document it was
+    /// in. Returns whether it moved; `false` before the editor mounts.
+    pub fn go_back(&self) -> bool {
+        self.go(super::back_forward::Direction::Back)
+    }
+
+    /// Goes forward again after [`go_back`](Self::go_back), as `Alt+→`
+    /// does. Returns whether it moved.
+    pub fn go_forward(&self) -> bool {
+        self.go(super::back_forward::Direction::Forward)
+    }
+
+    /// Whether [`go_back`](Self::go_back) would move now (for a host's
+    /// button). Not reactive: read it when the button is shown or used.
+    pub fn can_go_back(&self) -> bool {
+        self.can_go(super::back_forward::Direction::Back)
+    }
+
+    /// Whether [`go_forward`](Self::go_forward) would move now.
+    pub fn can_go_forward(&self) -> bool {
+        self.can_go(super::back_forward::Direction::Forward)
+    }
+
+    fn go(&self, direction: super::back_forward::Direction) -> bool {
+        self.editor()
+            .is_some_and(|state| untrack(|| state.go(direction)))
+    }
+
+    fn can_go(&self, direction: super::back_forward::Direction) -> bool {
+        self.editor()
+            .is_some_and(|state| untrack(|| state.can_go(direction)))
+    }
+
+    /// Notes the editor's place as the one the jump about to be made in
+    /// another editor of its documents view leaves.
+    pub(crate) fn note_leaving(self) {
+        if let Some(state) = self.editor() {
+            untrack(|| state.note_leaving());
+        }
+    }
+
+    /// Forgets a place noted with [`note_leaving`](Self::note_leaving)
+    /// when no jump took it.
+    pub(crate) fn forget_leaving(self) {
+        if let Some(state) = self.editor() {
+            state.forget_leaving();
+        }
+    }
+
     /// Focuses the editor, keeping its selection; in `ConfigDocuments`,
     /// selecting its document first.
     pub fn focus(&self) {
         if self.editor().is_some() {
             self.show();
+            // Showing a document is no jump: it leaves no place.
+            self.forget_leaving();
         }
         if let Some(element) = self.editor().and_then(|state| state.textarea()) {
             let _ = element.focus_in_place();

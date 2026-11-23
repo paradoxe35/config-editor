@@ -124,11 +124,12 @@ impl EditorState {
         }
         // What is kept by position follows the change: folds (in
         // `write_text`), typed closers, Tab stops, the current match, the
-        // problems found before it.
+        // places to go back to, the problems found before it.
         let mapping = edit.mapping();
         if changed {
             self.follow_typing_aids(&mapping, switching.is_some());
             self.follow_current_match(&mapping);
+            self.follow_history(&mapping, switching.is_some());
         }
         self.follow_problems(&mapping, &edit.before);
         let version = self.doc().version.get_value();

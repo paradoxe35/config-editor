@@ -2,6 +2,7 @@
 //! returns `true` when it took the key, and [`on_keydown`] stops there; the
 //! order below is the order keys are matched in.
 
+mod back_forward;
 mod chord;
 pub(super) mod complete;
 pub(super) mod enter;
@@ -100,6 +101,7 @@ pub(super) fn on_keydown(state: EditorState, event: &KeyboardEvent) {
         || super::changes::go_to_change(state, event)
         || go_to_definition(state, event)
         || uses::find_uses(state, event)
+        || back_forward::go_back_forward(state, event)
     {
         return;
     }

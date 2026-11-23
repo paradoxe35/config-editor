@@ -83,6 +83,7 @@ fn mount(language: Language, text: &str, host: &Host) -> EditorState {
         on_baseline_conflict: None,
         clipboard: None,
         key_names: Default::default(),
+        history: None,
     })
     .0;
     crate::editor::sync::follow_lists(

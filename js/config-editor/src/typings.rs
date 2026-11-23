@@ -339,6 +339,14 @@ export interface EditorView {
   goToDefinition(): boolean;
   /** Lists the uses of the name at the caret (or of the key defining it), as `Shift+F12` does; `false` when the caret is on no name. */
   findUses(): boolean;
+  /** Goes back to where the caret was before the last jump (go to definition, a use, a problem, a line, a change, `reveal`), as `Alt+←` does: its selection and scroll as they were; `false` when there is nowhere to go back to. */
+  goBack(): boolean;
+  /** Goes forward again after `goBack()`, as `Alt+→` does; `false` when there is nowhere to go. */
+  goForward(): boolean;
+  /** Whether `goBack()` would move now. */
+  canGoBack(): boolean;
+  /** Whether `goForward()` would move now. */
+  canGoForward(): boolean;
   /** Makes the host's own change of the document: `changes` (string indices of the text `options.revision` names, else the host's text now) rebased over what the user typed since; locks, folds and the caret follow it exactly, and Undo does not undo it. The revision of the new text, `undefined` when nothing was sent: no change, or the save is held (the host's change reaches the host with the next `onChange` once the save goes through), or a document's editor is not mounted yet. */
   applyChanges(changes: TextChange[], options?: ApplyChangesOptions): number | undefined;
   /** Saves as `Ctrl+S` does (calls `onSave`); `false` when nothing was sent (no `onSave`, or an `editAs` edit that cannot convert back yet). */

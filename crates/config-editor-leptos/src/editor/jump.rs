@@ -61,8 +61,10 @@ impl EditorState {
         Some(offset)
     }
 
-    /// Jumps to bytes `start..end`: selected, revealed and flashed.
+    /// Jumps to bytes `start..end`: selected, revealed and flashed. The
+    /// place it leaves is noted for going back (see `back_forward`).
     pub(super) fn jump_to_range(&self, start: TextSize, end: TextSize) -> Option<()> {
+        self.note_jump(start, end);
         let element = self.focus_selection(start, end, false)?;
         self.doc()
             .text

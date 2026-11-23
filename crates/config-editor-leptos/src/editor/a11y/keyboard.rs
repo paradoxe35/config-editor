@@ -137,6 +137,11 @@ pub(super) const KEYS: &[Row] = &[
         &[Always],
     ),
     row(
+        "`Alt+←` / `Alt+→` (macOS: `Ctrl+-` / `Ctrl+Shift+-`)",
+        "Go back / forward to where the caret was before a jump (`F12`, a use, `F8`, go to line, a change, a problem link, `reveal`), scrolled as it was; in a `ConfigDocuments` view, in the document it was in. With nowhere to go, the browser keeps the key",
+        &[Always],
+    ),
+    row(
         "`Alt+Enter` on a problem with a docs link",
         "Open its documentation in a new tab (else the hover card's Documentation link)",
         &[Always],
@@ -244,8 +249,10 @@ pub(super) const KEYS: &[Row] = &[
 ];
 
 /// The `Ctrl` chords macOS's `Cmd` does not stand in for (it keeps
-/// `Cmd+Space`; `Cmd+M` minimizes; `Cmd+Shift+Z` is the redo there).
-pub(super) const CONTROL_ONLY: &[&str] = &["Ctrl+Space", "Ctrl+M", "Ctrl+Y"];
+/// `Cmd+Space`; `Cmd+M` minimizes; `Cmd+Shift+Z` is the redo there;
+/// `Cmd+-` zooms out).
+pub(super) const CONTROL_ONLY: &[&str] =
+    &["Ctrl+Space", "Ctrl+M", "Ctrl+Y", "Ctrl+-", "Ctrl+Shift+-"];
 
 /// A key as `aria-keyshortcuts` spells it.
 fn aria_key(key: &str) -> String {
@@ -254,6 +261,8 @@ fn aria_key(key: &str) -> String {
         "Cmd" => "Meta".to_string(),
         "↑" => "ArrowUp".to_string(),
         "↓" => "ArrowDown".to_string(),
+        "←" => "ArrowLeft".to_string(),
+        "→" => "ArrowRight".to_string(),
         other => other.to_string(),
     }
 }

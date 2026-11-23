@@ -229,6 +229,32 @@ impl DocumentsHandle {
             .is_some_and(|editor| editor.find_uses())
     }
 
+    /// Goes back to where the caret was before the last jump, in whichever
+    /// document it was, as `Alt+←` does (see [`EditorHandle::go_back`]).
+    /// Returns whether it moved.
+    pub fn go_back(&self) -> bool {
+        self.active_editor().is_some_and(|editor| editor.go_back())
+    }
+
+    /// Goes forward again after [`go_back`](Self::go_back), as `Alt+→`
+    /// does. Returns whether it moved.
+    pub fn go_forward(&self) -> bool {
+        self.active_editor()
+            .is_some_and(|editor| editor.go_forward())
+    }
+
+    /// Whether [`go_back`](Self::go_back) would move now.
+    pub fn can_go_back(&self) -> bool {
+        self.active_editor()
+            .is_some_and(|editor| editor.can_go_back())
+    }
+
+    /// Whether [`go_forward`](Self::go_forward) would move now.
+    pub fn can_go_forward(&self) -> bool {
+        self.active_editor()
+            .is_some_and(|editor| editor.can_go_forward())
+    }
+
     /// Focuses the active document's editor, keeping its selection.
     pub fn focus(&self) {
         if let Some(documents) = self.view()

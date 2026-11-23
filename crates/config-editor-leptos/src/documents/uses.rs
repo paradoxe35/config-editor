@@ -87,8 +87,11 @@ impl OpenUses for ViewUses {
         let Some(target) = self.documents.entry(id) else {
             return false;
         };
+        self.documents.note_leaving(&self.id);
         self.documents.select(&target.id, Focus::Editor);
         self.documents.mount_waiting();
-        untrack(|| target.handle.reveal(path))
+        let shown = untrack(|| target.handle.reveal(path));
+        self.documents.forget_leaving();
+        shown
     }
 }

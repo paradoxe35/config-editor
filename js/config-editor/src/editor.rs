@@ -877,6 +877,34 @@ impl ConfigEditor {
         handle_calls::find_uses(Some(self.state.handle))
     }
 
+    /// Goes back to where the caret was before the last jump (go to
+    /// definition, a use, a problem, a line, a change, `reveal`), as
+    /// `Alt+←` does: its selection and scroll as they were.
+    /// `false` when there is nowhere to go back to.
+    #[wasm_bindgen(js_name = goBack)]
+    pub fn go_back(&self) -> bool {
+        handle_calls::go_back(Some(self.state.handle))
+    }
+
+    /// Goes forward again after `goBack()`, as `Alt+→` does; `false` when
+    /// there is nowhere to go.
+    #[wasm_bindgen(js_name = goForward)]
+    pub fn go_forward(&self) -> bool {
+        handle_calls::go_forward(Some(self.state.handle))
+    }
+
+    /// Whether `goBack()` would move now.
+    #[wasm_bindgen(js_name = canGoBack)]
+    pub fn can_go_back(&self) -> bool {
+        handle_calls::can_go_back(Some(self.state.handle))
+    }
+
+    /// Whether `goForward()` would move now.
+    #[wasm_bindgen(js_name = canGoForward)]
+    pub fn can_go_forward(&self) -> bool {
+        handle_calls::can_go_forward(Some(self.state.handle))
+    }
+
     /// Saves as `Ctrl+S` does: calls `onSave` with the document in
     /// `language`. `false` when nothing was sent: without `onSave`, after
     /// `destroy`, or while an `editAs` edit cannot convert back (the caret

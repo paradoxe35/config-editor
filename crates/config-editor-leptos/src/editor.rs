@@ -13,6 +13,7 @@ use crate::reactive::{Kept, size_observer, window_listener};
 
 mod a11y;
 mod applies;
+mod back_forward;
 mod bridge;
 mod byte_order_mark;
 mod change_summary;
@@ -54,6 +55,7 @@ mod schema_formats;
 #[cfg(feature = "schema-validation")]
 mod schema_refs;
 mod ui_refs;
+pub(crate) use back_forward::Navigation;
 pub(crate) use bridge::links::Clipboard;
 pub use input::flush_pending_input;
 pub(crate) use line_endings::same_document;
@@ -465,6 +467,7 @@ pub fn ConfigEditor(
         on_save,
         on_baseline_conflict,
         clipboard: handle.and_then(EditorHandle::take_clipboard),
+        history: handle.and_then(EditorHandle::take_history),
         key_names: handle
             .and_then(EditorHandle::take_key_names)
             .unwrap_or_else(|| key_names::KeyNamesInput {

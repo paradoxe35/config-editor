@@ -24,6 +24,7 @@
 //! | `a11y()`       | `A11yState`         | `a11y`          |
 //! | `edit_as()`    | `EditAsState`       | `edit_as`       |
 //! | `uses()`       | `UsesState`         | `key_names`     |
+//! | `back_forward()` | `BackForward`     | `back_forward`  |
 
 use super::line_endings::{LineEndings, editor_text};
 use std::sync::Arc;
@@ -112,6 +113,9 @@ pub(super) struct Init {
     pub(super) clipboard: Option<StoredValue<Clipboard>>,
     /// The names of `x-config-editor-keys` fields beyond the document's.
     pub(super) key_names: super::key_names::KeyNamesInput,
+    /// The go back / go forward history the editor shares with others (a
+    /// documents view's editors), else its own.
+    pub(super) history: Option<StoredValue<super::back_forward::Navigation>>,
 }
 
 /// The editor's state, shared by every handler: one handle to its
@@ -206,6 +210,8 @@ groups! {
     uses: super::key_names::UsesState,
     /// The last jump's flash (see `jump`).
     jump: super::jump::JumpState,
+    /// The places to go back and forward to (see `back_forward`).
+    back_forward: super::back_forward::BackForward,
 }
 
 /// A group read after the editor unmounted: a hole in `reactive::later`.
@@ -240,6 +246,7 @@ impl EditorState {
             on_baseline_conflict,
             clipboard,
             key_names,
+            history,
         } = init;
         let settings = LiveSettings::new(settings, schema.is_some());
         let config = Config {
@@ -368,6 +375,7 @@ impl EditorState {
             a11y: A11yState::new(),
             uses: super::key_names::UsesState::new(),
             jump: super::jump::JumpState::new(),
+            back_forward: super::back_forward::BackForward::new(history),
             edit_as,
             config,
             doc,
@@ -382,6 +390,7 @@ impl EditorState {
             fold,
             protect,
         }));
+        state.join_history(None);
         (state, pending)
     }
 
