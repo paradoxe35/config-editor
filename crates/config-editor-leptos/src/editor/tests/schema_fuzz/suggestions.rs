@@ -8,7 +8,7 @@
 use crate::editor::language::pointer_key;
 use std::collections::{BTreeSet, HashSet};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::documents::{Shape, document};
 use super::list_search::{Search, unmet};
@@ -259,4 +259,94 @@ fn accepted_suggestions_add_no_problem_and_hovers_name_types_once() {
         draw,
         check,
     });
+}
+
+/// One more item of a list written by repeating its key (an XML element,
+/// an HCL block) never moves the items written to other places: a list
+/// whose items have places (`prefixItems`, a tuple `items`, given by the
+/// property, another schema at the key or a `$ref`) takes it after its
+/// items where the caret follows them, and is not offered before them.
+#[test]
+fn another_item_never_moves_the_items_written() {
+    let scalars = json!({"a": ["x"]});
+    let objects = json!({"a": [{"n": "x"}]});
+    let cases = [
+        (
+            json!({"properties": {"a": {"type": "array"}},
+                "allOf": [{"properties": {"a": {"items": {"const": 0}, "prefixItems": [{}]}}}]}),
+            &scalars,
+        ),
+        (
+            json!({"properties": {"a": {"type": "array",
+                "prefixItems": [{"type": "string"}], "items": {"type": "integer"}}}}),
+            &scalars,
+        ),
+        (
+            json!({"$schema": "http://json-schema.org/draft-07/schema#",
+                "properties": {"a": {"type": "array",
+                "items": [{"type": "string"}], "additionalItems": {"type": "integer"}}}}),
+            &scalars,
+        ),
+        (
+            json!({"$defs": {"l": {"type": "array",
+                "prefixItems": [{"type": "string"}], "items": {"type": "integer"}}},
+                "properties": {"a": {"$ref": "#/$defs/l"}}}),
+            &scalars,
+        ),
+        (
+            json!({"properties": {"a": {"type": "array",
+                "prefixItems": [{"type": "object", "properties": {"n": {"type": "string"}}}],
+                "items": {"type": "object", "properties": {"n": {"type": "integer"}}}}}}),
+            &objects,
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (schema, doc) in &cases {
+        let both = compile(schema).expect("the schema compiles");
+        for &language in Language::ALL {
+            let Some(text) = both.written(language, doc) else {
+                continue;
+            };
+            let Some(read) = both.read(language, &text) else {
+                continue;
+            };
+            let written = match read.get("a") {
+                Some(Value::Array(items)) => items.clone(),
+                Some(lone) => vec![lone.clone()],
+                None => continue,
+            };
+            let xml = language.label() == "XML";
+            let opener = if xml { "<" } else { "" };
+            let before = with_entry(language, &text, None);
+            let after = (format!("{text}{opener}"), text.len() + opener.len());
+            for (place, (typed, caret)) in [("before", before), ("after", after)] {
+                let caret = typed[..caret].encode_utf16().count();
+                let offered = both.editor.suggestions(language, &typed, caret);
+                let Some(another) = offered
+                    .iter()
+                    .find(|offered| !offered.is_value() && offered.label() == "a")
+                else {
+                    if place == "after" && xml {
+                        failures.push(format!(
+                            "{language} {schema}: `a` not offered after\n{text}"
+                        ));
+                    }
+                    continue;
+                };
+                let (accepted, _) = another.accept(&typed);
+                let items = both
+                    .read(language, &accepted)
+                    .and_then(|after| match after.get("a") {
+                        Some(Value::Array(items)) => Some(items.clone()),
+                        _ => None,
+                    });
+                if items.is_none_or(|items| !items.starts_with(&written)) {
+                    failures.push(format!(
+                        "{language} {schema}: accepting `a` {place} the items in\n{typed}gives\n{accepted}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }

@@ -171,11 +171,10 @@ fn forbidden_keys<'a>(certain: &[&'a Value]) -> HashSet<&'a str> {
 }
 
 /// Whether a list key written by repeating its element (`property` its
-/// schema, `written` what the object holds for it) takes one more: not
-/// one whose items have places (the new item, at the caret, would move
-/// the others to places that type them otherwise), nor one at its
-/// `maxItems`, nor one whose lone value written is not taken as a list's
-/// item (list keywords with no `type` take it as itself), nor one the
+/// schema, `written` what the object holds for it) takes one more (where
+/// it may go is [`keeps_places`]'s): not one at its `maxItems`, nor one
+/// whose lone value written is not taken as a list's item (list keywords
+/// with no `type` take it as itself), nor one the
 /// item the insert writes (its default or const) makes refused (a
 /// `uniqueItems` it repeats).
 fn repeats_as_elements(
@@ -187,9 +186,6 @@ fn repeats_as_elements(
     let Some(array) = array_branch(property, root) else {
         return false;
     };
-    if array.get("prefixItems").is_some() || array.get("items").is_some_and(Value::is_array) {
-        return false;
-    }
     let Some(written) = written else {
         return true;
     };
@@ -218,6 +214,26 @@ fn repeats_as_elements(
     most.is_none_or(|most| (items.len() as u64) < most)
         && takes_next
         && (written.is_array() || decides(property, &Value::Array(items), root) != Some(false))
+}
+
+/// Whether one more item of a list written by repeating its key, written
+/// at the caret, leaves each of the list's `count` items at its index:
+/// the schemas at the key (`at_key`, every one: the property's, an
+/// `allOf` member's, a reference's) give its items no places
+/// (`prefixItems`, a tuple `items`), or `before` (how many of its items
+/// precede the caret, `None` where that cannot be told) is all of them.
+/// An item written in front of others would move them to places that
+/// type them otherwise.
+fn keeps_places(at_key: &Here<'_>, count: usize, before: impl FnOnce() -> Option<usize>) -> bool {
+    let places = at_key.branches().iter().any(|branch| {
+        branch.get("prefixItems").is_some() || branch.get("items").is_some_and(Value::is_array)
+    });
+    !places || before().is_some_and(|before| before >= count)
+}
+
+/// How many items a value written for a key holds: a list's, or one.
+fn items_held(value: Option<&Value>) -> usize {
+    value.map_or(0, |value| value.as_array().map_or(1, Vec::len))
 }
 
 /// Of `fills` (the values a block writes for required children), those
@@ -349,6 +365,7 @@ pub(super) fn property_completions<'s>(
     behavior: &dyn ConfigLanguage,
     written: Option<&Value>,
     read_rewritable: &dyn Fn() -> HashSet<String>,
+    items_before: &dyn Fn(&str) -> Option<usize>,
     names: &ValueNames<'_>,
 ) -> Vec<Completion> {
     let rewritable = std::cell::OnceCell::new();
@@ -437,13 +454,17 @@ pub(super) fn property_completions<'s>(
         // once it is written so (not as one whole list).
         let present = existing.is_some_and(|existing| existing.contains(key))
             && (repetition != Repetition::None || !rewritable_keys().contains(key));
-        let repeatable = match repetition {
-            Repetition::Elements => repeats_as_elements(
-                property,
-                written.and_then(|written| written.get(key)),
+        let held = written.and_then(|written| written.get(key));
+        let count = items_held(held);
+        let at_list = || {
+            Here::walk(
+                here.child(&SchemaPathSegment::Key(key.clone())),
                 root,
-                behavior,
-            ),
+                Seen::default(),
+            )
+        };
+        let repeatable = match repetition {
+            Repetition::Elements => repeats_as_elements(property, held, root, behavior),
             Repetition::Blocks => {
                 insert_context.position == EntryPosition::Block
                     && array_branch(property, root)
@@ -453,7 +474,17 @@ pub(super) fn property_completions<'s>(
             }
             _ => false,
         };
-        if !repeatable && present || forbidden.contains(key.as_str()) || full && !present {
+        // One more item of a key written already (another XML element, HCL
+        // block or TOML `[[array]]` table) goes where its items let it.
+        let moves_items = || {
+            existing.is_some_and(|existing| existing.contains(key))
+                && !keeps_places(&at_list(), count, || items_before(key))
+        };
+        if !repeatable && present
+            || forbidden.contains(key.as_str())
+            || full && !present
+            || moves_items()
+        {
             continue;
         }
         // A key a `not` keeps apart from keys written (`git` beside
@@ -475,10 +506,17 @@ pub(super) fn property_completions<'s>(
         };
         // Another item of a list written by repeating its key (an XML
         // element, an HCL block) is one item: written as its items'
-        // schema says.
+        // schema at its index, after the items written ([`keeps_places`]):
+        // the property's, or another schema's at the key.
         let written_schema = if another.another_item {
             array_branch(property, root)
-                .and_then(|array| item_schema(array, 1))
+                .and_then(|array| item_schema(array, count))
+                .or_else(|| {
+                    at_list()
+                        .branches()
+                        .into_iter()
+                        .find_map(|branch| item_schema(branch, count))
+                })
                 .unwrap_or(property)
         } else {
             property
@@ -1130,6 +1168,7 @@ pub(super) fn completions_for_context(
 ) -> Vec<Completion> {
     let around = Around {
         read: std::cell::OnceCell::new(),
+        before: std::cell::OnceCell::new(),
         source,
         cursor_byte,
         placed,
@@ -1156,6 +1195,8 @@ pub(super) fn completions_for_context(
 /// asks for it.
 struct Around<'s> {
     read: std::cell::OnceCell<Option<Value>>,
+    /// The document the text before the caret's line holds.
+    before: std::cell::OnceCell<Option<Value>>,
     source: &'s str,
     cursor_byte: usize,
     /// The places the run's context names, as bytes.
@@ -1178,6 +1219,17 @@ impl Around<'_> {
     fn keys_at(&self, path: &[SchemaPathSegment]) -> Option<HashSet<String>> {
         let object = super::super::applies::value_at(self.document()?, path)?.as_object()?;
         Some(object.keys().cloned().collect())
+    }
+
+    /// How many items the text before the caret's line writes for `key`
+    /// of the object at `path`; `None` where that text does not tell.
+    fn items_before(&self, path: &[SchemaPathSegment], key: &str) -> Option<usize> {
+        let before = self
+            .before
+            .get_or_init(|| document_before(self.source, self.cursor_byte, self.behavior))
+            .as_ref()?;
+        let object = super::super::applies::value_at(before, path)?.as_object()?;
+        Some(items_held(object.get(key)))
     }
 }
 
@@ -1363,6 +1415,7 @@ fn completions_around(
         behavior,
         applies.value_at(&context.path),
         &|| behavior.rewritable_keys(source, cursor_byte, &context.path),
+        &|key| around.items_before(&context.path, key),
         &names(HashSet::new()),
     );
     // A key typed directly in an array starts a new object item, which needs

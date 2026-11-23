@@ -58,6 +58,23 @@ pub(crate) fn document_around(
     }
 }
 
+/// The document the text of `source` before the caret's line holds, each
+/// container it leaves open closed: what precedes the entry typed.
+pub(crate) fn document_before(
+    source: &str,
+    cursor_byte: usize,
+    behavior: &dyn ConfigLanguage,
+) -> Option<Value> {
+    let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
+    let place = Place {
+        source,
+        cursor_byte,
+        behavior,
+        path: std::cell::OnceCell::new(),
+    };
+    start_closed(&source[..line_start], &place)
+}
+
 /// `source` without the word typed before the caret (back to a blank, a
 /// bracket or a separator of the language), when what follows the caret
 /// on its line is more text after a blank, or the word is empty and text

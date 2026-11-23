@@ -34,7 +34,7 @@ mod typed_entry;
 mod window;
 
 pub(crate) use accept::*;
-pub(crate) use around::document_around;
+pub(crate) use around::{document_around, document_before};
 pub(crate) use candidates::*;
 pub(crate) use docs::*;
 pub(crate) use excluded::excluded_by_not;

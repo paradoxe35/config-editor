@@ -5,6 +5,19 @@ All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
+## Unreleased
+
+### Fixed
+
+- Accepting a suggested key that adds one more item to a list written by
+  repeating it (an XML element, an HCL block, a TOML `[[array]]` table) no
+  longer moves the items already written when the list's items have places
+  (`prefixItems`, a tuple `items`, also when an `allOf` member or a `$ref`
+  gives them): it is offered after those items, where it is written at the
+  end of the list, and not in front of them. A suggested XML element
+  written above `<a>x</a>` used to push `x` to the next index, where the
+  schema refused it.
+
 ## 0.2.3 — 2026-11-23
 
 ### Schema formats

@@ -1579,3 +1579,16 @@ fn a_host_item_moved_to_another_index_saves_as_the_view_reads_it_whatever_types_
         }
     }
 }
+
+/// One more element of a list whose items have places (a `prefixItems`
+/// another schema at the key gives) never moves the items written.
+#[test]
+fn another_element_of_a_list_with_item_places_keeps_the_items_in_place() {
+    holds_everywhere(
+        super::suggestions::check,
+        json!({"properties": {"a": {"type": "array"}},
+            "allOf": [{"properties": {"a": {"items": {"const": 0}, "prefixItems": [{}]}}}]}),
+        json!({"a": "x"}),
+        json!({"a": []}),
+    );
+}
