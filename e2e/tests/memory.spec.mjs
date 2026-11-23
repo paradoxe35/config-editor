@@ -462,6 +462,7 @@ const SOAK_HEAD = [
   'clients:',
   '  acme:',
   '    secret: «secret 3f2a»',
+  'default_client: acme',
 ];
 const soakDocument = () =>
   [
@@ -493,6 +494,37 @@ async function goToLine(browserPage, line) {
 }
 
 const input = (browserPage) => browserPage.locator('.config-editor__input');
+
+/** Puts the caret `into` characters into the first `text` of the editor. */
+const caretIn = (browserPage, text, into = 1) =>
+  input(browserPage).evaluate(
+    (element, [text, into]) => {
+      const at = element.value.indexOf(text) + into;
+      element.setSelectionRange(at, at);
+    },
+    [text, into],
+  );
+
+/** The caret's line (one-based) and the selected text. */
+const caret = (browserPage) =>
+  input(browserPage).evaluate((element) => ({
+    line: element.value.slice(0, element.selectionStart).split('\n').length,
+    selected: element.value.slice(element.selectionStart, element.selectionEnd),
+  }));
+
+/** Undoes the `steps` a surface made: the document is as it started, and
+ * one more undo changes nothing (the history is as it was too: steps left
+ * behind would pile up over the cycles, and a later step can bring the
+ * text back before them, as a line moved down and up again does). */
+async function undoBack(browserPage, steps) {
+  await input(browserPage).focus();
+  for (let undo = 0; undo < steps; undo += 1) await browserPage.keyboard.press('Control+z');
+  const started = () => browserPage.evaluate(() => window.editor.value === window.soakDocument);
+  await expect.poll(started).toBe(true);
+  await browserPage.keyboard.press('Control+z');
+  await settle(browserPage);
+  expect(await started()).toBe(true);
+}
 /** The pointer onto empty text area (right of the short first line). */
 async function away(browserPage) {
   const box = await input(browserPage).boundingBox();
@@ -623,17 +655,226 @@ const surfaces = {
     await p.evaluate(() => window.editor.update({ hostDiagnostics: [] }));
     await expect(p.locator('.config-editor__diagnostic-marker-host')).toHaveCount(0);
   },
+  async keyNames(p) {
+    // F12 on a use goes to the client's key, selected.
+    await caretIn(p, 'default_client: acme', 18);
+    await p.keyboard.press('F12');
+    await expect.poll(() => caret(p)).toEqual({ line: 6, selected: 'acme' });
+    // Shift+F12 on the key lists its use; the keyboard moves and goes.
+    await p.keyboard.press('Shift+F12');
+    await expect(p.locator('.config-editor__uses [role="option"]')).toHaveCount(1);
+    await p.keyboard.press('ArrowDown');
+    await p.keyboard.press('Enter');
+    await expect(p.locator('.config-editor__uses')).toHaveCount(0);
+    await expect.poll(() => caret(p)).toEqual({ line: 8, selected: 'acme' });
+    await p.keyboard.press('Shift+F12');
+    await expect(p.locator('.config-editor__uses [role="option"]')).toHaveCount(1);
+    await p.keyboard.press('Escape');
+    await expect(p.locator('.config-editor__uses')).toHaveCount(0);
+    // The hover card's links: Uses, then Definition.
+    const actions = p.locator('.config-editor__hover-action');
+    await hoverAt(p, 8, 'acme');
+    await expect(actions).toHaveText(['Definition', 'Uses']);
+    await actions.nth(1).click();
+    await expect(p.locator('.config-editor__uses [role="option"]')).toHaveCount(1);
+    await p.keyboard.press('Escape');
+    await away(p);
+    await expect(p.locator('.config-editor__hover')).toHaveCount(0);
+    await hoverAt(p, 8, 'acme');
+    await expect(actions).toHaveText(['Definition', 'Uses']);
+    await actions.nth(0).click();
+    await expect.poll(() => caret(p)).toEqual({ line: 6, selected: 'acme' });
+    await away(p);
+    await expect(p.locator('.config-editor__hover')).toHaveCount(0);
+    await input(p).focus();
+    await goToLine(p, 1);
+  },
+  async backForward(p) {
+    await goToLine(p, 1);
+    await goToLine(p, 120);
+    await p.keyboard.press('Alt+ArrowLeft');
+    await expect.poll(async () => (await caret(p)).line).toBe(1);
+    await p.keyboard.press('Alt+ArrowRight');
+    await expect.poll(async () => (await caret(p)).line).toBe(120);
+    expect(await p.evaluate(() => window.editor.goBack())).toBe(true);
+    await expect.poll(async () => (await caret(p)).line).toBe(1);
+    expect(await p.evaluate(() => window.editor.goForward())).toBe(true);
+    await expect.poll(async () => (await caret(p)).line).toBe(120);
+    await goToLine(p, 1);
+  },
+  async caretNotices(p) {
+    const notice = p.locator('.config-editor__caret-notice');
+    await caretIn(p, 'listen', 2);
+    await p.keyboard.press('F12');
+    await expect(notice).toHaveText("No definition for 'listen'");
+    await p.keyboard.press('Shift+F12');
+    await expect(notice).toHaveText("No uses of 'listen'");
+    // Ctrl+Space where nothing fits.
+    await p.keyboard.press('Control+End');
+    await p.keyboard.type('bindzzq');
+    await p.keyboard.press('Escape');
+    await p.keyboard.press('Control+Space');
+    await expect(notice).toHaveText('No suggestions');
+    await expect(p.locator('.config-editor__completion')).toHaveCount(0);
+    await undoBack(p, 1);
+    await goToLine(p, 1);
+  },
+  async lockTip(p) {
+    // The pointer resting on a locked value shows why it is locked.
+    await goToLine(p, 1);
+    await hoverAt(p, 3, 'tunnel.example.com');
+    await expect(p.locator('.config-editor__protect-tip')).toBeVisible();
+    await away(p);
+    await expect(p.locator('.config-editor__protect-tip')).toHaveCount(0, { timeout: 5000 });
+  },
+  async editAs(p) {
+    await p.evaluate(() => window.editor.update({ editAs: 'json' }));
+    await expect.poll(() => p.evaluate(() => window.editor.text.startsWith('{'))).toBe(true);
+    await input(p).focus();
+    await p.keyboard.press('Control+s');
+    await expect.poll(() => p.evaluate(() => window.saved.length)).toBeGreaterThan(0);
+    await p.evaluate(() => window.editor.update({ editAs: 'yaml' }));
+    await expect.poll(() => p.evaluate(() => window.editor.text === window.soakDocument)).toBe(true);
+    // A switch is an undo step: both are undone, leaving the history as it
+    // was (what is undone goes with the next edit).
+    await input(p).focus();
+    await p.keyboard.press('Control+z');
+    await expect.poll(() => p.evaluate(() => window.editor.text.startsWith('{'))).toBe(true);
+    await p.keyboard.press('Control+z');
+    await expect.poll(() => p.evaluate(() => window.editor.text === window.soakDocument)).toBe(true);
+    await p.evaluate(() => (window.saved.length = 0));
+    await goToLine(p, 1);
+  },
+  async hostChanges(p) {
+    const swap = (from, to) =>
+      p.evaluate(
+        ([from, to]) => {
+          const at = window.editor.text.indexOf(from);
+          const revision = window.editor.applyChanges([{ from: at, to: at + from.length, insert: to }]);
+          return revision ?? null;
+        },
+        [from, to],
+      );
+    // A plain value, a locked one and a secret placeholder, changed and back.
+    for (const [from, to] of [
+      ['7835', '8080'],
+      ['tunnel.example.com', 'edge.example.com'],
+      ['«secret 3f2a»', '«secret 4b1c»'],
+    ]) {
+      expect(await swap(from, to)).toEqual(expect.any(Number));
+      expect(await swap(to, from)).toEqual(expect.any(Number));
+    }
+    // A new whole value over them, and the old one back.
+    await p.evaluate(() =>
+      window.editor.update({
+        value: window.soakDocument.replace('tunnel.example.com', 'edge.example.com').replace('3f2a', '4b1c'),
+      }),
+    );
+    await expect.poll(() => p.evaluate(() => window.editor.text.includes('edge.example.com'))).toBe(true);
+    await p.evaluate(() => window.editor.update({ value: window.soakDocument }));
+    await expect.poll(() => p.evaluate(() => window.editor.text === window.soakDocument)).toBe(true);
+    // While the save is held (the locked field written twice), a host
+    // change waits for it.
+    await goToLine(p, 3);
+    await p.keyboard.press('Shift+Alt+ArrowDown');
+    await expect.poll(() => p.evaluate(() => window.editor.text.split('public_address').length)).toBe(3);
+    expect(await swap('# soak', '# soaked')).toBeNull();
+    await p.keyboard.press('Control+z');
+    await expect.poll(() => p.evaluate(() => window.editor.value.startsWith('# soaked\n'))).toBe(true);
+    expect(await swap('# soaked', '# soak')).toEqual(expect.any(Number));
+    await expect.poll(() => p.evaluate(() => window.editor.value === window.soakDocument)).toBe(true);
+    await goToLine(p, 1);
+  },
+  async changes(p) {
+    await goToLine(p, 2);
+    await p.keyboard.press('End');
+    await p.keyboard.type('9');
+    await p.keyboard.press('Control+Home');
+    await p.keyboard.press('Alt+F5');
+    await expect.poll(async () => (await caret(p)).line).toBe(2);
+    await p.keyboard.press('Shift+Alt+F5');
+    await p.keyboard.press('Control+Home');
+    // The preview from the keyboard, then from the gutter marker.
+    const peek = p.locator('.config-editor__diff-peek');
+    await p.keyboard.press('Alt+F3');
+    await expect(peek).toHaveCount(1);
+    await p.keyboard.press('Escape');
+    await expect(peek).toHaveCount(0);
+    await p.locator('.config-editor__diff-marker-modified').click();
+    await expect(peek).toHaveCount(1);
+    await p.keyboard.press('Escape');
+    await expect(peek).toHaveCount(0);
+    await undoBack(p, 1);
+    await goToLine(p, 1);
+  },
+  async replace(p) {
+    await goToLine(p, 1);
+    await p.keyboard.press('Control+h');
+    await p.keyboard.type('key1');
+    await expect(p.locator('.config-editor__search-match').first()).toBeAttached();
+    const field = p.locator('.config-editor__replace-input');
+    await field.fill('kei1');
+    await field.press('Enter');
+    await field.press('Control+Alt+Enter');
+    await expect.poll(() => p.evaluate(() => window.editor.text.includes('key1'))).toBe(false);
+    await p.keyboard.press('Escape');
+    await expect(p.locator('.config-editor__find')).toBeHidden();
+    await undoBack(p, 2);
+    await goToLine(p, 1);
+  },
+  async lineCommands(p) {
+    await goToLine(p, 12);
+    await p.keyboard.press('Alt+ArrowDown');
+    await p.keyboard.press('Alt+ArrowUp');
+    await p.keyboard.press('Shift+Alt+ArrowDown');
+    await p.keyboard.press('Control+Shift+k');
+    await p.keyboard.press('Control+Shift+k');
+    // Its copy and the line below it deleted.
+    await expect.poll(() => p.evaluate(() => window.editor.text.includes('\nkey3: 3\n'))).toBe(false);
+    await undoBack(p, 5);
+    await goToLine(p, 1);
+  },
+  async dragMove(p) {
+    // Line 12 (`key2: 2`) dragged below line 15.
+    await goToLine(p, 12);
+    await p.keyboard.press('Shift+ArrowDown');
+    const from = await tokenAt(p, 12, 'key2');
+    const to = await tokenAt(p, 16, 'key6');
+    await p.mouse.move(from.x, from.y);
+    await p.mouse.down();
+    await p.mouse.move(from.x + 4, from.y, { steps: 3 });
+    await p.mouse.move(to.x, to.y, { steps: 12 });
+    await p.mouse.up();
+    // The drop lands at the end of the task.
+    await p.waitForTimeout(300);
+    await expect.poll(() => p.evaluate(() => window.editor.text === window.soakDocument)).toBe(false);
+    await undoBack(p, 1);
+    await away(p);
+    await goToLine(p, 1);
+  },
 };
+
+/** The sample schema, with an `$id` and a field naming a client
+ * (`default_client`), as `window.soakSchema`. */
+const installSoakSchema = (browserPage) =>
+  browserPage.evaluate(async () => {
+    const schema = await (await fetch('../../schema.json')).json();
+    schema.$id = 'https://example.com/soak';
+    schema.properties.default_client = { type: 'string', 'x-config-editor-keys': '/clients' };
+    window.soakSchema = JSON.stringify(schema);
+  });
 
 async function soakEditor(browserPage) {
   const errors = await open(browserPage, 'vanilla.html');
+  await installSoakSchema(browserPage);
   await browserPage.evaluate(async (value) => {
     const { ConfigEditor } = await import('../config-editor/pkg/config_editor.js');
-    const schema = await (await fetch('../../schema.json')).text();
     window.soakDocument = value;
+    window.saved = [];
     window.editor = new ConfigEditor(document.getElementById('editor'), {
       value,
-      schema,
+      schema: window.soakSchema,
+      onSave: (text) => window.saved.push(text),
       settings: { showToolbar: true, showFooter: true },
       readOnlyPaths: ['/public_address'],
       secrets: { hint: 'Keeps the stored secret' },
@@ -714,8 +955,20 @@ test.describe('memory soak', () => {
   test('documents switched, closed and reopened keep memory flat', async ({ page: browserPage }) => {
     test.setTimeout(300_000);
     const errors = await open(browserPage, 'documents.html');
+    await installSoakSchema(browserPage);
+    // `a` names a client only `b` defines.
     await browserPage.evaluate((value) => {
-      window.files = ['a', 'b', 'c'].map((id) => ({ id, fileName: `${id}.yaml`, value }));
+      const values = {
+        a: value.replace('default_client: acme', 'default_client: bravo'),
+        b: value.replace('  acme:', '  bravo:'),
+        c: value,
+      };
+      window.files = ['a', 'b', 'c'].map((id) => ({
+        id,
+        fileName: `${id}.yaml`,
+        value: values[id],
+        schema: window.soakSchema,
+      }));
       window.documentsView.update({ documents: window.files });
     }, soakDocument());
     const tab = (id) => browserPage.locator(`.config-editor-documents__tab[data-document-id="${id}"]`);
@@ -737,6 +990,28 @@ test.describe('memory soak', () => {
       await tab('c').click();
       await expect(shownInput).toBeVisible();
       await tab('a').click();
+      // Go to definition into `b`, its uses back into `a`, and back and
+      // forward across them.
+      await expect(tab('a')).toHaveAttribute('aria-selected', 'true');
+      await shownInput.evaluate((element) => {
+        const at = element.value.indexOf('default_client: bravo') + 18;
+        element.focus();
+        element.setSelectionRange(at, at);
+      });
+      await browserPage.keyboard.press('F12');
+      await expect(tab('b')).toHaveAttribute('aria-selected', 'true');
+      const selected = () =>
+        shownInput.evaluate((element) => element.value.slice(element.selectionStart, element.selectionEnd));
+      await expect.poll(selected).toBe('bravo');
+      await browserPage.keyboard.press('Shift+F12');
+      const uses = browserPage.locator('.config-editor__uses [role="option"]');
+      await expect(uses).toHaveCount(1);
+      await browserPage.keyboard.press('Enter');
+      await expect(tab('a')).toHaveAttribute('aria-selected', 'true');
+      await browserPage.keyboard.press('Alt+ArrowLeft');
+      await expect(tab('b')).toHaveAttribute('aria-selected', 'true');
+      await browserPage.keyboard.press('Alt+ArrowRight');
+      await expect(tab('a')).toHaveAttribute('aria-selected', 'true');
     };
     if (process.env.MEMORY_SOAK_REPORT) await report(browserPage, 'documents', cycle);
     // Each editor's DOM ids carry its number, one more per reopened
