@@ -71,6 +71,8 @@ fn said(state: EditorState) -> String {
         .with_untracked(|list| uses_said(list.as_ref().expect("a list"), default_strings()))
 }
 
+// Secrets are the `protect` feature's: without it nothing is marked secret.
+#[cfg(feature = "protect")]
 #[test]
 fn a_use_beside_a_secret_never_shows_it() {
     let cases = [
