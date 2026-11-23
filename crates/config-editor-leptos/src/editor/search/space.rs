@@ -74,3 +74,24 @@ fn padding_top(element: &web_sys::Element) -> i32 {
     let pixels = pixels.round() as i32;
     pixels
 }
+
+impl EditorState {
+    /// How far down the open find widget covers the text's top, in pixels
+    /// (none when it is closed; tracked, so a popup placed below it moves
+    /// when it opens, closes or changes size).
+    #[cfg_attr(
+        not(feature = "diff"),
+        expect(dead_code, reason = "only the change preview reads it")
+    )]
+    pub(in crate::editor) fn find_cover(&self) -> f64 {
+        let search = self.search();
+        if search.open.get() {
+            search
+                .widget_ref
+                .get()
+                .map_or(0.0, |widget| f64::from(widget.offset_height()))
+        } else {
+            0.0
+        }
+    }
+}

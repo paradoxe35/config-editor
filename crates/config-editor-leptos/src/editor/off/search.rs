@@ -45,3 +45,14 @@ impl EditorState {
         Vec::new()
     }
 }
+
+impl EditorState {
+    /// No find widget covers the text.
+    #[cfg_attr(
+        not(feature = "diff"),
+        expect(dead_code, reason = "only the change preview reads it")
+    )]
+    pub(in crate::editor) fn find_cover(&self) -> f64 {
+        0.0
+    }
+}

@@ -62,15 +62,7 @@ fn peek_style(state: EditorState) -> Declarations {
                 .with(|projection| projection.row_of_line(line.saturating_sub(1)));
             // The open find widget covers the text's top: as tall as the
             // room above the first line it keeps (its size re-lays it out).
-            let search = state.search();
-            let top_cover = if search.open.get() {
-                search
-                    .widget_ref
-                    .get()
-                    .map_or(0.0, |widget| f64::from(widget.offset_height()))
-            } else {
-                0.0
-            };
+            let top_cover = state.find_cover();
             peek_popup_style(
                 &PopupFrame::measure(state),
                 &editor,
