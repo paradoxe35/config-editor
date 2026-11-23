@@ -142,6 +142,10 @@ pub(in crate::editor) struct PeekViewport {
     pub(in crate::editor) editor_bottom: f64,
     pub(in crate::editor) editor_left: f64,
     pub(in crate::editor) editor_scroll_top: f64,
+    /// How much of the text area's top the open find widget covers (0
+    /// while it is closed): the peek is placed below that band, never
+    /// over the widget, whose room above the first line it would take.
+    pub(in crate::editor) top_cover: f64,
     pub(in crate::editor) root_top: f64,
     /// Bottom of the editor's root: a peek above its line is placed from
     /// here (`bottom`), so it grows upward to fit its content.
@@ -198,12 +202,16 @@ pub(in crate::editor) fn peek_geometry(
         + line.saturating_sub(1) as f64 * metrics.line_height
         - viewport.editor_scroll_top;
     // The visible part of the text area bounds the peek.
-    let area_top = viewport.editor_top.max(0.0) + margin;
+    let visible_top = viewport.editor_top.max(0.0) + margin;
     let area_bottom = viewport.editor_bottom.min(viewport.viewport_height) - margin;
     // Its line scrolled out of view: hide it rather than pin it to an edge.
-    if anchor_y + metrics.line_height < area_top - margin || anchor_y > area_bottom + margin {
+    if anchor_y + metrics.line_height < visible_top - margin || anchor_y > area_bottom + margin {
         return Declarations::new().set("visibility", "hidden");
     }
+    // Below the find widget's band, as long as a header still fits there.
+    let area_top = ((viewport.editor_top + viewport.top_cover).max(0.0) + margin)
+        .min(area_bottom - PEEK_HEADER_HEIGHT)
+        .max(visible_top);
     // Inside the editor (and the window): from the text's left when it
     // fits there, else moved left (over the gutter) to keep its width.
     let right = viewport.root_right.min(viewport.viewport_width - margin);
@@ -257,6 +265,7 @@ pub(in crate::editor) fn peek_popup_style(
     frame: &PopupFrame,
     editor: &web_sys::HtmlTextAreaElement,
     root: &web_sys::HtmlDivElement,
+    top_cover: f64,
     line: usize,
     old_line_count: usize,
     new_line_count: usize,
@@ -273,6 +282,7 @@ pub(in crate::editor) fn peek_popup_style(
             editor_bottom: editor_rect.bottom,
             editor_left: editor_rect.left,
             editor_scroll_top: editor.scroll_top() as f64,
+            top_cover,
             root_top: root_rect.top,
             root_bottom: root_rect.bottom,
             root_left: root_rect.left,
@@ -578,6 +588,7 @@ mod tests {
             editor_bottom: 600.0,
             editor_left: 50.0,
             editor_scroll_top: 0.0,
+            top_cover: 0.0,
             root_top: 80.0,
             root_bottom: 640.0,
             root_left: 40.0,
@@ -730,6 +741,7 @@ mod tests {
             editor_bottom: 610.0,
             editor_left: 0.0,
             editor_scroll_top: 0.0,
+            top_cover: 0.0,
             root_top: 0.0,
             root_bottom: 700.0,
             root_left: 0.0,
@@ -752,6 +764,7 @@ mod tests {
             editor_bottom: 110.0,
             editor_left: 30.0,
             editor_scroll_top: 0.0,
+            top_cover: 0.0,
             root_top: 0.0,
             root_bottom: 150.0,
             root_left: 0.0,
@@ -771,6 +784,48 @@ mod tests {
         }
     }
 
+    /// With find open on a 320 px phone, the preview of a line just below
+    /// the widget went above its line (the roomier side), over the widget,
+    /// whose buttons then took no pointer. It stays below the band the
+    /// widget covers, whichever line it hangs from.
+    #[test]
+    fn peek_geometry_stays_below_the_open_find_widget() {
+        let viewport = PeekViewport {
+            viewport_width: 320.0,
+            viewport_height: 700.0,
+            editor_top: 104.0,
+            editor_bottom: 340.0,
+            editor_left: 51.0,
+            editor_scroll_top: 0.0,
+            top_cover: 121.0,
+            root_top: 100.0,
+            root_bottom: 370.0,
+            root_left: 0.0,
+            root_right: 320.0,
+        };
+        let metrics = EditorMetrics::fallback();
+        let cover_bottom = viewport.editor_top + viewport.top_cover;
+        for line in 1..=10 {
+            let anchor =
+                viewport.editor_top + metrics.padding_top + (line - 1) as f64 * metrics.line_height;
+            if anchor < cover_bottom {
+                continue;
+            }
+            let style = peek_geometry(&viewport, &metrics, line, 2, 2).to_string();
+            if style.contains("visibility") {
+                continue;
+            }
+            let height = style_number(&style, "max-height:");
+            let top = if style.contains("bottom:") {
+                viewport.root_bottom - style_number(&style, "bottom:") - height
+            } else {
+                viewport.root_top + style_number(&style, "top:")
+            };
+            assert!(top >= cover_bottom, "line {line}: {style}");
+            assert!(height >= PEEK_HEADER_HEIGHT, "line {line}: {style}");
+        }
+    }
+
     /// On a 390 px phone the preview ran past the editor's right
     /// edge (sized to the window from the text's left). It stays inside
     /// the editor, moved left over the gutter to keep its width.
@@ -783,6 +838,7 @@ mod tests {
             editor_bottom: 300.0,
             editor_left: 105.0,
             editor_scroll_top: 0.0,
+            top_cover: 0.0,
             root_top: 20.0,
             root_bottom: 330.0,
             root_left: 20.0,

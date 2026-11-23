@@ -17,8 +17,8 @@ use super::super::state::EditorState;
 const FIND_SPACE: &str = "--config-editor-find-space";
 
 /// Sets the room to the open widget's height (none when it is closed),
-/// and scrolls the text by as much as its top padding changed, so the
-/// text stays where it was on the screen.
+/// scrolls the text by as much as its top padding changed, so the text
+/// stays where it was on the screen, and has the popups measure again.
 pub(super) fn fit_find_space(state: EditorState) {
     let search = state.search();
     let height = if search.open.get_untracked() {
@@ -52,6 +52,12 @@ pub(super) fn fit_find_space(state: EditorState) {
     if moved != 0 {
         area.set_scroll_top(area.scroll_top() + moved);
     }
+    // The text moved under the popups that hang from it (the change
+    // preview): they measure again.
+    state
+        .view()
+        .layout_revision
+        .update(|revision| *revision += 1);
 }
 
 /// The element's top padding in whole pixels, as the browser lays it out.
