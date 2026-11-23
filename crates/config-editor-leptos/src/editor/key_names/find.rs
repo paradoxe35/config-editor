@@ -283,7 +283,7 @@ impl EditorState {
         match target {
             UseTarget::Here(range) => {
                 let end = self.doc().text.with_untracked(|text| TextSize::of(text));
-                self.focus_range(range.start().min(end), range.end().min(end));
+                self.jump_to_range(range.start().min(end), range.end().min(end));
             }
             UseTarget::Open(id, path) => {
                 input.open.go_to(&id, &path);

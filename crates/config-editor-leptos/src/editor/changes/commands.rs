@@ -133,7 +133,7 @@ impl EditorState {
             self.a11y().announce(said);
             return;
         };
-        self.focus_at(line + 1, 1);
+        self.jump_to(line + 1, 1);
         // Said as F8 says a problem: which change, and where.
         if let Some(peek) = &peek {
             let said = self.strings_untracked(|strings| {

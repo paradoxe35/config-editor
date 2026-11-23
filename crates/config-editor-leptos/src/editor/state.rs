@@ -204,6 +204,8 @@ groups! {
     edit_as: EditAsState,
     /// The list of a name's uses (see `key_names`).
     uses: super::key_names::UsesState,
+    /// The last jump's flash (see `jump`).
+    jump: super::jump::JumpState,
 }
 
 /// A group read after the editor unmounted: a hole in `reactive::later`.
@@ -365,6 +367,7 @@ impl EditorState {
             popups,
             a11y: A11yState::new(),
             uses: super::key_names::UsesState::new(),
+            jump: super::jump::JumpState::new(),
             edit_as,
             config,
             doc,

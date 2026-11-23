@@ -434,9 +434,10 @@ impl EditorHandle {
 
     /// Scrolls to the field at `path`, selects it (as
     /// [`range_of`](Self::range_of) gives it: the key and an inline value, or
-    /// the key of a block), and focuses the editor. Returns whether the
-    /// field was found. The editor of a `ConfigDocuments` document not
-    /// shown selects its document first.
+    /// the key of a block), and focuses the editor. Like every jump, it
+    /// centers the field when it is out of view or near an edge and flashes
+    /// it for a second. Returns whether the field was found. The editor of
+    /// a `ConfigDocuments` document not shown selects its document first.
     pub fn reveal(&self, path: impl Into<FieldPath>) -> bool {
         let Some(state) = self.editor() else {
             return false;
@@ -453,7 +454,7 @@ impl EditorHandle {
             .with_untracked(|text| (byte_of(text, start), byte_of(text, end)));
         self.show();
         state.hide_shown_problem();
-        state.focus_range(start, end).is_some()
+        state.jump_to_range(start, end).is_some()
     }
 
     /// Selects `range`, scrolls it into view inside the editor and focuses
@@ -478,7 +479,7 @@ impl EditorHandle {
             .with_untracked(|text| (byte_of(text, start), byte_of(text, end)));
         self.show();
         state.hide_shown_problem();
-        state.focus_range(start, end).is_some()
+        state.jump_to_range(start, end).is_some()
     }
 
     /// The UTF-16 offsets of `range` in the text on screen, clamped to it and

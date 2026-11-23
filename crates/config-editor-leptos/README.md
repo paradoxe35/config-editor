@@ -2446,7 +2446,9 @@ and its problem counts `StatusError`, `StatusWarning`, `StatusInfo` and
 The find widget uses `SearchMatch`, `SearchMatchCurrent` and
 `SearchMatchCurrentBorder` (`--config-editor-search-match`, …) for matches,
 and `InputBackground`, `InputBorder` and `ToggleActive` for its fields and
-option buttons. Folding uses `FoldToggle` for the gutter chevrons (following
+option buttons. A jump (go to definition, a use, a problem, a line, a change,
+`reveal`) flashes its target with `JumpFlash` (`--config-editor-jump-flash`,
+following `Accent` unless set), fading out over a second. Folding uses `FoldToggle` for the gutter chevrons (following
 the line numbers' color unless set) and `FoldChip` / `FoldChipText` for the
 `…` after a folded line. Read-only values and the gutter lock use `Locked`
 (`--config-editor-locked`, which follows `Muted` unless set), secret

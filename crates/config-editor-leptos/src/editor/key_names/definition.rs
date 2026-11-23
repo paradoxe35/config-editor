@@ -12,7 +12,7 @@ use crate::editor::applies::{Applies, scalar_text};
 use crate::editor::completion::{FieldHit, Part};
 use crate::editor::language::{ConfigLanguage, SchemaPathSegment};
 use crate::editor::schema::SchemaBundle;
-use crate::editor::text::TextSize;
+use crate::editor::text::TextRange;
 
 /// Runs `read` with the text of the name `field` is (a value, or a key
 /// named through `propertyNames`), the schemas reading it (the key's
@@ -164,12 +164,12 @@ pub(crate) fn searched_at(
 }
 
 /// Where the key `name` names is written in `source`, when it is a key of
-/// the document itself: the start of its key.
+/// the document itself: its key's bytes.
 pub(crate) fn key_written(
     source: &str,
     name: &Offered,
     behavior: &dyn ConfigLanguage,
-) -> Option<TextSize> {
+) -> Option<TextRange> {
     if name.origin != KeyOrigin::ThisDocument {
         return None;
     }
@@ -179,10 +179,14 @@ pub(crate) fn key_written(
         crate::editor::language::pointer_key(&name.name)
     );
     let span = crate::editor::paths::written_key_span(behavior, source, &pointer)?;
-    let units = crate::editor::paths::offset_of(
-        source,
-        crate::editor::paths::TextPosition::new(span.line, span.start_column),
-        false,
-    );
-    Some(crate::editor::text::byte_of(source, usize::from(units)))
+    let byte_at = |column| {
+        let units = crate::editor::paths::offset_of(
+            source,
+            crate::editor::paths::TextPosition::new(span.line, column),
+            false,
+        );
+        crate::editor::text::byte_of(source, usize::from(units))
+    };
+    let start = byte_at(span.start_column);
+    Some(TextRange::new(start, byte_at(span.end_column).max(start)))
 }

@@ -8,7 +8,7 @@
 //! - `keys`: the shortcuts; `components`: the widgets and match boxes.
 //!
 //! Matches are only searched while the widget is open, and only those in
-//! view are drawn (see `components::SearchHighlights`).
+//! view are drawn (`search_marks`, for `components::TextMarks`).
 //!
 //! The rest of the editor sees only the hooks re-exported here.
 //!
@@ -27,10 +27,9 @@ mod go_to_line;
 mod keys;
 mod matcher;
 mod replace;
-mod reveal;
 mod template;
 
-pub(super) use components::{FindWidget, GoToLineWidget, SearchHighlights};
+pub(super) use components::{FindWidget, GoToLineWidget};
 pub(super) use go_to_line::GoToLine;
 pub(super) use keys::shortcuts;
 
@@ -49,11 +48,47 @@ pub(super) use actions::replace_current as replace_one_match;
 
 use leptos::prelude::*;
 
+use std::ops::Range;
+
+use super::components::{Mark, Segment, push_segments};
 use super::edit::Change;
 use super::live_settings::on_switch_off;
 use super::state::EditorState;
 use crate::editor::text::TextRange;
 use matcher::{Matcher, find_matches};
+
+/// Most matches drawn at once (a minified line can hold thousands).
+const MAX_DRAWN_MATCHES: usize = 1_000;
+
+impl EditorState {
+    /// The parts of the find matches on document `lines` of `text` to draw,
+    /// per line, in order (tracked).
+    pub(super) fn search_marks(&self, text: &str, lines: &Range<usize>) -> Vec<Segment> {
+        let search = self.search();
+        let current = search.current.get();
+        search.results.with(|results| {
+            // A match starting above the lines may run into them.
+            let first = results
+                .matches
+                .partition_point(|found| found.line < lines.start)
+                .saturating_sub(1);
+            let mut segments = Vec::new();
+            for (index, found) in results.matches.iter().enumerate().skip(first) {
+                if found.line >= lines.end || segments.len() >= MAX_DRAWN_MATCHES {
+                    break;
+                }
+                let mark = if Some(index) == current {
+                    Mark::CurrentMatch
+                } else {
+                    Mark::Match
+                };
+                let marked = Segment::new(found.line, found.line_start, found.range, mark);
+                push_segments(text, marked, lines, &mut segments);
+            }
+            segments
+        })
+    }
+}
 
 /// Switching the `search` or `go_to_line` setting off closes its widget.
 pub(super) fn follow_settings(state: EditorState) {

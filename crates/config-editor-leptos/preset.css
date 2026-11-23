@@ -75,6 +75,9 @@
   --config-editor-search-match: rgb(234 92 0 / 33%);
   --config-editor-search-match-current: rgb(81 92 106 / 90%);
   --config-editor-search-match-current-border: #74879f;
+  /* A jump's target (go to definition, a use, a problem, a line), shown
+     for a second as it fades out. */
+  --config-editor-jump-flash: color-mix(in srgb, var(--config-editor-accent) 16%, transparent);
   --config-editor-input-bg: #3c3c3c;
   --config-editor-input-border: #3c3c3c;
   --config-editor-toggle-active: rgb(36 137 219 / 51%);
@@ -1291,7 +1294,7 @@
 
 /* Find matches sit under the textarea and the highlighted text, like the
    selection, so the text keeps its colors. */
-:not(#\#):not(#\#) .config-editor__search-highlights {
+:not(#\#):not(#\#) .config-editor__text-marks {
   position: absolute;
   z-index: 1;
   inset: 0 auto auto 0;
@@ -1305,7 +1308,7 @@
 
 /* A line's copy: the same font, as wide as the text lays out, the text
    itself not shown. */
-:not(#\#):not(#\#) .config-editor__search-line {
+:not(#\#):not(#\#) .config-editor__text-mark-line {
   position: absolute;
   height: 1lh;
   white-space: pre;
@@ -1322,7 +1325,7 @@
   background: var(--config-editor-search-match);
 }
 
-:not(#\#):not(#\#) .config-editor__search-match-bare {
+:not(#\#):not(#\#) .config-editor__mark-bare {
   display: inline-block;
   width: 0.5ch;
 }
@@ -1330,6 +1333,33 @@
 :not(#\#):not(#\#) .config-editor__search-match-current {
   background: var(--config-editor-search-match-current);
   box-shadow: inset 0 0 0 1px var(--config-editor-search-match-current-border);
+}
+
+/* A jump's target: a soft bar across its rows and an edge around its text,
+   fading out over a second (the editor removes them then). */
+:not(#\#):not(#\#) .config-editor__jump-flash-line,
+:not(#\#):not(#\#) .config-editor__jump-flash {
+  animation: config-editor-jump-flash 1s ease-in forwards;
+}
+
+:not(#\#):not(#\#) .config-editor__jump-flash-line {
+  position: absolute;
+  width: 100%;
+  height: 1lh;
+  background: var(--config-editor-jump-flash);
+}
+
+/* Outside the glyph box: the selection covers the range itself. */
+:not(#\#):not(#\#) .config-editor__jump-flash {
+  padding-block: calc((1lh - 1.17em) / 2);
+  border-radius: 2px;
+  outline: 1px solid var(--config-editor-accent);
+  outline-offset: 1px;
+}
+
+@keyframes config-editor-jump-flash {
+  0%, 40% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* The find widget: over the top right of the text, clear of the scrollbar. */
@@ -2290,6 +2320,8 @@
   :not(#\#):not(#\#) .config-editor__lock-marker,
   :not(#\#):not(#\#) .config-editor__secret-marker,
   :not(#\#):not(#\#) .config-editor__search-match,
+  :not(#\#):not(#\#) .config-editor__jump-flash,
+  :not(#\#):not(#\#) .config-editor__jump-flash-line,
   :not(#\#):not(#\#) .config-editor__highlight .config-editor__secret,
   :not(#\#):not(#\#) .config-editor__sticky .config-editor__secret,
   :not(#\#):not(#\#) .config-editor__completion-active,
@@ -2313,6 +2345,11 @@
     box-shadow: inset 0 0 0 1px Highlight;
   }
   :not(#\#):not(#\#) .config-editor__search-match-current {
+    background: transparent;
+    box-shadow: inset 0 0 0 2px Highlight;
+  }
+  :not(#\#):not(#\#) .config-editor__jump-flash-line,
+  :not(#\#):not(#\#) .config-editor__jump-flash {
     background: transparent;
     box-shadow: inset 0 0 0 2px Highlight;
   }
@@ -2412,7 +2449,9 @@
   }
   :not(#\#):not(#\#) .config-editor__hover,
   :not(#\#):not(#\#) .config-editor__problem-tip,
-  :not(#\#):not(#\#) .config-editor__protect-tip:not(.config-editor__protect-tip--refused) {
+  :not(#\#):not(#\#) .config-editor__protect-tip:not(.config-editor__protect-tip--refused),
+  :not(#\#):not(#\#) .config-editor__jump-flash-line,
+  :not(#\#):not(#\#) .config-editor__jump-flash {
     animation: none;
   }
 }
@@ -2425,6 +2464,13 @@
 @media (prefers-contrast: more) {
   :where(.config-editor, .config-editor-documents, .config-editor-theme) {
     --config-editor-popup-edge: var(--config-editor-raised-text);
+  }
+  /* A jump's target edged in full strength, so it shows on any fill. */
+  :not(#\#):not(#\#) .config-editor__jump-flash-line {
+    box-shadow: inset 0 0 0 1px var(--config-editor-accent);
+  }
+  :not(#\#):not(#\#) .config-editor__jump-flash {
+    outline-width: 2px;
   }
   :not(#\#):not(#\#) .config-editor__hover:focus-visible,
   :not(#\#):not(#\#) .config-editor__problem-tip:focus-visible,

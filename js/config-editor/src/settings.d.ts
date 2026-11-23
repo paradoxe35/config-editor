@@ -1773,6 +1773,7 @@ export type ThemeColorToken =
   | "search-match"
   | "search-match-current"
   | "search-match-current-border"
+  | "jump-flash"
   | "input-bg"
   | "input-border"
   | "toggle-active"

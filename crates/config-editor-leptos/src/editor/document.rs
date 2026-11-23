@@ -12,6 +12,7 @@ use super::languages::Language;
 use super::paths::{FieldPath, KeptSpans, path_at};
 use super::positioning::{reveal_offset, set_caret_visible};
 use super::readings::Readings;
+use super::source_area::SourceArea;
 use super::state::EditorState;
 #[cfg(test)]
 use super::text::byte_of;
@@ -143,30 +144,46 @@ impl EditorState {
         self.doc().caret.set(offset);
     }
 
-    /// Focuses the editor with the caret at `line`:`column`, scrolled into
-    /// view, closing popups.
-    pub(super) fn focus_at(&self, line: usize, column: usize) -> Option<TextSize> {
-        let offset = self.doc().text.with_untracked(|text| {
+    /// The byte offset of `line`:`column` (one-based, UTF-16 columns).
+    pub(super) fn offset_of_position(&self, line: usize, column: usize) -> TextSize {
+        self.doc().text.with_untracked(|text| {
             text_size(utf16_to_byte_index(text, offset_at(text, line, column)))
-        });
-        self.focus_range(offset, offset)?;
+        })
+    }
+
+    /// Focuses the editor with the caret at `line`:`column`, scrolled into
+    /// view as little as it takes (a click on a place in view), closing
+    /// popups. A jump to a place goes through `jump_to` instead.
+    pub(super) fn focus_at(&self, line: usize, column: usize) -> Option<TextSize> {
+        let offset = self.offset_of_position(line, column);
+        self.focus_range_directed(offset, offset, false)?;
         Some(offset)
     }
 
-    /// Focuses the editor with bytes `start..end` selected, its start
-    /// scrolled into view, closing popups.
-    pub(super) fn focus_range(&self, start: TextSize, end: TextSize) -> Option<()> {
-        self.focus_range_directed(start, end, false)
-    }
-
-    /// [`focus_range`](Self::focus_range), the caret at `start` when
-    /// `backward`.
+    /// Focuses the editor with bytes `start..end` selected (the caret at
+    /// `start` when `backward`), scrolled into view as little as it takes,
+    /// closing popups.
     pub(super) fn focus_range_directed(
         &self,
         start: TextSize,
         end: TextSize,
         backward: bool,
     ) -> Option<()> {
+        let element = self.focus_selection(start, end, backward)?;
+        self.doc()
+            .text
+            .with_untracked(|text| reveal_offset(&element, text, start));
+        Some(())
+    }
+
+    /// Focuses the editor with bytes `start..end` selected, the view kept
+    /// where it is (the caller reveals), closing popups.
+    pub(super) fn focus_selection(
+        &self,
+        start: TextSize,
+        end: TextSize,
+        backward: bool,
+    ) -> Option<SourceArea> {
         let element = self.textarea()?;
         // Focusing scrolls back to the old caret; keep the view where the
         // user clicked (a line number, an underline), then reveal if needed.
@@ -176,11 +193,8 @@ impl EditorState {
         let _ = element.set_selection_range_with_direction(start, end, direction);
         element.set_scroll_top(top);
         element.set_scroll_left(left);
-        self.doc()
-            .text
-            .with_untracked(|text| reveal_offset(&element, text, start));
         self.close_suggestions();
         self.hide_hover();
-        Some(())
+        Some(element)
     }
 }

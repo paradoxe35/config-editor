@@ -6,10 +6,10 @@ use leptos::prelude::*;
 
 use super::super::edit::Edit;
 use super::super::input::flush_input;
+use super::super::positioning::reveal_jump;
 use super::super::state::{EditorState, directed_selection, textarea_selection};
 use super::matcher::MAX_MATCHES;
 use super::replace;
-use super::reveal::reveal_centered;
 use super::{SearchOptions, SearchResults};
 use crate::EditorStrings;
 use crate::editor::text::{TextRange, byte_range, slice};
@@ -341,7 +341,7 @@ fn show_current(state: EditorState) {
     state
         .doc()
         .text
-        .with_untracked(|text| reveal_centered(&element, text, start, inset));
+        .with_untracked(|text| reveal_jump(&element, text, start, inset));
     state.forget_typing_aids();
     state.close_suggestions();
 }

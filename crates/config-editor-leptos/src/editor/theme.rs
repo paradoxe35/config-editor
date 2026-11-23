@@ -249,6 +249,9 @@ pub enum ThemeColor {
     SearchMatchCurrent,
     /// The current find match's outline.
     SearchMatchCurrentBorder,
+    /// A jump's target (go to definition, a use, a problem, a line), shown
+    /// for a second as it fades out.
+    JumpFlash,
     /// Text fields (the find widget's).
     InputBackground,
     /// Text field borders.
@@ -378,6 +381,7 @@ impl ThemeColor {
         Self::SearchMatch,
         Self::SearchMatchCurrent,
         Self::SearchMatchCurrentBorder,
+        Self::JumpFlash,
         Self::InputBackground,
         Self::InputBorder,
         Self::ToggleActive,
@@ -485,6 +489,7 @@ impl ThemeColor {
             Self::SearchMatch => "--config-editor-search-match",
             Self::SearchMatchCurrent => "--config-editor-search-match-current",
             Self::SearchMatchCurrentBorder => "--config-editor-search-match-current-border",
+            Self::JumpFlash => "--config-editor-jump-flash",
             Self::InputBackground => "--config-editor-input-bg",
             Self::InputBorder => "--config-editor-input-border",
             Self::ToggleActive => "--config-editor-toggle-active",

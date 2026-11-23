@@ -7,6 +7,14 @@ versions move together.
 
 ## 0.2.4 — 2026-11-23
 
+### Added
+
+- A jump now flashes its target for a second: a soft background that fades
+  out (shown without the fade when the system asks for less motion,
+  outlined when it asks for more contrast). Its color is the new theme
+  token `JumpFlash` (`--config-editor-jump-flash`, `"jump-flash"`), which
+  follows the accent color unless set.
+
 ### Changed
 
 - A narrow editor (under 480px wide, as on a phone or in a narrow column
@@ -38,6 +46,16 @@ versions move together.
 - The documents example pages (`?keys`) open a file that is not open as a
   tab when a definition or a use in it is chosen, and go there (they only
   logged it).
+
+- Jumps put their target in the middle of the editor, as VS Code does: go
+  to definition (`F12`, the hover card's link), a use in the Uses list
+  (also in another open document), a problem, next/previous problem and
+  change, go to line, a failed save, and the host's `reveal` and
+  `revealRange`. A target already well in view does not scroll; one out of
+  view or within three lines of the top or bottom edge is centered. Typing,
+  arrows, page keys, folding and clicks still scroll as little as they can.
+- Go to definition selects the defining key, as going to a use selects
+  the use.
 
 ### Fixed
 

@@ -74,11 +74,12 @@ async function newLineAtEnd(page) {
   await page.keyboard.press('Control+End');
 }
 
-/** Moves the caret to `line` (one-based) with go to line, then closes it. */
+/** Moves the caret to `line` (one-based) with go to line, then closes it; waits out the jump's flash. */
 async function caretTo(page, line, column = 1) {
   await page.keyboard.press('Control+g');
   await page.keyboard.type(`${line}:${column}`);
   await page.keyboard.press('Enter');
+  await page.locator('.config-editor__jump-flash').waitFor({ state: 'detached' });
   await pause(page, 150);
 }
 

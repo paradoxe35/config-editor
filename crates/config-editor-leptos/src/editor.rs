@@ -47,6 +47,7 @@ mod host_editing;
 mod hover;
 mod input;
 mod item_sources;
+mod jump;
 mod kept_focus;
 mod schema_checks;
 mod schema_formats;
@@ -137,12 +138,13 @@ use crate::cssom::cssom;
 use changes::DiffPeekPopup;
 use components::{
     Announcer, BaselineNotice, CaretNoticeView, CodeLayer, CompletionList, DiagnosticOverlay,
-    EditAsNotice, Gutter, HoverCardView, ProblemTip, SourceInput, StatusBar, Toolbar, UsesListView,
+    EditAsNotice, Gutter, HoverCardView, ProblemTip, SourceInput, StatusBar, TextMarks, Toolbar,
+    UsesListView,
 };
 use fill::FillProbe;
 use positioning::frame_probe_style;
 use protect::ProtectTipView;
-use search::{FindWidget, GoToLineWidget, SearchHighlights};
+use search::{FindWidget, GoToLineWidget};
 use state::{EditorState, Init};
 
 /// The preset stylesheet: the base styles, every bundled theme, and the tabs
@@ -572,7 +574,7 @@ pub fn ConfigEditor(
                         <div aria-hidden="true" style=cssom(frame_probe_style()) node_ref=state.view().frame_probe_ref></div>
                         <CodeLayer state=state rows=rows />
                         <DiagnosticOverlay state=state />
-                        <Kept when=shown.search view=move || view! { <SearchHighlights state=state /> } />
+                        <TextMarks state=state />
                         <SourceInput state=state />
                         <HoverCardView state=state />
                         <ProblemTip state=state />

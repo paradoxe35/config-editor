@@ -13,7 +13,7 @@ use crate::editor::languages::Language;
 use crate::editor::schema::build_schema;
 use crate::editor::state::EditorState;
 use crate::editor::test_state::TestEditor;
-use crate::editor::text::text_size;
+use crate::editor::text::{TextRange, text_size};
 
 const SCHEMA: &str = r##"{
   "properties": {
@@ -95,7 +95,10 @@ fn go_to_definition_moves_to_the_key_or_tells_the_host() {
     state.doc().caret.set(text_size(on_value));
     assert_eq!(
         state.definition_at_caret(),
-        Some(Definition::Key(text_size(TEXT.find("home").unwrap())))
+        Some(Definition::Key(TextRange::at(
+            text_size(TEXT.find("home").unwrap()),
+            text_size("home".len())
+        )))
     );
     let remote = TEXT.replace("default_client: home", "default_client: remote");
     let (_owner, state, heard_remote) = mounted(&remote);
@@ -249,10 +252,14 @@ fn hover_and_go_to_definition_on_a_key_name() {
         // The key `/clients/home` is written on the line of the first
         // `home` (TOML's header starts at its `[`).
         let defined = text.find("home").unwrap();
-        let Some(Definition::Key(at)) = state.definition_at_caret() else {
+        let Some(Definition::Key(key)) = state.definition_at_caret() else {
             panic!("{language}: no key to go to");
         };
-        let at = usize::from(at);
+        let at = usize::from(key.start());
+        assert!(
+            text[at..usize::from(key.end())].contains("home"),
+            "{language}: the key is {key:?}"
+        );
         assert!(
             at <= defined && !text[at..defined].contains('\n'),
             "{language}: goes to {at}"
@@ -321,10 +328,11 @@ fn a_name_in_an_item_on_one_line_is_hovered_gone_to_and_searched() {
         let defined = text.find("home").unwrap();
         for caret in [used + 1, used + "home".len()] {
             state.doc().caret.set(text_size(caret));
-            let Some(Definition::Key(at)) = state.definition_at_caret() else {
+            let Some(Definition::Key(key)) = state.definition_at_caret() else {
                 panic!("{language}: no key to go to from {caret}");
             };
-            let at = usize::from(at);
+            let at = usize::from(key.start());
+            assert_eq!(&text[at..usize::from(key.end())], "home", "{language}");
             assert!(
                 at <= defined && !text[at..defined].contains('\n'),
                 "{language}: goes to {at}"

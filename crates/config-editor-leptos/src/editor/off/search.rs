@@ -3,9 +3,12 @@
 //! `F3` and `Ctrl+G` stay the browser's, and the `search` and `go_to_line`
 //! settings do nothing.
 
+use std::ops::Range;
+
 use leptos::prelude::*;
 use web_sys::KeyboardEvent;
 
+use super::components::Segment;
 use super::edit::Change;
 use super::state::EditorState;
 
@@ -37,7 +40,8 @@ pub(super) fn GoToLineWidget(state: EditorState) -> impl IntoView {
     let _ = state;
 }
 
-#[component]
-pub(super) fn SearchHighlights(state: EditorState) -> impl IntoView {
-    let _ = state;
+impl EditorState {
+    pub(super) fn search_marks(&self, _text: &str, _lines: &Range<usize>) -> Vec<Segment> {
+        Vec::new()
+    }
 }

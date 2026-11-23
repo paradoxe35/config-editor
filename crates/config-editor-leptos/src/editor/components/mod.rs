@@ -14,6 +14,7 @@ mod hover_card;
 mod problem_summary;
 mod source;
 mod status_bar;
+mod text_marks;
 mod toolbar;
 mod uses_list;
 
@@ -30,6 +31,9 @@ pub(super) use gutter::Gutter;
 pub(super) use hover_card::{HoverCard, HoverCardView};
 pub(super) use source::SourceInput;
 pub(super) use status_bar::StatusBar;
+#[cfg(feature = "search")]
+pub(super) use text_marks::{Mark, push_segments};
+pub(super) use text_marks::{Segment, TextMarks};
 pub(super) use toolbar::Toolbar;
 pub(super) use uses_list::UsesListView;
 

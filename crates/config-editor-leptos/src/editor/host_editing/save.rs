@@ -104,7 +104,7 @@ impl EditorState {
             });
         match place {
             Some((line, column)) => {
-                self.focus_at(line, column);
+                self.jump_to(line, column);
                 self.problems().current.set(Some((line, column)));
             }
             None => {

@@ -370,7 +370,7 @@ impl EditorState {
                 .and_then(|problem| Some((problem.line?, problem.column?)))
         });
         if let Some((line, column)) = position {
-            self.focus_at(line, column);
+            self.jump_to(line, column);
         }
         self.problems().current.set(position);
     }

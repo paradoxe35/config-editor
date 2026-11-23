@@ -93,7 +93,7 @@ pub(super) fn go(state: EditorState) -> bool {
     };
     let line = line.min(state.doc().text.with_untracked(line_count));
     close(state);
-    state.focus_at(line, column.unwrap_or(1));
+    state.jump_to(line, column.unwrap_or(1));
     state.forget_typing_aids();
     true
 }

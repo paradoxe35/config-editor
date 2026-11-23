@@ -127,9 +127,9 @@ impl EditorState {
     fn go_to(&self, definition: Option<Definition>) -> bool {
         match definition {
             None => false,
-            Some(Definition::Key(at)) => {
+            Some(Definition::Key(key)) => {
                 self.hide_hover();
-                self.focus_range(at, at);
+                self.jump_to_range(key.start(), key.end());
                 true
             }
             Some(Definition::Elsewhere(target)) => {
@@ -150,8 +150,8 @@ impl EditorState {
 /// Where a known name is defined.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::editor) enum Definition {
-    /// At this byte of the document: the start of its key.
-    Key(crate::editor::text::TextSize),
+    /// At these bytes of the document: its key, selected by a jump.
+    Key(crate::editor::text::TextRange),
     /// Elsewhere: what the host is told to open.
     Elsewhere(GoToDefinition),
 }

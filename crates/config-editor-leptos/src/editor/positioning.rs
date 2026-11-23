@@ -371,31 +371,15 @@ pub(super) fn set_caret_visible(editor: &SourceArea, text: &str, offset: TextSiz
     reveal_offset(editor, text, offset);
 }
 
-/// Scrolls byte `offset` into view without touching the selection.
+/// Scrolls byte `offset` into view without touching the selection, as
+/// little as it takes: typing, arrows, page keys and clicks keep the text
+/// where the user looks.
 pub(super) fn reveal_offset(editor: &SourceArea, text: &str, offset: TextSize) {
     let offset = offset.min(TextSize::of(text));
-    let line = slice::before(text, offset)
-        .unwrap_or(text)
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count();
-    let line = editor.row_of_line(line) as f64;
+    let line = editor.row_of_line(line_at(text, offset)) as f64;
     let target: &web_sys::Element = editor.element().unchecked_ref();
     let metrics = read_editor_metrics(target);
-    let style =
-        web_sys::window().and_then(|window| window.get_computed_style(target).ok().flatten());
-    let padding_bottom = style
-        .as_ref()
-        .and_then(|style| style.get_property_value("padding-bottom").ok())
-        .and_then(|value| {
-            value
-                .trim()
-                .strip_suffix("px")
-                .unwrap_or(&value)
-                .parse::<f64>()
-                .ok()
-        })
-        .unwrap_or(0.0);
+    let padding_bottom = padding_bottom(target);
     let current_top = editor.scroll_top() as f64;
     let client_height = editor.client_height() as f64;
     let caret_top = metrics.padding_top + line * metrics.line_height;
@@ -414,8 +398,122 @@ pub(super) fn reveal_offset(editor: &SourceArea, text: &str, offset: TextSize) {
         (editor.scroll_height() as f64 - client_height).max(0.0),
     );
     editor.set_scroll_top(next_top as i32);
-    // Horizontally too: a caret back at the start of a line after a long one
-    // must not stay scrolled off to the left.
+    reveal_column(editor, text, offset, &metrics);
+}
+
+/// Lines kept between a jump's target and the top or bottom edge: closer
+/// than this, the target is hard to notice and its line is centered.
+const JUMP_EDGE_LINES: f64 = 3.0;
+
+/// Scrolls byte `offset` into view after a jump (go to definition, a use, a
+/// problem, a line, a change, a find match, the host's `reveal`), as VS Code
+/// reveals: left alone when comfortably in view, else its line centered.
+/// `top_inset` pixels at the top are covered (the find widget).
+pub(super) fn reveal_jump(editor: &SourceArea, text: &str, offset: TextSize, top_inset: f64) {
+    let offset = offset.min(TextSize::of(text));
+    let line = editor.row_of_line(line_at(text, offset)) as f64;
+    let target: &web_sys::Element = editor.element().unchecked_ref();
+    let metrics = read_editor_metrics(target);
+    let client_height = f64::from(editor.client_height());
+    let next = jump_scroll_top(&JumpView {
+        line_top: metrics.padding_top + line * metrics.line_height,
+        line_height: metrics.line_height,
+        scroll_top: f64::from(editor.scroll_top()),
+        height: client_height,
+        top_inset: top_inset.max(metrics.padding_top),
+        bottom_inset: padding_bottom(target),
+        max_scroll: (f64::from(editor.scroll_height()) - client_height).max(0.0),
+    });
+    if let Some(next) = next {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a scroll position in pixels, clamped to the scroll height (an `i32`)"
+        )]
+        editor.set_scroll_top(next as i32);
+    }
+    reveal_column(editor, text, offset, &metrics);
+}
+
+/// What a jump's scroll is computed from, in pixels of the scrolled text.
+#[derive(Clone, Copy, Debug)]
+struct JumpView {
+    /// The top of the target's row.
+    line_top: f64,
+    line_height: f64,
+    scroll_top: f64,
+    /// The view's height.
+    height: f64,
+    /// The covered part at the top (the padding, a widget over the text).
+    top_inset: f64,
+    /// The covered part at the bottom (the padding).
+    bottom_inset: f64,
+    /// The largest scroll position.
+    max_scroll: f64,
+}
+
+/// The scroll position a jump to `view.line_top` moves to: `None` when the
+/// row is in view and at least [`JUMP_EDGE_LINES`] from both edges (or as
+/// close as the document's ends allow), else the row centered below the
+/// top inset.
+fn jump_scroll_top(view: &JumpView) -> Option<f64> {
+    let margin = JUMP_EDGE_LINES * view.line_height;
+    let line_bottom = view.line_top + view.line_height;
+    let comfortable_top = view.scroll_top + view.top_inset + margin;
+    let comfortable_bottom = view.scroll_top + view.height - view.bottom_inset - margin;
+    // A row the document's start or end keeps close to an edge counts as
+    // comfortable: no scroll can move it further in.
+    let above = view.line_top < comfortable_top && view.scroll_top > 0.0;
+    let below = line_bottom > comfortable_bottom && view.scroll_top < view.max_scroll;
+    let hidden = view.line_top < view.scroll_top + view.top_inset
+        || line_bottom > view.scroll_top + view.height - view.bottom_inset;
+    if !(above || below || hidden) {
+        return None;
+    }
+    let centered = (view.line_top - (view.height - view.line_height) / 2.0)
+        .min(view.line_top - view.top_inset)
+        .clamp(0.0, view.max_scroll);
+    #[expect(
+        clippy::float_cmp,
+        reason = "the same arithmetic on the same inputs: equal means no move"
+    )]
+    let moves = centered != view.scroll_top;
+    moves.then_some(centered)
+}
+
+/// The 0-based line of byte `offset`.
+fn line_at(text: &str, offset: TextSize) -> usize {
+    slice::before(text, offset)
+        .unwrap_or(text)
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+}
+
+/// The element's bottom padding, in pixels.
+fn padding_bottom(target: &web_sys::Element) -> f64 {
+    web_sys::window()
+        .and_then(|window| window.get_computed_style(target).ok().flatten())
+        .and_then(|style| style.get_property_value("padding-bottom").ok())
+        .and_then(|value| {
+            value
+                .trim()
+                .strip_suffix("px")
+                .unwrap_or(&value)
+                .parse::<f64>()
+                .ok()
+        })
+        .unwrap_or(0.0)
+}
+
+/// Scrolls sideways so the column of byte `offset` shows: a caret back at
+/// the start of a line after a long one must not stay scrolled off to the
+/// left.
+fn reveal_column(
+    editor: &SourceArea,
+    text: &str,
+    offset: TextSize,
+    metrics: &super::metrics::EditorMetrics,
+) {
     let before = slice::before(text, offset).unwrap_or(text);
     let line_start = before.rfind('\n').map_or(0, |index| index + 1);
     let caret_x = metrics
@@ -452,6 +550,71 @@ pub(super) fn row_box(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 20-line view (20 px rows) of a 200-line text scrolled to
+    /// `scroll_top`, no insets.
+    fn view(line: f64, scroll_top: f64) -> JumpView {
+        JumpView {
+            line_top: line * 20.0,
+            line_height: 20.0,
+            scroll_top,
+            height: 400.0,
+            top_inset: 0.0,
+            bottom_inset: 0.0,
+            max_scroll: 3_600.0,
+        }
+    }
+
+    #[test]
+    fn a_jump_far_below_or_above_centers_its_line() {
+        // Row 150's middle lands in the view's middle.
+        assert_eq!(jump_scroll_top(&view(150.0, 0.0)), Some(3_000.0 - 190.0));
+        assert_eq!(jump_scroll_top(&view(10.0, 2_000.0)), Some(10.0));
+    }
+
+    #[test]
+    fn a_jump_to_a_line_near_an_edge_centers_it() {
+        // In view, but on the last row or the second.
+        assert_eq!(
+            jump_scroll_top(&view(119.0, 2_000.0)),
+            Some(2_380.0 - 190.0)
+        );
+        assert_eq!(
+            jump_scroll_top(&view(101.0, 2_000.0)),
+            Some(2_020.0 - 190.0)
+        );
+    }
+
+    #[test]
+    fn a_jump_to_a_comfortably_visible_line_does_not_scroll() {
+        for line in [103.0, 110.0, 116.0] {
+            assert_eq!(jump_scroll_top(&view(line, 2_000.0)), None, "{line}");
+        }
+    }
+
+    #[test]
+    fn a_jump_near_the_documents_ends_stays_where_no_scroll_helps() {
+        // The first lines at the top of a view scrolled to the start.
+        assert_eq!(jump_scroll_top(&view(0.0, 0.0)), None);
+        assert_eq!(jump_scroll_top(&view(1.0, 0.0)), None);
+        // The last lines at the bottom of a view scrolled to the end.
+        assert_eq!(jump_scroll_top(&view(199.0, 3_600.0)), None);
+        // From elsewhere, the clamp keeps the view inside the text.
+        assert_eq!(jump_scroll_top(&view(199.0, 0.0)), Some(3_600.0));
+        assert_eq!(jump_scroll_top(&view(0.0, 2_000.0)), Some(0.0));
+    }
+
+    #[test]
+    fn a_jump_keeps_its_line_below_a_widget_over_the_text() {
+        let mut covered = view(101.0, 2_000.0);
+        covered.top_inset = 120.0;
+        // Hidden under the widget: centered.
+        assert_eq!(jump_scroll_top(&covered), Some(2_020.0 - 190.0));
+        // Near the top, but the centered row would be under the widget.
+        let mut tall = view(150.0, 0.0);
+        tall.top_inset = 300.0;
+        assert_eq!(jump_scroll_top(&tall), Some(3_000.0 - 300.0));
+    }
 
     #[test]
     fn popup_geometry_constants_match_the_preset_stylesheet() {
