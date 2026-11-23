@@ -23,8 +23,6 @@ versions move together.
   it fades in (not with reduced motion) and goes when the pointer leaves
   the text. A refused edit's tip and `Ctrl+K Ctrl+I` still show at once.
 
-### Changed
-
 - `F12` and `Shift+F12` that find nothing at the caret now say so there
   for a moment ("No definition for 'listen'", "No uses of 'listen'", "No
   definition here"), to screen readers too, in an editor whose schema
