@@ -5,6 +5,31 @@ use super::ops::{Op, Put, Take};
 use super::{replay, saved_after};
 use crate::editor::languages::Language;
 
+/// P2: a list item cut from a TOML inline table in an XML view edits the
+/// table's line, so its trailing comment may go with the rewritten table.
+#[test]
+fn an_item_cut_from_a_toml_inline_table_in_an_xml_view_edits_its_comment_line() {
+    replay(
+        Language::TOML,
+        Language::XML,
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\" # bump on release\nedition = \"2021\"\nauthors = ['Ann <ann@example.com>']\n[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\ntokio = { version = \"1.38\", features = [\"rt\", \"macros\"] } # runtime\nlog = \"0.4\"\n[profile.release]\n",
+        &[
+            Op::Cut {
+                line: 25,
+                how: Take::Entry,
+            },
+            Op::Paste {
+                line: 13,
+                how: Put::OverLine,
+            },
+            Op::Paste {
+                line: 58,
+                how: Put::OverBlank,
+            },
+        ],
+    );
+}
+
 /// P2: an HCL conditional's line cut in an XML view, the view coming back
 /// to a text it had, saves the host's text back, not a list.
 #[test]

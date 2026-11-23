@@ -4,7 +4,8 @@
 //! the comments of what the session left alone; or else the save waits
 //! with a problem shown.
 
-use crate::editor::language::pointer_key;
+use crate::editor::codec;
+use crate::editor::language::{Span, pointer_key};
 use crate::editor::paths::FieldPath;
 use leptos::prelude::*;
 use serde_json::Value;
@@ -379,8 +380,19 @@ fn owned_comments(language: Language, text: &str, value: &Value) -> Vec<(String,
     let wanted: Vec<String> = all.iter().map(|(pointer, _)| pointer.clone()).collect();
     let wanted_paths: Vec<FieldPath> = wanted.iter().map(FieldPath::from).collect();
     let behavior = language.behavior();
-    let keys = behavior.key_spans(text, &wanted_paths);
-    let values = behavior.value_spans(text, &wanted_paths);
+    // A member of a container written on one line (`["rt", "macros"]`,
+    // `{ version = "1" }`) is found in it: removing it edits that line.
+    let found = |spans: Vec<Option<Span>>, key: bool| -> Vec<Option<Span>> {
+        spans
+            .into_iter()
+            .zip(&wanted)
+            .map(|(span, pointer)| {
+                span.or_else(|| codec::inline_location(behavior, text, pointer, key))
+            })
+            .collect()
+    };
+    let keys = found(behavior.key_spans(text, &wanted_paths), true);
+    let values = found(behavior.value_spans(text, &wanted_paths), false);
     // The items written on each line (from 1).
     let mut on_line: std::collections::BTreeMap<usize, Vec<String>> = Default::default();
     for (pointer, (key, at)) in wanted.iter().zip(keys.iter().zip(values.iter())) {
@@ -429,6 +441,39 @@ fn owned_comments(language: Language, text: &str, value: &Value) -> Vec<(String,
             Some((words, items))
         })
         .collect()
+}
+
+/// A comment after a container written on one line belongs to the
+/// members written inside it too, in every host that writes comments and
+/// one-line containers: removing one edits the comment's line.
+#[test]
+fn a_comment_after_a_one_line_container_belongs_to_its_members() {
+    let hosts = [
+        (
+            Language::TOML,
+            "t = { v = \"1\", f = [\"rt\", \"mx\"] } # c\n",
+        ),
+        (Language::YAML, "t: { v: \"1\", f: [rt, mx] } # c\n"),
+        (
+            Language::HCL,
+            "t = { v = \"1\", f = [\"rt\", \"mx\"] } # c\n",
+        ),
+    ];
+    for (host, text) in hosts {
+        let value = host.parse(text).unwrap();
+        let comments = owned_comments(host, text, &value);
+        let owners = &comments
+            .iter()
+            .find(|(words, _)| words == "c")
+            .unwrap_or_else(|| panic!("{host}: no comment `c` in {comments:?}"))
+            .1;
+        for pointer in ["/t", "/t/v", "/t/f", "/t/f/0", "/t/f/1"] {
+            assert!(
+                owners.iter().any(|owner| owner == pointer),
+                "{host}: `c` not of {pointer}: {owners:?}"
+            );
+        }
+    }
 }
 
 /// Whether the save (reading `now`) leaves the item at `pointer` of
