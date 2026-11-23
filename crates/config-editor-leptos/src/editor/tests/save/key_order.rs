@@ -172,6 +172,95 @@ fn keys_reordered_in_a_view_move_in_the_host_with_their_comments() {
     report(failures);
 }
 
+/// A TOML table no header of its own writes (`tool`, made by
+/// `[tool.black]` and `[tool.pytest.ini_options]`) moves as one entry with
+/// the tables inside it, so a legal reorder of top-level tables past it
+/// saves, its inline tables and comments kept.
+#[test]
+fn top_level_tables_reordered_past_a_table_with_no_header_move_in_the_host() {
+    let mut failures = Vec::new();
+    let pyproject = "[build-system]\nrequires = [\"setuptools>=61.0\", \"wheel\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[project]\nname = \"example\"\nversion = \"1.2.3\"\ndependencies = [\n  \"requests>=2.31\",\n  \"click\",\n]\n\n[project.optional-dependencies]\ndev = [\"pytest\", \"black\"]\n\n[tool.black]\nline-length = 88\n\n[tool.pytest.ini_options]\naddopts = \"-ra -q\"\n";
+    check(
+        &mut failures,
+        "a table moved past one with no header",
+        (Language::TOML, pyproject),
+        ("", &["build-system", "tool", "project"]),
+        &[],
+        "[build-system]\nrequires = [\"setuptools>=61.0\", \"wheel\"]\nbuild-backend = \"setuptools.build_meta\"\n\n[tool.black]\nline-length = 88\n\n[tool.pytest.ini_options]\naddopts = \"-ra -q\"\n\n[project]\nname = \"example\"\nversion = \"1.2.3\"\ndependencies = [\n  \"requests>=2.31\",\n  \"click\",\n]\n\n[project.optional-dependencies]\ndev = [\"pytest\", \"black\"]\n",
+    );
+    let cargo = "[package]\nname = \"demo\"\n# Keep the MSRV in sync with CI\nrust-version = \"1.75\"\n\n[dependencies]\nserde = { version = \"1.0\", features = [\"derive\"] }\n\n[dev-dependencies]\ncriterion = \"0.5\"\n\n[profile.release]\nlto = true\n";
+    check(
+        &mut failures,
+        "a table moved after one with no header",
+        (Language::TOML, cargo),
+        (
+            "",
+            &["package", "dependencies", "profile", "dev-dependencies"],
+        ),
+        &[],
+        "[package]\nname = \"demo\"\n# Keep the MSRV in sync with CI\nrust-version = \"1.75\"\n\n[dependencies]\nserde = { version = \"1.0\", features = [\"derive\"] }\n\n[profile.release]\nlto = true\n\n[dev-dependencies]\ncriterion = \"0.5\"\n",
+    );
+    check(
+        &mut failures,
+        "a table with no header moved first",
+        (Language::TOML, cargo),
+        (
+            "",
+            &["profile", "package", "dependencies", "dev-dependencies"],
+        ),
+        &[],
+        "[profile.release]\nlto = true\n\n[package]\nname = \"demo\"\n# Keep the MSRV in sync with CI\nrust-version = \"1.75\"\n\n[dependencies]\nserde = { version = \"1.0\", features = [\"derive\"] }\n\n[dev-dependencies]\ncriterion = \"0.5\"\n",
+    );
+    report(failures);
+}
+
+/// The blank lines that set an entry apart from those above it go with
+/// it when keys are reordered: a group's blank line stays before the
+/// group, and splits no other two entries.
+#[test]
+fn keys_reordered_take_the_blank_lines_above_them_along() {
+    let mut failures = Vec::new();
+    let hcl = "resource \"aws_instance\" \"web\" {\n  ami           = \"ami-0c55b159cbfafe1f0\"\n  instance_type = \"t3.micro\"\n  count         = 2\n\n  tags = {\n    Name = \"web\"\n  }\n}\n";
+    check(
+        &mut failures,
+        "a map moved up past its blank line",
+        (Language::HCL, hcl),
+        (
+            "/resource/aws_instance/web",
+            &["ami", "tags", "instance_type", "count"],
+        ),
+        &[Language::TOML],
+        "resource \"aws_instance\" \"web\" {\n  ami           = \"ami-0c55b159cbfafe1f0\"\n\n  tags = {\n    Name = \"web\"\n  }\n  instance_type = \"t3.micro\"\n  count         = 2\n}\n",
+    );
+    let yaml = "a: 1\nb: 2\n\nm:\n  x: 1\n";
+    check(
+        &mut failures,
+        "a map moved up past its blank line",
+        (Language::YAML, yaml),
+        ("", &["a", "m", "b"]),
+        &[Language::TOML],
+        "a: 1\n\nm:\n  x: 1\nb: 2\n",
+    );
+    check(
+        &mut failures,
+        "the first key moved down",
+        (Language::YAML, yaml),
+        ("", &["b", "a", "m"]),
+        &[],
+        "b: 2\na: 1\n\nm:\n  x: 1\n",
+    );
+    let json = "{\n  \"a\": 1,\n  \"b\": 2,\n\n  \"c\": 3\n}\n";
+    check(
+        &mut failures,
+        "a key moved up past its blank line",
+        (Language::JSON, json),
+        ("", &["c", "a", "b"]),
+        &[],
+        "{\n  \"c\": 3,\n  \"a\": 1,\n  \"b\": 2\n}\n",
+    );
+    report(failures);
+}
+
 /// A reorder beside a value edit reaches the host too.
 #[test]
 fn keys_reordered_while_a_value_is_edited_move_in_the_host() {

@@ -26,8 +26,10 @@
 //! the view shows one.
 
 mod checks;
+mod copied_comments;
 mod docs;
 mod dotted_keys;
+mod joined_lines;
 mod known;
 mod ops;
 mod repros;

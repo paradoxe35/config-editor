@@ -163,11 +163,42 @@ fn moved_entries(
         .cloned()
         .collect();
     let block = |key: &String| -> Option<&Range<usize>> { blocks.get(key).copied() };
+    // The blank lines right above each entry but the first, after the one
+    // before: they set it apart from the entries above, and go with it (a
+    // group's blank line stays before the group, not where it was). The
+    // first entry has none of its own: moved down, it takes those of its
+    // place.
+    let blank_above: HashMap<&String, usize> = own
+        .iter()
+        .enumerate()
+        .map(|(index, (key, slot))| {
+            let floor = index
+                .checked_sub(1)
+                .map_or(slot.start, |before| own[before].1.end);
+            let blank = lines[floor..slot.start]
+                .iter()
+                .rev()
+                .take_while(|line| line.trim().is_empty())
+                .count();
+            (*key, blank)
+        })
+        .collect();
     let mut patched: Vec<String> = Vec::with_capacity(lines.len());
     let mut at = 0;
-    for ((_, slot), key) in own.iter().zip(&order) {
-        patched.extend(lines[at..slot.start].iter().map(|line| line.to_string()));
+    for (index, ((place, slot), key)) in own.iter().zip(&order).enumerate() {
+        // The place's own blank lines out, the moved entry's in (none
+        // before the first entry).
+        let start = slot.start - blank_above[place];
+        patched.extend(lines[at..start].iter().map(|line| line.to_string()));
         let from = block(key)?;
+        let blank = if index == 0 {
+            0..0
+        } else if own.first().is_some_and(|(first, _)| *first == key) {
+            start..slot.start
+        } else {
+            from.start - blank_above[key]..from.start
+        };
+        patched.extend(lines[blank].iter().map(|line| line.to_string()));
         let mut moved: Vec<String> = lines[from.clone()]
             .iter()
             .map(|line| line.to_string())
@@ -214,8 +245,12 @@ pub(in super::super) fn own_lines(
     lines: &[&str],
     pointer: &str,
 ) -> Option<Range<usize>> {
-    let line = match paths::memo_key_span(language, text, pointer) {
-        Some(span) => {
+    // An entry the language writes as lines of its own (a TOML table, one
+    // with no header of its own included) starts where it says.
+    let item = language.item_lines(text, &FieldPath::from(pointer));
+    let line = match (&item, paths::memo_key_span(language, text, pointer)) {
+        (Some(own), _) => paths::line_column(text, text_size(own.start)).0 - 1,
+        (None, Some(span)) => {
             let name = span_text_range(text, span)?;
             let line_start = slice::line_start_of(text, name.start());
             // The language's markup hook counts in `usize` bytes.
@@ -227,7 +262,7 @@ pub(in super::super) fn own_lines(
             }
             span.line.checked_sub(1)?
         }
-        None => {
+        (None, None) => {
             // A list item: its value first on its line, after the item
             // marker the language writes.
             let (_, index) = pointer.rsplit_once('/')?;
@@ -259,9 +294,8 @@ pub(in super::super) fn own_lines(
             });
         last = last.max(paths::line_column(text, end).0 - 1);
     }
-    // An entry the language writes as lines of its own (a TOML table)
-    // ends where it says.
-    if let Some(own) = language.item_lines(text, &FieldPath::from(pointer)) {
+    // And ends where it says.
+    if let Some(own) = item {
         last = last.max(paths::line_column(text, text_size(own.end)).0 - 1);
     }
     // A container opened on its lines runs to where it closes.

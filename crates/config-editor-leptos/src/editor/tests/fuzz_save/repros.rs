@@ -3111,3 +3111,20 @@ fn a_yaml_merge_written_out_keeps_a_merged_block_map_in_block_style() {
         ],
     );
 }
+
+/// P2: a YAML `!!str` value left alone in an XML view keeps its tag when
+/// the user joins the lines around its element.
+#[test]
+fn a_yaml_str_tag_left_alone_keeps_its_tag_when_its_element_lines_are_joined_in_xml() {
+    super::replay_typed(
+        Language::YAML,
+        Language::XML,
+        908186721,
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web # the app\n  labels: {app: web, tier: \"front\"}\nspec:\n  replicas: 0x3\n  selector:\n    matchLabels:\n      app: web\n  template:\n    spec:\n      containers:\n        - name: web\n          image: \"nginx:1.25\"\n          args: [--port, '8080']\n          env:\n            - name: GREETING\n              value: |\n                hello\n                world\n            - name: LEVEL\n              value: !!str 3\n",
+        &[Op::Backspace {
+            line: 29,
+            column: 0,
+            count: 3,
+        }],
+    );
+}

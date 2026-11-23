@@ -161,7 +161,9 @@ fn table_end(source: &str, line_end: usize, segments: &[String], is_array: bool)
 /// The bytes of the array-of-tables entry at `pointer` (`/s/1`): from its
 /// `[[s]]` header through the last line with code of its table and the
 /// sub-tables it owns; of the table at `pointer` (`/s`, `[s]`) the same
-/// way, the sub-tables right after it (`[s.sub]`) with it.
+/// way, the sub-tables right after it (`[s.sub]`) with it. A table no
+/// header of its own writes (`tool`, which `[tool.black]` makes) runs from
+/// the first header inside it through the sub-tables right after it.
 pub(super) fn table_lines(source: &str, pointer: &str) -> Option<std::ops::Range<usize>> {
     let headers = table_headers(source);
     let (start, line_end, segments) = headers.0.get(&pointer_segments(pointer))?;
@@ -169,8 +171,10 @@ pub(super) fn table_lines(source: &str, pointer: &str) -> Option<std::ops::Range
 }
 
 /// The first header of each table `source` writes, by its path: where its
-/// line starts and ends, and its segments. Read once while a batch runs
-/// for the text (a save placing every item asks for each).
+/// line starts and ends, and its segments; for a table with no header of
+/// its own, the first header of a table inside it, with the table's own
+/// segments. Read once while a batch runs for the text (a save placing
+/// every item asks for each).
 struct Headers(std::collections::HashMap<Vec<String>, (usize, usize, Vec<String>)>);
 
 fn table_headers(source: &str) -> std::rc::Rc<Headers> {
@@ -182,15 +186,28 @@ fn table_headers(source: &str) -> std::rc::Rc<Headers> {
         let lines: Vec<&str> = source.split('\n').collect();
         let paths = table_paths(&lines);
         let mut headers = std::collections::HashMap::new();
+        // Headers of tables outside any list, which open the tables they
+        // are in as well.
+        let mut parents = Vec::new();
         let mut start = 0;
         for (index, line) in lines.iter().enumerate() {
             let line_end = start + line.len();
             if let Some((segments, _)) = parse_header(split_toml_comment(line).0) {
-                headers
-                    .entry(path_strings(&paths[index + 1]))
-                    .or_insert((start, line_end, segments));
+                let path = path_strings(&paths[index + 1]);
+                if path == segments {
+                    parents.push((start, line_end, segments.clone()));
+                }
+                headers.entry(path).or_insert((start, line_end, segments));
             }
             start = line_end + 1;
+        }
+        for (start, line_end, segments) in parents {
+            for length in 1..segments.len() {
+                let outer = segments[..length].to_vec();
+                headers
+                    .entry(outer.clone())
+                    .or_insert((start, line_end, outer));
+            }
         }
         Headers(headers)
     })
