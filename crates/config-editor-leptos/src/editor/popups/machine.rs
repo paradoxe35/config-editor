@@ -1,5 +1,6 @@
 //! The pointer's phase for the popup it can reach (the hover card, the
-//! problem tip): one state machine, as Floating UI's `useHover` with
+//! problem tip) and for what waits for its rest (those, and the lock tip):
+//! one state machine, as Floating UI's `useHover` with
 //! `restMs` and `safePolygon`.
 //!
 //! closed → pending (the pointer at rest, the open timer) → open (which
@@ -370,6 +371,17 @@ impl<K: Clone + PartialEq> Machine<K> {
             Phase::Closed => {}
             _ => self.enter(Phase::Closed),
         }
+    }
+
+    /// A note beside the popups (the lock tip, which the pointer cannot
+    /// enter, so it has no phase here) closed at `now`: a rest starting
+    /// soon after is short, as after a popup.
+    #[cfg_attr(
+        all(not(feature = "protect"), not(test)),
+        expect(dead_code, reason = "the lock tip is part of the feature")
+    )]
+    pub(crate) fn note_closed(&mut self, now: f64) {
+        self.closed_at = Some(now);
     }
 
     /// The pointer is at `at`, at `now`, on what shows `key` after it

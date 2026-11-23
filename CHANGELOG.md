@@ -16,6 +16,15 @@ versions move together.
   is as wide as the chevron; each control keeps its 24px hit area, so on
   a line that folds a tap on the line number folds it.
 
+### Changed
+
+- The tip on protected text under the pointer (`readOnlyRanges`, locked
+  fields, secret placeholders) now waits for the pointer to rest
+  (`hoverDelay`), as the hover card and the problem tip do: a pass across
+  the text no longer flashes it. From one popup to the next it is quick,
+  it fades in (not with reduced motion) and goes when the pointer leaves
+  the text. A refused edit's tip and `Ctrl+K Ctrl+I` still show at once.
+
 ### Fixed
 
 - A host's own change (`applyChanges`) made while the save is held (a key

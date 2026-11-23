@@ -5,7 +5,9 @@ import { editor, pointAt, setupEditor } from './helpers.mjs';
 // `hoverDelay` setting, 300 ms by default), not a fixed time after it came
 // onto a key: a hand passing slowly across the text opens nothing. From one
 // popup to the next is quick; the popups fade in without delaying the
-// pointer; more contrast draws their edges in their text color.
+// pointer; more contrast draws their edges in their text color. The lock
+// tip (what protected text under the pointer is) waits for the same rest;
+// a refused edit's tip shows at once.
 
 // Comment lines first, so a card opens above its key and leaves the next
 // lines free.
@@ -20,12 +22,13 @@ const POPUPS = '.config-editor__hover, .config-editor__problem-tip:not([hidden])
  * Starts counting the popups that show from now on (`window.__shown`), and
  * keeps the time of the pointer's last move (`window.__lastMove`).
  */
-function countShown(page) {
+function countShown(page, popups = POPUPS) {
   return page.evaluate((selector) => {
     window.__shown = 0;
     window.__lastMove = performance.now();
     document.addEventListener('pointermove', () => (window.__lastMove = performance.now()), { capture: true });
-    const root = document.querySelector('.config-editor');
+    // The whole page: the lock tip is placed outside the editor's root.
+    const root = document.body;
     let was = false;
     const look = () => {
       const now = [...root.querySelectorAll(selector)].some((element) => element.getClientRects().length > 0);
@@ -33,7 +36,7 @@ function countShown(page) {
       was = now;
     };
     new MutationObserver(look).observe(root, { subtree: true, childList: true, attributes: true });
-  }, POPUPS);
+  }, popups);
 }
 
 /**
@@ -42,7 +45,7 @@ function countShown(page) {
  * within `limit`. From the rest, a slow machine's gap between the last move
  * and this call doesn't shorten the delay measured.
  */
-function msUntilShown(page, key = null, limit = 2000, fromRest = false) {
+function msUntilShown(page, key = null, limit = 2000, fromRest = false, popups = POPUPS) {
   return page.evaluate(
     ([selector, key, limit, fromRest]) =>
       new Promise((resolve) => {
@@ -59,7 +62,7 @@ function msUntilShown(page, key = null, limit = 2000, fromRest = false) {
         };
         check();
       }),
-    [POPUPS, key, limit, fromRest],
+    [popups, key, limit, fromRest],
   );
 }
 
@@ -168,5 +171,93 @@ test.describe('hover delay setting', () => {
     await page.keyboard.press('Control+k');
     await page.keyboard.press('Control+i');
     expect(await msUntilShown(page, 'public_address')).toBeLessThan(150);
+  });
+});
+
+// The protected fixture: `id: srv-42` (read-only, "Assigned by the server"),
+// `name: edge` (free), the `limits` block (read-only, "Set by your plan").
+const LOCK_TIP = '.config-editor__protect-tip';
+const ID = 0;
+const NAME = 1;
+const MAX = 4;
+
+test.describe('the lock tip opens on rest', () => {
+  setupEditor(test, '?schema=protected');
+
+  test.beforeEach(async ({ page }) => {
+    await page.mouse.move(2, 2);
+  });
+
+  test('a slow pass over a locked value shows no tip; resting shows it after the delay', async ({ page }) => {
+    await countShown(page, LOCK_TIP);
+    await slowPass(page, ID, 4, 8);
+    expect(await page.evaluate(() => window.__shown), 'no lock tip while the pointer moves').toBe(0);
+    const ms = await msUntilShown(page, null, 2000, true, LOCK_TIP);
+    expect(ms, 'the lock tip shows once the pointer rests').not.toBeNull();
+    expect(ms).toBeGreaterThan(200);
+    expect(ms).toBeLessThan(900);
+    await expect(page.locator(LOCK_TIP)).toHaveText('Assigned by the server');
+    // Off the text, it goes at once.
+    await page.mouse.move(2, 2);
+    await expect(page.locator(LOCK_TIP)).toHaveCount(0, { timeout: 150 });
+  });
+
+  test('from one lock tip to the next is quick, and each fades in', async ({ page }) => {
+    const id = await pointAt(page, ID, 6);
+    await page.mouse.move(id.x, id.y);
+    const tip = page.locator(LOCK_TIP);
+    await expect(tip).toHaveText('Assigned by the server');
+    expect(await tip.evaluate((element) => getComputedStyle(element).animationName)).toBe('config-editor-popup-in');
+    await countShown(page, LOCK_TIP);
+    const max = await pointAt(page, MAX, 8);
+    await page.mouse.move(max.x, max.y, { steps: 3 });
+    const ms = await msUntilShown(page, null, 2000, true, LOCK_TIP);
+    expect(ms).not.toBeNull();
+    expect(ms, 'the next lock tip after a short rest').toBeLessThan(220);
+    await expect(tip).toHaveText('Set by your plan');
+  });
+
+  test('a refused edit says why at once', async ({ page }) => {
+    const free = await pointAt(page, NAME, 7);
+    await page.mouse.click(free.x, free.y);
+    await page.locator('.config-editor__input').evaluate((element) => {
+      const at = element.value.indexOf('srv-42') + 2;
+      element.setSelectionRange(at, at);
+      element.addEventListener('keydown', () => (window.__lastMove = performance.now()), { capture: true });
+    });
+    await page.keyboard.type('x');
+    const ms = await msUntilShown(page, null, 2000, true, `${LOCK_TIP}--refused`);
+    expect(ms).not.toBeNull();
+    expect(ms, 'no rest for a refusal').toBeLessThan(150);
+    expect(
+      await page.locator(`${LOCK_TIP}--refused`).evaluate((element) => getComputedStyle(element).animationName),
+    ).toBe('none');
+  });
+
+  test('no fade with reduced motion; stronger edges with more contrast', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce', contrast: 'more' });
+    const id = await pointAt(page, ID, 6);
+    await page.mouse.move(id.x, id.y);
+    const tip = page.locator(LOCK_TIP);
+    await tip.waitFor();
+    const look = await tip.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { animation: style.animationName, border: style.borderTopColor, text: style.color };
+    });
+    expect(look.animation).toBe('none');
+    expect(look.border, 'the border takes the text color').toBe(look.text);
+  });
+});
+
+test.describe('the lock tip and the hover delay setting', () => {
+  setupEditor(test, '?schema=protected&hoverDelay=900');
+
+  test('the lock tip waits the host’s delay', async ({ page }) => {
+    await page.mouse.move(2, 2);
+    await countShown(page, LOCK_TIP);
+    const id = await pointAt(page, ID, 6);
+    await page.mouse.move(id.x, id.y);
+    const ms = await msUntilShown(page, null, 3000, true, LOCK_TIP);
+    expect(ms).toBeGreaterThan(800);
   });
 });

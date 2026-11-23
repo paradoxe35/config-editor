@@ -1610,14 +1610,16 @@
    line when it fits there whole. */
 :not(#\#):not(#\#) .config-editor__hover--unmeasured { visibility: hidden; }
 
-/* The card and the problem tip fade in. Opacity only: each is in its
-   place, its size and takes the pointer from the first frame, so placing
-   it, reaching it and clicking it do not wait for the fade. */
+/* The card, the problem tip and the lock tip the pointer rested for fade
+   in. Opacity only: each is in its place, its size and takes the pointer
+   from the first frame, so placing it, reaching it and clicking it do not
+   wait for the fade. A refused edit's tip shows at once. */
 @keyframes config-editor-popup-in {
   from { opacity: 0; }
 }
 :not(#\#):not(#\#) .config-editor__hover,
-:not(#\#):not(#\#) .config-editor__problem-tip {
+:not(#\#):not(#\#) .config-editor__problem-tip,
+:not(#\#):not(#\#) .config-editor__protect-tip:not(.config-editor__protect-tip--refused) {
   animation: config-editor-popup-in 100ms ease-out;
 }
 
@@ -2408,7 +2410,8 @@
     transition: none;
   }
   :not(#\#):not(#\#) .config-editor__hover,
-  :not(#\#):not(#\#) .config-editor__problem-tip {
+  :not(#\#):not(#\#) .config-editor__problem-tip,
+  :not(#\#):not(#\#) .config-editor__protect-tip:not(.config-editor__protect-tip--refused) {
     animation: none;
   }
 }

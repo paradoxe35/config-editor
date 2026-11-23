@@ -525,3 +525,27 @@ fn the_card_stays_its_moment_whatever_the_hover_delay() {
         assert_eq!(restarted(&mut machine), Some(Some(350)), "delay {rest}");
     }
 }
+
+/// The lock tip waits for the rest too, and has no phase of its own (the
+/// pointer cannot enter it): from it to the next popup is quick, as from a
+/// popup. Just after it closed the rest is short; long after, the full
+/// rest. From a popup shown to a lock, the lock shows after the short rest.
+#[test]
+fn the_next_popup_after_the_lock_tip_shows_after_a_short_rest() {
+    for (rest_at, ms) in [(1100.0, 100), (1300.0, 100), (1301.0, REST_MS)] {
+        let mut machine = Pointer::default();
+        machine.pend("lock", KEY, 0.0, REST_MS);
+        restarted(&mut machine);
+        assert_eq!(machine.fired(), Some(Fire::Open("lock")));
+        restarted(&mut machine);
+        // The lock tip shows (outside the phases), then goes.
+        machine.note_closed(1000.0);
+        assert_eq!(restarted(&mut machine), None, "no timer of its own");
+        machine.pend("port", (KEY.0, KEY.1 + 20.0), rest_at, REST_MS);
+        assert_eq!(restarted(&mut machine), Some(Some(ms)), "at {rest_at}");
+    }
+
+    let mut machine = card_open();
+    machine.pend("lock", (KEY.0 + 60.0, KEY.1), 1000.0, REST_MS);
+    assert_eq!(restarted(&mut machine), Some(Some(100)), "card to lock");
+}

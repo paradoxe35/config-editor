@@ -14,7 +14,7 @@ use super::super::language::ConfigLanguage;
 use super::super::languages::Language;
 use super::super::parse_cache;
 use super::super::paths::FieldPath;
-use super::super::popups::PopupState;
+use super::super::popups::{LockCause, LockHere, PopupState};
 use super::super::schema::SchemaBundle;
 use super::super::secret_options::SecretOptions;
 use super::super::state::EditorState;
@@ -432,6 +432,11 @@ impl ProtectState {
     /// Hides the lock tip (only a hover one with `hover_only`).
     pub(crate) fn hide_tip(&self, hover_only: bool) {
         self.popups.hide_lock(hover_only);
+    }
+
+    /// The pointer left the text: a lock tip it rested for goes.
+    pub(crate) fn leave_tip(&self) {
+        self.popups.leave_lock();
     }
 
     /// The lock tip, while one shows.
@@ -1256,8 +1261,53 @@ impl EditorState {
     }
 
     /// Shows what the protected text at zero-based `line`:`column` is, for
-    /// the pointer; its message, or `None` when nothing protected is there.
+    /// the caret (a tap, `Ctrl+K Ctrl+I`), at once; its message, or `None`
+    /// when nothing protected is there (a tip shown for the pointer goes
+    /// then).
     pub(crate) fn hover_protected(&self, line: usize, column: usize) -> Option<String> {
+        self.show_protected(line, column, LockCause::Caret)
+    }
+
+    /// The pointer's rest over zero-based `line`:`column` is over: what the
+    /// protected text there is shows.
+    pub(crate) fn rest_on_protected(&self, line: usize, column: usize) {
+        self.show_protected(line, column, LockCause::Pointer);
+    }
+
+    fn show_protected(&self, line: usize, column: usize, cause: LockCause) -> Option<String> {
+        let Some((message, offset)) = self.hover_note(line, column) else {
+            self.protect().hide_tip(true);
+            return None;
+        };
+        self.protect()
+            .popups
+            .hover_lock(message.clone(), offset, cause);
+        Some(message)
+    }
+
+    /// The pointer moved over zero-based `line`:`column`: what the
+    /// protected text there shows it. Its tip waits for the pointer's rest
+    /// (see `popups`) unless the same tip shows already; another tip shown
+    /// for the pointer goes now.
+    pub(crate) fn lock_under_pointer(&self, line: usize, column: usize) -> LockHere {
+        match self.hover_note(line, column) {
+            Some((message, _)) if self.protect().popups.hover_lock_shows(&message) => {
+                LockHere::Shows
+            }
+            found => {
+                self.protect().hide_tip(true);
+                if found.is_some() {
+                    LockHere::Waits
+                } else {
+                    LockHere::Nothing
+                }
+            }
+        }
+    }
+
+    /// What the protected text at zero-based `line`:`column` is, and where
+    /// its tip points (UTF-16), without showing it.
+    fn hover_note(&self, line: usize, column: usize) -> Option<(String, usize)> {
         let no_tokens = self.protect().secrets.tokens.with_untracked(Vec::is_empty);
         if no_tokens
             && self
@@ -1265,21 +1315,14 @@ impl EditorState {
                 .protected
                 .with_untracked(|protected| protected.is_empty())
         {
-            self.protect().hide_tip(true);
             return None;
         }
-        let found = self.doc().text.with_untracked(|text| {
+        self.doc().text.with_untracked(|text| {
             let offset = LineIndex::new(text).offset(line + 1, column + 1);
             // The tip is placed on screen, in UTF-16 units of the text.
             self.protected_note(offset, false)
                 .map(|(_, message)| (message, utf16_of(text, offset)))
-        });
-        let Some((message, offset)) = found else {
-            self.protect().hide_tip(true);
-            return None;
-        };
-        self.protect().popups.hover_lock(message.clone(), offset);
-        Some(message)
+        })
     }
 }
 

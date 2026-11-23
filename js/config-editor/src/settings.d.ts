@@ -74,7 +74,7 @@ export interface EditorSettings {
    */
   hoverDocs?: boolean;
   /**
-   * How long, in milliseconds, the pointer rests on a key or a problem's underline before its hover card or problem tip shows; a move of more than a few pixels starts the wait again. While one shows, or just after one closed, another shows after 100 ms (or this, if shorter). `Ctrl+K Ctrl+I`, `F8` and taps show them at once.
+   * How long, in milliseconds, the pointer rests on a key, a problem's underline or protected text before its hover card, problem tip or lock tip shows; a move of more than a few pixels starts the wait again. While one shows, or just after one closed, another shows after 100 ms (or this, if shorter). `Ctrl+K Ctrl+I`, `F8` and taps show them at once.
    *
    * @default 300
    */

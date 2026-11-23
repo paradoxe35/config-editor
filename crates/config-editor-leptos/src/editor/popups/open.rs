@@ -43,6 +43,7 @@ impl EditorState {
                 machine.pend_quietly(PendingHover {
                     card: Some(card),
                     tip: None,
+                    lock: None,
                 });
             });
             return;
@@ -288,9 +289,12 @@ impl EditorState {
             return;
         };
         match fire {
-            Fire::Open(PendingHover { card, tip }) => {
+            Fire::Open(PendingHover { card, tip, lock }) => {
                 if let Some(place) = tip {
                     self.hover_problem(place);
+                }
+                if let Some((line, column)) = lock {
+                    self.rest_on_protected(line, column);
                 }
                 if let Some(card) = card {
                     self.open_pending_card(card);

@@ -82,9 +82,10 @@ pub struct EditorSettings {
     /// hovering a key, at the caret with `Ctrl+K Ctrl+I` (read to screen
     /// readers), or on a tap on a touch screen.
     pub hover_docs: bool,
-    /// How long, in milliseconds, the pointer rests on a key or a problem's
-    /// underline before its hover card or problem tip shows; a move of more
-    /// than a few pixels starts the wait again. While one shows, or just
+    /// How long, in milliseconds, the pointer rests on a key, a problem's
+    /// underline or protected text before its hover card, problem tip or
+    /// lock tip shows; a move of more than a few pixels starts the wait
+    /// again. While one shows, or just
     /// after one closed, another shows after 100 ms (or this, if shorter).
     /// `Ctrl+K Ctrl+I`, `F8` and taps show them at once.
     pub hover_delay: u32,

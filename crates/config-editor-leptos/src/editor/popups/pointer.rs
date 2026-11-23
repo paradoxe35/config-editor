@@ -1,5 +1,5 @@
 //! The pointer over the text and on the popups, as in VS Code: what it
-//! rests on shows (a problem's tip, a key's card, once the pointer rests; a
+//! rests on shows once the pointer rests (a problem's tip, a key's card, a
 //! protected value's lock tip), and a popup it can enter (the hover card,
 //! the problem tip with a link or that scrolls) takes a pointer that comes
 //! from what the popup is for (see `path`), so its text can be selected
@@ -23,7 +23,7 @@ use super::super::source_area::SourceArea;
 use super::super::state::EditorState;
 use super::machine::{Over, Sight};
 use super::path::popup_box;
-use super::{PendingCard, PendingHover, now};
+use super::{LockHere, PendingCard, PendingHover, now};
 use crate::editor::completion::Part;
 
 impl EditorState {
@@ -43,12 +43,14 @@ impl EditorState {
         if free {
             self.step(|machine| machine.on_problems());
         }
-        let here = self.card_here(element, line, column);
+        let lock_here = self.lock_under_pointer(line, column);
+        let lock = (free && lock_here == LockHere::Waits).then_some((line, column));
+        let here = self.card_here(element, line, column, lock_here != LockHere::Nothing);
         let card = match &here {
             CardHere::Wait(card) => Some(card.clone()),
             _ => None,
         };
-        let waits = card.is_some() || tip.is_some();
+        let waits = card.is_some() || tip.is_some() || lock.is_some();
         match here {
             // Back on its key within the moment it was given to be
             // reached: it stays.
@@ -65,7 +67,7 @@ impl EditorState {
         if waits {
             let rest_ms = self.config().settings.hover_delay.get_untracked();
             self.step(|machine| {
-                machine.pend(PendingHover { card, tip }, (x, y), now(), rest_ms);
+                machine.pend(PendingHover { card, tip, lock }, (x, y), now(), rest_ms);
             });
         }
     }
@@ -87,12 +89,18 @@ impl EditorState {
     }
 
     /// What the card does for the pointer over character `column` of
-    /// zero-based `line`.
-    fn card_here(&self, element: &SourceArea, line: usize, column: usize) -> CardHere {
+    /// zero-based `line` (`on_protected`: protected text, which has a
+    /// message of its own).
+    fn card_here(
+        &self,
+        element: &SourceArea,
+        line: usize,
+        column: usize,
+        on_protected: bool,
+    ) -> CardHere {
         if !self.completion().suggestions.with_untracked(Vec::is_empty) {
             return CardHere::Hide;
         }
-        let on_protected = self.hover_protected(line, column).is_some();
         if !self.config().settings.hover_docs.get_untracked() {
             return CardHere::Leave;
         }
@@ -152,7 +160,8 @@ impl EditorState {
     /// the lines the popup covers, a way to it starts there, as over the
     /// text. Onto the popup, the way so far holds (the popup decides
     /// whether it takes the pointer). The card and the problem tip close
-    /// after their moment.
+    /// after their moment; the lock tip the pointer rested for, which it
+    /// cannot enter, at once.
     pub(crate) fn pointer_left_text(&self, to: Option<&web_sys::EventTarget>, x: f64, y: f64) {
         let popup = self.reachable_popup();
         let onto_popup = popup.as_ref().is_some_and(|popup| {
@@ -163,6 +172,7 @@ impl EditorState {
         self.step(|machine| machine.left_text((x, y), onto_popup, popup));
         self.leave_hover();
         self.leave_problem();
+        self.protect().leave_tip();
     }
 
     /// The pointer moved to `(x, y)` in the window off the text (the

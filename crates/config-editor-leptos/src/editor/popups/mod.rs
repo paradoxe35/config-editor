@@ -5,7 +5,8 @@
 //! - one popup is open at a time ([`Popup`]): the card or the problem tip;
 //!   the problem tip F8 (or a tap) showed at the caret shows whenever none
 //!   is (see `card_problems`). The lock tip is a note beside them, at its
-//!   place in the text (a read-only key shows its docs and says why);
+//!   place in the text (a read-only key shows its docs and says why); for
+//!   the pointer it waits for the same rest;
 //! - the pointer's phase is one state machine (`machine`): closed →
 //!   pending → open → leaving → closed, opening when the pointer rests and
 //!   with a safe polygon (`path`), as Floating UI's `useHover` (`restMs`)
@@ -37,7 +38,7 @@ use crate::reactive::later::{self, Timeout};
 pub(super) use caret_tip::caret_tip_style;
 pub(super) use focus::{card_keys, opens_docs_from, selects_all_in};
 #[cfg(feature = "protect")]
-pub(crate) use lock::LockTip;
+pub(crate) use lock::{Cause as LockCause, LockTip};
 pub(super) use outside_press::{close_popups_on_escape_over_them, close_popups_on_outside_press};
 pub(super) use pointer::{back_on_text, enter_popup, list_wheel, popup_wheel};
 
@@ -55,11 +56,28 @@ pub(crate) struct PendingCard {
 
 /// What shows once the pointer rests where it is: the problem tip for the
 /// problems at one-based `tip`, then the card, which takes its place when
-/// the key has docs (listing those problems).
+/// the key has docs (listing those problems), and the lock tip for the
+/// protected text at zero-based `lock` (looked up again then).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PendingHover {
     pub(crate) card: Option<PendingCard>,
     pub(crate) tip: Option<(usize, usize)>,
+    pub(crate) lock: Option<(usize, usize)>,
+}
+
+/// What the protected text under the pointer shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LockHere {
+    /// Nothing protected there.
+    Nothing,
+    /// Its lock tip shows already: it stays.
+    #[cfg_attr(
+        not(feature = "protect"),
+        expect(dead_code, reason = "nothing is protected without the feature")
+    )]
+    Shows,
+    /// Its lock tip waits for the pointer's rest.
+    Waits,
 }
 
 /// The time now, in milliseconds: when popups close and rests start.

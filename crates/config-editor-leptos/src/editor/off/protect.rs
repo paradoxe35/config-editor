@@ -19,6 +19,7 @@ use super::language::ConfigLanguage;
 use super::languages::Language;
 use super::line_rows::MarkedLines;
 use super::paths::{FieldPath, TextRange};
+use super::popups::LockHere;
 use super::schema::SchemaBundle;
 use super::secret_options::SecretOptions;
 use super::state::EditorState;
@@ -158,6 +159,8 @@ impl ProtectState {
 
     pub(super) fn hide_tip(&self, _hover_only: bool) {}
 
+    pub(super) fn leave_tip(&self) {}
+
     /// Nothing is pinned to read afresh.
     pub(super) fn trust_text(&self) {}
 
@@ -255,6 +258,12 @@ impl EditorState {
     pub(super) fn hover_protected(&self, _line: usize, _column: usize) -> Option<String> {
         None
     }
+
+    pub(super) fn lock_under_pointer(&self, _line: usize, _column: usize) -> LockHere {
+        LockHere::Nothing
+    }
+
+    pub(super) fn rest_on_protected(&self, _line: usize, _column: usize) {}
 
     #[cfg(feature = "search")]
     pub(super) fn protected_bytes(&self, _text: &str) -> Vec<std::ops::Range<usize>> {
