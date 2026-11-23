@@ -564,3 +564,34 @@ fn every_language_reads_characters_of_several_bytes_beside_its_syntax() {
         }
     }
 }
+
+/// P5: the field under the pointer in a long flat document of a custom
+/// language (each span lookup a read of the whole text) is found with work
+/// bounded by its line: the lookup that reaches the members of containers
+/// written on one line never reads the span of every key of the document.
+#[test]
+fn the_field_under_the_pointer_in_a_long_flat_document_is_found_in_time() {
+    let mut text = String::new();
+    for index in 0..1125 {
+        let zeros = if index == 282 { 109 } else { 59 };
+        text.push_str(&format!("k{index} := 0.{}1\n", "0".repeat(zeros)));
+    }
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .stack_size(4 << 20)
+        .spawn(move || {
+            super::reading::replay(super::reading::ReadCase {
+                language: "ODD",
+                text,
+                at: 2_898_130,
+            });
+            let _ = done.send(());
+        })
+        .expect("a test thread");
+    assert!(
+        finished
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .is_ok(),
+        "the readings of a flat document of 1,125 keys took past 20 s"
+    );
+}

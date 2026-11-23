@@ -74,6 +74,7 @@ fn shapes_of(kind: EditKind) -> &'static [Shape] {
             Shape::Locks,
             Shape::Deep,
         ],
+        EditKind::TypeName => &[Shape::Names],
         _ => &[Shape::Same, Shape::Distinct, Shape::Secrets, Shape::Locks],
     }
 }
@@ -280,4 +281,5 @@ linear! {
     suggestions_grow_with_the_document: Suggest,
     hover_grows_with_the_document: Hover,
     validation_grows_with_the_document: Validate,
+    typing_a_key_name_grows_with_the_names: TypeName,
 }

@@ -2,6 +2,7 @@
 
 use super::super::paths::{FieldPath, api_units, line_start, split_line};
 use super::super::work_count::{Work, note};
+use super::inline_field::inline_field_at;
 use super::*;
 use crate::editor::language::cursor_at;
 
@@ -175,12 +176,15 @@ pub(crate) fn field_at(
     }
     let line_start = usize::from(line_start(source, line_index));
     let line = split_line(source, line_index)?;
-    if behavior.hover_path(source, line_index, column).is_some()
-        || behavior.hover_key(line, column).is_some()
-    {
+    let at = line.char_indices().nth(column)?.0;
+    if line[at..].starts_with(char::is_whitespace) {
         return None;
     }
-    if let Some(path) = item_at(source, line_start, line, column, behavior) {
+    // A key the line's reading names but cannot place is no value; it may
+    // still be a member of a container written on the line.
+    let keyed = behavior.hover_path(source, line_index, column).is_some()
+        || behavior.hover_key(line, column).is_some();
+    if !keyed && let Some(path) = item_at(source, line_start, line, column, behavior) {
         let key = list_key(&path)?;
         return Some(FieldHit {
             path,
@@ -189,47 +193,87 @@ pub(crate) fn field_at(
             part: Part::ItemStart,
         });
     }
-    value_at(source, line_start, line_index, line, column, behavior)
+    let reached = value_at(
+        source, line_start, line_index, line, column, keyed, behavior,
+    );
+    // A container written on the line (a flow map, an inline table, a list
+    // written inline): its member written over the place, else the
+    // container's own hit.
+    match reached {
+        Reached::Scalar(hit) => Some(hit),
+        Reached::Container(hit) => {
+            inline_field_at(source, line_index, column, &hit.path, behavior).or(Some(hit))
+        }
+        Reached::Path(path) => inline_field_at(source, line_index, column, &path, behavior),
+    }
+}
+
+/// How far the caret's reading of a line reaches a value (see
+/// [`value_at`]).
+enum Reached {
+    /// A scalar value written over the place.
+    Scalar(FieldHit),
+    /// A container whose value is written over the place.
+    Container(FieldHit),
+    /// No value over the place: the path the reading names there.
+    Path(Vec<SchemaPathSegment>),
 }
 
 /// The value whose span holds character `column` of `line` (zero-based
 /// `line_index`, starting at byte `line_start`): the field the context
-/// there names, when the parsed document places its value over `column`.
+/// there names, when the parsed document places its value over `column`
+/// and the line's reading names no key there (`keyed`).
 fn value_at(
     source: &str,
     line_start: usize,
     line_index: usize,
     line: &str,
     column: usize,
+    keyed: bool,
     behavior: &dyn ConfigLanguage,
-) -> Option<FieldHit> {
-    let at = line.char_indices().nth(column)?.0;
-    if line[at..].starts_with(char::is_whitespace) {
-        return None;
-    }
+) -> Reached {
+    let Some((at, character)) = line.char_indices().nth(column) else {
+        return Reached::Path(Vec::new());
+    };
     // Just past the character, as if it had been typed: the context names
     // the field whose value that is.
-    let after = at + line[at..].chars().next().map_or(0, char::len_utf8);
+    let after = at + character.len_utf8();
     let context = behavior.completion_context(source, api_units(source, line_start + after));
+    if keyed {
+        return Reached::Path(context.path);
+    }
     let (path, key) = match context.value_key {
         Some(key) => (path_with_key(&context.path, &key), key),
-        None if context.is_array_item => (context.path.clone(), list_key(&context.path)?),
-        None => return None,
+        None if context.is_array_item => match list_key(&context.path) {
+            Some(key) => (context.path.clone(), key),
+            None => return Reached::Path(context.path),
+        },
+        None => return Reached::Path(context.path),
     };
-    if crate::editor::parse_cache::parsed(behavior, source).is_err() {
-        return None;
-    }
+    let parsed = crate::editor::parse_cache::parsed(behavior, source);
+    let Ok(document) = parsed.as_ref() else {
+        return Reached::Path(Vec::new());
+    };
     let pointer = crate::editor::paths::FieldPath::from(path.clone()).to_pointer();
-    let span = behavior.value_span(source, &FieldPath::from(&pointer))?;
-    let on_it = span.line == line_index + 1
-        && span.start_column <= column + 1
-        && column + 1 < span.end_column;
-    on_it.then(|| FieldHit {
+    let span = behavior.value_span(source, &FieldPath::from(&pointer));
+    let on_it = span.is_some_and(|span| {
+        span.line == line_index + 1
+            && span.start_column <= column + 1
+            && column + 1 < span.end_column
+    });
+    let Some(span) = span.filter(|_| on_it) else {
+        return Reached::Path(path);
+    };
+    let hit = FieldHit {
         path,
         key,
         start_column: span.start_column - 1,
         part: Part::Value,
-    })
+    };
+    match document.pointer(&pointer) {
+        Some(Value::Object(_) | Value::Array(_)) => Reached::Container(hit),
+        _ => Reached::Scalar(hit),
+    }
 }
 
 /// Which values [`field_docs`] gives docs for.
@@ -330,7 +374,7 @@ fn item_at(
 }
 
 /// The key naming the list an item `path` is in.
-fn list_key(path: &[SchemaPathSegment]) -> Option<String> {
+pub(super) fn list_key(path: &[SchemaPathSegment]) -> Option<String> {
     path.iter().rev().find_map(|segment| match segment {
         SchemaPathSegment::Key(key) => Some(key.clone()),
         SchemaPathSegment::ArrayItem(_) => None,

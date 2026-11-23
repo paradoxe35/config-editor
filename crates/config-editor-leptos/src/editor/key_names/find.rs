@@ -9,7 +9,6 @@ use leptos::prelude::*;
 
 use super::definition::{Searched, searched_at};
 use super::list::{UseGroup, UsePlace, UseRow, UsesList};
-use super::uses::name_written_at;
 use super::{FindUses, GoToUse, HostAnswer, Use, UseHit, UsesReply, uses_in};
 use crate::FieldPath;
 use crate::editor::a11y::caret_position;
@@ -58,18 +57,6 @@ impl EditorState {
                 .flatten()
                 .filter_map(|column| field_at(text, line, column, behavior))
                 .find_map(|field| self.searched_in(text, &field))
-                .or_else(|| {
-                    // A name the caret's reading of its line does not reach
-                    // (an item of a list written inline): by where names are
-                    // written.
-                    let schema = self.config().schema.get_value()?;
-                    let name =
-                        name_written_at(text, behavior, &schema.schema, &schema.identity, at)?;
-                    Some(Searched {
-                        name,
-                        definition: false,
-                    })
-                })
         })
     }
 

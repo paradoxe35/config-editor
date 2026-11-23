@@ -27,6 +27,17 @@ pub(super) enum Shape {
     /// One value nested `size` deep under a recursive `anyOf` of the
     /// schema, wrong at every level: only validated.
     Deep,
+    /// [`Shape::Distinct`]'s items, each naming a client (a field whose
+    /// schema has `x-config-editor-keys`), beside a map of `size` clients
+    /// with names not plain ASCII (`c日本0`…): a name typed is suggested
+    /// among `size` names.
+    Names,
+}
+
+/// The name of client `index` in [`Shape::Names`]: wide characters, so
+/// every UTF-16 offset in the text is placed character by character.
+pub(super) fn client(index: usize) -> String {
+    format!("c日本{index}")
 }
 
 /// The secret placeholder written in [`Shape::Secrets`].
@@ -52,10 +63,15 @@ fn item(index: usize, distinct: bool, secret: bool) -> Value {
 /// The data of `shape` at `size`, less what its host's writer cannot
 /// write (see [`text`]).
 fn data(shape: Shape, size: usize) -> Value {
-    let distinct = matches!(shape, Shape::Distinct | Shape::Locks);
+    let distinct = matches!(shape, Shape::Distinct | Shape::Locks | Shape::Names);
     let mut items: Vec<Value> = (0..size)
         .map(|index| item(index, distinct, shape == Shape::Secrets))
         .collect();
+    if shape == Shape::Names {
+        for (index, item) in items.iter_mut().enumerate() {
+            item["client"] = json!(client(index % 7));
+        }
+    }
     if distinct && let Some(last) = items.last_mut() {
         last["port"] = json!("none");
     }
@@ -80,6 +96,12 @@ fn data(shape: Shape, size: usize) -> Value {
                 .map(|index| (format!("lock{index}"), json!(index)))
                 .collect();
             json!({"other": 1, "locked": locked, "items": items})
+        }
+        Shape::Names => {
+            let clients: serde_json::Map<String, Value> = (0..size)
+                .map(|index| (client(index), json!({"weight": index})))
+                .collect();
+            json!({"other": 1, "clients": clients, "items": items})
         }
         _ => json!({"other": 1, "items": items}),
     }
@@ -164,7 +186,8 @@ pub(super) fn schema() -> std::sync::Arc<SchemaBundle> {
             "port": {"type": "integer", "description": "The port."},
             "host": {"type": "string"},
             "mode": {"oneOf": [{"enum": ["x", "y"]}, {"type": "string", "pattern": "^x"}]},
-            "token": {"type": "string", "writeOnly": true}},
+            "token": {"type": "string", "writeOnly": true},
+            "client": {"type": "string", "x-config-editor-keys": "/clients"}},
          "additionalProperties": false},
         {"type": "string"}
     ]});
@@ -175,6 +198,7 @@ pub(super) fn schema() -> std::sync::Arc<SchemaBundle> {
             "other": {"type": "integer"},
             "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
             "locked": {"type": "object", "additionalProperties": {"type": "integer"}},
+            "clients": {"type": "object", "additionalProperties": {"type": "object"}},
             "root": {"$ref": "#/$defs/node"},
             "b": {"type": "object"}
         }

@@ -53,6 +53,9 @@ pub(super) enum EditKind {
     Hover,
     /// The typing pause's check of the document against the schema.
     Validate,
+    /// Two wide characters typed into the middle item's client (a field
+    /// naming a key of the clients map), the suggestions read after each.
+    TypeName,
 }
 
 impl EditKind {
@@ -60,7 +63,7 @@ impl EditKind {
         dead_code,
         reason = "used by an open finding's ignored test (none open now)"
     )]
-    pub(super) const ALL: [Self; 16] = [
+    pub(super) const ALL: [Self; 17] = [
         Self::Open,
         Self::Type,
         Self::TypeKey,
@@ -77,6 +80,7 @@ impl EditKind {
         Self::Suggest,
         Self::Hover,
         Self::Validate,
+        Self::TypeName,
     ];
 }
 
@@ -372,5 +376,18 @@ pub(super) fn make(state: EditorState, kind: EditKind, last: &str) {
             }
         }
         EditKind::Validate => pause(state),
+        EditKind::TypeName => {
+            let text = shown(state);
+            let line = middle(&text, "client");
+            let written = text.split('\n').nth(line).unwrap_or_default();
+            let name = written.find('日').expect("a client's name");
+            let at = line_start(&text, line) + units(&written[..name]);
+            state.set_list_mode(crate::editor::completion::ListMode::TYPED);
+            type_at(state, at, "日");
+            let _ = state.completion().suggestions.get_untracked();
+            type_at(state, at + 1, "本");
+            let _ = state.completion().suggestions.get_untracked();
+            read_view(state);
+        }
     }
 }

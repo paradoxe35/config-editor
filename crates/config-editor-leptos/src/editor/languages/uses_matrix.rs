@@ -8,7 +8,10 @@
 
 use serde_json::{Value, json};
 
-use super::super::key_names::{NameRef, SchemaIdentity, UsePart, uses_in};
+use super::super::completion::field_at;
+use super::super::key_names::{
+    NameRef, NoKeyNames, SchemaIdentity, UsePart, name_at, searched_at, uses_in,
+};
 use super::super::schema::build_schema;
 use super::Language;
 use super::harness::{BUILT_IN, report};
@@ -200,6 +203,96 @@ fn uses_at_finds_the_uses_in_every_language() {
         }
         if uses_at("{[<", language, &schema, "/clients", "home", None).is_some() {
             failures.push(format!("{language}: a broken text finds uses"));
+        }
+    }
+    report(&failures);
+}
+
+/// The document with its lists, objects and maps written on one line each
+/// (a YAML flow map, a TOML inline table), or whole on one line (JSON,
+/// XML).
+fn one_line(language: Language) -> String {
+    match language.label() {
+        "YAML" => concat!(
+            "clients:\n  home: {port: 1}\n  work: {port: 2}\ndefault_client: home\n",
+            "members: [home, work, home]\nroute: {name: home, weight: 2}\nfallback: home\n",
+            "note: home\nmode: home\ngroup: home\nreach: {home: [1], work: [2]}\n",
+        )
+        .to_string(),
+        "TOML" => concat!(
+            "default_client = \"home\"\nmembers = [\"home\", \"work\", \"home\"]\n",
+            "route = {name = \"home\", weight = 2}\nfallback = \"home\"\nnote = \"home\"\n",
+            "mode = \"home\"\ngroup = \"home\"\nreach = {home = [1], work = [2]}\n\n",
+            "[clients.home]\nport = 1\n\n[clients.work]\nport = 2\n",
+        )
+        .to_string(),
+        "HCL" => concat!(
+            "clients = { home = { port = 1 }, work = { port = 2 } }\n",
+            "default_client = \"home\"\nmembers = [\"home\", \"work\", \"home\"]\n",
+            "route = { name = \"home\", weight = 2 }\nfallback = \"home\"\nnote = \"home\"\n",
+            "mode = \"home\"\ngroup = \"home\"\nreach = { home = [1], work = [2] }\n",
+        )
+        .to_string(),
+        "JSON" => format!("{}\n", document()),
+        _ => {
+            let text = super::harness::text(language, &document(), &[]).expect("written");
+            let joined: String = text.lines().map(str::trim).collect();
+            format!("{joined}\n")
+        }
+    }
+}
+
+/// Every use, written in block form or on one line, is reached by the one
+/// lookup hover, go to definition and Find uses share (`field_at`): on its
+/// first, middle and last character, the name there is the known name
+/// `home` (the hover card's "defined in", the definition to go to) and what
+/// Find uses searches for.
+#[test]
+fn every_use_is_a_known_name_to_hover_definition_and_find_uses() {
+    let mut failures = Vec::new();
+    let keyword = json!("/clients");
+    let bundle = build_schema(&schema(&keyword)).expect("the schema compiles");
+    let name = NameRef {
+        schema: bundle.identity.clone(),
+        pointer: "/clients".into(),
+        name: "home".into(),
+    };
+    let mut all = cases();
+    for language in BUILT_IN {
+        all.push((
+            format!("{language} on one line"),
+            language,
+            one_line(language),
+        ));
+    }
+    for (label, language, text) in all {
+        let behavior = language.behavior();
+        let hits = uses_in(&text, behavior, &bundle.schema, &bundle.identity, &name);
+        if hits.len() != USES.len() {
+            failures.push(format!("{label}: {} uses found\n{text}", hits.len()));
+        }
+        for hit in hits {
+            let start = usize::from(hit.range.start());
+            let end = usize::from(hit.range.end());
+            let line_start = text[..start].rfind('\n').map_or(0, |at| at + 1);
+            let first = text[line_start..start].chars().count();
+            let last = first + text[start..end].chars().count() - 1;
+            for column in [first, usize::midpoint(first, last), last] {
+                let place = format!("{label} {} column {column}", hit.path.to_pointer());
+                let Some(field) = field_at(&text, hit.line, column, behavior) else {
+                    failures.push(format!("{place}: no field\n{text}"));
+                    continue;
+                };
+                let known = name_at(&text, &field, &bundle, behavior, &NoKeyNames);
+                if known.map(|known| known.name).as_deref() != Some("home") {
+                    failures.push(format!("{place}: no known name at {field:?}"));
+                }
+                let searched =
+                    searched_at(&text, &field, &bundle, behavior, &NoKeyNames, &|_| false);
+                if searched.map(|searched| searched.name.name).as_deref() != Some("home") {
+                    failures.push(format!("{place}: Find uses searches for nothing"));
+                }
+            }
         }
     }
     report(&failures);

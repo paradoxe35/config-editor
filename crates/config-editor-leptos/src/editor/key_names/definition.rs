@@ -178,7 +178,7 @@ pub(crate) fn key_written(
         name.pointer,
         crate::editor::language::pointer_key(&name.name)
     );
-    let span = crate::editor::paths::memo_key_span(behavior, source, &pointer)?;
+    let span = crate::editor::paths::written_key_span(behavior, source, &pointer)?;
     let units = crate::editor::paths::offset_of(
         source,
         crate::editor::paths::TextPosition::new(span.line, span.start_column),
