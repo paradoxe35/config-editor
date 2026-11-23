@@ -4,7 +4,7 @@
 
 use serde_json::{Value, json};
 
-use super::super::{LossEffect, SchemaFormat, SchemaInput};
+use super::super::{SchemaFormat, SchemaInput};
 use crate::editor::schema::Schema;
 
 const API_30: &str = r##"{
@@ -58,18 +58,15 @@ fn a_named_schema_of_an_openapi_3_0_document_is_the_schema() {
         json["$defs"]["Server"]["properties"]["host"]["xml"],
         json!({"attribute": true})
     );
-    let loss = schema
-        .losses()
-        .iter()
-        .find(|loss| loss.construct == "discriminator")
-        .expect("its loss");
-    assert_eq!(loss.effect, LossEffect::Approximated);
+    // `Pet`, which `Server` never reaches, is left out.
+    assert!(json["$defs"].get("Pet").is_none());
+    assert!(schema.losses().is_empty(), "{:?}", schema.losses());
 }
 
 /// The rewrite reads a schema's schemas as every walk does: a property
 /// named `xml` or `discriminator` is a schema, OpenAPI's `xml`, `example`
-/// and `discriminator` notes are data, and a discriminator's loss names
-/// its place.
+/// and `discriminator` notes are data (a discriminator then picks its
+/// option), and the loss of one it cannot express names its place.
 #[test]
 fn openapi_notes_are_data_and_properties_named_like_them_are_schemas() {
     let api = r##"{"openapi": "3.0.3", "components": {"schemas": {
@@ -96,10 +93,20 @@ fn openapi_notes_are_data_and_properties_named_like_them_are_schemas() {
         a["properties"]["c"]["examples"],
         json!([{"$ref": "#/components/schemas/B"}])
     );
+    assert!(a.get("discriminator").is_none(), "{a}");
     assert_eq!(
-        a["discriminator"]["mapping"]["b"],
-        json!("#/components/schemas/B")
+        a["allOf"][0]["then"]["allOf"][0]["then"]["$ref"],
+        json!("#/$defs/B")
     );
+    assert_eq!(
+        a["allOf"][0]["else"]["oneOf"][0]["$ref"],
+        json!("#/$defs/B")
+    );
+    let inline = api.replace(
+        r##""oneOf": [{"$ref": "#/components/schemas/B"}]"##,
+        r##""oneOf": [{"type": "integer"}]"##,
+    );
+    let schema = compile(&inline, Some("A")).unwrap();
     let places: Vec<&str> = schema
         .losses()
         .iter()
@@ -157,7 +164,11 @@ fn swagger_and_openapi_3_1_documents_and_the_errors() {
             "say which schema with the option \"schema\" (one of Server, Tags, Pet)",
         ),
         (API_30, Some("Nope"), "the document has no schema \"Nope\""),
-        ("{\"info\": {}}", None, "the document is no OpenAPI"),
+        (
+            "{\"info\": {}}",
+            None,
+            "the document is not an OpenAPI or Swagger document",
+        ),
         (
             r#"{"openapi": "3.0.0"}"#,
             None,
@@ -287,6 +298,77 @@ fn keywords_openapi_3_0_and_swagger_lack_are_kept_and_checked_as_json_schema() {
             }
             assert!(messages(&through, good).is_empty(), "{document}: {good}");
             assert!(!messages(&through, bad).is_empty(), "{document}: {bad}");
+        }
+    }
+}
+
+/// Only the named schema and what it refers to are compiled: a schema it
+/// never reaches is left out, with its losses (a discriminator, Swagger's
+/// `type: file`) and whatever no JSON Schema validator takes in it.
+#[test]
+fn only_what_the_named_schema_reaches_is_compiled_and_told() {
+    let swagger = r##"{"swagger": "2.0", "definitions": {
+      "Pet": {"type": "object", "properties": {"tag": {"$ref": "#/definitions/Tag"}}},
+      "Tag": {"type": "string"},
+      "Upload": {"type": "object", "properties": {"f": {"type": "file"}}},
+      "Union": {"oneOf": [{"type": "object"}], "discriminator": {"propertyName": "k"}}
+    }}"##;
+    let schema = compile(swagger, Some("Pet")).unwrap();
+    let defs: Vec<&String> = schema.json()["$defs"].as_object().unwrap().keys().collect();
+    assert_eq!(defs, ["Pet", "Tag"]);
+    assert!(schema.losses().is_empty(), "{:?}", schema.losses());
+    // Reached, `type: file` is a string, and its loss.
+    let schema = compile(swagger, Some("Upload")).unwrap();
+    assert_eq!(
+        schema.json()["$defs"]["Upload"]["properties"]["f"]["type"],
+        json!("string")
+    );
+    let losses: Vec<String> = schema.losses().iter().map(ToString::to_string).collect();
+    assert_eq!(
+        losses,
+        ["#/definitions/Upload/properties/f: type: file is checked as a string"]
+    );
+    // An anchor a reference names may be anywhere: nothing is left out.
+    let anchored = r##"{"openapi": "3.1.0", "components": {"schemas": {
+      "A": {"$ref": "#port"}, "B": {"$anchor": "port", "type": "integer"}}}}"##;
+    let schema = compile(anchored, Some("A")).unwrap();
+    assert!(schema.json()["$defs"].get("B").is_some());
+}
+
+/// Swagger's `x-nullable: true` (as OpenAPI 3.0's `nullable`) lets a
+/// value be `null`.
+#[cfg(all(feature = "schema-validation", feature = "json"))]
+#[test]
+fn x_nullable_lets_a_swagger_value_be_null() {
+    use crate::editor::Language;
+    for (version, keyword) in [
+        ("2.0", "x-nullable"),
+        ("3.0.3", "x-nullable"),
+        ("3.0.3", "nullable"),
+    ] {
+        let schemas = json!({"Pet": {"type": "object", "properties": {
+            "tag": {"type": "string", keyword: true},
+            "kind": {"$ref": "#/components/schemas/Kind", keyword: true}}},
+            "Kind": {"type": "string"}});
+        let text = if version == "2.0" {
+            json!({"swagger": version, "definitions": schemas})
+                .to_string()
+                .replace("#/components/schemas/", "#/definitions/")
+        } else {
+            json!({"openapi": version, "components": {"schemas": schemas}}).to_string()
+        };
+        let schema = compile(&text, Some("Pet")).unwrap();
+        for (document, valid) in [
+            (r#"{"tag": null, "kind": null}"#, true),
+            (r#"{"tag": "a", "kind": "b"}"#, true),
+            (r#"{"tag": 1}"#, false),
+        ] {
+            let problems = schema.validate(Language::JSON, document);
+            assert_eq!(
+                problems.is_empty(),
+                valid,
+                "{version} {keyword} {document}: {problems:?}"
+            );
         }
     }
 }

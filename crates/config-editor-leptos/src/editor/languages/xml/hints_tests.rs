@@ -107,6 +107,25 @@ fn completion_offers_attributes_in_a_start_tag_and_elements_in_the_content() {
     }
 }
 
+/// A schema saying of its properties that they are elements
+/// (`"attribute": false`, as an XSD's compiled schema says of every child
+/// element) tells attributes from elements too: an element with no
+/// attribute offers nothing in its start tag, its children in its content.
+#[test]
+fn properties_marked_elements_are_offered_in_the_content_only() {
+    let schema = Schema::compile(
+        r#"{"properties": {"server": {"properties": {
+            "name": {"type": "string", "xml": {"attribute": false}},
+            "hosts": {"type": "array", "items": {"type": "string"}, "xml": {"attribute": false}}
+        }}}}"#,
+    )
+    .unwrap();
+    assert_eq!(offered(&schema, "<server |></server>"), Vec::<String>::new());
+    let mut elements = offered(&schema, "<server>\n  |\n</server>");
+    elements.sort();
+    assert_eq!(elements, ["hosts", "name"]);
+}
+
 /// Which new values the schema makes attributes is read walking the
 /// schema only where the document holds what the text before did not: a
 /// typed value walks it as far for a document four times as large, and

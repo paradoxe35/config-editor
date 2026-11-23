@@ -496,18 +496,47 @@ impl Wording<'_> {
     }
 
     /// "matches more than one of the oneOf options (Cloudflare, Route 53)":
-    /// the options the value matches (those without errors).
+    /// the options the value matches (those without errors). An untitled
+    /// option that only lists `required` keys (one key of several to
+    /// write) is named by them: `"b"`, the key written.
     fn several_match(
         &self,
         error: &ValidationError<'_>,
         branches: &[Vec<ValidationError<'_>>],
     ) -> String {
         let names = self.option_names(error, branches.len());
-        let matched: Vec<&str> = branches
+        let options = self
+            .root
+            .pointer(&super::explanation::original_path(
+                error.schema_path().as_str(),
+            ))
+            .and_then(Value::as_array);
+        let by_keys = |index: usize| -> Option<String> {
+            let option = options?.get(index)?.as_object()?;
+            let keys = option.get("required")?.as_array()?;
+            if option.len() != 1 || keys.is_empty() {
+                return None;
+            }
+            let quoted: Option<Vec<String>> = keys
+                .iter()
+                .map(|key| key.as_str().map(|key| format!("\"{key}\"")))
+                .collect();
+            Some(quoted?.join(" + "))
+        };
+        let numbered =
+            |index: usize| fill(&self.strings.option_number, &[("number", &(index + 1))]);
+        let matched: Vec<String> = branches
             .iter()
             .zip(&names)
-            .filter(|(branch, _)| branch.is_empty())
-            .map(|(_, name)| name.as_str())
+            .enumerate()
+            .filter(|(_, (branch, _))| branch.is_empty())
+            .map(|(index, (_, name))| {
+                if *name == numbered(index) {
+                    by_keys(index).unwrap_or_else(|| name.clone())
+                } else {
+                    name.clone()
+                }
+            })
             .collect();
         fill(
             &self.strings.several_options_match,

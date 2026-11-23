@@ -287,7 +287,11 @@ impl<'a> Compiler<'a> {
         if let Some(location) = &node.location {
             loss = loss.in_file(location.to_string());
         }
-        self.losses.push(loss);
+        // A construct read again (a group several types refer to) is
+        // told once for its place.
+        if !self.losses.contains(&loss) {
+            self.losses.push(loss);
+        }
     }
 
     /// [`lose`](Self::lose), reported once for the whole schema.

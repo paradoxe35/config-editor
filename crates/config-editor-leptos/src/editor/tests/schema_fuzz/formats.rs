@@ -11,6 +11,7 @@
 
 use serde_json::{Map, Value, json};
 
+use super::discriminated::{self, as_discriminator};
 use super::random::Rng;
 use super::reference::Both;
 use super::runner::{Case, Property, Verdict, failure, run};
@@ -80,7 +81,8 @@ pub(super) fn source(schema: &Value, written: Written) -> Option<Source> {
             let mut named = Map::new();
             for (key, def) in defs.into_iter().chain([(name.clone(), root)]) {
                 let mut def = def;
-                if !refs_to(&mut def, &|target| format!("{prefix}{target}"))
+                if !as_discriminator(&mut def, written == Written::Swagger)
+                    || !refs_to(&mut def, &|target| format!("{prefix}{target}"))
                     || (legacy && !as_legacy(&mut def))
                 {
                     return None;
@@ -292,8 +294,14 @@ pub(super) fn fill_check(case: &Case) -> Verdict {
     agree(case, fill::check, fill::check_with)
 }
 
+/// A case of the validation property: a random schema, or one whose
+/// options a property's value picks (written as a `discriminator`).
 fn validation_draw(rng: &mut Rng, index: usize) -> Case {
-    with_pick(validation::draw, rng, index)
+    if rng.chance(25) {
+        with_pick(discriminated::draw, rng, index)
+    } else {
+        with_pick(validation::draw, rng, index)
+    }
 }
 
 fn suggestions_draw(rng: &mut Rng, index: usize) -> Case {

@@ -26,7 +26,7 @@ impl Compiler<'_> {
                 key.clone()
             };
             let repeated = prop.max.is_none_or(|max| max > 1);
-            let schema = if repeated {
+            let mut schema = if repeated {
                 let mut array = json!({"type": "array", "items": prop.schema});
                 // An element that must occur once asks for one item too:
                 // `required` alone takes an empty list.
@@ -40,6 +40,11 @@ impl Compiler<'_> {
             } else {
                 prop.schema.clone()
             };
+            // A child element says so: a start tag then offers the declared
+            // attributes alone, none where there are none.
+            if let (false, Value::Object(map)) = (prop.attribute, &mut schema) {
+                map.insert("xml".to_string(), json!({"attribute": false}));
+            }
             if prop.min > 0 {
                 required.push(Value::String(key.clone()));
             }

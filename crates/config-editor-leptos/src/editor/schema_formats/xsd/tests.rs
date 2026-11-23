@@ -679,3 +679,86 @@ fn a_choice_of_one_option_requires_what_the_option_requires() {
         );
     }
 }
+
+/// A construct read again (a group or an attribute group referenced by
+/// several types, a type extended by several) is told once for its place.
+#[test]
+fn a_loss_read_from_several_places_is_told_once() {
+    let body = r#"<xs:group name="extra"><xs:sequence><xs:any processContents="lax" minOccurs="0"/></xs:sequence></xs:group>
+<xs:complexType name="base"><xs:sequence><xs:element name="x" type="xs:string"/></xs:sequence><xs:attribute name="v" type="xs:float"/></xs:complexType>
+<xs:element name="a"><xs:complexType><xs:group ref="extra"/></xs:complexType></xs:element>
+<xs:element name="b"><xs:complexType><xs:group ref="extra"/></xs:complexType></xs:element>
+<xs:element name="c"><xs:complexType><xs:complexContent><xs:extension base="base"><xs:group ref="extra"/></xs:extension></xs:complexContent></xs:complexType></xs:element>
+<xs:element name="d"><xs:complexType><xs:complexContent><xs:extension base="base"><xs:sequence><xs:element name="y" type="xs:string"/></xs:sequence></xs:extension></xs:complexContent></xs:complexType></xs:element>"#;
+    let schema = compile(&xsd(body));
+    let mut told: Vec<String> = schema.losses().iter().map(ToString::to_string).collect();
+    let count = told.len();
+    told.sort();
+    told.dedup();
+    assert_eq!(told.len(), count, "{told:#?}");
+    assert!(told.iter().any(|loss| loss.contains("xs:any")), "{told:#?}");
+}
+
+/// A start tag offers the element's attributes alone, never its child
+/// elements, whether it declares attributes or none, its children local
+/// or referenced, single or repeated, and its type named or not; its
+/// content offers the children alone.
+#[cfg(feature = "xml")]
+#[test]
+fn a_start_tag_offers_attributes_only_and_the_content_elements_only() {
+    let labels = |schema: &Schema, text: &str, caret: usize| -> Vec<String> {
+        let mut labels: Vec<String> = schema
+            .suggestions(crate::editor::Language::XML, text, caret)
+            .iter()
+            .map(|option| option.label().to_string())
+            .collect();
+        labels.sort();
+        labels
+    };
+    let mut options = serde_json::Map::new();
+    options.insert("root".into(), json!("dependency"));
+    let mut failures = Vec::new();
+    for attributes in ["", r#"<xs:attribute name="id" type="xs:string"/>"#] {
+        for referenced in [false, true] {
+            for repeated in ["1", "unbounded"] {
+                for named in [false, true] {
+                    let child = if referenced {
+                        format!(
+                            r#"<xs:element ref="classifier" minOccurs="0" maxOccurs="{repeated}"/>"#
+                        )
+                    } else {
+                        format!(
+                            r#"<xs:element name="classifier" type="xs:string" minOccurs="0" maxOccurs="{repeated}"/>"#
+                        )
+                    };
+                    let content = format!(
+                        r#"<xs:sequence><xs:element name="type" type="xs:string" minOccurs="0"/>{child}</xs:sequence>{attributes}"#
+                    );
+                    let declaration = if named {
+                        format!(r#" type="t"/><xs:complexType name="t">{content}</xs:complexType>"#)
+                    } else {
+                        format!("><xs:complexType>{content}</xs:complexType></xs:element>")
+                    };
+                    let body = format!(
+                        r#"<xs:element name="classifier" type="xs:string"/><xs:element name="dependency"{declaration}"#
+                    );
+                    let schema = compile_with(&xsd(&body), options.clone());
+                    let shape = format!(
+                        "attributes {} referenced {referenced} repeated {repeated} named {named}",
+                        !attributes.is_empty()
+                    );
+                    let expected: &[&str] = if attributes.is_empty() { &[] } else { &["id"] };
+                    let found = labels(&schema, "<dependency ></dependency>", 12);
+                    if found != expected {
+                        failures.push(format!("{shape}: the start tag offers {found:?}"));
+                    }
+                    let found = labels(&schema, "<dependency>\n  \n</dependency>", 15);
+                    if found != ["classifier", "type"] {
+                        failures.push(format!("{shape}: the content offers {found:?}"));
+                    }
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

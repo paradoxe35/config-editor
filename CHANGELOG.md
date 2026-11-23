@@ -5,6 +5,37 @@ All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
+## Unreleased
+
+### Schema formats
+
+- OpenAPI: a `discriminator` picks the schema a value is checked by, in
+  OpenAPI 3.0, 3.1 and Swagger 2.0: beside `oneOf`/`anyOf` options by the
+  `mapping`'s values or the options' names, and on a base schema (Swagger's
+  polymorphism) by the names of the schemas extending it. A valid pet is no
+  longer "more than one of the options", an invalid one is caught, and
+  completion offers the picked schema's keys. Only an option written in
+  place is still a loss.
+- OpenAPI: only the named schema and what it refers to are compiled, so a
+  schema it never reaches neither fails the document (Swagger's
+  `type: file`) nor adds losses. A reached `type: file` is checked as a
+  string (a loss); Swagger's `x-nullable: true` allows `null`. The error
+  for a document without a version reads "not an OpenAPI or Swagger
+  document".
+- XSD: the order of an `xs:sequence` holding an `xs:choice` is checked in
+  XML text (it was skipped whenever the choice had an option not taken).
+  A choice taken twice is one problem, naming the elements.
+- XSD: an attribute named like a child element (`<dependency
+classifier="x">`) is a problem (new string `xsd_element_as_attribute`),
+  and a start tag offers only declared attributes, nothing for an element
+  declaring none. A key refused next to an element of its name reads
+  `"type"`, not `"@type"`, in XML text.
+- XSD: a loss read from several places (a group several types use) is told
+  once.
+- Resources: a location resolves against a JSON Schema's `$id` when there
+  is no location, `./` and backslashes name the same file, and a missing
+  external `$ref` names the resource key to pass.
+
 ## 0.2.2 — 2026-11-22
 
 ### Find uses

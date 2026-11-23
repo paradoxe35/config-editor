@@ -46,9 +46,12 @@ struct Content<'s> {
     model: Occurs,
     names: BTreeSet<String>,
     wildcard: bool,
-    /// The declared attributes, when an attribute wildcard leaves the JSON
-    /// Schema open (else it checks them).
-    attributes: Option<Vec<&'s str>>,
+    /// The declared attributes.
+    attributes: Vec<&'s str>,
+    /// A wildcard leaves the JSON Schema open: every attribute and key is
+    /// checked here (else the JSON Schema checks the keys it does not
+    /// name).
+    open: bool,
     any_attribute: Option<Namespaces>,
     /// The namespaces its `xs:any`s allow.
     wildcards: Vec<Namespaces>,
@@ -70,7 +73,9 @@ impl<'s> Content<'s> {
         let attributes = value
             .get("attributes")
             .and_then(Value::as_array)
-            .map(|names| names.iter().filter_map(Value::as_str).collect());
+            .map(|names| names.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let open = value.get("open") == Some(&Value::Bool(true));
         let any_attribute = value.get("anyAttribute").and_then(Namespaces::from_json);
         let lax = value.get("lax") == Some(&Value::Bool(true));
         let mut wildcards = Vec::new();
@@ -86,6 +91,7 @@ impl<'s> Content<'s> {
             names,
             wildcard,
             attributes,
+            open,
             any_attribute,
             wildcards,
             order,
@@ -138,15 +144,13 @@ impl SchemaCheck for ContentCheck {
                     _ => None,
                 };
                 let mut refused = Vec::new();
-                match (element, &content.attributes) {
-                    (Some(element), Some(declared)) => {
-                        let found = attribute_problems(element, map, declared, content, pointer);
-                        problems.extend(found.into_iter().map(|(at, name)| {
-                            CheckProblem::new(at, not_allowed(&name, strings)).at_key()
-                        }));
+                match element {
+                    Some(element) => {
+                        problems
+                            .extend(attribute_problems(element, map, content, pointer, strings));
                     }
-                    (None, Some(declared)) if !content.lax => {
-                        refused = unknown_keys(map, declared, content);
+                    None if content.open && !content.lax => {
+                        refused = unknown_keys(map, &content.attributes, content);
                         for key in &refused {
                             let at = format!(
                                 "{pointer}/{}",
@@ -331,17 +335,23 @@ fn not_allowed(name: &str, strings: &EditorStrings) -> String {
     fill(&strings.xsd_not_declared, &[("name", &name)])
 }
 
-/// The attributes of `element` neither declared nor allowed by the
-/// attribute wildcard's namespaces: where each is (its key's pointer, or
-/// the element's) and its name.
+/// The problems of the attributes of `element` (an XML text's; `map` its
+/// value): one named like a child element of the model, which the value
+/// reads as that element's key, and, where a wildcard leaves the JSON
+/// Schema open, one neither declared nor allowed by the attribute
+/// wildcard's namespaces (else the JSON Schema refuses its key).
 fn attribute_problems(
     element: &Element,
     map: &Map<String, Value>,
-    declared: &[&str],
     content: &Content<'_>,
     pointer: &str,
-) -> Vec<(String, String)> {
+    strings: &EditorStrings,
+) -> Vec<CheckProblem> {
     let mut problems = Vec::new();
+    if content.lax {
+        return problems;
+    }
+    let declared = &content.attributes;
     for (name, namespace) in &element.attributes {
         let known = match namespace.as_deref() {
             None => declared.contains(&name.as_str()),
@@ -354,7 +364,7 @@ fn attribute_problems(
             .any_attribute
             .as_ref()
             .is_some_and(|namespaces| namespaces.allows(&Namespace::Known(namespace.clone())));
-        if known || allowed || content.lax {
+        if known || allowed {
             continue;
         }
         let key = [format!("@{name}"), name.clone()]
@@ -365,6 +375,14 @@ fn attribute_problems(
                     .find(|key| key.ends_with(&format!(":{name}")))
                     .cloned()
             });
+        // Named like a child element, alone: its key is the element's,
+        // which the JSON Schema takes.
+        let as_element = namespace.is_none()
+            && content.names.contains(name)
+            && key.as_deref() == Some(name.as_str());
+        if !as_element && !content.open {
+            continue;
+        }
         let at = key.map_or_else(
             || pointer.to_string(),
             |key| {
@@ -374,31 +392,34 @@ fn attribute_problems(
                 )
             },
         );
-        problems.push((at, name.clone()));
+        let message = if as_element {
+            fill(&strings.xsd_element_as_attribute, &[("name", name)])
+        } else {
+            not_allowed(name, strings)
+        };
+        problems.push(CheckProblem::new(at, message).at_key());
     }
     problems
 }
 
 /// Whether the JSON Schema already finds a problem with the children of
-/// `map`: a required one missing, a list of the wrong length, or one the
-/// model does not name (in a closed model).
+/// `map`: a required one missing, a choice taken twice or not at all, a
+/// list of the wrong length, or one the model does not name (in a closed
+/// model). The element's own schema is the branch holding its
+/// `properties`; its choices' options are branches too, and one not taken
+/// is no problem.
 fn json_schema_reports(
     map: &Map<String, Value>,
     branches: &[&Value],
     content: &Content<'_>,
 ) -> bool {
     for branch in branches {
-        let required = branch.get("required").and_then(Value::as_array);
-        if required.is_some_and(|keys| {
-            keys.iter()
-                .filter_map(Value::as_str)
-                .any(|key| !map.contains_key(key))
-        }) {
-            return true;
-        }
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
             continue;
         };
+        if !has_all(map, branch) || choices(branch).any(|options| taken(map, options) != 1) {
+            return true;
+        }
         for (key, value) in map {
             let Some(property) = properties.get(key) else {
                 continue;
@@ -424,6 +445,47 @@ fn json_schema_reports(
         && child_element_names(map, branches)
             .iter()
             .any(|name| !content.names.contains(name))
+}
+
+/// Whether `map` has every key `schema`'s `required` lists.
+fn has_all(map: &Map<String, Value>, schema: &Value) -> bool {
+    schema
+        .get("required")
+        .and_then(Value::as_array)
+        .is_none_or(|keys| {
+            keys.iter()
+                .filter_map(Value::as_str)
+                .all(|key| map.contains_key(key))
+        })
+}
+
+/// The options of each choice the compiler wrote into an element's schema
+/// (a `oneOf` of its own, or one in its `allOf`).
+fn choices(schema: &Value) -> impl Iterator<Item = &[Value]> {
+    let own = schema.get("oneOf").into_iter();
+    let all = schema
+        .get("allOf")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|part| part.get("oneOf"));
+    own.chain(all)
+        .filter_map(|options| options.as_array().map(Vec::as_slice))
+}
+
+/// How many of a choice's options `map` takes: an option is its
+/// `required` keys, or none of the others (`not: {anyOf}`, an optional
+/// choice left out).
+fn taken(map: &Map<String, Value>, options: &[Value]) -> usize {
+    options
+        .iter()
+        .filter(
+            |option| match option.pointer("/not/anyOf").and_then(Value::as_array) {
+                Some(others) => !others.iter().any(|other| has_all(map, other)),
+                None => has_all(map, option),
+            },
+        )
+        .count()
 }
 
 /// The text of an XML document as elements, or where in it the walk is.

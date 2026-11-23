@@ -143,6 +143,17 @@ pub(super) fn marks_attribute(here: &Here<'_>) -> bool {
         .any(|branch| branch.pointer("/xml/attribute") == Some(&Value::Bool(true)))
 }
 
+/// Whether a schema applying at `here` says whether it is an XML
+/// attribute (`"attribute": true` or `false`, as an XSD's compiled schema
+/// says of each child element).
+pub(super) fn tells_attribute(here: &Here<'_>) -> bool {
+    here.branches().iter().any(|branch| {
+        branch
+            .pointer("/xml/attribute")
+            .is_some_and(Value::is_boolean)
+    })
+}
+
 /// Whether the items of the list `array` describes are text.
 fn string_items(array: &Value, root: &Value) -> bool {
     array

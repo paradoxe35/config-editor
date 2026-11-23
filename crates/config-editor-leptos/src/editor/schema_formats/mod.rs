@@ -26,6 +26,9 @@ use super::schema::SchemaError;
 use crate::EditorStrings;
 
 mod bundle;
+mod discriminator;
+#[cfg(test)]
+mod discriminator_tests;
 pub(super) mod json;
 pub(super) mod openapi;
 #[cfg(test)]

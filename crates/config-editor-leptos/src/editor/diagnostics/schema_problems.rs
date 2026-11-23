@@ -228,7 +228,9 @@ pub(super) fn found(
                                             // XML mixed content: text beside child elements.
                                             strings.text_not_allowed.clone()
                                         } else {
-                                            fill(&strings.key_not_allowed, &[("key", key)])
+                                            // Named as the text writes it.
+                                            let key = reading.behavior.required_property(key);
+                                            fill(&strings.key_not_allowed, &[("key", &key)])
                                         };
                                     // At the root, no pointer, as for the others.
                                     let message = if parent.is_empty() {

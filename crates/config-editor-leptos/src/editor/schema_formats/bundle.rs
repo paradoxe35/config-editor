@@ -27,14 +27,23 @@ fn target(base: Option<&str>, reference: &str) -> Option<(String, String)> {
 }
 
 /// `location` resolved against `base`'s directory (a URL or a path), as
-/// RFC 3986 resolves a relative reference; an absolute one as it is.
+/// RFC 3986 resolves a relative reference; an absolute one as it is. A
+/// path's `.` and `..` segments are resolved without a base too, and a
+/// backslash separates its folders as a slash does (Windows-style
+/// `schemaLocation`s).
 pub(super) fn join(base: Option<&str>, location: &str) -> String {
     if location.contains("://") || location.starts_with('/') || location.starts_with("urn:") {
         return location.to_string();
     }
-    let Some(base) = base else {
-        return location.to_string();
-    };
+    let location = location.replace('\\', "/");
+    let base = base.map(|base| {
+        if base.contains("://") {
+            base.to_string()
+        } else {
+            base.replace('\\', "/")
+        }
+    });
+    let base = base.as_deref().unwrap_or_default();
     let directory = base.rsplit_once('/').map_or("", |(directory, _)| directory);
     // A URL's scheme and host stay; its path joins as a path does.
     let (prefix, path) = match directory.split_once("://") {
@@ -45,17 +54,21 @@ pub(super) fn join(base: Option<&str>, location: &str) -> String {
         None if base.contains('/') => (String::new(), format!("{directory}/")),
         None => (String::new(), String::new()),
     };
+    let absolute = path.starts_with('/') || !prefix.is_empty();
     let mut segments: Vec<&str> = Vec::new();
     for segment in path.split('/').chain(location.split('/')) {
         match segment {
             "" | "." => {}
+            // Above a relative path's start, `..` stays.
+            ".." if !absolute && segments.last().is_none_or(|last| *last == "..") => {
+                segments.push("..");
+            }
             ".." => {
                 segments.pop();
             }
             other => segments.push(other),
         }
     }
-    let absolute = path.starts_with('/') || !prefix.is_empty();
     format!(
         "{prefix}{}{}",
         if absolute { "/" } else { "" },
@@ -64,20 +77,27 @@ pub(super) fn join(base: Option<&str>, location: &str) -> String {
 }
 
 /// The text of the resource at `resolved` (written `written`): looked up
-/// as resolved, then as written.
+/// as resolved, then as written, each also under a key naming the same
+/// file (`./types.xsd`, `types\common.xsd`).
 pub(super) fn resource<'a>(
     resources: &'a SchemaResources,
     resolved: &str,
     written: &str,
 ) -> Result<&'a str, SchemaError> {
-    resources
-        .get(resolved)
-        .or_else(|| resources.get(written))
-        .ok_or_else(|| {
-            SchemaError(format!(
-                "\"{written}\" is not among the schema's resources: pass its text under \"{resolved}\""
-            ))
+    let named = |location: &str| {
+        resources.get(location).or_else(|| {
+            let wanted = join(None, location);
+            resources
+                .iter()
+                .find(|(key, _)| join(None, key) == wanted)
+                .map(|(_, text)| text)
         })
+    };
+    named(resolved).or_else(|| named(written)).ok_or_else(|| {
+        SchemaError(format!(
+            "\"{written}\" is not among the schema's resources: pass its text under \"{resolved}\""
+        ))
+    })
 }
 
 /// The locations (as written) `schema` refers to outside itself.
@@ -117,9 +137,14 @@ pub(super) fn bundle(
     }
     let mut bundled: Map<String, Value> = Map::new();
     let mut pending: Vec<(String, String)> = Vec::new();
+    // Without a location, the schema's `$id` is its base.
+    let id = schema
+        .get("$id")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     rewrite(
         &mut schema,
-        input.location,
+        input.location.or(id.as_deref()),
         None,
         input.resources,
         &mut pending,
@@ -247,6 +272,12 @@ mod tests {
                 "https://y.org/b.json",
             ),
             (Some("schemas/main.json"), "urn:b", "urn:b"),
+            (None, "./a.json", "a.json"),
+            (None, "x/../a.json", "a.json"),
+            (None, "../a.json", "../a.json"),
+            (Some("schemas/main.json"), "../../a.json", "../a.json"),
+            (Some("build\\main.xsd"), "core.xsd", "build/core.xsd"),
+            (None, "build\\core.xsd", "build/core.xsd"),
         ];
         for (base, location, expected) in cases {
             assert_eq!(join(base, location), expected, "{base:?} {location}");
