@@ -1252,4 +1252,56 @@ mod repros {
             Class::NotConvergedOnGivenAgain,
         );
     }
+
+    /// A host that slips, its own text over a reset still being listed:
+    /// once every text came back, the host and the editor agree.
+    #[test]
+    fn repro_editor_own_text_after_a_slipped_reset_converges() {
+        assert_ok(
+            Setup {
+                view: Editor,
+                base: 2,
+                other: 1,
+                form: Lines,
+                revisions: true,
+                slips: true,
+            },
+            &[
+                Act::Type { at: 20110, ch: ':' },
+                Act::Type { at: 53820, ch: ' ' },
+                Act::Type { at: 53222, ch: 'a' },
+                Act::Type { at: 5746, ch: 'x' },
+                Act::Enter { at: 25030 },
+                Act::Reset {
+                    doc: 0,
+                    kind: Twice(11970),
+                    same_task: false,
+                    via: Via::Both,
+                },
+                Act::Deliver {
+                    doc: 0,
+                    pick: 0,
+                    dup: false,
+                    ranges: false,
+                    same_task: false,
+                    anchor: Anchor::None,
+                },
+                Act::Deliver {
+                    doc: 1,
+                    pick: 22929,
+                    dup: false,
+                    ranges: true,
+                    same_task: true,
+                    anchor: Anchor::Text,
+                },
+                Act::Settle,
+                Act::Own {
+                    doc: 1,
+                    edit: 7111,
+                    ranges: false,
+                    same_task: true,
+                },
+            ],
+        );
+    }
 }

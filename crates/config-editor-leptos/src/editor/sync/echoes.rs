@@ -844,8 +844,11 @@ impl Echoes {
                 Echo::Skip
             };
         }
+        // Only a copy of the document sent after the newest text that came
+        // back sets the host right: one sent before it is older than what
+        // the host took, and a host keeping the newest revision drops it.
         let document = self.document_print(current);
-        if self.order.values().any(|sent| *sent == document) {
+        if self.to_come(document) {
             return Echo::Skip;
         }
         self.send(document);
@@ -1174,6 +1177,27 @@ mod tests {
         assert_eq!(echoes.received_at("x", back, "x", NONE), Echo::Apply);
         assert_eq!(echoes.received_at("x", x, "x", NONE), Echo::Skip);
         assert_eq!(echoes.latest_revision(), None);
+    }
+
+    /// A revision on its way given back after a newer copy of the document
+    /// came back (a host that forgot the newest revision and took a late
+    /// echo): an older copy of the document still recorded does not bring
+    /// the host back (a host keeping revisions drops it), so the host hears
+    /// the document again (P4: once every echo is in, it holds the
+    /// document).
+    #[test]
+    fn a_host_taking_an_older_echo_after_the_document_came_back_hears_it_again() {
+        let mut echoes = Echoes::new(true);
+        echoes.given("");
+        let a = echoes.sent("a");
+        echoes.sent("doc");
+        echoes.sent("doc");
+        // The newest copy comes back without its revision.
+        assert_eq!(echoes.received("doc", "doc", NONE), Echo::Apply);
+        assert_eq!(echoes.received_at("a", a, "doc", NONE), Echo::Resend);
+        let again = echoes.latest_revision().expect("the document sent again");
+        assert_eq!(echoes.received_at("doc", again, "doc", NONE), Echo::Apply);
+        assert_eq!(waiting(&echoes), 0);
     }
 
     /// The same for a revision sent before a text of the host's own replaced
