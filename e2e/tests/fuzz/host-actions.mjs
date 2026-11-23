@@ -32,6 +32,7 @@ export async function hostChange(run, action) {
           if (from < at && at < from + locked.length) return { skipped: true };
         }
       }
+      const before = editor.text;
       try {
         const changes = [{ from: at, to: at, insert: `${action.line}\n` }];
         const options = named ? { revision: parent.revision } : undefined;
@@ -49,7 +50,9 @@ export async function hostChange(run, action) {
             window.updateFile(fz.activeId(), { value: editor.value, ...(fz.revisions ? { valueRevision: revision } : {}) });
           }
         }
-        return { revision, named };
+        // A change made over a held save names no revision (the host is
+        // told nothing yet; `value` waits too), but the text changed all the same.
+        return { revision, named, changed: editor.text !== before };
       } catch (error) {
         return { error: String(error) };
       }
@@ -57,7 +60,7 @@ export async function hostChange(run, action) {
     [action, locks],
   );
   if (result.error) return { check: 'api', detail: `applyChanges: ${result.error}` };
-  if (result.revision === null || result.revision === undefined) return null;
+  if ((result.revision === null || result.revision === undefined) && !result.changed) return null;
   run.reached(result.named ? 'host change on an older revision' : 'host change');
   run.hostReplaced = true;
   run.hostText = undefined;
