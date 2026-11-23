@@ -117,7 +117,7 @@ fn member_at<'d>(
             };
             if member.is_object() || member.is_array() {
                 if span.start_column <= column + 1 {
-                    inside = Some(Member::Inside(segment.clone(), *member));
+                    inside = Some(Member::Inside(segment.clone(), member));
                 }
             } else if over(&span) {
                 // An item is named by its list's key.
