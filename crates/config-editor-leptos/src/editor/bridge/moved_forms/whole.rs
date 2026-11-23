@@ -17,6 +17,7 @@ use super::super::super::work_count::{Work, note_many};
 use super::{Moved, indent_of, line_indent, reindented};
 use crate::editor::paths::FieldPath;
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// A text split in lines once, for every item placed in it.
 struct Lines<'a> {
@@ -82,17 +83,48 @@ fn inline(host: &dyn ConfigLanguage, text: &Lines<'_>, pointer: &str) -> Option<
     Some(TextRange::new(start, value.end()))
 }
 
+/// The comment lines right above the item at `pointer` of `lines`, whose
+/// lines of its own start at `start` (trimmed).
+fn comments_above(
+    host: &dyn ConfigLanguage,
+    lines: &Lines<'_>,
+    start: TextSize,
+    pointer: &str,
+) -> Vec<String> {
+    let top = lines.starts.partition_point(|at| *at <= start) - 1;
+    first_line(host, lines.text, pointer)
+        .filter(|first| *first >= top)
+        .map(|first| {
+            lines.lines[top..first]
+                .iter()
+                .map(|line| line.trim().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The comment lines right above `item` in its source (none for an item
+/// sharing its line there).
+fn source_comments(host: &dyn ConfigLanguage, source: &Lines<'_>, item: &Moved<'_>) -> Vec<String> {
+    match place(host, source, &item.from) {
+        Some(Place::Lines(was)) => comments_above(host, source, was.start(), &item.from),
+        _ => Vec::new(),
+    }
+}
+
 /// The write of the item `item` at its place in `text` as its source
 /// (in `source`) writes it: its range in `text`, and the source's text
 /// there, its lines indented where it is and the separator after it
 /// (JSON's `,`) the place's; `None` when it is written so already, or
 /// the two places differ in kind (lines of its own and a place in a
-/// line).
+/// line). `carried`: whether another item written back takes a comment
+/// line along from its source.
 fn write(
     host: &dyn ConfigLanguage,
     text: &Lines<'_>,
     source: &Lines<'_>,
     item: &Moved<'_>,
+    carried: &dyn Fn(&str) -> bool,
 ) -> Option<(TextRange, String)> {
     // The source's text from `was`, its key written as the place's (a
     // key renamed in the view keeps its new name).
@@ -138,23 +170,13 @@ fn write(
             let written = reindented(&written, from, indent);
             // The comment lines the place has above the item that its
             // source has not (another item's, which the save put there)
-            // stay.
-            let above = |lines: &Lines<'_>, start: TextSize, pointer: &str| -> Vec<String> {
-                let top = lines.starts.partition_point(|at| *at <= start) - 1;
-                first_line(host, lines.text, pointer)
-                    .filter(|first| *first >= top)
-                    .map(|first| {
-                        lines.lines[top..first]
-                            .iter()
-                            .map(|line| line.trim().to_string())
-                            .collect()
-                    })
-                    .unwrap_or_default()
-            };
-            let theirs = above(source, was.start(), &item.from);
-            let others: Vec<String> = above(text, now.start(), &item.to)
+            // stay, but for those another item written back takes along
+            // (the save wrote an item in place of the one they head, and
+            // that one again after it: they go with it, not twice).
+            let theirs = comments_above(host, source, was.start(), &item.from);
+            let others: Vec<String> = comments_above(host, text, now.start(), &item.to)
                 .into_iter()
-                .filter(|line| !theirs.contains(line))
+                .filter(|line| !theirs.contains(line) && !carried(line))
                 .collect();
             let written = if others.is_empty() {
                 written
@@ -368,6 +390,36 @@ pub(super) fn kept(
             sources.push(Lines::of(item.source.text));
         }
     }
+    // The comment lines above each item in its source, which its write
+    // takes along: each source text read once.
+    let source_texts: Vec<(&str, Vec<String>)> = sources
+        .iter()
+        .map(|source| {
+            let from = moved
+                .iter()
+                .filter(|item| std::ptr::eq(item.source.text, source.text))
+                .map(|item| item.from.clone())
+                .collect();
+            (source.text, from)
+        })
+        .collect();
+    let carried: Vec<Vec<String>> = in_batches(host, &source_texts, &|| {
+        moved
+            .iter()
+            .map(|item| {
+                sources
+                    .iter()
+                    .find(|source| std::ptr::eq(source.text, item.source.text))
+                    .map(|source| source_comments(host, source, item))
+                    .unwrap_or_default()
+            })
+            .collect()
+    });
+    // How many items carry each comment line.
+    let mut carrying: HashMap<&str, usize> = HashMap::new();
+    for line in carried.iter().flatten() {
+        *carrying.entry(line.as_str()).or_default() += 1;
+    }
     let write = |text: &Lines<'_>, item: &Moved<'_>| -> Option<(TextRange, String)> {
         // Not an item whose keys the edit put in another order: its
         // source's text would put them back (the read back compares
@@ -382,7 +434,17 @@ pub(super) fn kept(
         let source = sources
             .iter()
             .find(|source| std::ptr::eq(source.text, item.source.text))?;
-        write(host, text, source, item)
+        // A line some other item carries: more items carry it than this
+        // one's own lines.
+        let own = moved
+            .iter()
+            .position(|other| std::ptr::eq(other, item))
+            .map_or(&[][..], |at| carried[at].as_slice());
+        let by_others = |line: &str| {
+            let mine = own.iter().filter(|comment| *comment == line).count();
+            carrying.get(line).is_some_and(|count| *count > mine)
+        };
+        write(host, text, source, item, &by_others)
     };
     let inside = |inner: &str, outer: &str| {
         inner
@@ -654,7 +716,7 @@ fn changed_inside(
         return None;
     }
     let source = Lines::of(&patched);
-    let (range, replaced) = write(host, &Lines::of(text), &source, item)?;
+    let (range, replaced) = write(host, &Lines::of(text), &source, item, &|_| false)?;
     let mut next = text.to_string();
     slice::replace(&mut next, range, &replaced)?;
     Some(next)

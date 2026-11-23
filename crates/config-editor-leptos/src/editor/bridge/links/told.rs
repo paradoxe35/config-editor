@@ -423,10 +423,14 @@ impl Links {
             let mut item_used = vec![false; items.len()];
             let mut link_used = vec![false; links.len()];
             let name = |pointer: &str| pointer.rsplit('/').next().map(str::to_string);
+            // The items of the line its lines do not tell apart.
+            let shared = shared_at(line);
             // An end two items share by chance (a pasted TOML header that
-            // opens several tables, one ending where another's link ends)
-            // is no pairing where the link's source names another item of
-            // the line: that item is the link's (see the name pass below).
+            // opens several tables, one ending where another's link ends;
+            // an XML element joined onto the line before, ending with its
+            // last child, which shares the line) is no pairing where the
+            // link's source names another item of the line: that item is
+            // the link's (see the name pass below, and the shared items').
             // A list item is named by its list's key: a value written once
             // (`<k8>` shown alone) may be a list's item in the view.
             let key_name = |pointer: &str| {
@@ -440,6 +444,16 @@ impl Links {
                 key_name(&items[item].1) != theirs
                     && items.iter().any(|(_, pointer)| key_name(pointer) == theirs)
             };
+            // A link naming an item of the line its lines do not tell apart
+            // and none of the items ending alike is that item's.
+            let names_shared = |alike: &[usize], link: &Link| {
+                let theirs = key_name(&link.source.pointer);
+                !alike.iter().any(|item| key_name(&items[*item].1) == theirs)
+                    && shared
+                        .iter()
+                        .flatten()
+                        .any(|(pointer, _)| key_name(pointer) == theirs)
+            };
             for (index, (end, _)) in items.iter().enumerate() {
                 if item_used[index] || items[..index].iter().any(|(other, _)| other == end) {
                     continue;
@@ -448,7 +462,11 @@ impl Links {
                     .filter(|at| items[*at].0 == *end)
                     .collect();
                 let ending: Vec<usize> = (0..links.len())
-                    .filter(|at| !link_used[*at] && links[*at].range.end() == *end)
+                    .filter(|at| {
+                        !link_used[*at]
+                            && links[*at].range.end() == *end
+                            && !names_shared(&alike, links[*at])
+                    })
                     .collect();
                 for (item, link) in alike.iter().rev().zip(ending.iter().rev()) {
                     if named_otherwise(*item, links[*link]) {
@@ -480,9 +498,9 @@ impl Links {
             // item's (an entry joined onto its map's line), and is kept
             // across a save as a loose one is: the save's own links are
             // only of items with lines of their own.
-            if let Some(shared) = shared_at(line) {
+            if let Some(shared) = &shared {
                 let before = link_used.clone();
-                paired.extend(pair_shared(links, &mut link_used, &shared));
+                paired.extend(pair_shared(links, &mut link_used, shared));
                 loose.extend(
                     links
                         .iter()
