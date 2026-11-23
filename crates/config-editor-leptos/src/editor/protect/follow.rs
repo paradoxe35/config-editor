@@ -14,7 +14,8 @@ use super::locate::LineIndex;
 
 /// `ranges` (of `before`) after the edit making `after`: mapped through
 /// `change`, what the edit recorded it did (text inserted at a range's
-/// start goes before it, at its end after it; a range's lines a line
+/// start goes before it, at its end after it, text replacing the range's
+/// own from its start goes in it; a range's lines a line
 /// command moved go with them); for an edit with no record, read off the
 /// two texts and the caret it left (see the module).
 pub(super) fn follow_ranges(
@@ -28,7 +29,18 @@ pub(super) fn follow_ranges(
         return ranges
             .iter()
             .map(|range| {
-                let start = change.map_pos(range.start(), Assoc::After).pos;
+                // Text replaced from a range's start is replaced in it: the
+                // range covers what was written in its place (only the
+                // host's own change replaces locked text).
+                let replaced = change
+                    .edits()
+                    .any(|(edit, _)| edit.start() == range.start() && !edit.is_empty());
+                let assoc = if replaced {
+                    Assoc::Before
+                } else {
+                    Assoc::After
+                };
+                let start = change.map_pos(range.start(), assoc).pos;
                 let end = change.map_pos(range.end(), Assoc::Before).pos;
                 TextRange::new(start, end.max(start))
             })

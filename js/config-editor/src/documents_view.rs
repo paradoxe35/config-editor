@@ -729,7 +729,9 @@ impl ConfigDocuments {
     /// the changes were made on); its editor must be mounted (the document
     /// was shown since it was listed, as `editor(id).applyChanges` needs
     /// too): it throws otherwise, list a new `value` instead. Returns the
-    /// revision of the new text, `null` when nothing changed.
+    /// revision of the new text, `null` when nothing was sent: no change,
+    /// or the save is held (the host's change reaches the host with the
+    /// next `onChange` once the save goes through).
     #[wasm_bindgen(js_name = applyChanges)]
     pub fn apply_changes(
         &self,

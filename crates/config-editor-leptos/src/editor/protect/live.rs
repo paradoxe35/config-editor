@@ -64,6 +64,10 @@ pub(crate) struct Marks {
     foreseen: Option<(u64, Protected)>,
     /// The document version the locks were last found in.
     found_in: Option<u64>,
+    /// The host's text a host change made while the save was held (see
+    /// [`EditorState::host_change_over_held`]): the next text's locks are
+    /// read in it and followed to the document.
+    based: Option<Based>,
     /// Every token the host gave since the editor was made (see
     /// `own_placeholders`).
     pub(crate) given: std::collections::HashSet<String>,
@@ -90,6 +94,19 @@ impl Followed {
     fn made(&self, found_in: Option<u64>, now: u64) -> bool {
         found_in == Some(self.before) && self.after == Some(now)
     }
+}
+
+/// A host change made while the save was held: the host's text with its
+/// change (`host`), and the user's held edits rebased over it (`change`,
+/// from `host` to the document at version `after`, once written). The
+/// values are pinned in the host's text, as for any text from the host,
+/// and the user's edits are judged against them, so the save keeps
+/// waiting until the user's text reads them again.
+#[derive(Clone)]
+struct Based {
+    after: Option<u64>,
+    host: Arc<str>,
+    change: Arc<Change>,
 }
 
 /// The protection signals of one editor.
@@ -227,6 +244,25 @@ impl ProtectState {
                         .try_update_value(|marks| marks.found_in.replace(now))
                         .flatten()
                         .filter(|_| previous.is_some());
+                    let based = marks
+                        .with_value(|marks| marks.based.clone())
+                        .filter(|based| based.after == Some(now));
+                    if let Some(based) = based {
+                        let mut protected = based_protected(
+                            edit.behavior(),
+                            (&based, text, &copy),
+                            Sources {
+                                marking_schema: marking,
+                                reading_schema: reading,
+                                paths: &fields,
+                                ranges: &local_ranges,
+                                range_fields: &range_fields,
+                                ..Sources::default()
+                            },
+                        );
+                        protected.epoch = epoch;
+                        return Arc::new(protected);
+                    }
                     let followed = marks
                         .with_value(|marks| marks.followed.clone())
                         .filter(|followed| followed.made(found_in, now));
@@ -1253,11 +1289,75 @@ impl EditorState {
     pub(crate) fn edit_written(&self) {
         let now = self.doc().version.get_value();
         self.protect().marks.update_value(|marks| {
+            if let Some(based) = marks.based.as_mut()
+                && based.after.is_none()
+            {
+                based.after = Some(now);
+            }
             if let Some(followed) = marks.followed.as_mut()
                 && followed.after.is_none()
             {
                 followed.after = Some(now);
             }
+        });
+    }
+}
+
+/// The locks of the document `text` after a host change made while the
+/// save was held (see [`Based`]): read in the host's text, with the host's
+/// ranges carried back there, then followed through the user's edits.
+fn based_protected(
+    behavior: &dyn ConfigLanguage,
+    (based, text, copy): (&Based, &str, &Arc<str>),
+    sources: Sources<'_>,
+) -> Protected {
+    let back = based.change.invert(&based.host);
+    let ranges = back.as_ref().map_or_else(
+        || sources.ranges.to_vec(),
+        |back| {
+            follow_ranges(
+                sources.ranges,
+                text,
+                &based.host,
+                TextSize::default(),
+                Some(back),
+            )
+        },
+    );
+    let host = protect(
+        behavior,
+        &based.host,
+        Sources {
+            ranges: &ranges,
+            copy: Some(&based.host),
+            ..sources
+        },
+    );
+    protect(
+        behavior,
+        text,
+        Sources {
+            previous: Some(&host),
+            change: Some(&based.change),
+            copy: Some(copy),
+            ..sources
+        },
+    )
+}
+
+impl EditorState {
+    /// Notes that the host change about to be made, while the save is
+    /// held, makes the host's text `host` and the document `host` with the
+    /// user's held edits rebased over it (`change`): the document's locks
+    /// are read there (see [`Based`]). `None` forgets it (the change was
+    /// not made).
+    pub(crate) fn host_change_over_held(&self, based: Option<(Arc<str>, Change)>) {
+        self.protect().marks.update_value(|marks| {
+            marks.based = based.map(|(host, change)| Based {
+                after: None,
+                host,
+                change: Arc::new(change),
+            });
         });
     }
 }

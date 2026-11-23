@@ -4,6 +4,8 @@
 //! through the one edit pipeline (`Origin::HostChange`), so locks, folds,
 //! secret placeholders and the caret follow it exactly, with no diff.
 
+use std::sync::Arc;
+
 use leptos::prelude::*;
 
 use super::super::edit::{Change, Edit};
@@ -141,9 +143,11 @@ fn revision_of_text(link: &mut Link, text: &str) -> Option<u64> {
 /// Makes the host's `edits`, made on its text at `base` (a revision, or
 /// the text itself; else its text now), in the document (see the module). Returns the revision of the
 /// new document (recorded as sent: an exact echo when the host renders it
-/// with that revision), or `None` when the edits change nothing. When the
-/// edits were rebased over the user's newer ones, `on_change` hears the
-/// result, which the host does not know.
+/// with that revision), or `None` when nothing was sent: the edits change
+/// nothing, or the save is held (the host's change reaches the host with
+/// the next change event once the save goes through). When the edits were
+/// rebased over the user's newer ones, `on_change` hears the result, which
+/// the host does not know.
 pub(crate) fn apply_host_changes(
     state: EditorState,
     edits: &HostEdits,
@@ -217,14 +221,33 @@ pub(crate) fn apply_host_changes(
             .flatten());
     };
     let current = state.doc().text.get_untracked();
+    // While the save waits on the user's edits, the result is not the
+    // host's text: its locked values are read in the host's text with its
+    // change, and the user's edits judged against them (see
+    // `ProtectState::based`). With no record of those edits from the
+    // host's text, the change waits: the host's base is out of date.
+    if state.changes_held() {
+        let based = over_held(state, &mapped, &current).ok_or_else(|| {
+            let host = state.sync().link(|link| link.log.host_revision());
+            ChangeError::OutOfDate(host.unwrap_or_default())
+        })?;
+        state.host_change_over_held(Some(based));
+    }
     let edit = Edit::host_change(current, mapped).ok_or(ChangeError::BadRanges)?;
     if !state.commit(edit) {
+        state.host_change_over_held(None);
         return Ok(None);
     }
     let text = state.doc().text.shared_untracked();
     if rebased {
-        // The result holds the user's newer edits: the host hears it.
+        // The result holds the user's newer edits: the host hears it,
+        // unless the save waits on them; then nothing was sent, and no
+        // revision names it (the host's change reaches it with the next
+        // change event once the save goes through).
         state.notify_change();
+        if state.changes_held() {
+            return Ok(None);
+        }
     } else {
         // The host's text with its change: what it holds, recorded as
         // sent, not told.
@@ -232,6 +255,29 @@ pub(crate) fn apply_host_changes(
         state.sync().link(|link| link.sent(&text));
     }
     Ok(state.sync().link(|link| link.echoes.last_sent()).flatten())
+}
+
+/// While the save is held: the host's text with its change `mapped` (made
+/// on the document `document`), and the user's held edits rebased over it,
+/// which make the document `mapped` makes. `None` when the log has no
+/// record of those edits from the host's text, or the two orders do not
+/// meet.
+fn over_held(state: EditorState, mapped: &Change, document: &str) -> Option<(Arc<str>, Change)> {
+    let (host, held) = state
+        .sync()
+        .link(|link| {
+            let revision = link.log.host_revision();
+            Some((
+                link.log.text_at(revision)?,
+                link.log.change_since(revision)?,
+            ))
+        })
+        .flatten()?;
+    let on_host = mapped.map(&held.invert(&host)?, true)?;
+    let host_after = on_host.apply(&host)?;
+    let rebased = held.map(&on_host, false)?;
+    (rebased.apply(&host_after)? == mapped.apply(document)?)
+        .then(|| (Arc::from(host_after), rebased))
 }
 
 #[cfg(all(test, feature = "yaml", feature = "protect"))]

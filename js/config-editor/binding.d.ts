@@ -107,7 +107,9 @@ export interface ConfigEditorHandle {
   /**
    * Makes the host's own change of the document (`ConfigEditor.applyChanges`):
    * the read-only ranges, folds and caret follow it exactly; the revision of
-   * the new text, or `null` when nothing changed (or before the editor mounts).
+   * the new text, or `null` when nothing was sent: no change, or the save is
+   * held (the change reaches the host with the next `onChange` once the save
+   * goes through), or before the editor mounts.
    * `onChange` hears the result, as `setValue`'s reset.
    */
   applyChanges(changes: TextChange[], options?: ApplyChangesOptions): number | null;

@@ -289,9 +289,11 @@ impl EditorHandle {
     /// host's rebased over them (at one place, the host's first); locks,
     /// folds, secret placeholders and the caret follow it exactly, and Undo
     /// does not undo it. Returns the revision of the new document (pass it
-    /// back as `value_revision` with that text), `None` when nothing
-    /// changed or no editor is mounted. When it was rebased over newer
-    /// edits, `on_change` hears the result.
+    /// back as `value_revision` with that text), `None` when nothing was
+    /// sent: no change, no editor mounted, or the save is held (the
+    /// host's change reaches the host with the next `on_change` once the
+    /// save goes through). When it was rebased over newer edits,
+    /// `on_change` hears the result.
     pub fn apply_changes(
         &self,
         changes: Vec<super::sync::HostChange>,

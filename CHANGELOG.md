@@ -9,6 +9,16 @@ versions move together.
 
 ### Fixed
 
+- A host's own change (`applyChanges`) made while the save is held (a key
+  renamed above a value locked by `readOnlyRanges`) no longer lets the
+  held text out: `onChange` heard the renamed text with the host's change,
+  and the call returned its revision. The locked values are now read in
+  the host's text with its change and the user's edits judged against
+  them: the save keeps waiting, `applyChanges` returns `null`, and
+  renaming the key back sends the host's change with the user's text. A
+  host change rewriting its own locked value keeps the lock over what it
+  wrote (it locked nothing before).
+
 - Accepting a suggested key that adds one more item to a list written by
   repeating it (an XML element, an HCL block, a TOML `[[array]]` table) no
   longer moves the items already written when the list's items have places

@@ -637,7 +637,10 @@ editor cannot name throws and changes nothing. What the user typed since is
 kept and your change rebased over it; the locks, folds, secret
 placeholders and the caret follow it exactly, and Undo does not undo it.
 `onChange` hears the result only when it holds edits you did not know. It
-returns the revision of the new text (pass it back as `valueRevision`).
+returns the revision of the new text (pass it back as `valueRevision`), or
+`null` when nothing was sent: no change, or the save is held (the user's
+text breaks a lock rule); your change then reaches you with the next
+`onChange`, once the save goes through.
 
 #### Hosts that echo
 

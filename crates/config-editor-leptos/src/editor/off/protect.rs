@@ -215,6 +215,13 @@ impl EditorState {
         None
     }
 
+    /// Nothing is held, so no host change lands over a held save.
+    pub(crate) fn host_change_over_held(
+        &self,
+        _based: Option<(std::sync::Arc<str>, crate::editor::edit::Change)>,
+    ) {
+    }
+
     pub(crate) fn changes_held(&self) -> bool {
         false
     }

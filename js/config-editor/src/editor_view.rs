@@ -209,7 +209,9 @@ impl DocumentEditorView {
     /// `ConfigEditor.applyChanges` does (`options.revision` names the text
     /// the changes were made on), as `ConfigDocuments.applyChanges(id, …)`
     /// does: it throws while the document's editor is not mounted (it was
-    /// not shown since it was listed); `null` when nothing changed.
+    /// not shown since it was listed); `null` when nothing was sent: no
+    /// change, or the save is held (the host's change reaches the host with
+    /// the next `onChange` once the save goes through).
     #[wasm_bindgen(js_name = applyChanges)]
     pub fn apply_changes(
         &self,

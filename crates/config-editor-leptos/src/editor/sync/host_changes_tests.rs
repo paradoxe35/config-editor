@@ -210,3 +210,191 @@ fn a_host_change_while_editing_as_another_language_names_its_revision() {
     assert!(revision.is_some());
     assert_eq!(*state.sync().host_text.get_value(), *"b: 2\na: 1\n");
 }
+
+/// A language's text with a field `a` (value `1`) and `b`, where each
+/// `z` typed renames `a` (bytes of the text as typed so far), and a
+/// line the host puts in at a byte of the text loaded.
+struct Renamed {
+    language: Language,
+    text: &'static str,
+    renames: &'static [usize],
+    host_at: usize,
+    host_line: &'static str,
+    /// Whether typing in the key is taken (XML refuses it: the element's
+    /// tags hold the locked value, so no rename is ever held).
+    taken: bool,
+}
+
+fn renamed_cases() -> Vec<Renamed> {
+    let mut cases = vec![Renamed {
+        language: Language::YAML,
+        text: "a: 1\nb: 2\n",
+        renames: &[0],
+        host_at: 0,
+        host_line: "top: 0\n",
+        taken: true,
+    }];
+    #[cfg(feature = "json")]
+    cases.push(Renamed {
+        language: Language::JSON,
+        text: "{\n  \"a\": 1,\n  \"b\": 2\n}\n",
+        renames: &[5],
+        host_at: 2,
+        host_line: "  \"top\": 0,\n",
+        taken: true,
+    });
+    #[cfg(feature = "toml")]
+    cases.push(Renamed {
+        language: Language::TOML,
+        text: "a = 1\nb = 2\n",
+        renames: &[0],
+        host_at: 0,
+        host_line: "top = 0\n",
+        taken: true,
+    });
+    #[cfg(feature = "hcl")]
+    cases.push(Renamed {
+        language: Language::HCL,
+        text: "a = 1\nb = 2\n",
+        renames: &[0],
+        host_at: 0,
+        host_line: "top = 0\n",
+        taken: true,
+    });
+    #[cfg(feature = "xml")]
+    cases.push(Renamed {
+        language: Language::XML,
+        text: "<root>\n  <a>1</a>\n  <b>2</b>\n</root>\n",
+        renames: &[10, 16],
+        host_at: 7,
+        host_line: "  <top>0</top>\n",
+        taken: false,
+    });
+    cases
+}
+
+/// The user types `z` at `byte` (UTF-16 units: the texts are ASCII).
+fn type_z(state: EditorState, byte: usize) -> bool {
+    let before = state.doc().text.get_untracked();
+    let after = format!("{}z{}", &before[..byte], &before[byte..]);
+    state.commit(Edit::input_units(
+        before,
+        (byte, byte),
+        after,
+        (byte + 1, byte + 1),
+        "insertText".into(),
+        0.0,
+    ))
+}
+
+/// The user deletes every `z` typed.
+fn delete_zs(state: EditorState) {
+    let mut now = state.doc().text.get_untracked();
+    while let Some(at) = now.find('z') {
+        let after = format!("{}{}", &now[..at], &now[at + 1..]);
+        assert!(state.commit(Edit::input_units(
+            now,
+            (at, at + 1),
+            after.clone(),
+            (at, at),
+            "deleteContentBackward".into(),
+            0.0,
+        )));
+        now = after;
+    }
+}
+
+/// Where `a`'s value `1` is in `case`'s text.
+fn value_of_a(case: &Renamed) -> usize {
+    case.text.find(">1<").map_or_else(
+        || case.text.find(": 1").or(case.text.find("= 1")).expect("1") + 2,
+        |at| at + 1,
+    )
+}
+
+/// An editor on `case`'s text with `a`'s value read-only (a host range),
+/// and what `on_change` heard.
+fn mounted_locking_a(case: &Renamed) -> (Owner, EditorState, Arc<Mutex<Vec<String>>>) {
+    let value = value_of_a(case);
+    let line_start = case.text[..value].rfind('\n').map_or(0, |at| at + 1);
+    let number = case.text[..value].matches('\n').count() + 1;
+    let column = value - line_start + 1;
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let told = heard.clone();
+    let (owner, state) = TestEditor {
+        on_change: Some(Callback::new(move |text: String| {
+            told.lock().expect("heard").push(text);
+        })),
+        read_only_ranges: vec![line(number, column, column + 1)],
+        ..TestEditor::new(case.language, case.text)
+    }
+    .mount();
+    (owner, state, heard)
+}
+
+/// A key renamed while `a`'s value is locked holds the save; the host's
+/// change rebased over that typing (made on its text, or named by its
+/// revision) keeps it held: `on_change` hears nothing and no revision names
+/// the result, until the user's text reads `a` again. Then it hears the
+/// host's change with the user's text. A host that rewrites its own locked
+/// value meanwhile has it taken: the lock covers what it wrote.
+#[test]
+fn a_host_change_over_a_held_rename_keeps_the_save_held() {
+    for case in renamed_cases() {
+        for (with_revision, rewrite) in [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let name = format!(
+                "{} (revision: {with_revision}, rewrites a: {rewrite})",
+                case.language.label()
+            );
+            let (_owner, state, heard) = mounted_locking_a(&case);
+            let base = state
+                .sync()
+                .link(|link| link.log.host_revision())
+                .expect("mounted");
+            if !case.taken {
+                assert!(!type_z(state, case.renames[0]), "{name}: refused");
+                continue;
+            }
+            for at in case.renames {
+                assert!(type_z(state, *at), "{name}: the rename is taken");
+            }
+            assert!(state.changes_held(), "{name}: the rename holds the save");
+            let heard_before = heard.lock().expect("heard").len();
+            let base = with_revision.then(|| base.into());
+            let at = case.host_at;
+            let value = value_of_a(&case);
+            let mut edits = vec![(at, at, case.host_line.to_string())];
+            let mut expected = case.text.to_string();
+            if rewrite {
+                edits.push((value, value + 1, "7".to_string()));
+                expected.replace_range(value..value + 1, "7");
+            }
+            expected.insert_str(at, case.host_line);
+            let revision = apply_host_changes(state, &HostEdits::Utf16(edits), base.as_ref())
+                .expect("applied");
+            let text = state.doc().text.get_untracked();
+            assert!(text.contains(case.host_line), "{name}: {text:?}");
+            assert!(state.changes_held(), "{name}: still held: {text:?}");
+            assert!(state.save_waits().is_some(), "{name}: the save waits");
+            assert_eq!(revision, None, "{name}: no revision names {text:?}");
+            assert_eq!(
+                heard.lock().expect("heard").len(),
+                heard_before,
+                "{name}: on_change heard the renamed text"
+            );
+            let locked = if rewrite { "7" } else { "1" };
+            assert_eq!(locked_text(state), [locked], "{name}: {text:?}");
+            // The user takes the renames back: the host hears its change
+            // with `a` read as locked.
+            delete_zs(state);
+            let text = state.doc().text.get_untracked();
+            assert!(!state.changes_held(), "{name}: released: {text:?}");
+            assert_eq!(
+                heard.lock().expect("heard").last(),
+                Some(&expected),
+                "{name}: the host hears the text released"
+            );
+        }
+    }
+}

@@ -1260,7 +1260,10 @@ makes it on the text `base` names (a revision `on_change` sent it with,
 editor sent or was given, or the document; else the host's text now, the
 text sent or given last), rebased over
 what the user typed since; locks, folds and the caret follow it exactly, and
-Undo does not undo it.
+Undo does not undo it. It returns the revision of the new text, or `None`
+when nothing was sent: no change, or the save is held (the user's text
+breaks a lock rule); the change then reaches the host with the next
+`on_change`, once the save goes through.
 
 ```rust
 use leptos_config_editor::{ConfigEditor, FieldPath, TextPosition, TextRange};

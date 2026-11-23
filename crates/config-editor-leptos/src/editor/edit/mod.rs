@@ -373,12 +373,17 @@ impl Edit {
     /// followers read it so too: input the browser did not say enough of
     /// (no `beforeinput`, a spelling fix: see `browser`), an undo or redo
     /// of a step such input made, and the host's own texts (a value, a
-    /// reload, an Edit-as switch), which no check or follower judges.
+    /// reload, an Edit-as switch), which no check or follower judges. The
+    /// host's own change (`applyChanges`) is followed exactly as it said.
     #[cfg(feature = "protect")]
     pub(super) fn change(&self) -> Option<Change> {
         let judged = matches!(
             self.origin,
-            Origin::Command | Origin::Input { .. } | Origin::Undo | Origin::Redo
+            Origin::Command
+                | Origin::Input { .. }
+                | Origin::Undo
+                | Origin::Redo
+                | Origin::HostChange
         );
         (self.told && judged).then(|| self.mapping())
     }
