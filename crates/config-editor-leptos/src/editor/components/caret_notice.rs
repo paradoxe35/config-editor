@@ -10,7 +10,7 @@ use leptos::prelude::*;
 use super::super::popups::caret_tip_style;
 use super::super::state::EditorState;
 use crate::cssom::cssom;
-use crate::editor::text::utf16_of;
+use crate::editor::text::{Utf16, utf16_of};
 use crate::reactive::later;
 use crate::strings::fill;
 
@@ -22,7 +22,7 @@ const NOTICE_MS: i32 = 2500;
 pub(in crate::editor) struct CaretNotice {
     pub(in crate::editor) message: String,
     /// Where it points, in UTF-16 units of the text.
-    pub(in crate::editor) offset: usize,
+    pub(in crate::editor) offset: Utf16,
     /// An edit was refused (the read-only editor's notice), not merely
     /// nothing found.
     pub(in crate::editor) refused: bool,
@@ -46,7 +46,7 @@ impl EditorState {
         let a11y = self.a11y();
         a11y.announce(message.clone());
         let caret = self.doc().caret.get_untracked();
-        let offset = self.doc().text.with_untracked(|text| utf16_of(text, caret));
+        let offset = Utf16::count(self.doc().text.with_untracked(|text| utf16_of(text, caret)));
         a11y.caret_notice.set(Some(CaretNotice {
             message,
             offset,
@@ -94,7 +94,7 @@ impl EditorState {
 pub(crate) fn CaretNoticeView(state: EditorState) -> impl IntoView {
     move || {
         let notice = state.a11y().caret_notice.get()?;
-        let style = caret_tip_style(state, notice.offset)?;
+        let style = caret_tip_style(state, usize::from(notice.offset))?;
         let class = if notice.refused {
             "config-editor__read-only-notice"
         } else {
