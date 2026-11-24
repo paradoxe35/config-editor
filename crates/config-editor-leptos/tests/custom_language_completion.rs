@@ -137,3 +137,44 @@ fn hover_shows_the_schema_docs_of_the_key_under_the_pointer() {
         None
     );
 }
+
+/// Over a value the schema documents, its own docs come with its key's; a
+/// key gives its deprecation message and docs link.
+#[test]
+fn hover_shows_a_documented_value_and_the_key_deprecation_and_link() {
+    let schema = Schema::compile(
+        r#"{"properties": {"server": {"properties": {
+            "mode": {"enum": ["fast", "safe"], "description": "Request handling",
+                     "x-enum-descriptions": ["Skips checks", "Checks every request"]},
+            "level": {"oneOf": [{"const": "low", "title": "Low", "description": "Errors only"}]},
+            "old": {"deprecated": true, "deprecationMessage": "Use mode",
+                    "x-docs-url": "https://example.com/old"}}}}}"#,
+    )
+    .unwrap();
+    let source = "[server]\nmode = fast\nlevel = low\nold = x\n";
+    let docs = schema
+        .hover(LANGUAGE, source, TextPosition::new(2, 9))
+        .expect("docs over `fast`");
+    assert_eq!(docs.key, "mode");
+    assert_eq!(docs.description.as_deref(), Some("Request handling"));
+    let value = docs.value.expect("the value's docs");
+    assert_eq!(value.value, "fast");
+    assert_eq!(value.description.as_deref(), Some("Skips checks"));
+    let value = schema
+        .hover(LANGUAGE, source, TextPosition::new(3, 10))
+        .and_then(|docs| docs.value)
+        .expect("docs over `low`");
+    assert_eq!(value.title.as_deref(), Some("Low"));
+    assert_eq!(value.description.as_deref(), Some("Errors only"));
+    let docs = schema
+        .hover(LANGUAGE, source, TextPosition::new(4, 1))
+        .expect("docs over `old`");
+    assert_eq!(docs.value, None);
+    assert_eq!(docs.deprecation.as_deref(), Some("Use mode"));
+    assert_eq!(docs.docs_url.as_deref(), Some("https://example.com/old"));
+    // `x` is not documented: its key's docs alone.
+    let docs = schema
+        .hover(LANGUAGE, source, TextPosition::new(4, 7))
+        .expect("docs over `x`");
+    assert_eq!((docs.key.as_str(), docs.value), ("old", None));
+}

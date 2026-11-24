@@ -4,9 +4,10 @@
 //! completion and hover methods place the caret in the structure, which is
 //! all schema completion and hover docs need.
 
+use leptos_config_editor::FieldPath;
 use leptos_config_editor::language::{
     CompletionContext, ConfigLanguage, InsertContext, InsertPlan, LanguageConfig, LanguageInfo,
-    ParseError, SchemaPathSegment, utf16_to_byte_index,
+    ParseError, SchemaPathSegment, Span, utf16_to_byte_index,
 };
 use serde_json::{Map, Value};
 
@@ -75,6 +76,40 @@ impl ConfigLanguage for Ini {
             }
         }
         Ok(Value::Object(root))
+    }
+
+    /// Where the value of a top-level key or a section's key is written
+    /// (one-based character columns): hover finds a documented value by it.
+    fn value_span(&self, source: &str, path: &FieldPath) -> Option<Span> {
+        let (section, wanted) = match path.segments() {
+            [SchemaPathSegment::Key(key)] => (None, key),
+            [SchemaPathSegment::Key(section), SchemaPathSegment::Key(key)] => {
+                (Some(section.as_str()), key)
+            }
+            _ => return None,
+        };
+        let mut current = None;
+        for (index, line) in source.lines().enumerate() {
+            if let Some(name) = Self::header(line) {
+                current = Some(name);
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            if current != section || Self::is_comment(line) || key.trim() != wanted {
+                continue;
+            }
+            let value = value.trim();
+            let before = key.len() + 1 + line[key.len() + 1..].find(value)?;
+            let start = line[..before].chars().count() + 1;
+            return Some(Span {
+                line: index + 1,
+                start_column: start,
+                end_column: start + value.chars().count(),
+            });
+        }
+        None
     }
 
     /// Inside a section the path is the section; after `=` the caret is in

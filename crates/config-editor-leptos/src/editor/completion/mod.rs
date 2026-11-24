@@ -42,7 +42,7 @@ pub(crate) use excluded::excluded_by_not;
 pub(crate) use excluded::{dependent_keys_kept_apart, keys_kept_apart};
 pub use fill::fill_value;
 pub(crate) use fill::least_list;
-pub use headless::{HoverDocs, Suggestion};
+pub use headless::{HoverDocs, HoverValueDocs, Suggestion};
 pub(crate) use headless::{schema_hover, schema_suggestions};
 pub(crate) use hover::*;
 pub use insert_plan::{InsertPlan, Planned};

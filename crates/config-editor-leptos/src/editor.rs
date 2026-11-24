@@ -114,7 +114,7 @@ pub use change_summary::ChangeSummary;
 #[cfg(feature = "diff")]
 pub use changes::unified_diff;
 pub use codec::{Conversion, ConvertError, float_of, float_value, string_of, string_value};
-pub use completion::{HoverDocs, Suggestion};
+pub use completion::{HoverDocs, HoverValueDocs, Suggestion};
 pub use components::{ConfigEditorFooter, ConfigEditorToolbar};
 pub use diagnostics::{Diagnostic, DiagnosticOrigin, Severity, check_syntax};
 pub use handle::EditorHandle;

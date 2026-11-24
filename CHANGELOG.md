@@ -5,6 +5,24 @@ All notable changes to the crate `leptos-config-editor` and the npm packages
 `@pngwasi/config-editor-vue` and `@pngwasi/config-editor-svelte`. Their
 versions move together.
 
+## Unreleased
+
+### Added
+
+- `Schema::hover` gives what the hover card shows beyond the key, so a
+  host's tests can check it: `HoverDocs::deprecation` (the
+  `deprecationMessage`), `HoverDocs::docs_url` (the `x-docs-url` link) and
+  `HoverDocs::value`, a new `HoverValueDocs` with the documented value under
+  the pointer (an `enum` entry's `x-enum-titles` / `x-enum-descriptions`
+  lines, a `const` branch's `title` and `description`). The README's custom
+  languages section says which docs hover reads where, and links the INI
+  worked example (`tests/ini`), which now has `value_span`.
+
+### Changed
+
+- `Schema::hover` over a value the schema does not document gives its key's
+  docs, as the card shows them, instead of `None`.
+
 ## 0.2.4 — 2026-11-23
 
 ### Added

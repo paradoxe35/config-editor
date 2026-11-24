@@ -2171,6 +2171,7 @@ let language = Language::from_path("infra/main.tf");   // Some(Language::HCL)
 | `Language`                                 | A language handle: `YAML`, `JSON`, `TOML`, `HCL`, `XML`, `ALL`, `new(&'static dyn ConfigLanguage)`. Methods: `parse`, `serialize`, `convert`, `label`, `extensions`, `file_icon`, `default_file_name`, `from_path`; `FromStr` accepts names and extensions.                                       |
 | `Schema`                                   | A compiled JSON Schema: `compile`, `validate(language, text)`, `convert(from, text, to)`, `warnings()`. Cheap to clone and share.                                                                                                                                                                 |
 | `SchemaSource`                             | What the `schema` prop takes: JSON or YAML text, or a `Schema`.                                                                                                                                                                                                                                   |
+| `HoverDocs`, `HoverValueDocs`              | What `Schema::hover(language, text, position)` gives: the card's key docs (`title`, `description`, `type_label`, `default`, `examples`, `required`, `deprecated`, `deprecation`, `docs_url`) and the documented `value` there; see [Completion and hover](#completion-and-hover).                 |
 | `FieldPath`, `TextPosition`, `TextRange`   | Paths (JSON pointers or segments) and one-based places in the text; `Language::range_of(text, path)` and `Language::path_at(text, position)` map between them.                                                                                                                                    |
 | `language::FoldRange`                      | A range that folds (0-based `start` stays visible, lines through `end` hide); `Language::fold_ranges(text)` lists them.                                                                                                                                                                           |
 | `check_syntax(language, text)`             | Syntax problems only.                                                                                                                                                                                                                                                                             |
@@ -2310,10 +2311,26 @@ default of `write_insert`), `flat_format_value` and `flat_hover_key` (the
 crate's `tests/flat_language_completion.rs`). This is what a JavaScript
 language registered with only `separators` gets.
 
+Hover reads the docs of the field under the pointer: over a key, its own
+property schema's; over the start of a list item (a YAML `- `), its
+list's, with the item's own where they differ; over a value, its key's, and for a value the schema documents on its own
+(an `enum` entry with `x-enum-descriptions` or `x-enum-titles`, or a
+`oneOf`/`anyOf` branch of a `const` with a `title` or `description`) that
+value's text above them. The editor finds a value by your language's
+`value_span`. So a keyword that needs docs of its own is either a property
+name or a documented value of its key.
+
 `Schema::suggestions` and `Schema::hover` give what the editor would show,
 so a language checks its completion and hover in plain tests, no browser
-needed. The crate's `tests/ini/mod.rs` is the whole INI language, and
-`tests/custom_language_completion.rs` its tests.
+needed (`HoverDocs` holds what the card shows: the key's docs, its
+`deprecation` message and `docs_url`, and the documented `value`'s). A
+complete worked example ships with the crate:
+[`tests/ini`](https://github.com/paradoxe35/config-editor/tree/main/crates/config-editor-leptos/tests/ini)
+is the whole INI language,
+[`tests/custom_language_completion.rs`](https://github.com/paradoxe35/config-editor/blob/main/crates/config-editor-leptos/tests/custom_language_completion.rs)
+its completion and hover tests, and
+[`tests/custom_language.rs`](https://github.com/paradoxe35/config-editor/blob/main/crates/config-editor-leptos/tests/custom_language.rs)
+a `.env` language with diagnostics, highlighting and conversion.
 
 ```rust
 use leptos_config_editor::{Schema, TextPosition};

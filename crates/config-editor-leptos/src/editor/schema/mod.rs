@@ -342,9 +342,11 @@ impl Schema {
         })
     }
 
-    /// The docs the hover card shows for the key at `position` in `source`
-    /// (or for the key of a value the schema documents), as `language` reads
-    /// it; `None` where no schema key is.
+    /// The docs the hover card shows at `position` in `source`, as
+    /// `language` reads it: a key's, a list item's (its list's), or over a
+    /// value its key's, with the value's own in
+    /// [`HoverDocs::value`](super::HoverDocs::value) where the schema
+    /// documents it; `None` where the schema documents nothing.
     pub fn hover(
         &self,
         language: super::Language,

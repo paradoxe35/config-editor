@@ -65,7 +65,8 @@ impl std::fmt::Debug for Suggestion {
     }
 }
 
-/// What the hover card shows for a key: its schema docs.
+/// What the hover card shows for a key: its schema docs; over a value, its
+/// key's, with the value's own where the schema documents it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct HoverDocs {
@@ -85,6 +86,31 @@ pub struct HoverDocs {
     pub required: bool,
     /// The schema marks the key deprecated.
     pub deprecated: bool,
+    /// What to use instead, when the schema says (`deprecationMessage`).
+    pub deprecation: Option<String>,
+    /// The property's `x-docs-url`, the card's docs link.
+    pub docs_url: Option<String>,
+    /// The docs of the value under the pointer, shown above its key's;
+    /// `None` over the key or a value the schema does not document.
+    pub value: Option<HoverValueDocs>,
+}
+
+/// What the hover card shows for a value the schema documents on its own:
+/// an `enum` entry with its `x-enum-titles` / `x-enum-descriptions` lines,
+/// or a `oneOf`/`anyOf` branch of a `const` with its `title` and
+/// `description`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct HoverValueDocs {
+    /// The value as the card labels it: a string without its quotes,
+    /// another value as JSON writes it (`8080`, `true`).
+    pub value: String,
+    /// Its title (`x-enum-titles`, a `const` branch's `title`), shown
+    /// beside it.
+    pub title: Option<String>,
+    /// Its description: the `x-enum-descriptions` line, or the `const`
+    /// branch's `description`.
+    pub description: Option<String>,
 }
 
 /// The suggestions at `cursor` (UTF-16), as `Ctrl+Space` lists them.
@@ -110,20 +136,23 @@ pub(crate) fn schema_suggestions(
     options.into_iter().map(Suggestion).collect()
 }
 
-/// The hover card's docs for the key at `position`.
+/// The hover card's docs for the key at `position`, or for the value
+/// there: its key's, with the value's own where the schema documents it.
 pub(crate) fn schema_hover(
     bundle: &SchemaBundle,
     behavior: &dyn ConfigLanguage,
     source: &str,
     position: TextPosition,
 ) -> Option<HoverDocs> {
-    let hover = key_hover(
+    // As the card reads it: over any value, its key's docs, with the
+    // value's own where the schema documents it.
+    let field = field_at(
         source,
         position.line.checked_sub(1)?,
         position.column.checked_sub(1)?,
-        Some(bundle),
         behavior,
     )?;
+    let hover = field_docs(source, &field, bundle, behavior, Values::Any)?;
     Some(HoverDocs {
         key: hover.key,
         type_label: hover.type_label,
@@ -133,5 +162,15 @@ pub(crate) fn schema_hover(
         examples: hover.examples,
         required: hover.required,
         deprecated: hover.deprecated,
+        deprecation: hover.deprecation,
+        docs_url: hover.docs_url,
+        value: hover.value.map(|value| HoverValueDocs {
+            value: value.label,
+            title: value.doc.title,
+            description: value.doc.description,
+        }),
     })
 }
+
+#[cfg(test)]
+mod tests;

@@ -123,7 +123,7 @@ pub(crate) enum Work {
     /// Two list items compared while matching a list's items to the ones
     /// they were (`item_sources::pairing`).
     ItemComparison,
-    /// The docs of a place looked up (`completion::key_hover`): its key or
+    /// The docs of a place looked up (`completion::field_docs`): its key or
     /// value read off the whole document.
     HoverLookup,
     /// Another tab's file name read for a tab's label (`documents::tab_names`).

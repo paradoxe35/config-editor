@@ -117,7 +117,9 @@ pub(crate) struct HoverValue {
 
 /// The key under character `column` of zero-based `line_index`, with its
 /// schema documentation; or, over a value the schema documents, that value
-/// with its key's.
+/// with its key's. Tests ask it; the card and `Schema::hover` read any
+/// value (see [`Values`]).
+#[cfg(test)]
 pub(crate) fn key_hover(
     source: &str,
     line_index: usize,

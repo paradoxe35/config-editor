@@ -123,12 +123,13 @@ pub use editor::{
     BaselineConflict, ChangeSummary, CheckProblem, CheckedDocument, ChromeToken, CompiledSchema,
     ConfigEditor, ConfigEditorFooter, ConfigEditorToolbar, Conversion, ConvertError, Diagnostic,
     DiagnosticOrigin, DiagnosticTarget, EditorHandle, EditorTheme, FieldPath, FindUses, FoundUse,
-    GoToDefinition, GoToUse, HostChange, HostDiagnostic, HoverDocs, KeyName, KeyNames, Language,
-    LossEffect, PRESET_CSS, ParseError, RangesFor, SaveRequest, Schema, SchemaCheck,
-    SchemaCompiler, SchemaError, SchemaFormat, SchemaFormatInfo, SchemaInput, SchemaLoss,
-    SchemaResources, SchemaSource, SecretOptions, Severity, Suggestion, TextPosition, TextRange,
-    ThemeChrome, ThemeColor, ThemeColors, UnknownLanguage, UnknownSchemaFormat, UnknownTheme, Use,
-    check_syntax, float_of, float_value, flush_pending_edits, string_of, string_value,
+    GoToDefinition, GoToUse, HostChange, HostDiagnostic, HoverDocs, HoverValueDocs, KeyName,
+    KeyNames, Language, LossEffect, PRESET_CSS, ParseError, RangesFor, SaveRequest, Schema,
+    SchemaCheck, SchemaCompiler, SchemaError, SchemaFormat, SchemaFormatInfo, SchemaInput,
+    SchemaLoss, SchemaResources, SchemaSource, SecretOptions, Severity, Suggestion, TextPosition,
+    TextRange, ThemeChrome, ThemeColor, ThemeColors, UnknownLanguage, UnknownSchemaFormat,
+    UnknownTheme, Use, check_syntax, float_of, float_value, flush_pending_edits, string_of,
+    string_value,
 };
 
 /// What the browser bindings (`config-editor-js`, published to npm as
