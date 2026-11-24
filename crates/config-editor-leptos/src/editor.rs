@@ -284,7 +284,7 @@ pub fn ConfigEditor(
     /// is called once on mount, then each time they change (not while they
     /// stay the same, whatever else is typed). Positions are in the text on
     /// screen. With the `show_diagnostics` setting off the editor finds
-    /// none. A host gating a Save button on "no error" reads this instead
+    /// only why an Edit-as switch or a save waits. A host gating a Save button on "no error" reads this instead
     /// of parsing the text again.
     #[prop(optional, into)]
     on_problems: Option<Callback<Vec<Diagnostic>>>,

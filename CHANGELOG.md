@@ -38,6 +38,13 @@ versions move together.
   `ConfigEditor` again, as a language picker does) kept the footer,
   toolbar, find and go-to-line parts of each editor before it, stacked in
   the new one's frame; they now go with their editor.
+- With `show_diagnostics` off, an Edit-as switch that waits or is refused
+  (TOML has no `null`, a language without `serialize`), an edit the host's
+  language cannot hold, and a save held by a read-only field said nothing:
+  the select showed the other language and the text stayed. Their reasons
+  now show as with it on (marked, counted in the footer, `F8`, and given to
+  `on_problems`); the setting still hides the text's syntax and schema
+  problems.
 
 ## 0.2.4 — 2026-11-23
 

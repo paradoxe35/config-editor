@@ -151,18 +151,24 @@ impl ProblemsState {
                     return (vec![problem], Vec::new());
                 }
                 if enabled {
-                    let worded = |problems: &Vec<EditAsProblem>| -> Vec<Diagnostic> {
-                        problems
-                            .iter()
-                            .map(|problem| problem.worded(strings))
-                            .collect()
-                    };
                     found.extend(protect.placeholder_pattern_problem(strings));
-                    found.extend(
-                        diagnosed_text.with(|text| protect.held_problems(behavior, text, strings)),
-                    );
-                    found.extend(load_problems.with(worded));
-                    found.extend(conversion_problems.with(worded));
+                }
+                // Why an action the user asked for waits (an Edit-as
+                // switch, a conversion, a save held by a lock) shows with
+                // the `show_diagnostics` setting off too: it hides the
+                // text's own problems, not the editor's answer.
+                let worded = |problems: &Vec<EditAsProblem>| -> Vec<Diagnostic> {
+                    problems
+                        .iter()
+                        .map(|problem| problem.worded(strings))
+                        .collect()
+                };
+                found.extend(
+                    diagnosed_text.with(|text| protect.held_problems(behavior, text, strings)),
+                );
+                found.extend(load_problems.with(worded));
+                found.extend(conversion_problems.with(worded));
+                if enabled {
                     let marking = schema
                         .as_deref()
                         .filter(|bundle| bundle.has_marks)

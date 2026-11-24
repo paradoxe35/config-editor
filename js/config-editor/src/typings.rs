@@ -135,7 +135,7 @@ export interface EditorOptions extends EditorSettings {
   onSyncChange?: (inSync: boolean) => void;
   /** Called with how the document differs from `baseline`: on mount, then whenever that changes. */
   onChangeSummary?: (summary: ChangeSummary) => void;
-  /** Called with the editor's own problems (syntax, schema, secret placeholders, conversion; `origin: "editor"`, never the host's `hostDiagnostics`), as checked after each pause in typing: once on mount, then each time they change, never while they stay the same. With the `showDiagnostics` setting off it finds none. */
+  /** Called with the editor's own problems (syntax, schema, secret placeholders, conversion; `origin: "editor"`, never the host's `hostDiagnostics`), as checked after each pause in typing: once on mount, then each time they change, never while they stay the same. With the `showDiagnostics` setting off it finds only why an Edit-as switch or a save waits. */
   onProblems?: (problems: Diagnostic[]) => void;
   /** Called with the path of what the caret is on each time it changes (and once on mount), for a breadcrumb. */
   onPathChange?: (path: EditorPath) => void;

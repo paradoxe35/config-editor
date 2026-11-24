@@ -27,6 +27,12 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
         let count = state.doc().text.with(line_count);
         state.strings(|strings| counted(&strings.lines_one, &strings.lines_other, count))
     };
+    // With `show_diagnostics` off, the count still shows why an action
+    // the user asked for waits (the only problems found then).
+    let problems_shown = Memo::new(move |_| {
+        state.config().settings.diagnostics.get()
+            || !state.problems().diagnostics.with(Vec::is_empty)
+    });
     view! {
         <div class="config-editor__status">
             <span class="config-editor__hint">
@@ -34,7 +40,7 @@ pub(crate) fn StatusBar(state: EditorState) -> impl IntoView {
             </span>
             <span class="config-editor__status-meta">
                 <TabFocusStatus state=state />
-                <Kept when=state.config().settings.diagnostics view=move || view! { <ProblemCount state=state /> } />
+                <Kept when=problems_shown view=move || view! { <ProblemCount state=state /> } />
                 <Kept when=state.config().settings.diff view=move || view! { <ChangeStatus state=state /> } />
                 <span class="config-editor__line-count">{line_total}</span>
             </span>

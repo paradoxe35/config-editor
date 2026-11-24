@@ -270,6 +270,13 @@ mod problem_cap;
 mod protect_fuzz;
 #[cfg(feature = "yaml")]
 mod reveal_range;
+#[cfg(all(
+    feature = "yaml",
+    feature = "json",
+    feature = "toml",
+    feature = "protect"
+))]
+mod waiting_reasons_shown;
 // Counts every kind of edit in every language and view, so it needs every
 // optional feature the edits reach.
 #[cfg(all(

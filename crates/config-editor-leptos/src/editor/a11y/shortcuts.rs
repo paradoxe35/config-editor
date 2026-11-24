@@ -72,7 +72,7 @@ fn context(state: EditorState, in_documents: bool) -> Context {
         find: cfg!(feature = "search") && settings.search.get(),
         go_to_line: cfg!(feature = "search") && settings.go_to_line.get(),
         save: state.editing().on_save.is_some() && settings.save_shortcut.get(),
-        problems: settings.diagnostics.get(),
+        problems: settings.diagnostics.get() || !state.problems().diagnostics.with(Vec::is_empty),
         changes: cfg!(feature = "diff") && settings.diff.get(),
         folding: cfg!(feature = "folding") && settings.folding.get(),
         notice: state.editing().conflict.with(Option::is_some),

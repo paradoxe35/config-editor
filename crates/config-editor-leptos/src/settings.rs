@@ -67,7 +67,8 @@ pub struct EditorSettings {
     /// change counts, and the line count.
     pub show_footer: bool,
     /// Show syntax and schema problems inline, in the footer and on hover
-    /// (`F8` moves between them).
+    /// (`F8` moves between them). Off, why an Edit-as switch or a save
+    /// waits still shows, as the answer to what the user asked for.
     pub show_diagnostics: bool,
     /// Show line changes against the baseline in the gutter (`Alt+F5` /
     /// `Alt+F3` move between them). Off, the change summary stays at zero.

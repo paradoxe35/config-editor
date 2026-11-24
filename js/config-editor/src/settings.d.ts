@@ -44,7 +44,7 @@ export interface EditorSettings {
    */
   showFooter?: boolean;
   /**
-   * Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them).
+   * Show syntax and schema problems inline, in the footer and on hover (`F8` moves between them). Off, why an Edit-as switch or a save waits still shows, as the answer to what the user asked for.
    *
    * @default true
    */
