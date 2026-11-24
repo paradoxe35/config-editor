@@ -1205,7 +1205,9 @@ view! { <ConfigEditor value=text host_diagnostics=problems settings=settings /> 
   `Diagnostic` has an `end_line`), and the footer, `F8` and screen readers
   name it once, at its start. While editing as another language it marks
   the field the range starts in (its key when it starts on the key), as a
-  path would; a range starting in no field shows in the footer.
+  path would, and the footer lists it after that path while the view has
+  no such field (renamed, or a text that does not read); a range starting
+  in no field shows in the footer.
 - A problem with no end (`HostDiagnostic::at_position`, a point) is never
   widened from the text around it: on a secret placeholder (a token the
   `secrets` pattern matches) it underlines the whole token, from any column

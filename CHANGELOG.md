@@ -45,6 +45,10 @@ versions move together.
   now show as with it on (marked, counted in the footer, `F8`, and given to
   `on_problems`); the setting still hides the text's syntax and schema
   problems.
+- A host problem given by range or position, while editing as another
+  language, whose field the view no longer has (renamed, or a text that
+  does not read) showed in the footer with its bare message, as if about
+  the caret; it is now listed after its field's path, as a path's is.
 
 ## 0.2.4 — 2026-11-23
 

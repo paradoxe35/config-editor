@@ -19,11 +19,11 @@ use super::super::paths::{
     Lines, TextPosition, TextRange, lines, memo_key_span, problem_span, with_spans,
 };
 use super::targets::{HostTargets, Target, targets};
-use super::{DiagnosticTarget, HostDiagnostic, is_web_url};
+use super::{HostDiagnostic, is_web_url};
 use crate::EditorStrings;
 use crate::strings::fill;
 
-/// The text a [`DiagnosticTarget::Range`] counts in.
+/// The text a [`DiagnosticTarget::Range`](super::DiagnosticTarget::Range) counts in.
 #[derive(Clone, Copy)]
 pub(in crate::editor) enum RangeText<'a> {
     /// The text on screen is the host's.
@@ -85,8 +85,10 @@ pub(in crate::editor) fn place(
                         .flatten()
                         .map(|span| (span.line, span.start_column, None, span.end_column));
                     let position = key.or_else(|| at_field(behavior, source, document, &pointer));
-                    if position.is_none() && matches!(problem.target, DiagnosticTarget::Path(_)) {
-                        // Told apart from the same message at another field.
+                    if position.is_none() {
+                        // Told apart from the same message at another field,
+                        // and from one about where the caret is: a range or
+                        // a point marks its field as a path does.
                         message = fill(
                             &strings.problem_at_path,
                             &[("path", &pointer), ("message", &message)],

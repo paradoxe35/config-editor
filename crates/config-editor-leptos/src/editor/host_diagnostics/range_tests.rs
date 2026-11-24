@@ -183,3 +183,40 @@ fn a_range_is_placed_at_its_field_while_editing_as_every_other_language() {
     }
     report(failures);
 }
+
+/// While editing as another language a range or a point marks the field
+/// it starts in, as a path would; when the view no longer has that field
+/// (renamed, or under another parent), the footer lists it after its path,
+/// as a path's, not as if it were about the caret.
+#[test]
+fn a_range_whose_field_the_view_lost_is_listed_after_its_path() {
+    let mut failures = Vec::new();
+    for (host, host_text) in DOCUMENTS {
+        for (edit, shown) in DOCUMENTS.into_iter().filter(|(edit, _)| *edit != host) {
+            let lost = shown.replace("http", "https");
+            let at = range_of(host_text, "80");
+            let problems = [
+                HostDiagnostic::at_range(at, Severity::Info, "checked"),
+                HostDiagnostic::at_position(at.start, Severity::Info, "pointed"),
+            ];
+            let found = HostTargets::new(host.behavior(), host_text, &problems);
+            let placed = place(
+                edit.behavior(),
+                &lost,
+                &problems,
+                RangeText::Host(&found),
+                &[],
+                default_strings(),
+            );
+            let shown: Vec<(bool, &str)> = placed
+                .iter()
+                .map(|problem| (problem.line.is_some(), problem.message.as_str()))
+                .collect();
+            let expected = [(false, "/web/http: checked"), (false, "/web/http: pointed")];
+            if shown != expected {
+                failures.push(format!("{host} as {edit}: {shown:?}"));
+            }
+        }
+    }
+    report(failures);
+}
