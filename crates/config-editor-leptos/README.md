@@ -2295,7 +2295,10 @@ the reason.
 The editor's completion and hover read the schema; your language only says
 where the caret is and how an entry is written. The keys already written
 are not offered again: the editor reads them off the document around the
-caret itself. For an INI file (`[section]` headers, `key = value` lines):
+caret itself. While a line is broken as it is typed, the editor leaves it
+out to read the rest, so give `ParseError` its `line`; the broken line's
+own key still counts as written when `hover_key` (or `Hover::hover_path`)
+names it. For an INI file (`[section]` headers, `key = value` lines):
 
 | Method               | Returns                                                                                                                                                                    |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
