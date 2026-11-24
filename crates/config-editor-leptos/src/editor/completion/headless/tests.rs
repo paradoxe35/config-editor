@@ -29,6 +29,11 @@ fn documents() -> Vec<(Language, &'static str)> {
             Language::TOML,
             "mode = \"fast\"\nlevel = \"low\"\nold = \"x\"\nport = 80\n",
         ),
+        #[cfg(feature = "hcl")]
+        (
+            Language::HCL,
+            "mode = \"fast\"\nlevel = \"low\"\nold = \"x\"\nport = 80\n",
+        ),
     ]
 }
 

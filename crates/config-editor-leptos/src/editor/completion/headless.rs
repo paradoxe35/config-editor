@@ -172,5 +172,10 @@ pub(crate) fn schema_hover(
     })
 }
 
-#[cfg(test)]
+// The tests read YAML, JSON, TOML and HCL documents: an XML-only build has
+// none of them.
+#[cfg(all(
+    test,
+    any(feature = "yaml", feature = "json", feature = "toml", feature = "hcl")
+))]
 mod tests;
