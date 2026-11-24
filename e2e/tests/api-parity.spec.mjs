@@ -410,6 +410,7 @@ const CRATE_EXPORTS = {
   KeyName: { type: 'KeyName' },
   KeyNames: { type: 'KeyNames' },
   HoverDocs: { exempt: 'what `Schema::hover` returns, a Rust-only check' },
+  HoverValueDocs: { exempt: 'a documented value in what `Schema::hover` returns, a Rust-only check' },
   Language: { type: 'LanguageName' },
   PRESET_CSS: { tool: 'presetCss' },
   ParseError: { exempt: 'thrown as an `Error` with its message and position' },
