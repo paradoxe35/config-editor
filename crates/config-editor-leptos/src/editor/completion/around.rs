@@ -5,6 +5,56 @@
 
 use super::*;
 
+/// The document around the caret, with the lines of `source` (0-based)
+/// left blank to read it: each a syntax error, often a line broken while
+/// it is typed (`port = "80`), whose key is written all the same.
+pub(crate) struct AroundRead {
+    pub(crate) value: Value,
+    left_blank: Vec<usize>,
+}
+
+impl AroundRead {
+    fn whole(value: Value) -> Self {
+        Self {
+            value,
+            left_blank: Vec::new(),
+        }
+    }
+
+    /// The keys the lines left blank write in the object at `path` of
+    /// `source`: the key each line starts with, as the hover card places
+    /// it ([`super::hover::hovered_key`]), the line broken all the same.
+    pub(crate) fn left_blank_keys(
+        &self,
+        source: &str,
+        behavior: &dyn ConfigLanguage,
+        path: &[SchemaPathSegment],
+    ) -> Vec<String> {
+        let lines: Vec<&str> = source.split('\n').collect();
+        self.left_blank
+            .iter()
+            .filter_map(|index| {
+                let line = lines.get(*index)?;
+                // The line's first character, else its first letter (past
+                // a mark opening the key: a quote, a tag's `<`).
+                let first = line
+                    .chars()
+                    .position(|character| !character.is_whitespace())?;
+                let letter = line.chars().position(char::is_alphanumeric);
+                let (at, key, _) =
+                    [Some(first), letter]
+                        .into_iter()
+                        .flatten()
+                        .find_map(|column| {
+                            super::hover::hovered_key(source, *index, column, behavior)
+                        })?;
+                let (last, parent) = at.split_last()?;
+                (parent == path && *last == SchemaPathSegment::Key(key.clone())).then_some(key)
+            })
+            .collect()
+    }
+}
+
 /// The document `source` holds with the entry typed at `cursor_byte` left
 /// out (or its line, where it is alone on it), when that parses; else,
 /// with an error elsewhere, what the text before the entry holds, each
@@ -13,7 +63,7 @@ pub(crate) fn document_around(
     source: &str,
     cursor_byte: usize,
     behavior: &dyn ConfigLanguage,
-) -> Option<Value> {
+) -> Option<AroundRead> {
     let line_start = source[..cursor_byte].rfind('\n').map_or(0, |at| at + 1);
     let line_end = source[cursor_byte..]
         .find('\n')
@@ -32,7 +82,7 @@ pub(crate) fn document_around(
     if let Some(text) = typed_word_left_out(behavior, source, line_start, cursor_byte, line_end)
         && let Ok(read) = counted_parse(behavior, &text)
     {
-        return Some(read);
+        return Some(AroundRead::whole(read));
     }
     // Only the entry typed, where the line holds more (an item written on
     // one line), so the item stays in its place.
@@ -41,20 +91,27 @@ pub(crate) fn document_around(
         .as_ref()
         .and_then(|(text, _)| counted_parse(behavior, text).ok())
     {
-        return Some(read);
+        return Some(AroundRead::whole(read));
     }
     let line_left_out = || {
         let text = caret_line_left_out(behavior, source, line_start, line_end);
         counted_parse(behavior, &text)
             .ok()
             .or_else(|| without_dangling_separator(before, after, behavior))
+            .map(AroundRead::whole)
             .or_else(|| errors_left_blank(&text, before.matches('\n').count(), &place))
     };
+    // The line holds more than the entry (an object on one line): leaving
+    // the whole line out would read without that object.
+    let holds_more = |start: usize| {
+        !source[line_start..start].trim().is_empty()
+            || !source[cursor_byte..line_end].trim().is_empty()
+    };
     match left_out {
-        // The line holds more than the entry (an object on one line):
-        // leaving the whole line out would read without that object.
-        Some((_, start)) => start_closed(&source[..start], &place).or_else(line_left_out),
-        None => line_left_out().or_else(|| start_closed(before, &place)),
+        Some((_, start)) if holds_more(start) => {
+            start_closed(&source[..start], &place).or_else(line_left_out)
+        }
+        _ => line_left_out().or_else(|| start_closed(before, &place)),
     }
 }
 
@@ -72,7 +129,7 @@ pub(crate) fn document_before(
         behavior,
         path: std::cell::OnceCell::new(),
     };
-    start_closed(&source[..line_start], &place)
+    start_closed(&source[..line_start], &place).map(|read| read.value)
 }
 
 /// `source` without the word typed before the caret (back to a blank, a
@@ -123,14 +180,14 @@ fn typed_word_left_out(
 /// `caret_line` (0-based) and never one that moves the caret to another
 /// object ([`Place::kept_with`]): what a text broken elsewhere holds
 /// around the caret, after it too.
-fn errors_left_blank(text: &str, caret_line: usize, place: &Place<'_>) -> Option<Value> {
+fn errors_left_blank(text: &str, caret_line: usize, place: &Place<'_>) -> Option<AroundRead> {
     let behavior = place.behavior;
     let mut lines: Vec<&str> = text.split('\n').collect();
     let mut left_blank = Vec::new();
     for _ in 0..MAX_LINES_LEFT_OUT {
         let blanked = lines.join("\n");
         let error = match read_aside(behavior, &blanked) {
-            Ok(read) => return Some(read),
+            Ok(value) => return Some(AroundRead { value, left_blank }),
             Err(error) => error,
         };
         // The error's line, or the last line with text before it (an
@@ -148,7 +205,8 @@ fn errors_left_blank(text: &str, caret_line: usize, place: &Place<'_>) -> Option
         }
         lines[index] = "";
     }
-    read_aside(behavior, &lines.join("\n")).ok()
+    let value = read_aside(behavior, &lines.join("\n")).ok()?;
+    Some(AroundRead { value, left_blank })
 }
 
 /// The text with the caret's line (`line_start..line_end`, its line break
@@ -197,26 +255,20 @@ fn without_dangling_separator(
 /// The document `start` (the text before the entry at the caret) holds,
 /// a separator it ends in left out and the containers it leaves open
 /// closed: on its last line, else each on a line of its own (a block
-/// closed on its own line). A syntax error on a line above its last (a
-/// value left unfinished, an entry the caret is not in) is left out, the
+/// closed on its own line). A syntax error on a line (a value left
+/// unfinished, its last line too, right above the caret) is left out, the
 /// line blank, a few times at most; one the parser finds only at the end
 /// (a quote left open above) leaves the entry the caret is in, from its
 /// last line starting unindented, read alone. A line whose blank would
 /// move the caret to another object ([`Place::kept_with`]) stays.
-fn start_closed(start: &str, place: &Place<'_>) -> Option<Value> {
+fn start_closed(start: &str, place: &Place<'_>) -> Option<AroundRead> {
     let behavior = place.behavior;
-    let kept = start.trim_end();
-    let start = behavior
-        .config()
-        .item_separator
-        .and_then(|separator| kept.strip_suffix(separator))
-        .unwrap_or(start);
     let mut text = start.to_string();
     let entry = last_unindented_entry(start);
     let mut left_blank = Vec::new();
     for _ in 0..=MAX_LINES_LEFT_OUT {
         let error = match closed(&text, behavior) {
-            Ok(read) => return Some(read),
+            Ok(value) => return Some(AroundRead { value, left_blank }),
             Err(error) => error,
         };
         let Some(index) = error.line.and_then(|line| line_to_blank(&text, line)) else {
@@ -230,12 +282,20 @@ fn start_closed(start: &str, place: &Place<'_>) -> Option<Value> {
         lines[index] = "";
         text = lines.join("\n");
     }
-    closed(entry?, behavior).ok()
+    closed(entry?, behavior).ok().map(AroundRead::whole)
 }
 
-/// `text` read with the containers it leaves open closed: on its last
-/// line, else each on a line of its own.
+/// `text` read with a separator it ends in left out and the containers
+/// it leaves open closed: on its last line, else each on a line of its
+/// own.
 fn closed(text: &str, behavior: &dyn ConfigLanguage) -> Result<Value, crate::ParseError> {
+    // An entry left blank leaves the separator after the one before it.
+    let kept = text.trim_end();
+    let text = behavior
+        .config()
+        .item_separator
+        .and_then(|separator| kept.strip_suffix(separator))
+        .unwrap_or(text);
     let closers = behavior.container_closers(text);
     let error = match read_aside(behavior, &format!("{text}{}", closers.concat())) {
         Ok(read) => return Ok(read),
@@ -271,11 +331,12 @@ fn last_unindented_entry(text: &str) -> Option<&str> {
 const MAX_LINES_LEFT_OUT: usize = 2;
 
 /// The 0-based index of `text`'s one-based `line`, to leave blank, when
-/// that is a line with text above its last.
+/// that is a line with text, its last one too (the line broken while it
+/// is typed, right above the caret).
 fn line_to_blank(text: &str, line: usize) -> Option<usize> {
     let lines: Vec<&str> = text.split('\n').collect();
     let last = lines.iter().rposition(|line| !line.trim().is_empty())?;
-    let index = line.checked_sub(1).filter(|index| *index < last)?;
+    let index = line.checked_sub(1).filter(|index| *index <= last)?;
     (!lines[index].trim().is_empty()).then_some(index)
 }
 

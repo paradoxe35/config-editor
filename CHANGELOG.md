@@ -23,6 +23,14 @@ versions move together.
 - `Schema::hover` over a value the schema does not document gives its key's
   docs, as the card shows them, instead of `None`.
 
+### Fixed
+
+- Suggestions no longer offer keys already written when the line right
+  above the caret is broken while it is typed (`port = "80`, nothing after
+  the caret): that line is left out to read the rest, as a broken line
+  higher up already was, and its own key counts as written. A custom
+  language names that key through `hover_key` or `Hover::hover_path`.
+
 ## 0.2.4 — 2026-11-23
 
 ### Added

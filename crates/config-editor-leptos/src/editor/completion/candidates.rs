@@ -1201,7 +1201,7 @@ pub(super) fn completions_for_context(
 /// whole text), read once for a suggestion run and only when something
 /// asks for it.
 struct Around<'s> {
-    read: std::cell::OnceCell<Option<Value>>,
+    read: std::cell::OnceCell<Option<super::around::AroundRead>>,
     /// The document the text before the caret's line holds.
     before: std::cell::OnceCell<Option<Value>>,
     source: &'s str,
@@ -1214,18 +1214,26 @@ struct Around<'s> {
 }
 
 impl Around<'_> {
-    fn document(&self) -> Option<&Value> {
+    fn read(&self) -> Option<&super::around::AroundRead> {
         self.read
             .get_or_init(|| document_around(self.source, self.cursor_byte, self.behavior))
             .as_ref()
     }
 
+    fn document(&self) -> Option<&Value> {
+        self.read().map(|read| &read.value)
+    }
+
     /// The keys the object at `path` has around the caret, the entry
-    /// being typed left out; `None` where the document around the caret
-    /// does not tell (it does not read, or no object is there).
+    /// being typed left out, with those of the broken lines left out to
+    /// read it; `None` where the document around the caret does not tell
+    /// (it does not read, or no object is there).
     fn keys_at(&self, path: &[SchemaPathSegment]) -> Option<HashSet<String>> {
-        let object = super::super::applies::value_at(self.document()?, path)?.as_object()?;
-        Some(object.keys().cloned().collect())
+        let read = self.read()?;
+        let object = super::super::applies::value_at(&read.value, path)?.as_object()?;
+        let mut keys: HashSet<String> = object.keys().cloned().collect();
+        keys.extend(read.left_blank_keys(self.source, self.behavior, path));
+        Some(keys)
     }
 
     /// How many items the text before the caret's line writes for `key`

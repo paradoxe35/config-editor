@@ -87,6 +87,9 @@ fn schema_keys_are_offered_where_the_caret_is_skipping_present_ones() {
     assert_eq!(offered("[server]\nport = 80\nmo|"), ["mode"]);
     // A section already written is not offered again.
     assert_eq!(offered("|\n[server]\n"), ["debug", "name"]);
+    // A value left unfinished right above the caret, nothing after: the
+    // language reads it all the same, so its key is not offered again.
+    assert_eq!(offered("[server]\nhost = 0.0.0.0\nport = \"8\n|"), ["mode"]);
 }
 
 #[test]
