@@ -1,6 +1,6 @@
 {
   "name": "@pngwasi/config-editor-vue",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Vue 3 component for config-editor: schema-aware YAML, JSON, TOML, HCL and XML editing",
   "type": "module",
   "main": "dist/index.js",
@@ -21,7 +21,7 @@
     "build": "tsc -p ."
   },
   "peerDependencies": {
-    "@pngwasi/config-editor": "^0.2.4",
+    "@pngwasi/config-editor": "^0.2.5",
     "vue": "^3.3.0"
   },
   "license": "MIT",
