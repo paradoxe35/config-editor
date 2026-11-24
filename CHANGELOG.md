@@ -34,6 +34,10 @@ versions move together.
   after `edit_as` went back to the language on screen (`None` for the host's
   own); it now goes, and a refused or waiting switch no longer hides the
   view's own warnings.
+- A host that remounts the editor in place (a reactive closure that builds
+  `ConfigEditor` again, as a language picker does) kept the footer,
+  toolbar, find and go-to-line parts of each editor before it, stacked in
+  the new one's frame; they now go with their editor.
 
 ## 0.2.4 — 2026-11-23
 

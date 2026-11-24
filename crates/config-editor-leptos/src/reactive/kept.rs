@@ -13,6 +13,12 @@ use wasm_bindgen::JsCast;
 /// anew each time, each build would stay in that state's subscribers for
 /// good. What a part leaves behind when switched off (an open widget) is
 /// cleared by its setting's own handler, not by unmounting.
+///
+/// The part is mounted by hand, beside its anchor, so the view around it
+/// does not know it: when that view is rebuilt in place (a host's
+/// `move || view! { <ConfigEditor … /> }` running again reuses the
+/// elements it finds), the anchor stays and so would the part. It leaves
+/// the page with its owner instead.
 #[component]
 pub(crate) fn Kept<V>(
     #[prop(into)] when: Signal<bool>,
@@ -26,6 +32,14 @@ where
     let built: StoredValue<Option<(AnyViewState, bool)>, LocalStorage> =
         StoredValue::new_local(None);
     let owner = Owner::current().expect("Kept needs an owner");
+    // Cleanups run before the owner's nodes go, so `built` is still there.
+    on_cleanup(move || {
+        built.try_update_value(|built| {
+            if let Some((mut state, true)) = built.take() {
+                state.unmount();
+            }
+        });
+    });
     Effect::new(move |_| {
         let show = when.get();
         let Some(anchor) = anchor.get() else {

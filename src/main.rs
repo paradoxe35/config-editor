@@ -18,6 +18,8 @@
 //!   `&lock=/name,/listen` locks more fields as the host.
 //! - `?documents` — several files as tabs (`ConfigDocuments`), see
 //!   `documents_demo`.
+//! - `?remount` — an editor the host remounts in place on each language
+//!   pick, with a language that cannot write documents, see `remount_demo`.
 //! - `?styled=0` — no injected stylesheet (`styled: false`): the editor
 //!   shows unstyled, as a host that serves `preset.css` itself (under a
 //!   strict Content-Security-Policy, see `e2e/csp/`) has it before its
@@ -33,6 +35,7 @@ use leptos_config_editor::{
 mod documents_demo;
 mod output_panel;
 mod page;
+mod remount_demo;
 mod settings_panel;
 mod theme_picker;
 mod unsaved_dialog;
@@ -198,6 +201,10 @@ fn main() {
         leptos::mount::mount_to_body(move || {
             page::page("Config editor: documents", documents_demo::view(many))
         });
+        return;
+    }
+    if flags.iter().any(|pair| pair == "remount") {
+        leptos::mount::mount_to_body(|| page::page("Config editor: remount", remount_demo::view()));
         return;
     }
     leptos::mount::mount_to_body(|| page::page("Config editor", demo()));
