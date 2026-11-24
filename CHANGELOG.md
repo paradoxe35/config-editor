@@ -30,6 +30,10 @@ versions move together.
   the caret): that line is left out to read the rest, as a broken line
   higher up already was, and its own key counts as written. A custom
   language names that key through `hover_key` or `Hover::hover_path`.
+- An Edit-as switch refused (a language without `serialize`) kept its error
+  after `edit_as` went back to the language on screen (`None` for the host's
+  own); it now goes, and a refused or waiting switch no longer hides the
+  view's own warnings.
 
 ## 0.2.4 — 2026-11-23
 

@@ -192,6 +192,48 @@ fn a_switch_from_or_into_a_language_that_cannot_write_is_refused_at_once() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// A refused switch says why only while it is asked for: asked back to the
+/// language on screen (the host's, or the view's it was asked from), the
+/// refusal goes, the text untouched.
+#[test]
+fn a_refused_switch_says_so_until_the_language_on_screen_is_asked_again() {
+    let parse_only = Language::new(&PARSE_ONLY);
+    let mut failures = Vec::new();
+    for (host, view, edit, text) in [
+        (parse_only, None, Language::YAML, "anything"),
+        (Language::YAML, None, parse_only, sample(Language::YAML)),
+        (
+            Language::YAML,
+            Some(Language::JSON),
+            parse_only,
+            sample(Language::YAML),
+        ),
+    ] {
+        let (_owner, state) = TestEditor::new(host, text).mount();
+        if let Some(view) = view {
+            switch_to(state, view);
+        }
+        let current = state.sync().edit_language.get_untracked();
+        let shown = state.doc().text.get_untracked();
+        let case = format!("{current} on screen ({host} host), switched to {edit}");
+        state.ask_edit_as(edit);
+        if state.sync().load_problems.with_untracked(Vec::is_empty) {
+            failures.push(format!("{case}: the refusal is not said"));
+        }
+        state.ask_edit_as(current);
+        let left: Vec<_> = state.sync().load_problems.get_untracked();
+        if !left.is_empty() {
+            failures.push(format!("{case}: asked back, still says {left:?}"));
+        }
+        if state.sync().edit_language.get_untracked() != current
+            || state.doc().text.get_untracked() != shown
+        {
+            failures.push(format!("{case}: the text or language changed"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 /// Undoing a switch back to the host's own text tells the host nothing
 /// after an edit the host
 /// heard, undoing back to its first text does tell it. Every pair.

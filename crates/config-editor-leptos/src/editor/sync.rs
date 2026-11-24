@@ -1274,14 +1274,32 @@ impl EditorState {
     /// undo back across the switch), it switches again.
     pub(super) fn ask_edit_as(&self, next: Language) {
         if next == self.sync().edit_language.get_untracked() {
-            // Back to the current language: nothing to convert.
+            // Back to the current language: nothing to convert, and what
+            // the switch asked for said (waiting, or refused) goes.
             if self.sync().pending_switch.get_untracked().is_some() {
                 self.sync().pending_switch.set(None);
-                self.sync().load_problems.set(Vec::new());
             }
+            self.note_switch_problem(None);
         } else {
             switch_to(*self, next);
         }
+    }
+
+    /// Puts `problem`, why the switch asked for waits or is refused, among
+    /// the problems of the text shown in place of the one before; `None`
+    /// takes it away. The text's own problems (values its language cannot
+    /// show) stay: the text on screen has not changed.
+    fn note_switch_problem(&self, problem: Option<EditAsProblem>) {
+        let load_problems = self.sync().load_problems;
+        let stale =
+            load_problems.with_untracked(|problems| problems.iter().any(EditAsProblem::is_switch));
+        if !stale && problem.is_none() {
+            return;
+        }
+        load_problems.update(|problems| {
+            problems.retain(|problem| !problem.is_switch());
+            problems.extend(problem);
+        });
     }
 }
 
@@ -1296,13 +1314,13 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
     {
         state.sync().pending_switch.set(None);
         let text = state.doc().text.get_untracked();
-        state.sync().load_problems.set(vec![EditAsProblem {
+        state.note_switch_problem(Some(EditAsProblem {
             at: bridge::locate_error(current.behavior(), &text, &SaveError::from(error.clone())),
             text: EditAsText::SwitchRefused {
                 edit: next,
                 error: error.to_string(),
             },
-        }]);
+        }));
         return;
     }
     // A change held back in the host's language (a locked field reads
@@ -1311,7 +1329,7 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
     // shown, until an edit ends the hold.
     if current == host && state.changes_held() {
         state.sync().pending_switch.set(Some(next));
-        state.sync().load_problems.set(Vec::new());
+        state.note_switch_problem(None);
         return;
     }
     let text = state.doc().text.get_untracked();
@@ -1444,14 +1462,14 @@ pub(super) fn switch_to(state: EditorState, next: Language) {
                 without_secret_quotes(state, error, &host_text_before, host)
             };
             state.sync().pending_switch.set(Some(next));
-            state.sync().load_problems.set(vec![EditAsProblem {
+            state.note_switch_problem(Some(EditAsProblem {
                 at: bridge::locate_error(current.behavior(), &text, &error),
                 text: EditAsText::CannotSwitch {
                     edit: next,
                     host: state.config().host_language,
                     error,
                 },
-            }]);
+            }));
         }
     }
 }

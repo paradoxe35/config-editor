@@ -169,6 +169,15 @@ pub(in crate::editor) struct EditAsProblem {
 }
 
 impl EditAsProblem {
+    /// Whether it says why a switch asked for waits or is refused, rather
+    /// than something of the text shown.
+    pub(in crate::editor) fn is_switch(&self) -> bool {
+        matches!(
+            self.text,
+            EditAsText::CannotSwitch { .. } | EditAsText::SwitchRefused { .. }
+        )
+    }
+
     /// The problem as shown, worded by `strings`.
     pub(in crate::editor) fn worded(&self, strings: &EditorStrings) -> Diagnostic {
         Diagnostic {
