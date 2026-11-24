@@ -307,7 +307,9 @@ export function installProbe({ kind, vanilla }) {
     // where the press found it (`caretBefore`, see `f8`).
     if (fz.hostDiagnosed && caret.offset === fz.caretBefore && said.replace(/ +$/, '').endsWith(fz.hostMessage)) return null;
     const places = listed.map((problem) => [problem.line, problem.column, problem.endLine ?? null, problem.endColumn ?? null]);
-    return `caret at ${caret.line}:${caret.column}, problems at ${JSON.stringify(places).slice(0, 200)}`;
+    // What the press said tells a walk that found nothing from one that
+    // went elsewhere (a timing a replay may not meet again).
+    return `caret at ${caret.line}:${caret.column}, problems at ${JSON.stringify(places).slice(0, 200)}, said ${JSON.stringify(said.trim()).slice(0, 160)}`;
   };
   // The hover card on screen: its key, the place under the point (x, y)
   // and the path there.
